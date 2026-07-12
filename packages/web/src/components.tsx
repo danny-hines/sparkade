@@ -5,6 +5,7 @@ import type { ComponentChildren } from 'preact';
 import { decodeSprite, LIBRARY } from '@sparkade/engine';
 import type { GameListItem, LogicalButton } from '@sparkade/shared';
 import { shellInput } from './shell-input';
+import { Icon } from './icons';
 
 export function FooterLegend(props: {
   items: [string, string][];
@@ -305,7 +306,7 @@ export function OnScreenKeyboard(props: { state: OskState; label: string }): Com
             class={`osk-key wide focusable ${props.state.row === 4 && props.state.col === c ? 'focused' : ''}`}
           >
             {label === 'SHOW' ? (props.state.masked ? 'SHOW' : 'HIDE') : label}
-            {label === 'SHIFT' && props.state.shift ? ' ●' : ''}
+            {label === 'SHIFT' && props.state.shift ? <Icon name="dot" /> : null}
           </div>
         ))}
       </div>

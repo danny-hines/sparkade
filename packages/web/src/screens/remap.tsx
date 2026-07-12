@@ -9,6 +9,7 @@ import type { ComponentChildren } from 'preact';
 import type { LogicalButton } from '@sparkade/shared';
 import { api } from '../api';
 import { FooterLegend } from '../components';
+import { Icon, Btn } from '../icons';
 import { shellInput } from '../shell-input';
 import type { Screen } from '../app';
 
@@ -307,7 +308,9 @@ export function RemapScreen(props: {
             ))}
           </div>
           <div style="color:var(--text-dim);font-size:16px">
-            ↑↓ choose · Ⓐ/→ confirm · same button again cycles
+            <Icon name="arrowUp" />
+            <Icon name="arrowDown" /> choose · <Btn>A</Btn>/<Icon name="arrowRight" /> confirm · same button
+            again cycles
           </div>
         </div>
       </div>

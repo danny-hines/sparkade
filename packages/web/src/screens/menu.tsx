@@ -6,13 +6,14 @@ import type { GameListItem, SystemInfo } from '@sparkade/shared';
 import { api } from '../api';
 import { FooterLegend, fmtElapsed, useNow } from '../components';
 import { shellInput } from '../shell-input';
+import { Icon, type IconName } from '../icons';
 import type { Screen } from '../app';
 
-const ITEMS = [
-  { icon: '▶', label: 'Play', hint: 'Browse the library' },
-  { icon: '✦', label: 'New Game', hint: 'Dream one up' },
-  { icon: '⚙', label: 'Settings', hint: 'System Configuration' },
-] as const;
+const ITEMS: { icon: IconName; label: string; hint: string }[] = [
+  { icon: 'play', label: 'Play', hint: 'Browse the library' },
+  { icon: 'sparkle', label: 'New Game', hint: 'Dream one up' },
+  { icon: 'gear', label: 'Settings', hint: 'System Configuration' },
+];
 
 export function MainMenuScreen(props: { go: (s: Screen) => void }): ComponentChildren {
   const [cursor, setCursor] = useState(0);
@@ -74,14 +75,14 @@ export function MainMenuScreen(props: { go: (s: Screen) => void }): ComponentChi
               <span class={`dot ${info ? '' : 'off'}`} /> WiFi
             </span>
           )}
-          <span class="chip">💾 {diskFreeGb} GB free</span>
+          <span class="chip"><Icon name="disk" /> {diskFreeGb} GB free</span>
         </span>
       </div>
       <div class="screen-body" style="display:flex;flex-direction:column;justify-content:center;gap:22px">
         {activeGen && (
           <div class="focusable gen-card" style="max-width:560px;margin:0 auto;width:100%">
             <span class="spin" style="color:var(--cyan);font-size:24px">
-              ✦
+              <Icon name="sparkle" />
             </span>
             <div>
               <div style="font-size:20px">
@@ -97,7 +98,7 @@ export function MainMenuScreen(props: { go: (s: Screen) => void }): ComponentChi
         <div class="menu-list">
           {ITEMS.map((item, i) => (
             <div key={item.label} class={`focusable menu-item ${i === cursor ? 'focused' : ''}`}>
-              <span class="icon">{item.icon}</span>
+              <span class="icon"><Icon name={item.icon} /></span>
               {item.label}
               <span class="hint">{item.hint}</span>
             </div>

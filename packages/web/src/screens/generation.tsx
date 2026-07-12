@@ -6,6 +6,7 @@ import type { ComponentChildren } from 'preact';
 import type { JobEvent, JobStage } from '@sparkade/shared';
 import { subscribeJob } from '../api';
 import { FooterLegend, fmtElapsed, usd, useNow } from '../components';
+import { Icon, Btn } from '../icons';
 import { shellInput } from '../shell-input';
 import type { Screen } from '../app';
 
@@ -121,13 +122,13 @@ export function GenerationScreen(props: {
     return (
       <div class="screen">
         <div class="center-col">
-          <div style="font-size:56px">🕹</div>
+          <div style="font-size:56px"><Icon name="joystick" /></div>
           <h1 class="pixel" style="color:var(--ok)">GAME READY!</h1>
           <div style="color:var(--text-dim);font-size:20px">
             Final cost {usd(event.costUsd)} · took {fmtElapsed(event.elapsedMs)}
           </div>
           <div class="focusable focused" style="padding:16px 44px;font-size:24px;margin-top:16px">
-            ▶ Play now
+            <Icon name="play" /> Play now
           </div>
         </div>
         <FooterLegend
@@ -144,7 +145,7 @@ export function GenerationScreen(props: {
     return (
       <div class="screen">
         <div class="center-col">
-          <div style="font-size:50px">⚠</div>
+          <div style="font-size:50px"><Icon name="warning" /></div>
           <h1 class="pixel" style="color:var(--danger);font-size:22px">GENERATION FAILED</h1>
           <div style="font-size:19px;max-width:640px;color:var(--text-dim)">{friendly(event.code, event.message)}</div>
           <div class="error-code">CODE: {event.code.toUpperCase()} · STAGE: {event.stage.toUpperCase()}</div>
@@ -152,7 +153,7 @@ export function GenerationScreen(props: {
             Spent so far: {usd(event.costSoFarUsd)} — your idea and photo are saved; Retry won't re-record anything.
           </div>
           <div class="focusable focused" style="padding:14px 40px;font-size:22px;margin-top:10px">
-            ↻ Go to Retry
+            <Icon name="refresh" /> Go to Retry
           </div>
         </div>
         <FooterLegend
@@ -170,7 +171,7 @@ export function GenerationScreen(props: {
       <div class="screen-title">
         <h2 class="pixel">GENERATING…</h2>
         <span class="status-chips">
-          <span class="chip">⏱ {fmtElapsed(shownElapsed)}</span>
+          <span class="chip"><Icon name="timer" /> {fmtElapsed(shownElapsed)}</span>
           <span class="chip cost-ticker">{cost === null ? 'cost unavailable' : `$${(cost ?? 0).toFixed(3)}`}</span>
         </span>
       </div>
@@ -184,7 +185,7 @@ export function GenerationScreen(props: {
             }
             return (
               <div key={s.id} class={`genstage ${isDone ? 'done' : ''} ${isActive ? 'active' : ''}`}>
-                <span class="tick">{isDone ? '✓' : isActive ? '●' : ''}</span>
+                <span class="tick">{isDone ? <Icon name="check" /> : isActive ? <Icon name="dot" /> : null}</span>
                 <span>
                   {s.label}
                   {isActive && event?.type === 'progress' && event.unitsTotal
@@ -205,8 +206,8 @@ export function GenerationScreen(props: {
             <div style="color:var(--gold);font-size:18px">Taking longer than usual — still working.</div>
           )}
           <div style="color:var(--text-dim);font-size:17px">
-            You can press Ⓑ to browse or play — generation continues in the background and survives a
-            reboot.
+            You can press <Btn>B</Btn> to browse or play — generation continues in the background and
+            survives a reboot.
           </div>
         </div>
       </div>

@@ -1132,6 +1132,34 @@ body.dev-gallery #root {
   animation: rotate 1.2s linear infinite;
 }
 
+/* Inline vector icons (see icons.tsx) — scale to the surrounding font size and
+   inherit color, so they render on the Pi's minimal font set and pick up the
+   per-game theme. */
+.icon-svg {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.14em;
+  flex: none;
+}
+svg.icon-svg.spin {
+  transform-origin: 50% 50%;
+}
+
+/* Gamepad button glyph: a bordered circle + ASCII letter (replaces Ⓐ Ⓑ …). */
+.btn-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.45em;
+  height: 1.45em;
+  border: 0.12em solid currentColor;
+  border-radius: 50%;
+  font-size: 0.72em;
+  line-height: 1;
+  vertical-align: -0.22em;
+  flex: none;
+}
+
 @keyframes rotate {
   to {
     transform: rotate(360deg);

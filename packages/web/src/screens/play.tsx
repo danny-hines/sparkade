@@ -8,6 +8,7 @@ import { archetypes } from '@sparkade/archetypes';
 import type { GameSpec } from '@sparkade/shared';
 import { api, type SettingsPayload } from '../api';
 import { shellInput } from '../shell-input';
+import { Btn } from '../icons';
 import type { Screen } from '../app';
 
 function loadImage(url: string): Promise<HTMLImageElement | null> {
@@ -101,7 +102,7 @@ export function PlayScreen(props: {
       {error ? (
         <div class="center-col">
           <div style="color:var(--danger);font-size:22px">{error}</div>
-          <div style="color:var(--text-dim)">Ⓐ Back</div>
+          <div style="color:var(--text-dim)"><Btn>A</Btn> Back</div>
         </div>
       ) : (
         <canvas ref={canvasRef} width={1024} height={600} />

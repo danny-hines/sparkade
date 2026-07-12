@@ -7,6 +7,7 @@ import { DELETE_HOLD_MS, type ScoreRow } from '@sparkade/shared';
 import { api, type GameDetail } from '../api';
 import { FooterLegend, GameCover, HoldRing, Modal, usd } from '../components';
 import { shellInput } from '../shell-input';
+import { Icon, Btn } from '../icons';
 import type { Screen } from '../app';
 
 export function GameDetailScreen(props: { go: (s: Screen) => void; id: string }): ComponentChildren {
@@ -24,11 +25,11 @@ export function GameDetailScreen(props: { go: (s: Screen) => void; id: string })
   const playable = item?.status === 'ready';
   const failed = item?.status === 'failed';
   const generating = item?.status === 'generating' || item?.status === 'queued';
-  const actions: { key: string; label: string; danger?: boolean }[] = [];
-  if (playable) actions.push({ key: 'play', label: '▶  Play' });
-  if (generating) actions.push({ key: 'progress', label: '✦  View progress' });
-  if (failed) actions.push({ key: 'retry', label: '↻  Retry generation' });
-  actions.push({ key: 'delete', label: '✕  Delete', danger: true });
+  const actions: { key: string; label: ComponentChildren; danger?: boolean }[] = [];
+  if (playable) actions.push({ key: 'play', label: <><Icon name="play" />{'  '}Play</> });
+  if (generating) actions.push({ key: 'progress', label: <><Icon name="sparkle" />{'  '}View progress</> });
+  if (failed) actions.push({ key: 'retry', label: <><Icon name="refresh" />{'  '}Retry generation</> });
+  actions.push({ key: 'delete', label: <><Icon name="close" />{'  '}Delete</>, danger: true });
 
   useEffect(
     () =>
@@ -65,7 +66,7 @@ export function GameDetailScreen(props: { go: (s: Screen) => void; id: string })
     return (
       <div class="screen">
         <div class="center-col">
-          <span class="spin" style="font-size:34px;color:var(--cyan)">✦</span>
+          <span style="font-size:34px;color:var(--cyan)"><Icon name="sparkle" class="spin" /></span>
         </div>
       </div>
     );
@@ -243,10 +244,10 @@ function DeleteModal(props: {
       {cursor === 1 ? (
         <>
           <HoldRing t={holdT / DELETE_HOLD_MS} />
-          <p style="font-size:16px;margin-top:8px">Hold Ⓐ to delete · release to cancel</p>
+          <p style="font-size:16px;margin-top:8px">Hold <Btn>A</Btn> to delete · release to cancel</p>
         </>
       ) : (
-        <p style="font-size:16px;margin-top:16px;color:var(--text-dim)">Ⓑ Cancel</p>
+        <p style="font-size:16px;margin-top:16px;color:var(--text-dim)"><Btn>B</Btn> Cancel</p>
       )}
     </Modal>
   );

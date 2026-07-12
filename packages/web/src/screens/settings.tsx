@@ -7,6 +7,7 @@ import { api, type SettingsPayload } from '../api';
 import { FooterLegend, newOskState, OnScreenKeyboard, oskHandle, usd, type OskState } from '../components';
 import { enumerateInputs, getUserMediaForDevice, probeMedia, type DeviceInfo, type MediaProbe } from '../media';
 import { shellInput } from '../shell-input';
+import { Icon, Btn, SignalBars } from '../icons';
 import type { Screen } from '../app';
 
 type Tab = 'controls' | 'audio' | 'devices' | 'wifi' | 'system' | 'model';
@@ -263,7 +264,7 @@ export function SettingsScreen(props: {
                   <span style="width:56px;text-align:right">{Math.round(audio[key] * 100)}%</span>
                 </div>
               ))}
-              <p style="color:var(--text-dim);font-size:16px;margin-top:14px">◀ ▶ adjust · Ⓑ back to tabs</p>
+              <p style="color:var(--text-dim);font-size:16px;margin-top:14px"><Icon name="arrowLeft" /> <Icon name="play" /> adjust · <Btn>B</Btn> back to tabs</p>
             </div>
           )}
           {tab === 'controls' && (
@@ -283,7 +284,7 @@ export function SettingsScreen(props: {
                 })}
               </div>
               <div class={`focusable menu-item ${zone === 'panel' ? 'focused' : ''}`} style="margin-top:16px;max-width:320px">
-                <span class="icon">🕹</span> Remap controls
+                <span class="icon"><Icon name="joystick" /></span> Remap controls
               </div>
               <p style="color:var(--text-dim);font-size:16px;margin-top:10px">
                 Tip: hold any single button for 5 seconds on any menu to remap.
@@ -294,14 +295,14 @@ export function SettingsScreen(props: {
             <div class="devices-layout">
               <div class="device-lists">
                 {inputs === null ? (
-                  <div style="color:var(--text-dim)"><span class="spin">✦</span> Detecting cameras &amp; mics…</div>
+                  <div style="color:var(--text-dim)"><Icon name="sparkle" class="spin" /> Detecting cameras &amp; mics…</div>
                 ) : (
                   <>
                     <div class="device-group">Camera</div>
                     {inputs.cameras.length === 0 && <div class="device-none">No camera found — check the USB connection</div>}
                     {inputs.cameras.map((d, i) => (
                       <div key={d.id} class={`focusable device-row ${zone === 'panel' && panelCursor === i ? 'focused' : ''}`}>
-                        <span class="device-check">{devSel.cameraId === d.id ? '●' : '○'}</span>
+                        <span class="device-check">{devSel.cameraId === d.id ? <Icon name="dot" /> : <Icon name="ring" />}</span>
                         <span class="device-label">{d.label}</span>
                       </div>
                     ))}
@@ -311,20 +312,20 @@ export function SettingsScreen(props: {
                       const row = inputs.cameras.length + i;
                       return (
                         <div key={d.id} class={`focusable device-row ${zone === 'panel' && panelCursor === row ? 'focused' : ''}`}>
-                          <span class="device-check">{devSel.micId === d.id ? '●' : '○'}</span>
+                          <span class="device-check">{devSel.micId === d.id ? <Icon name="dot" /> : <Icon name="ring" />}</span>
                           <span class="device-label">{d.label}</span>
                         </div>
                       );
                     })}
                     <div class={`focusable device-row device-rescan ${zone === 'panel' && panelCursor === inputs.cameras.length + inputs.mics.length ? 'focused' : ''}`}>
-                      <span class="device-check">↻</span>
+                      <span class="device-check"><Icon name="refresh" /></span>
                       <span class="device-label">Rescan devices</span>
                     </div>
                     {inputs.cameras.length === 0 && inputs.mics.length === 0 && (
                       <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line,#333)">
                         <div class="device-group">Diagnostics</div>
                         {probe === null ? (
-                          <div style="color:var(--text-dim)"><span class="spin">✦</span> Probing media stack…</div>
+                          <div style="color:var(--text-dim)"><Icon name="sparkle" class="spin" /> Probing media stack…</div>
                         ) : (
                           <pre style="font-size:13px;line-height:1.5;color:var(--text-dim);white-space:pre-wrap;word-break:break-word;margin:0">
                             {describeProbe(probe)}
@@ -347,24 +348,24 @@ export function SettingsScreen(props: {
               {wifiMsg && <div style="color:var(--cyan);font-size:18px;margin-bottom:10px">{wifiMsg}</div>}
               {connecting && (
                 <div style="color:var(--gold);font-size:18px;margin-bottom:10px">
-                  <span class="spin">✦</span> Connecting…
+                  <Icon name="sparkle" class="spin" /> Connecting…
                 </div>
               )}
               {networks === null ? (
                 <div style="color:var(--text-dim)">
-                  <span class="spin">✦</span> Scanning networks…
+                  <Icon name="sparkle" class="spin" /> Scanning networks…
                 </div>
               ) : (
                 <div style="display:flex;flex-direction:column;gap:8px;max-height:360px;overflow:hidden">
                   {networks.slice(0, 7).map((n, i) => (
                     <div key={n.ssid} class={`focusable wifi-row ${zone === 'panel' && panelCursor === i ? 'focused' : ''}`}>
-                      <span>{n.current ? '✓' : n.secured ? '🔒' : '·'}</span>
+                      <span>{n.current ? <Icon name="check" /> : n.secured ? <Icon name="lock" /> : '·'}</span>
                       <span>{n.ssid}</span>
-                      <span class="signal">{signalBars(n.signal)}</span>
+                      <span class="signal"><SignalBars level={barsFor(n.signal)} /></span>
                     </div>
                   ))}
                   <div class={`focusable wifi-row ${zone === 'panel' && panelCursor === (networks?.length ?? 0) ? 'focused' : ''}`}>
-                    <span>↻</span>
+                    <span><Icon name="refresh" /></span>
                     <span>Rescan</span>
                   </div>
                 </div>
@@ -428,7 +429,7 @@ export function SettingsScreen(props: {
             <h3>Password for {oskTarget.current}</h3>
             <OnScreenKeyboard state={osk} label="enter password" />
             <p style="font-size:15px;margin-top:12px;color:var(--text-dim)">
-              Ⓐ Type · Ⓑ Backspace/Cancel · Ⓨ Shift · START Done
+              <Btn>A</Btn> Type · <Btn>B</Btn> Backspace/Cancel · <Btn>Y</Btn> Shift · START Done
             </p>
           </div>
         </div>
@@ -437,11 +438,11 @@ export function SettingsScreen(props: {
   );
 }
 
-function signalBars(signal: number): string {
-  if (signal > 75) return '▂▄▆█';
-  if (signal > 50) return '▂▄▆_';
-  if (signal > 25) return '▂▄__';
-  return '▂___';
+function barsFor(signal: number): number {
+  if (signal > 75) return 4;
+  if (signal > 50) return 3;
+  if (signal > 25) return 2;
+  return 1;
 }
 
 /** Live camera preview + mic level meter for the selected devices (a hardware

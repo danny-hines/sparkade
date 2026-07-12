@@ -6,6 +6,7 @@ import type { ComponentChildren } from 'preact';
 import { GENERATION, LIKENESS_OVAL, MAX_PHOTO_DIM, type ArchetypeId } from '@sparkade/shared';
 import { api, type SettingsPayload } from '../api';
 import { FooterLegend, Modal } from '../components';
+import { Icon, Btn } from '../icons';
 import { getUserMediaForDevice } from '../media';
 import { shellInput } from '../shell-input';
 import type { Screen } from '../app';
@@ -473,9 +474,9 @@ export function WizardScreen(props: {
   const stepChip = (
     <div class="wizard-steps">
       <span class={`step ${step === 'photo' ? 'on' : ''}`}>1 PHOTO</span>
-      <span>›</span>
+      <span><Icon name="chevronRight" /></span>
       <span class={`step ${step === 'idea' ? 'on' : ''}`}>2 IDEA</span>
-      <span>›</span>
+      <span><Icon name="chevronRight" /></span>
       <span class={`step ${step === 'review' ? 'on' : ''}`}>3 REVIEW</span>
     </div>
   );
@@ -496,14 +497,14 @@ export function WizardScreen(props: {
             </div>
             <div class="menu-list" style="width:480px;margin-top:10px">
               <div class={`focusable menu-item ${cursor === 0 ? 'focused' : ''}`}>
-                <span class="icon">📷</span> Take photo
+                <span class="icon"><Icon name="camera" /></span> Take photo
               </div>
               <div class={`focusable menu-item ${cursor === 1 ? 'focused' : ''}`}>
-                <span class="icon">→</span> Skip
+                <span class="icon"><Icon name="arrowRight" /></span> Skip
               </div>
               {import.meta.env.DEV && (
                 <div class={`focusable menu-item ${cursor === 2 ? 'focused' : ''}`}>
-                  <span class="icon">🗀</span> Upload photo (dev)
+                  <span class="icon"><Icon name="folder" /></span> Upload photo (dev)
                 </div>
               )}
             </div>
@@ -584,18 +585,18 @@ export function WizardScreen(props: {
             {sttError && <div style="color:var(--danger);font-size:17px">{sttError}</div>}
             <div class="menu-list" style="width:520px">
               <div class={`focusable menu-item ${cursor === 0 ? 'focused' : ''}`}>
-                <span class="icon">🎙</span> Say it out loud
+                <span class="icon"><Icon name="mic" /></span> Say it out loud
                 <span class="hint">up to {GENERATION.maxRecordingSeconds}s</span>
               </div>
               <div class={`focusable menu-item ${cursor === 1 ? 'focused' : ''}`}>
-                <span class="icon">🃏</span> Pick an idea card
+                <span class="icon"><Icon name="cards" /></span> Pick an idea card
               </div>
               <div class={`focusable menu-item ${cursor === 2 ? 'focused' : ''}`}>
-                <span class="icon">✦</span> Surprise me
+                <span class="icon"><Icon name="sparkle" /></span> Surprise me
               </div>
               {import.meta.env.DEV && (
                 <div class={`focusable menu-item ${cursor === 3 ? 'focused' : ''}`}>
-                  <span class="icon">⌨</span> Canned transcript (dev)
+                  <span class="icon"><Icon name="keyboard" /></span> Canned transcript (dev)
                 </div>
               )}
             </div>
@@ -603,19 +604,19 @@ export function WizardScreen(props: {
         )}
         {step === 'idea' && ideaMode === 'record' && (
           <div class="center-col">
-            <div style="font-size:26px;color:var(--spark)">● Recording…</div>
+            <div style="font-size:26px;color:var(--spark)"><Icon name="dot" /> Recording…</div>
             <div style="font-size:20px;color:var(--text-dim)">
               Describe the game you want. {GENERATION.maxRecordingSeconds - recordSecs}s left
             </div>
             <div class="level-meter">
               <div style={{ width: `${Math.round(level * 100)}%` }} />
             </div>
-            <div style="color:var(--text-dim);font-size:18px">Ⓐ Stop · Ⓑ Cancel</div>
+            <div style="color:var(--text-dim);font-size:18px"><Btn>A</Btn> Stop · <Btn>B</Btn> Cancel</div>
           </div>
         )}
         {step === 'idea' && ideaMode === 'transcribing' && (
           <div class="center-col">
-            <span class="spin" style="font-size:38px;color:var(--cyan)">✦</span>
+            <span style="font-size:38px;color:var(--cyan)"><Icon name="sparkle" class="spin" /></span>
             <div style="font-size:22px">Listening back…</div>
           </div>
         )}
@@ -667,7 +668,7 @@ export function WizardScreen(props: {
               </div>
               {!online && (
                 <div style="margin-top:12px;color:var(--danger);font-size:18px">
-                  Offline — connect to WiFi to generate.{isPi ? ' Press Ⓧ for WiFi settings.' : ''}
+                  Offline — connect to WiFi to generate.{isPi ? (<> Press <Btn>X</Btn> for WiFi settings.</>) : ''}
                 </div>
               )}
             </div>
@@ -677,14 +678,14 @@ export function WizardScreen(props: {
                   class={`focusable menu-item ${cursor === 0 ? 'focused' : ''}`}
                   style={!online ? 'opacity:0.45' : ''}
                 >
-                  <span class="icon">✦</span> {submitting ? 'Starting…' : 'Generate'}
+                  <span class="icon"><Icon name="sparkle" /></span> {submitting ? 'Starting…' : 'Generate'}
                 </div>
                 <div class={`focusable menu-item ${cursor === 1 ? 'focused' : ''}`}>
-                  <span class="icon">↻</span> {sourceKind === 'voice' ? 'Re-record' : 'Change idea'}
+                  <span class="icon"><Icon name="refresh" /></span> {sourceKind === 'voice' ? 'Re-record' : 'Change idea'}
                 </div>
                 {sourceKind === 'voice' && (
                   <div class={`focusable menu-item ${cursor === 2 ? 'focused' : ''}`}>
-                    <span class="icon">＋</span> Add more
+                    <span class="icon"><Icon name="plus" /></span> Add more
                   </div>
                 )}
               </div>
@@ -713,7 +714,7 @@ export function WizardScreen(props: {
       {submitting && (
         <Modal>
           <h3>
-            <span class="spin">✦</span> Starting generation…
+            <Icon name="sparkle" class="spin" /> Starting generation…
           </h3>
         </Modal>
       )}

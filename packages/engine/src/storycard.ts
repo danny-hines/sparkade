@@ -82,14 +82,14 @@ export class StoryCards {
     let textX = px + 16;
     let textW = panelW - 32;
     if (hasPortrait) {
-      r.frame(px + 14, py + 16, 68, 68, '#41a6f6');
+      r.frame(px + 14, py + 16, 68, 68, r.theme.accent);
       r.drawScaled(card.portrait!, px + 16, py + 18, 64, 64);
       textX = px + 96;
       textW = panelW - 112;
     }
     let y = py + 16;
     if (card.title) {
-      r.text(card.title, textX, y, '#ffd75e');
+      r.text(card.title, textX, y, r.theme.heading);
       y += 16;
     }
     // Letter-by-letter across wrapped lines.
@@ -98,7 +98,7 @@ export class StoryCards {
       const wrapped = r.wrapText(line, textW);
       for (const wl of wrapped) {
         if (budget <= 0) break;
-        r.text(wl, textX, y, '#f4f4f4', { reveal: budget });
+        r.text(wl, textX, y, r.theme.text, { reveal: budget });
         budget -= wl.length;
         y += 12;
       }
@@ -107,7 +107,7 @@ export class StoryCards {
     }
     const total = this.totalChars(card);
     if (this.revealed >= total && Math.floor(this.t * 2) % 2 === 0) {
-      r.text('(A)', px + panelW - 30, py + panelH - 16, '#41a6f6');
+      r.text('(A)', px + panelW - 30, py + panelH - 16, r.theme.accent);
     }
   }
 }

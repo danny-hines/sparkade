@@ -53,12 +53,15 @@ const LIFE: SpriteData = {
 export class Hud {
   private icons: Record<string, HTMLCanvasElement> = {};
 
-  constructor() {
-    this.icons['heart'] = decodeSprite(HEART, ICON_PALETTE);
-    this.icons['heartEmpty'] = decodeSprite(HEART_EMPTY, ICON_PALETTE);
-    this.icons['key'] = decodeSprite(KEY, ICON_PALETTE);
-    this.icons['bomb'] = decodeSprite(BOMB, ICON_PALETTE);
-    this.icons['life'] = decodeSprite(LIFE, ICON_PALETTE);
+  // Decode the icons against the game's own palette so hearts/keys/etc. pick up
+  // its colors (hazard-red hearts, gold keys…) instead of one fixed set.
+  constructor(palette: readonly string[] = ICON_PALETTE) {
+    const pal = [...(palette.length >= 16 ? palette : ICON_PALETTE)];
+    this.icons['heart'] = decodeSprite(HEART, pal);
+    this.icons['heartEmpty'] = decodeSprite(HEART_EMPTY, pal);
+    this.icons['key'] = decodeSprite(KEY, pal);
+    this.icons['bomb'] = decodeSprite(BOMB, pal);
+    this.icons['life'] = decodeSprite(LIFE, pal);
   }
 
   render(r: Renderer, hud: HudState, opts: { showBombs?: boolean; showKeys?: boolean } = {}): void {
@@ -74,30 +77,30 @@ export class Hud {
     // Lives
     x += 8;
     r.draw(this.icons['life']!, x, 6);
-    r.text(`x${hud.lives}`, x + 10, 6, '#f4f4f4');
+    r.text(`x${hud.lives}`, x + 10, 6, r.theme.text);
     x += 36;
     if (opts.showKeys && hud.keys > 0) {
       r.draw(this.icons['key']!, x, 6);
-      r.text(`x${hud.keys}`, x + 10, 6, '#ffd75e');
+      r.text(`x${hud.keys}`, x + 10, 6, r.theme.heading);
       x += 36;
     }
     if (opts.showBombs) {
       r.draw(this.icons['bomb']!, x, 6);
-      r.text(`x${hud.bombs}`, x + 10, 6, '#f4f4f4');
+      r.text(`x${hud.bombs}`, x + 10, 6, r.theme.text);
       x += 36;
     }
 
     // Score (right)
-    r.text(String(hud.score).padStart(7, '0'), INTERNAL_WIDTH - 6, 6, '#ffd75e', { align: 'right' });
+    r.text(String(hud.score).padStart(7, '0'), INTERNAL_WIDTH - 6, 6, r.theme.heading, { align: 'right' });
 
     // Boss bar (center, only during boss fights)
     if (hud.boss) {
       const w = 160;
       const bx = (INTERNAL_WIDTH - w) / 2;
-      r.text(hud.boss.name, INTERNAL_WIDTH / 2, 4, '#ef7d57', { align: 'center' });
-      r.rect(bx, 13, w, 5, '#1a1c2c');
+      r.text(hud.boss.name, INTERNAL_WIDTH / 2, 4, r.theme.bossName, { align: 'center' });
+      r.rect(bx, 13, w, 5, r.theme.barBg);
       const fill = Math.max(0, Math.round((hud.boss.hp / hud.boss.maxHp) * (w - 2)));
-      r.rect(bx + 1, 14, fill, 3, '#e04040');
+      r.rect(bx + 1, 14, fill, 3, r.theme.danger);
     }
   }
 }

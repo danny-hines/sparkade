@@ -19,6 +19,7 @@ import { HowToPlayCard, InitialsEntry, LeaderboardView, PauseOverlay, ScoreTally
 import { ParticleSystem } from './particles';
 import { makeWeather, type Weather } from './weather';
 import { Camera, Renderer } from './renderer';
+import { makeUiTheme } from './theme';
 import { Rng } from './rng';
 import { SpriteStore } from './sprites';
 import { StoryCards } from './storycard';
@@ -97,6 +98,7 @@ export class GameHost {
     },
   ) {
     this.renderer = new Renderer(opts.canvas);
+    this.renderer.theme = makeUiTheme(opts.spec.palette); // per-game chrome
     this.audio = new AudioSys();
     this.audio.setVolumes(opts.volumes);
     this.music = new ChiptunePlayer(this.audio, opts.spec.music);
@@ -120,7 +122,7 @@ export class GameHost {
       rng,
       camera: new Camera(),
       cards: new StoryCards(),
-      hud: new Hud(),
+      hud: new Hud(opts.spec.palette),
       portrait: opts.likeness?.portrait ?? null,
       spec: opts.spec,
       shake: (ms = FEEL.screenShakeMs, magnitude = 3) => this.renderer.shake(ms, magnitude),

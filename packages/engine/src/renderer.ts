@@ -3,6 +3,7 @@
 // and rect fills only — no per-frame getImageData/putImageData anywhere.
 import { DISPLAY_SCALE, INTERNAL_HEIGHT, INTERNAL_WIDTH } from '@sparkade/shared';
 import { drawText, textWidth, wrapText, type TextOpts } from './font';
+import { DEFAULT_THEME, type UiTheme } from './theme';
 
 export class Camera {
   x = 0;
@@ -42,6 +43,8 @@ export class Renderer {
 
   private shakeUntil = 0;
   private shakeMag = 0;
+  /** Per-game chrome colors; set by the host from the game's palette. */
+  theme: UiTheme = DEFAULT_THEME;
 
   constructor(visibleCanvas: HTMLCanvasElement) {
     this.visible = visibleCanvas;
@@ -116,7 +119,7 @@ export class Renderer {
   wrapText = wrapText;
 
   /** Bordered panel used by overlays (pause, cards, initials). */
-  panel(x: number, y: number, w: number, h: number, bg = '#10122b', border = '#41a6f6'): void {
+  panel(x: number, y: number, w: number, h: number, bg = this.theme.panelBg, border = this.theme.panelBorder): void {
     this.rect(x, y, w, h, bg);
     this.frame(x, y, w, h, border);
     this.frame(x + 2, y + 2, w - 4, h - 4, '#00000055' as string);

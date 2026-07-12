@@ -137,6 +137,26 @@ export function difficultyScale(d: Difficulty | undefined): DifficultyScale {
   }
 }
 
+// Hero feel (platformer): per-game movement character. Deliberately one-sided —
+// the knobs only ever make the hero float / jump / run MORE than baseline, never
+// less, so the reachability lint's fixed jump kernel (4 across, 3 up) stays a
+// lower bound and any level it passes remains solvable at runtime. resolveHeroFeel
+// clamps to the safe ranges in the engine, so an out-of-range or hand-edited spec
+// can't shrink reach below the kernel.
+export interface HeroFeel {
+  gravityScale?: number; // 0.72–1.0 — lower = floatier, more airtime
+  jumpScale?: number; // 1.0–1.25 — higher = taller jump
+  speedScale?: number; // 1.0–1.3 — higher = faster run
+}
+export function resolveHeroFeel(f: HeroFeel | undefined): { gravity: number; jump: number; speed: number } {
+  const clamp = (v: number | undefined, lo: number, hi: number) => Math.max(lo, Math.min(hi, v ?? 1));
+  return {
+    gravity: clamp(f?.gravityScale, 0.72, 1.0),
+    jump: clamp(f?.jumpScale, 1.0, 1.25),
+    speed: clamp(f?.speedScale, 1.0, 1.3),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Audio
 // ---------------------------------------------------------------------------

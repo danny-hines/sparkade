@@ -612,6 +612,7 @@ export class GenerationRunner {
       ...(parts.entities?.lighting ? { lighting: parts.entities.lighting as GameSpec['lighting'] } : {}),
       ...(parts.entities?.juice !== undefined ? { juice: parts.entities.juice as GameSpec['juice'] } : {}),
       ...(design.difficulty ? { difficulty: design.difficulty } : {}),
+      ...(archetype === 'platformer' && design.feel ? { feel: design.feel } : {}),
       scoring: design.scoring,
     } as GameSpec;
   }

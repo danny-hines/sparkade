@@ -48,6 +48,16 @@
       "description": "Enemy-aggression tier (scales enemy hp + fire cadence). Assembled from the design doc; not authored in this stage.",
       "enum": ["chill", "standard", "spicy"]
     },
+    "feel": {
+      "description": "Movement character (float/jump/run). Assembled from the design doc; not authored in this stage.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "gravityScale": { "type": "number", "minimum": 0.72, "maximum": 1 },
+        "jumpScale": { "type": "number", "minimum": 1, "maximum": 1.25 },
+        "speedScale": { "type": "number", "minimum": 1, "maximum": 1.3 }
+      }
+    },
     "levels": {
       "type": "array",
       "minItems": 3,

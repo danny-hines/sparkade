@@ -22,6 +22,7 @@ import {
   INTERNAL_WIDTH,
   TILE_SIZE,
   difficultyScale,
+  resolveHeroFeel,
   type DifficultyScale,
   type PlatformerEntity,
   type PlatformerLevel,
@@ -133,12 +134,26 @@ class PlatformerGame implements GameInstance {
 
   private sprites: Record<string, ResolvedSprite> = {};
   private diff!: DifficultyScale;
+  // Per-game hero feel, resolved (clamped) from spec.feel. Base constants when
+  // feel is absent, so existing games are byte-identical. The clamp only ever
+  // raises reach (floatier/higher/faster), so the reachability lint stays valid.
+  private grav = GRAV;
+  private jumpV = JUMP_V;
+  private run = RUN;
+  private walk = WALK;
+  private accel = ACCEL;
 
   constructor(
     private engine: EngineContext,
     private spec: PlatformerSpec,
   ) {
     this.diff = difficultyScale(this.spec.difficulty);
+    const feel = resolveHeroFeel(this.spec.feel);
+    this.grav = GRAV * feel.gravity;
+    this.jumpV = JUMP_V * feel.jump;
+    this.run = RUN * feel.speed;
+    this.walk = WALK * feel.speed;
+    this.accel = ACCEL * feel.speed;
     for (const role of Object.keys(ROLE_FALLBACK)) {
       this.sprites[role] = engine.sprites.byRole(role, ROLE_FALLBACK[role]!);
     }
@@ -389,10 +404,10 @@ class PlatformerGame implements GameInstance {
     const run = input.X.held || input.Y.held;
     const target = (input.LEFT.held ? -1 : 0) + (input.RIGHT.held ? 1 : 0);
     if (target !== 0) this.facing = target;
-    const maxSpeed = run ? RUN : WALK;
+    const maxSpeed = run ? this.run : this.walk;
     const want = target * maxSpeed;
     const delta = want - this.pvx;
-    const step = ACCEL * dt * (this.onGround ? 1 : 0.65);
+    const step = this.accel * dt * (this.onGround ? 1 : 0.65);
     this.pvx += Math.abs(delta) <= step ? delta : Math.sign(delta) * step;
 
     // jump buffering + coyote time
@@ -401,14 +416,14 @@ class PlatformerGame implements GameInstance {
     const jumpPressed = input.B.pressed || input.A.pressed;
     if (jumpPressed) this.jumpBufT = FEEL.jumpBufferMs / 1000;
     if (this.jumpBufT > 0 && (this.onGround || this.coyoteT > 0)) {
-      this.pvy = JUMP_V;
+      this.pvy = this.jumpV;
       this.spinning = input.A.pressed || (input.A.held && !input.B.held);
       this.jumpBufT = 0;
       this.coyoteT = 0;
       this.airJumpUsed = false;
       this.engine.sfx.play('jump');
     } else if (this.jumpBufT > 0 && this.power.doubleJump && !this.airJumpUsed && !this.onGround) {
-      this.pvy = JUMP_V * 0.92;
+      this.pvy = this.jumpV * 0.92;
       this.airJumpUsed = true;
       this.jumpBufT = 0;
       this.spinning = true;
@@ -418,7 +433,7 @@ class PlatformerGame implements GameInstance {
     // variable jump height
     if ((input.B.released || input.A.released) && this.pvy < -80) this.pvy = -80;
 
-    this.pvy = Math.min(MAX_FALL, this.pvy + GRAV * dt);
+    this.pvy = Math.min(MAX_FALL, this.pvy + this.grav * dt);
 
     const drop = input.DOWN.held && jumpPressed;
     const grid = { cols: this.grid.cols, rows: this.grid.rows, tileSize: TILE_SIZE, solidityAt: (x: number, y: number) => this.solidity(x, y) };

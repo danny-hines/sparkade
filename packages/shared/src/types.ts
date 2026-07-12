@@ -6,6 +6,7 @@ import type {
   ArchetypeId,
   BackdropVariantId,
   Difficulty,
+  HeroFeel,
   JobStage,
   LightingMode,
   LogicalButton,
@@ -333,6 +334,8 @@ export interface GameSpecBase {
   juice?: number;
   /** Enemy-aggression tier from the design stage; omitted → 'standard'. */
   difficulty?: Difficulty;
+  /** Platformer-only movement character (float/jump/run); omitted → standard feel. */
+  feel?: HeroFeel;
   music: MusicBlock;
   sfx?: SfxBlock;
   scoring: ScoringBlock;
@@ -374,6 +377,8 @@ export interface DesignDoc {
   musicBrief: { key: string; bpm: number; themeMood: string; bossMood: string };
   scoring: ScoringBlock;
   difficulty: 'chill' | 'standard' | 'spicy';
+  /** Platformer-only movement character; omitted → standard feel. */
+  feel?: HeroFeel;
 }
 
 // ---------------------------------------------------------------------------

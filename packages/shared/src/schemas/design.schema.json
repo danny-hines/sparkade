@@ -119,7 +119,17 @@
       "required": ["events", "timeBonusPerSecond"],
       "additionalProperties": false
     },
-    "difficulty": { "enum": ["chill", "standard", "spicy"] }
+    "difficulty": { "enum": ["chill", "standard", "spicy"] },
+    "feel": {
+      "description": "Platformer-only movement character. Omit for standard feel, and omit entirely for non-platformer games. It only ever makes the hero float/jump/run MORE than normal, never less, so levels stay solvable. Match the premise: a moon / dream / balloon game floats; a speedster / hero-dash game runs fast.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "gravityScale": { "type": "number", "minimum": 0.72, "maximum": 1, "description": "lower = floatier, more airtime" },
+        "jumpScale": { "type": "number", "minimum": 1, "maximum": 1.25, "description": "higher = taller jump" },
+        "speedScale": { "type": "number", "minimum": 1, "maximum": 1.3, "description": "higher = faster run" }
+      }
+    }
   },
   "required": [
     "title",

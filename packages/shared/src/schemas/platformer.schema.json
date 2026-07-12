@@ -92,6 +92,18 @@
           "minItems": 4,
           "maxItems": 48,
           "items": { "type": "string", "minLength": 4, "maxLength": 48, "pattern": "^[0-9a-f.]+$" }
+        },
+        "frames": {
+          "description": "Optional extra animation frames, each the same size (w by h) as rows; the engine cycles [rows, ...frames] as an idle/walk loop.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 48,
+            "items": { "type": "string", "minLength": 4, "maxLength": 48, "pattern": "^[0-9a-f.]+$" }
+          }
         }
       },
       "required": ["w", "h", "rows"],

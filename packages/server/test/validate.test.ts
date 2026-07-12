@@ -79,6 +79,19 @@ describe('custom sprite checks + silent fallback', () => {
     // the sanitized spec still passes schema
     expect(validateGameSchema('platformer', fixed)).toEqual([]);
   });
+
+  it('keeps well-formed animation frames and drops malformed ones', () => {
+    const spec = golden('platformer');
+    const good = ['.ff.', 'f11f', 'f11f', '.ff.'];
+    const alt = ['.ff.', '1ff1', '1ff1', '.ff.'];
+    spec.sprites.custom['anim'] = { w: 4, h: 4, rows: good, frames: [alt, ['too', 'short']] };
+    spec.sprites.assign['walker'] = 'custom:anim';
+    const { spec: fixed } = applySpriteFallbacks(spec);
+    // the sprite survives; only the valid extra frame is kept
+    expect(fixed.sprites.custom['anim']).toBeDefined();
+    expect(fixed.sprites.custom['anim']!.frames).toEqual([alt]);
+    expect(fixed.sprites.assign['walker']).toBe('custom:anim');
+  });
 });
 
 describe('title similarity (anti-duplicate)', () => {

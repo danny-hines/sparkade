@@ -18,6 +18,8 @@ Two kinds of refs:
 
 Custom sprite format: `{ "w": 16, "h": 16, "rows": ["16 chars each…"] }` — chars `0-f` index the game palette (slot meanings: 1 outline, 2-4 background, 5-7 hero, 8-a enemy, b hazard, c warm, d gold, e light, f white), `.` = transparent. Draw with a 1px index-1 outline, 15–85% opaque coverage, readable silhouette. Enemies in enemy slots (8/9/a) so the palette recolors them cohesively. A couple of great custom enemies personalize a game more than ten mediocre ones — when in doubt, use the library.
 
+**Animation (optional):** add a `frames` array of 1–3 extra frames to a custom sprite (each the same w×h as `rows`); the engine cycles `[rows, ...frames]` as a lively idle/walk loop — ideal for a blinking eye, flapping wing, snapping jaw, or pulsing core. Keep motion within the same silhouette so it reads. Omit `frames` for a subtle automatic bob.
+
 ## Boss
 
 Configure the boss to match the design doc's finale. Make phase 1 readable and phase 2+ escalate (more attacks, higher tempo). {{BOSS_NOTES}}

@@ -195,6 +195,11 @@ export function spriteProblem(s: SpriteData, opts: { isTile?: boolean } = {}): s
   return null;
 }
 
+/** True if an animation frame's rows match the sprite's w×h and charset. */
+function framesDimsOk(rows: string[], w: number, h: number): boolean {
+  return rows.length === h && rows.every((r) => r.length === w && /^[0-9a-f.]+$/.test(r));
+}
+
 /**
  * Checks every custom sprite; bad ones are dropped and any role that referenced
  * them silently falls back to the assigned library sprite for that role.
@@ -217,6 +222,12 @@ export function applySpriteFallbacks(spec: GameSpec): { spec: GameSpec; downgrad
       bad.add(id);
       downgraded.push(`custom sprite "${id}" (${problem})`);
       delete out.sprites.custom[id];
+    } else if (sprite.frames) {
+      // Keep only well-formed animation frames; a malformed extra frame is
+      // dropped rather than costing the whole sprite.
+      const good = sprite.frames.filter((rows) => framesDimsOk(rows, sprite.w, sprite.h));
+      if (good.length) sprite.frames = good;
+      else delete sprite.frames;
     }
   }
   const fallbacks = ROLE_LIB_FALLBACK[out.archetype];

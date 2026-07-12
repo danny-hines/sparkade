@@ -21,6 +21,9 @@ export interface SpriteData {
   w: number;
   h: number;
   rows: string[];
+  /** Optional extra animation frames (same w×h as `rows`); the engine cycles
+   *  [rows, ...frames] as an idle/walk animation instead of the auto-bob. */
+  frames?: string[][];
 }
 
 /** `lib:<id>` (built-in library) or `custom:<id>` (defined in sprites.custom). */

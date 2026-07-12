@@ -146,11 +146,20 @@ export class SpriteStore {
     } else if (kind === 'custom') {
       const data = this.spec.sprites.custom[id];
       if (data) {
-        // Custom sprites are single frames; synthesize a 1px-bob walk frame
-        // for liveliness (skipped for terrain, which must sit still).
-        entry = bob
-          ? { frames: [data, bobbed(data)], anims: { idle: [0], walk: [0, 1] } }
-          : { frames: [data], anims: { idle: [0] } };
+        if (!bob) {
+          entry = { frames: [data], anims: { idle: [0] } }; // terrain must sit still
+        } else if (data.frames && data.frames.length > 0) {
+          // Model-authored animation: cycle [rows, ...frames] as idle + walk.
+          const all: SpriteData[] = [
+            { w: data.w, h: data.h, rows: data.rows },
+            ...data.frames.map((rows) => ({ w: data.w, h: data.h, rows })),
+          ];
+          const idxs = all.map((_, i) => i);
+          entry = { frames: all, anims: { idle: idxs, walk: idxs } };
+        } else {
+          // No authored frames: synthesize a 1px-bob walk frame for liveliness.
+          entry = { frames: [data, bobbed(data)], anims: { idle: [0], walk: [0, 1] } };
+        }
       }
     }
     if (!entry) {

@@ -72,7 +72,7 @@ export interface NewJobInputs {
 
 interface SpecParts {
   levels?: unknown;
-  entities?: { sprites: unknown; boss: unknown; sfx?: unknown; backdrop?: unknown; weather?: unknown };
+  entities?: { sprites: unknown; boss: unknown; sfx?: unknown; backdrop?: unknown; weather?: unknown; lighting?: unknown; juice?: unknown };
   music?: unknown;
 }
 
@@ -609,6 +609,8 @@ export class GenerationRunner {
       ...(parts.entities?.sfx ? { sfx: parts.entities.sfx as GameSpec['sfx'] } : {}),
       ...(parts.entities?.backdrop ? { backdrop: parts.entities.backdrop as GameSpec['backdrop'] } : {}),
       ...(parts.entities?.weather ? { weather: parts.entities.weather as GameSpec['weather'] } : {}),
+      ...(parts.entities?.lighting ? { lighting: parts.entities.lighting as GameSpec['lighting'] } : {}),
+      ...(parts.entities?.juice !== undefined ? { juice: parts.entities.juice as GameSpec['juice'] } : {}),
       scoring: design.scoring,
     } as GameSpec;
   }
@@ -678,7 +680,7 @@ export class GenerationRunner {
         spec = { ...spec, levels: (r.levels ?? r) as never };
       } else if (owner === 'entities') {
         const r = (await callLlm('entities', buildEntitiesPrompt(archetype, design, hasPhoto, recentUse), { label: 'Entities recast', stage: 'writing-spec' })) as SpecParts['entities'];
-        spec = { ...spec, sprites: r!.sprites as GameSpec['sprites'], boss: r!.boss as never, ...(r!.sfx ? { sfx: r!.sfx as GameSpec['sfx'] } : {}), ...(r!.backdrop ? { backdrop: r!.backdrop as GameSpec['backdrop'] } : {}), ...(r!.weather ? { weather: r!.weather as GameSpec['weather'] } : {}) };
+        spec = { ...spec, sprites: r!.sprites as GameSpec['sprites'], boss: r!.boss as never, ...(r!.sfx ? { sfx: r!.sfx as GameSpec['sfx'] } : {}), ...(r!.backdrop ? { backdrop: r!.backdrop as GameSpec['backdrop'] } : {}), ...(r!.weather ? { weather: r!.weather as GameSpec['weather'] } : {}), ...(r!.lighting ? { lighting: r!.lighting as GameSpec['lighting'] } : {}), ...(r!.juice !== undefined ? { juice: r!.juice as GameSpec['juice'] } : {}) };
       } else {
         const r = (await callLlm('music', buildMusicPrompt(archetype, design), { label: 'Music recomposed', stage: 'writing-spec' })) as { music: unknown };
         spec = { ...spec, music: (r.music ?? r) as never };

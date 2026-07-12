@@ -21,7 +21,7 @@ export type SpecStage = 'levels' | 'entities' | 'music';
 /** Which top-level game.json properties each spec stage produces. */
 export const STAGE_PROPERTIES: Record<SpecStage, { required: string[]; optional: string[] }> = {
   levels: { required: ['levels'], optional: [] },
-  entities: { required: ['sprites', 'boss'], optional: ['sfx', 'backdrop', 'weather'] },
+  entities: { required: ['sprites', 'boss'], optional: ['sfx', 'backdrop', 'weather', 'lighting', 'juice'] },
   music: { required: ['music'], optional: [] },
 };
 

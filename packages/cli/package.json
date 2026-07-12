@@ -10,7 +10,6 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@sparkade/shared": "*",
-    "better-sqlite3": "^12.2.0"
+    "@sparkade/shared": "*"
   }
 }

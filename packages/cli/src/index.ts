@@ -168,11 +168,10 @@ function cmdUpdate(): void {
   // Skip the Playwright browser download — a dev-only e2e dep the cabinet never
   // runs; downloading it is a big time sink on the Pi's network.
   process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = '1';
-  // Incremental install: `npm ci` wipes node_modules and recompiles the native
-  // modules (better-sqlite3, sharp) on EVERY run — ~10-15 min on a Pi 3B+. Only
-  // reinstall when the lockfile actually changed; a source-only update then goes
-  // straight to the build. (The installer still uses `npm ci` for a clean first
-  // install.)
+  // Incremental install: `npm ci` wipes node_modules and reinstalls everything
+  // every run (slow SD-card I/O on a Pi). Only reinstall when the lockfile
+  // actually changed; a source-only update then goes straight to the build.
+  // (The installer still uses `npm ci` for a clean first install.)
   const depsChanged = lockId() !== lockBefore;
   if (depsChanged || !existsSync(join(dir, 'node_modules'))) {
     console.log('dependencies changed — installing …');

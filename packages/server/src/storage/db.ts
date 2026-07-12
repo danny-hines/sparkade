@@ -1,7 +1,7 @@
-// SQLite index (better-sqlite3, WAL). Game specs live on disk as files; the DB
+// SQLite index (node:sqlite, WAL). Game specs live on disk as files; the DB
 // indexes them and owns jobs, scores, settings, and the immutable cost ledger.
-import Database from 'better-sqlite3';
 import { join } from 'node:path';
+import { Sqlite } from './sqlite';
 import type {
   ArchetypeId,
   CoverData,
@@ -94,11 +94,11 @@ export interface GameRow {
 }
 
 export class Db {
-  readonly db: Database.Database;
+  readonly db: Sqlite;
 
   constructor(dir: string) {
     ensureDir(dir);
-    this.db = new Database(join(dir, 'sparkade.db'));
+    this.db = new Sqlite(join(dir, 'sparkade.db'));
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('synchronous = NORMAL');
     this.db.pragma('foreign_keys = ON');

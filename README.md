@@ -54,7 +54,7 @@ curl -fsSL https://raw.githubusercontent.com/danny-hines/sparkade/main/install/i
 
 The installer is idempotent. It **prompts you to pick an AI provider (Meta / Anthropic /
 OpenAI-compatible / skip-for-demo) and enter the API key** (the prompt works even through
-`curl | bash`), installs X/openbox/chromium/Node 20, temporarily raises swap to 1024 MB for the
+`curl | bash`), installs X/openbox/chromium/Node 24, temporarily raises swap to 1024 MB for the
 build, clones to `/opt/sparkade`, builds, installs the `sparkade` systemd service and CLI, wires
 the chosen provider into `config.json`, configures console-autologin → `startx` → openbox →
 Chromium kiosk (with a relaunch loop that waits for the server, so a crash or slow boot never
@@ -100,7 +100,7 @@ sparkade backup [file] / backup restore <file>
                        │  assets → ATOMIC publish                       │
                        │  providers: meta · openai-compat · anthropic · │
                        │  mock  ·  likeness (sharp)  ·  wifi (nmcli)    │
-                       │  better-sqlite3 (WAL): games·jobs·scores·      │
+                       │  node:sqlite (WAL): games·jobs·scores·         │
                        │  usage ledger  ·  specs live on disk           │
                        └────────────────────────────────────────────────┘
 ```

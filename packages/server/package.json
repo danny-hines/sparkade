@@ -13,7 +13,6 @@
     "@sparkade/generation": "*",
     "@sparkade/shared": "*",
     "ajv": "^8.17.1",
-    "better-sqlite3": "^12.2.0",
     "fastify": "^5.2.0",
     "nanoid": "^5.0.9",
     "sharp": "^0.34.1"

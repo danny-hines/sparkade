@@ -62,17 +62,20 @@ $SUDO apt-get install -y --no-install-recommends \
 systemctl is-active --quiet NetworkManager \
   || echo "WARNING: NetworkManager is not active; WiFi settings in the UI won't work until it is."
 
-# --- 3. Node 20+ (NodeSource, with a distro-package fallback for newer releases) ---
-node_major() { command -v node >/dev/null 2>&1 && node -e 'console.log(process.versions.node.split(".")[0])' 2>/dev/null || echo 0; }
-if [ "$(node_major)" -lt 20 ]; then
-  log "Installing Node.js 20"
-  if ! { curl -fsSL https://deb.nodesource.com/setup_20.x | $SUDO bash - && $SUDO apt-get install -y nodejs; }; then
+# --- 3. Node with built-in node:sqlite (NodeSource 24 LTS, distro fallback) ---
+# We use Node's built-in node:sqlite instead of a compiled better-sqlite3 — so
+# there's no native build step. It must be available WITHOUT a flag, which means
+# Node >= 22.13 / 24. Feature-detect rather than parse versions.
+node_ok() { command -v node >/dev/null 2>&1 && node -e 'require("node:sqlite")' >/dev/null 2>&1; }
+if ! node_ok; then
+  log "Installing Node.js 24 (built-in node:sqlite)"
+  if ! { curl -fsSL https://deb.nodesource.com/setup_24.x | $SUDO bash - && $SUDO apt-get install -y nodejs; }; then
     log "NodeSource unavailable for this release — falling back to the distro nodejs package"
     $SUDO apt-get install -y nodejs npm || true
   fi
-  [ "$(node_major)" -lt 20 ] && fail "Node >= 20 could not be installed. Install it manually (e.g. 'sudo apt-get install nodejs npm') and re-run."
+  node_ok || fail "Could not install a Node with built-in node:sqlite (need >= 24). Install it manually (e.g. 'sudo apt-get install nodejs npm') and re-run."
 else
-  log "Node $(node --version) already present"
+  log "Node $(node --version) already present (node:sqlite available)"
 fi
 
 # --- 4. temporarily raise swap for the build (Vite on 1 GB RAM) ----------------

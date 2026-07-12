@@ -110,15 +110,17 @@ function KioskApp(): ComponentChildren {
     return () => clearInterval(t);
   }, []);
 
-  // Version poll: hard reload when the server updates underneath us.
+  // Instance poll: hard reload when the server restarts underneath us (e.g.
+  // after `sparkade update`). Keyed on the per-boot instanceId, since the
+  // version string is static across builds and never triggered a reload.
   useEffect(() => {
     let baseline: string | null = null;
     const t = setInterval(() => {
       void api
         .systemInfo()
         .then((info) => {
-          if (baseline === null) baseline = info.version;
-          else if (info.version !== baseline && screenRef.current.name !== 'play') {
+          if (baseline === null) baseline = info.instanceId;
+          else if (info.instanceId !== baseline && screenRef.current.name !== 'play') {
             location.reload();
           }
         })

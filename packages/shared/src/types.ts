@@ -532,6 +532,9 @@ export interface ScoreRow {
 
 export interface SystemInfo {
   version: string;
+  /** Random per-server-process id; changes on every restart so the kiosk can
+   *  hard-reload after an update (the version string alone is static). */
+  instanceId: string;
   ip: string;
   diskFreeBytes: number;
   diskTotalBytes: number;

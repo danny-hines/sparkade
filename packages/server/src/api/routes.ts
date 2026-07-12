@@ -24,6 +24,7 @@ export interface ApiContext {
   runner: GenerationRunner;
   hub: SseHub;
   version: string;
+  instanceId: string;
   port: number;
 }
 
@@ -351,6 +352,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     const c = configStore.get();
     return {
       version: ctx.version,
+      instanceId: ctx.instanceId,
       ip: primaryIp(),
       diskFreeBytes,
       diskTotalBytes,

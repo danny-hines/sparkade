@@ -1,4 +1,5 @@
 // Sparkade server entry point.
+import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Fastify from 'fastify';
@@ -58,7 +59,10 @@ async function main(): Promise<void> {
     limits: { fileSize: 12 * 1024 * 1024, files: 1, fields: 8 },
   });
 
-  registerRoutes(app, { db, files, configStore, runner, hub, version, port });
+  // Fresh per boot → the kiosk's version poll hard-reloads after any restart
+  // (e.g. `sparkade update`), which the static version string never triggered.
+  const instanceId = randomUUID();
+  registerRoutes(app, { db, files, configStore, runner, hub, version, instanceId, port });
 
   // Serve the built shell (production / demo). Vite serves it in dev.
   const webDist = join(repoRoot(), 'packages', 'web', 'dist');

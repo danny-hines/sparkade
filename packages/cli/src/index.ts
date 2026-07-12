@@ -138,6 +138,17 @@ function cmdLogs(follow: boolean): void {
 
 function cmdUpdate(): void {
   const dir = repoDir();
+  // The server needs Node's built-in node:sqlite (Node >= 22.13). `sparkade
+  // update` builds + restarts but does NOT manage Node — only the installer
+  // does. On an older Node, building + restarting would just crash-loop the
+  // service, so refuse up front (leaving the running server intact) and point
+  // at the installer, which upgrades Node.
+  if (spawnSync('node', ['-e', 'require("node:sqlite")'], { stdio: 'ignore' }).status !== 0) {
+    console.error("This version needs Node with built-in node:sqlite (>= 22.13); this box's node is older.");
+    console.error('Re-run the installer to upgrade Node (idempotent, keeps your data):');
+    console.error('  curl -fsSL "https://raw.githubusercontent.com/danny-hines/sparkade/main/install/install.sh?$(date +%s)" | bash');
+    process.exit(1);
+  }
   console.log(`updating ${dir} …`);
   // Track the lockfile so we can skip a reinstall when only source changed.
   const lockId = (): string => {

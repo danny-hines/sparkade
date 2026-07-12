@@ -156,6 +156,9 @@ function cmdUpdate(): void {
   }
   // npm must run IN the repo, not wherever the user typed `sparkade update`
   // (the git steps use -C, but these need cwd or npm ci finds no lockfile).
+  // Skip the Playwright browser download — a dev-only e2e dep the cabinet never
+  // runs; downloading it is the slowest part of an update on the Pi's network.
+  process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = '1';
   console.log('npm ci …');
   sh('npm', ['ci', '--no-audit', '--no-fund'], { cwd: dir });
   console.log('build …');

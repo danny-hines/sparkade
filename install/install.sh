@@ -107,7 +107,10 @@ $SUDO chown -R "$RUN_USER":"$RUN_USER" "$INSTALL_DIR"
 
 log "npm ci (this takes a while on a Pi 3)"
 cd "$INSTALL_DIR"
-sudo -u "$RUN_USER" npm ci --no-audit --no-fund
+# Skip the Playwright browser download — it's a dev-only e2e dep (~hundreds of MB)
+# that the cabinet never runs, and downloading it on the Pi's network is the
+# slowest part of the install.
+sudo -u "$RUN_USER" env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --no-audit --no-fund
 log "Building"
 sudo -u "$RUN_USER" npm run build
 

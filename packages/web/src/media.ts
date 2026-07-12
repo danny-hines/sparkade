@@ -2,6 +2,10 @@
 // so getUserMedia is auto-granted against the REAL devices — but it picks a
 // default input, which may not be the USB webcam/mic. These let the user pin a
 // specific device (see Settings → Camera & Mic).
+//
+// Everything here is TIMEOUT-BOUNDED: a stuck permission prompt or a wedged
+// device driver must never hang the UI forever (which it did — the device
+// picker spun on "Finding cameras & mics…" indefinitely).
 
 export interface DeviceInfo {
   id: string;
@@ -9,9 +13,48 @@ export interface DeviceInfo {
 }
 
 /**
+ * getUserMedia that rejects after `ms` if the device never opens. A late stream
+ * (arriving after the timeout) is stopped so it can't leak.
+ */
+function gumWithTimeout(
+  md: MediaDevices,
+  constraints: MediaStreamConstraints,
+  ms: number,
+): Promise<MediaStream> {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const timer = setTimeout(() => {
+      if (!done) {
+        done = true;
+        reject(new Error('getUserMedia timed out'));
+      }
+    }, ms);
+    md.getUserMedia(constraints).then(
+      (stream) => {
+        if (done) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        done = true;
+        clearTimeout(timer);
+        resolve(stream);
+      },
+      (err: Error) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+/**
  * List camera + mic inputs. Device labels are hidden until media permission has
- * been granted, so if they're blank we open a throwaway stream to unlock them,
- * then re-enumerate. Falls back to generic names if a device still has no label.
+ * been granted, so if they're blank we open a short-lived stream to unlock
+ * them, then re-enumerate. The unlock is time-boxed and best-effort: if it can't
+ * open a device, we still return the (possibly generic-labelled) device list so
+ * the picker populates instead of hanging.
  */
 export async function enumerateInputs(): Promise<{ cameras: DeviceInfo[]; mics: DeviceInfo[] }> {
   const md = navigator.mediaDevices;
@@ -21,14 +64,16 @@ export async function enumerateInputs(): Promise<{ cameras: DeviceInfo[]; mics: 
     (d) => (d.kind === 'videoinput' || d.kind === 'audioinput') && !d.label,
   );
   if (needsLabels) {
-    // Try both, then each alone — a box may have only one of the two.
-    for (const c of [{ video: true, audio: true }, { audio: true }, { video: true }] as const) {
+    // Any single successful getUserMedia unlocks labels for ALL devices. Try
+    // both, then camera-only (works even if the mic is what's wedged), then
+    // mic-only — each capped so a stuck device can't block the picker.
+    for (const c of [{ video: true, audio: true }, { video: true }, { audio: true }] as const) {
       try {
-        const s = await md.getUserMedia(c);
+        const s = await gumWithTimeout(md, c, 3500);
         s.getTracks().forEach((t) => t.stop());
         break;
       } catch {
-        /* try the next combo */
+        /* timed out or that device kind is absent — try a narrower request */
       }
     }
     devices = await md.enumerateDevices();
@@ -42,8 +87,9 @@ export async function enumerateInputs(): Promise<{ cameras: DeviceInfo[]; mics: 
 
 /**
  * getUserMedia pinned to a chosen device. Uses `exact` so the selection is
- * honored over Chromium's default, and falls back to the default device if the
- * chosen one is gone (unplugged / changed id) rather than hard-failing.
+ * honored over Chromium's default, falls back to the default device if the
+ * chosen one is gone, and is time-boxed so a wedged device rejects (letting the
+ * caller show an error) rather than hanging.
  */
 export async function getUserMediaForDevice(
   kind: 'video' | 'audio',
@@ -57,12 +103,13 @@ export async function getUserMediaForDevice(
   };
   if (deviceId) {
     try {
-      return await md.getUserMedia(build(deviceId));
+      return await gumWithTimeout(md, build(deviceId), 8000);
     } catch (e) {
       const name = (e as Error).name;
-      if (name !== 'OverconstrainedError' && name !== 'NotFoundError' && name !== 'NotReadableError') throw e;
-      // chosen device unavailable → fall through to the default below
+      const timedOut = (e as Error).message === 'getUserMedia timed out';
+      // chosen device unavailable/slow → fall through to the default below
+      if (!timedOut && name !== 'OverconstrainedError' && name !== 'NotFoundError' && name !== 'NotReadableError') throw e;
     }
   }
-  return md.getUserMedia(build(undefined));
+  return gumWithTimeout(md, build(undefined), 8000);
 }

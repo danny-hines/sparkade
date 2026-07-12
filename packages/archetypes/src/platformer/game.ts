@@ -297,19 +297,35 @@ class PlatformerGame implements GameInstance {
     }
   }
 
+  /**
+   * Climb a tile coordinate up out of any `solid` tiles. The model authors the
+   * terrain (ASCII grid) and the entity/spawn coordinates ({x,y}) as two
+   * independent representations that nothing reconciles, so they occasionally
+   * collide — a pickup or the player dropped inside solid terrain is unreachable
+   * (moveAABB never lets the player enter a solid cell) or immovable. Lifting to
+   * the nearest open cell above keeps the game playable regardless of the spec.
+   * Platforms are one-way (passable), so they never trap and aren't lifted past.
+   */
+  private liftOutOfSolid(tx: number, ty: number): number {
+    let y = ty;
+    while (y > 0 && this.grid.kind(tx, y) === 'solid') y--;
+    return y;
+  }
+
   private makeEnt(e: PlatformerEntity): Ent {
     const small = e.type === 'coin' || e.type === 'heart' || e.type === 'powerup';
+    const ey = this.liftOutOfSolid(e.x, e.y);
     return {
       active: true,
       type: e.type,
       x: e.x * TILE_SIZE + (small ? 2 : 1),
-      y: e.y * TILE_SIZE + (small ? 2 : 1),
+      y: ey * TILE_SIZE + (small ? 2 : 1),
       vx: 0,
       vy: 0,
       w: small ? 12 : 14,
       h: small ? 12 : 14,
       homeX: e.x * TILE_SIZE,
-      homeY: e.y * TILE_SIZE,
+      homeY: ey * TILE_SIZE,
       dir: e.props?.dir ?? -1,
       t: 0,
       hp: 1,
@@ -320,8 +336,11 @@ class PlatformerGame implements GameInstance {
   }
 
   private spawnPlayer(tx: number, ty: number): void {
+    // Never start embedded in the floor (→ stuck): lift out of solid, then let
+    // gravity settle the player onto the surface below.
+    const sy = this.liftOutOfSolid(tx, ty);
     this.px = tx * TILE_SIZE + 3;
-    this.py = ty * TILE_SIZE + 1;
+    this.py = sy * TILE_SIZE + 1;
     this.pvx = 0;
     this.pvy = 0;
     this.onGround = false;

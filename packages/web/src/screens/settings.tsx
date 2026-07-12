@@ -274,7 +274,7 @@ export function SettingsScreen(props: {
             <div class="devices-layout">
               <div class="device-lists">
                 {inputs === null ? (
-                  <div style="color:var(--text-dim)"><span class="spin">✦</span> Finding cameras & mics…</div>
+                  <div style="color:var(--text-dim)"><span class="spin">✦</span> Detecting cameras &amp; mics…</div>
                 ) : (
                   <>
                     <div class="device-group">Camera</div>

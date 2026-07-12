@@ -49,17 +49,27 @@ function gumWithTimeout(
   });
 }
 
+/** Resolve `p`, or `fallback` after `ms` — so even a hung enumerateDevices()
+ *  (a wedged Chromium media backend can do this) can't block the picker. */
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    p.then((v) => v).catch(() => fallback),
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
 /**
  * List camera + mic inputs. Device labels are hidden until media permission has
  * been granted, so if they're blank we open a short-lived stream to unlock
- * them, then re-enumerate. The unlock is time-boxed and best-effort: if it can't
- * open a device, we still return the (possibly generic-labelled) device list so
- * the picker populates instead of hanging.
+ * them, then re-enumerate. EVERY async step is time-boxed: a stuck permission,
+ * a wedged device, or a hung enumerateDevices() must never leave the picker
+ * spinning — it resolves with whatever it has (even an empty list) within ~13s.
  */
 export async function enumerateInputs(): Promise<{ cameras: DeviceInfo[]; mics: DeviceInfo[] }> {
   const md = navigator.mediaDevices;
   if (!md?.enumerateDevices) return { cameras: [], mics: [] };
-  let devices = await md.enumerateDevices();
+  const empty: MediaDeviceInfo[] = [];
+  let devices = await withTimeout(md.enumerateDevices(), 4000, empty);
   const needsLabels = devices.some(
     (d) => (d.kind === 'videoinput' || d.kind === 'audioinput') && !d.label,
   );
@@ -69,14 +79,14 @@ export async function enumerateInputs(): Promise<{ cameras: DeviceInfo[]; mics: 
     // mic-only — each capped so a stuck device can't block the picker.
     for (const c of [{ video: true, audio: true }, { video: true }, { audio: true }] as const) {
       try {
-        const s = await gumWithTimeout(md, c, 3500);
+        const s = await gumWithTimeout(md, c, 2500);
         s.getTracks().forEach((t) => t.stop());
         break;
       } catch {
         /* timed out or that device kind is absent — try a narrower request */
       }
     }
-    devices = await md.enumerateDevices();
+    devices = await withTimeout(md.enumerateDevices(), 4000, devices);
   }
   const pick = (kind: MediaDeviceKind, fallback: string): DeviceInfo[] =>
     devices

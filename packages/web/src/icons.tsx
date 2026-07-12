@@ -17,6 +17,10 @@ export type IconName =
   | 'arrowLeft'
   | 'arrowUp'
   | 'arrowDown'
+  | 'pixUp'
+  | 'pixDown'
+  | 'pixLeft'
+  | 'pixRight'
   | 'warning'
   | 'timer'
   | 'dot'
@@ -82,6 +86,52 @@ const PATHS: Record<IconName, ComponentChildren> = {
       <circle cx="12" cy="13" r="8" fill="none" stroke="currentColor" stroke-width="2" />
       <path d="M12 13 L12 8 M9 3 h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
     </>
+  ),
+  // Chunky pixel-art triangle arrows (for d-pad direction hints) — stepped rows
+  // rendered crisp, to match the retro aesthetic rather than a smooth vector.
+  pixUp: (
+    <g fill="currentColor" shape-rendering="crispEdges">
+      <rect x="11" y="7" width="2" height="2" />
+      <rect x="9" y="9" width="6" height="2" />
+      <rect x="7" y="11" width="10" height="2" />
+      <rect x="5" y="13" width="14" height="2" />
+      <rect x="3" y="15" width="18" height="2" />
+    </g>
+  ),
+  pixDown: (
+    <g fill="currentColor" shape-rendering="crispEdges">
+      <rect x="3" y="7" width="18" height="2" />
+      <rect x="5" y="9" width="14" height="2" />
+      <rect x="7" y="11" width="10" height="2" />
+      <rect x="9" y="13" width="6" height="2" />
+      <rect x="11" y="15" width="2" height="2" />
+    </g>
+  ),
+  pixLeft: (
+    <g fill="currentColor" shape-rendering="crispEdges">
+      <rect x="15" y="3" width="2" height="2" />
+      <rect x="13" y="5" width="4" height="2" />
+      <rect x="11" y="7" width="6" height="2" />
+      <rect x="9" y="9" width="8" height="2" />
+      <rect x="7" y="11" width="10" height="2" />
+      <rect x="9" y="13" width="8" height="2" />
+      <rect x="11" y="15" width="6" height="2" />
+      <rect x="13" y="17" width="4" height="2" />
+      <rect x="15" y="19" width="2" height="2" />
+    </g>
+  ),
+  pixRight: (
+    <g fill="currentColor" shape-rendering="crispEdges">
+      <rect x="7" y="3" width="2" height="2" />
+      <rect x="7" y="5" width="4" height="2" />
+      <rect x="7" y="7" width="6" height="2" />
+      <rect x="7" y="9" width="8" height="2" />
+      <rect x="7" y="11" width="10" height="2" />
+      <rect x="7" y="13" width="8" height="2" />
+      <rect x="7" y="15" width="6" height="2" />
+      <rect x="7" y="17" width="4" height="2" />
+      <rect x="7" y="19" width="2" height="2" />
+    </g>
   ),
   dot: <circle cx="12" cy="12" r="6" fill="currentColor" />,
   ring: <circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="2.2" />,

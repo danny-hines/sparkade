@@ -323,6 +323,25 @@ h2.pixel {
   box-shadow: 0 0 0 3px var(--danger);
 }
 
+/* Scroll-state indicator on the right of the detail action footer: up/down
+   pixel arrows, dimmed at the top/bottom of the synopsis. */
+.home-scroll-hint {
+  margin-left: auto;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  font-size: 15px;
+  color: var(--cyan);
+}
+.home-scroll-hint span {
+  display: flex;
+}
+.home-scroll-hint .off {
+  opacity: 0.22;
+}
+
 .home-cta {
   margin: auto;
   max-width: 420px;
@@ -437,6 +456,7 @@ h2.pixel {
   height: 30px;
   line-height: 28px;
   text-align: center;
+  text-indent: 2px; /* Press Start 2P sits slightly left in its box — nudge right */
   border: 2px solid var(--line);
   border-radius: 50%;
   color: var(--cyan);
@@ -1366,6 +1386,7 @@ svg.icon-svg.spin {
   border-radius: 50%;
   font-size: 0.72em;
   line-height: 1;
+  text-indent: 0.14em; /* Press Start 2P sits slightly left in its box — nudge right */
   vertical-align: -0.22em;
   flex: none;
 }

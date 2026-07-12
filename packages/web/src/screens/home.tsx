@@ -167,8 +167,6 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
   const footer: [string, string][] =
     zone === 'detail'
       ? [
-          ['U/D', 'Scroll'],
-          ['L/R', 'Pick'],
           ['A', 'Go'],
           ['B', 'Back'],
         ]
@@ -327,6 +325,17 @@ function DetailPanel(props: {
 }): ComponentChildren {
   const item = props.detail?.item ?? props.game;
   const spec = props.detail?.spec;
+  const [scroll, setScroll] = useState({ atTop: true, atBottom: true });
+  const recompute = (): void => {
+    const el = props.scrollRef.current;
+    if (!el) return;
+    setScroll({
+      atTop: el.scrollTop <= 1,
+      atBottom: el.scrollTop + el.clientHeight >= el.scrollHeight - 1,
+    });
+  };
+  useEffect(() => recompute(), [props.game.id, props.detail, props.scores]);
+  const scrollable = !(scroll.atTop && scroll.atBottom);
   return (
     <div class="home-detail-inner">
       <div class="home-detail-head">
@@ -340,7 +349,7 @@ function DetailPanel(props: {
         </div>
       </div>
 
-      <div class="home-synopsis" ref={props.scrollRef}>
+      <div class="home-synopsis" ref={props.scrollRef} onScroll={recompute}>
         {spec ? (
           <p>{spec.story.intro.join(' ')}</p>
         ) : (
@@ -388,6 +397,16 @@ function DetailPanel(props: {
             {a.label}
           </div>
         ))}
+        {scrollable && (
+          <div class="home-scroll-hint" title="scroll">
+            <span class={scroll.atTop ? 'off' : ''}>
+              <Icon name="pixUp" />
+            </span>
+            <span class={scroll.atBottom ? 'off' : ''}>
+              <Icon name="pixDown" />
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

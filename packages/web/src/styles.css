@@ -165,11 +165,14 @@ h2.pixel {
 .home-list {
   width: 384px;
   flex: none;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 10px;
   overflow-y: auto;
-  padding-right: 6px;
+  /* room so the focus ring (4px + glow) of the first/last/edge items isn't
+     clipped by the scroll container's overflow. */
+  padding: 7px 8px;
   scrollbar-width: none;
 }
 .home-list::-webkit-scrollbar {

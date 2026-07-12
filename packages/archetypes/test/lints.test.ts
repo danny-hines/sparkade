@@ -8,7 +8,18 @@ import type { AdventureSpec, GameSpec, PlatformerSpec, ShooterSpec } from '@spar
 import { MIN_DURATION_S } from '@sparkade/shared';
 import { archetypes } from '@sparkade/archetypes';
 import { checkKeyTopology, buildGraph } from '../src/adventure/lint';
-import { reachableCells } from '../src/platformer/lint';
+import { parseLevelGrid, reachableCells } from '../src/platformer/lint';
+
+/** First solid cell in a level, for placing deliberately-embedded fixtures. */
+function firstSolid(level: PlatformerSpec['levels'][number]): { x: number; y: number } {
+  const grid = parseLevelGrid(level);
+  for (let y = 0; y < grid.h; y++) {
+    for (let x = 0; x < grid.w; x++) {
+      if (grid.kind(x, y) === 'solid') return { x, y };
+    }
+  }
+  throw new Error('golden level has no solid tile');
+}
 
 function golden<T extends GameSpec>(archetype: string): T {
   const path = join(__dirname, '..', '..', 'generation', 'golden', `golden-${archetype}.json`);
@@ -50,6 +61,25 @@ describe('platformer lints', () => {
       y < 6 ? '.'.repeat(r.length) : r,
     );
     expect(codes(archetypes.platformer.lint(spec))).toContain('PLAT_SPAWN_NOT_GROUNDED');
+  });
+
+  it('spawn embedded in a solid tile → PLAT_SPAWN_IN_SOLID', () => {
+    const spec = golden<PlatformerSpec>('platformer');
+    spec.levels[0]!.playerSpawn = firstSolid(spec.levels[0]!);
+    expect(codes(archetypes.platformer.lint(spec))).toContain('PLAT_SPAWN_IN_SOLID');
+  });
+
+  it('exit embedded in a solid tile → PLAT_EXIT_IN_SOLID', () => {
+    const spec = golden<PlatformerSpec>('platformer');
+    spec.levels[0]!.exit = firstSolid(spec.levels[0]!);
+    expect(codes(archetypes.platformer.lint(spec))).toContain('PLAT_EXIT_IN_SOLID');
+  });
+
+  it('collectible embedded in a solid tile → PLAT_ENTITY_IN_SOLID', () => {
+    const spec = golden<PlatformerSpec>('platformer');
+    const { x, y } = firstSolid(spec.levels[0]!);
+    spec.levels[0]!.entities.push({ type: 'coin', x, y });
+    expect(codes(archetypes.platformer.lint(spec))).toContain('PLAT_ENTITY_IN_SOLID');
   });
 
   it('a gap wider than the jump kernel makes the exit unreachable', () => {

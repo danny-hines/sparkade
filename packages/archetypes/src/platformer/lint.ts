@@ -116,13 +116,22 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
       out.push(err('PLAT_TOO_WIDE', `${path}/tiles`, `level is ${grid.w} tiles wide; max ${BUDGET.maxLevelWidthTiles}`));
     }
 
-    // Spawn / exit grounded & in-bounds
-    const spawnCell = nearestStanding(level, level.playerSpawn.x, level.playerSpawn.y);
-    if (level.playerSpawn.x >= grid.w || level.playerSpawn.y >= grid.h || !spawnCell) {
+    // Spawn / exit in-bounds, grounded, and never embedded in a solid tile.
+    // (The engine also lifts these out of solid at load as a safety net, but a
+    // correct spec must not rely on it — a spawn in solid starts the player
+    // stuck; an exit in solid can't be touched.)
+    const spawn = level.playerSpawn;
+    const spawnCell = nearestStanding(level, spawn.x, spawn.y);
+    if (spawn.x < grid.w && spawn.y < grid.h && grid.kind(spawn.x, spawn.y) === 'solid') {
+      out.push(err('PLAT_SPAWN_IN_SOLID', `${path}/playerSpawn`, `playerSpawn (${spawn.x},${spawn.y}) is inside a solid tile — the player would spawn stuck; place it in an open cell on or just above the ground`));
+    } else if (spawn.x >= grid.w || spawn.y >= grid.h || !spawnCell) {
       out.push(err('PLAT_SPAWN_NOT_GROUNDED', `${path}/playerSpawn`, 'playerSpawn must sit on or just above solid ground'));
     }
-    const exitCell = nearestStanding(level, level.exit.x, level.exit.y);
-    if (level.exit.x >= grid.w || level.exit.y >= grid.h || !exitCell) {
+    const exit = level.exit;
+    const exitCell = nearestStanding(level, exit.x, exit.y);
+    if (exit.x < grid.w && exit.y < grid.h && grid.kind(exit.x, exit.y) === 'solid') {
+      out.push(err('PLAT_EXIT_IN_SOLID', `${path}/exit`, `exit (${exit.x},${exit.y}) is inside a solid tile and can't be reached; place it in an open cell on or just above the ground`));
+    } else if (exit.x >= grid.w || exit.y >= grid.h || !exitCell) {
       out.push(err('PLAT_EXIT_NOT_GROUNDED', `${path}/exit`, 'exit must sit on or just above solid ground'));
     }
 
@@ -173,6 +182,8 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
       if (e.type === 'powerup') powerupCount++;
       if (e.x >= grid.w || e.y >= grid.h) {
         out.push(err('PLAT_ENTITY_OOB', `${path}/entities`, `${e.type} at (${e.x},${e.y}) is outside the ${grid.w}x${grid.h} level`));
+      } else if (grid.kind(e.x, e.y) === 'solid') {
+        out.push(err('PLAT_ENTITY_IN_SOLID', `${path}/entities`, `${e.type} at (${e.x},${e.y}) is embedded in a solid tile and can't be reached — move it to an open cell on or just above the ground`));
       }
     }
   });

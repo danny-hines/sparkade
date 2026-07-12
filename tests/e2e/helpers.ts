@@ -20,12 +20,12 @@ export async function hold(page: Page, code: string, ms: number): Promise<void> 
   await page.waitForTimeout(100);
 }
 
-/** Attract → main menu. */
+/** Attract → home (New Game selected in the combined launcher list). */
 export async function toMenu(page: Page): Promise<void> {
   await page.goto('/');
   await expect(page.locator('.press-start')).toBeVisible({ timeout: 15_000 });
   await tap(page, 'Enter');
-  await expect(page.locator('.menu-item', { hasText: 'New Game' })).toBeVisible();
+  await expect(page.locator('.home-item.new')).toBeVisible();
 }
 
 /** Collect uncaught console errors / page errors for a page. */

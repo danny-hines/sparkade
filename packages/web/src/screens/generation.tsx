@@ -71,24 +71,24 @@ export function GenerationScreen(props: {
             props.go({ name: 'play', id: props.gameId });
           } else if (btn === 'B') {
             shellInput.blip('back');
-            props.go({ name: 'detail', id: props.gameId });
+            props.go({ name: 'home', id: props.gameId });
           }
           return;
         }
         if (e?.type === 'failed') {
           if (btn === 'A') {
             shellInput.blip('select');
-            props.go({ name: 'detail', id: props.gameId }); // Retry lives there
+            props.go({ name: 'home', id: props.gameId }); // Retry lives there
           } else if (btn === 'B') {
             shellInput.blip('back');
-            props.go({ name: 'menu' });
+            props.go({ name: 'home' });
           }
           return;
         }
         if (btn === 'B') {
           // back out — the job keeps running in the background
           shellInput.blip('back');
-          props.go({ name: 'menu' });
+          props.go({ name: 'home' });
         }
       }),
     [props.go, props.gameId],

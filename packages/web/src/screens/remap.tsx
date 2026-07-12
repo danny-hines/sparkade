@@ -53,7 +53,7 @@ export function RemapScreen(props: {
     cancelCapture.current?.();
     if (!save) {
       shellInput.blip('back');
-      props.go(props.returnTo.name === 'remap' ? { name: 'menu' } : props.returnTo);
+      props.go(props.returnTo.name === 'remap' ? { name: 'home' } : props.returnTo);
       return;
     }
     // Split by device; keep the other device's existing profile.
@@ -71,7 +71,7 @@ export function RemapScreen(props: {
       .then(() => {
         props.onSaved();
         shellInput.blip('success');
-        props.go(props.returnTo.name === 'remap' ? { name: 'menu' } : props.returnTo);
+        props.go(props.returnTo.name === 'remap' ? { name: 'home' } : props.returnTo);
       })
       .catch(() => {
         shellInput.blip('error');

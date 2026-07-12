@@ -149,7 +149,7 @@ export function SettingsScreen(props: {
             shellInput.blip('select');
           } else if (btn === 'B') {
             shellInput.blip('back');
-            props.go({ name: 'menu' });
+            props.go({ name: 'home' });
           }
           return;
         }
@@ -269,7 +269,7 @@ export function SettingsScreen(props: {
           )}
           {tab === 'controls' && (
             <div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 30px;font-size:18px">
+              <div class="control-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:2px 24px">
                 {LOGICAL_BUTTONS.map((b) => {
                   const gp = Object.entries(props.settings?.input.gamepad ?? {}).find(([, v]) => v === b)?.[0];
                   const kb = Object.entries(props.settings?.input.keyboard ?? {}).find(([, v]) => v === b)?.[0];
@@ -283,7 +283,7 @@ export function SettingsScreen(props: {
                   );
                 })}
               </div>
-              <div class={`focusable menu-item ${zone === 'panel' ? 'focused' : ''}`} style="margin-top:16px;max-width:320px">
+              <div class={`focusable menu-item ${zone === 'panel' ? 'focused' : ''}`} style="margin-top:12px;max-width:320px;font-size:16px">
                 <span class="icon"><Icon name="joystick" /></span> Remap controls
               </div>
               <p style="color:var(--text-dim);font-size:16px;margin-top:10px">
@@ -380,11 +380,11 @@ export function SettingsScreen(props: {
               <div class="kv">
                 <span class="k">Disk</span>
                 <span>
-                  {(info.diskFreeBytes / 1e9).toFixed(1)} GB free of {(info.diskTotalBytes / 1e9).toFixed(1)} GB
+                  {(info.diskFreeBytes / 1e9).toFixed(0)} / {(info.diskTotalBytes / 1e9).toFixed(0)} GB free
                 </span>
               </div>
               <div class="kv"><span class="k">Games</span><span>{info.gameCount}</span></div>
-              <div class="kv"><span class="k">Data dir</span><span style="font-size:15px">{info.dataDir}</span></div>
+              <div class="kv"><span class="k">Data dir</span><span style="font-size:12px;word-break:break-all;text-align:right">{info.dataDir}</span></div>
               <div class="kv">
                 <span class="k">Lifetime API spend</span>
                 <span style="color:var(--gold)">{usd(info.lifetimeSpendUsd)}</span>

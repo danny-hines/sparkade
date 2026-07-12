@@ -151,6 +151,203 @@ h2.pixel {
   color: var(--cyan);
 }
 
+/* ------------------------------------------------------------------ home */
+
+.home-body {
+  flex: 1;
+  display: flex;
+  gap: 18px;
+  padding: 6px 40px 10px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.home-list {
+  width: 384px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-width: none;
+}
+.home-list::-webkit-scrollbar {
+  display: none;
+}
+
+.home-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-panel);
+  flex: none;
+}
+.home-item.new,
+.home-item.settings {
+  font-size: 17px;
+}
+.home-item.focused {
+  border-color: var(--spark);
+  box-shadow: var(--focus-ring);
+}
+.home-item.sel:not(.focused) {
+  border-color: var(--bg-light, #3b5dc9);
+}
+.home-ic {
+  width: 22px;
+  color: var(--cyan);
+  display: flex;
+}
+.home-thumb {
+  width: 68px;
+  height: 40px;
+  border-radius: 5px;
+  image-rendering: pixelated;
+  background: #000;
+  flex: none;
+}
+.home-item-text {
+  min-width: 0;
+  flex: 1;
+}
+.home-item-title {
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-item-sub {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.home-detail {
+  flex: 1;
+  min-width: 0;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  padding: 16px;
+  display: flex;
+  overflow: hidden;
+}
+.home-detail.active {
+  border-color: var(--spark);
+  box-shadow: var(--focus-ring);
+}
+.home-detail-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  min-height: 0;
+}
+.home-detail-head {
+  display: flex;
+  gap: 14px;
+  flex: none;
+}
+.home-detail-cover {
+  width: 150px;
+  height: 88px;
+  border-radius: 6px;
+  image-rendering: pixelated;
+  background: #000;
+  flex: none;
+}
+.home-detail-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.home-detail-title {
+  font-size: 18px;
+}
+.home-detail-tag {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.home-synopsis {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  padding-right: 6px;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.home-synopsis::-webkit-scrollbar {
+  display: none;
+}
+.home-board-title {
+  color: var(--cyan);
+  font-size: 14px;
+  margin-top: 4px;
+}
+.home-actions {
+  display: flex;
+  gap: 12px;
+  flex: none;
+  padding-top: 4px;
+}
+.home-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border: 2px solid var(--line);
+  border-radius: 9px;
+  font-size: 16px;
+}
+.home-action.focused {
+  border-color: var(--spark);
+  box-shadow: var(--focus-ring);
+}
+.home-action.danger.focused {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger);
+}
+
+.home-cta {
+  margin: auto;
+  max-width: 420px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.home-cta-ic {
+  color: var(--cyan);
+  font-size: 44px;
+  display: flex;
+}
+.home-cta-title {
+  font-size: 22px;
+}
+.home-cta-sub {
+  font-size: 14px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+.home-cta-hint {
+  font-size: 16px;
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+
 /* ------------------------------------------------------------------ cards */
 
 .card-grid {
@@ -647,6 +844,15 @@ h2.pixel {
 
 .kv .k {
   color: var(--text-dim);
+}
+
+/* Compact, single-line control-binding rows so the Remap button stays in view. */
+.control-grid .kv {
+  font-size: 13px;
+  padding: 4px 0;
+}
+.control-grid .kv span {
+  white-space: nowrap;
 }
 
 .wifi-row {

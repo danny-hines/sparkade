@@ -65,7 +65,7 @@ export function PlayScreen(props: {
           callbacks: {
             onQuit: () => {
               shellInput.setSuspended(false);
-              props.go({ name: 'detail', id: props.id });
+              props.go({ name: 'home', id: props.id });
             },
             onVolumesChanged: (v) => {
               void api.saveSettings({ audio: v }).then(props.onSettingsChanged);
@@ -93,7 +93,7 @@ export function PlayScreen(props: {
   useEffect(() => {
     if (!error) return undefined;
     return shellInput.pushHandler((btn) => {
-      if (btn === 'A' || btn === 'B') props.go({ name: 'detail', id: props.id });
+      if (btn === 'A' || btn === 'B') props.go({ name: 'home', id: props.id });
     });
   }, [error, props.go, props.id]);
 

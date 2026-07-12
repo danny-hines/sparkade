@@ -7,9 +7,7 @@ import { ATTRACT_IDLE_MS, REMAP_HOLD_MS } from '@sparkade/shared';
 import { api, type SettingsPayload } from './api';
 import { shellInput } from './shell-input';
 import { AttractScreen } from './screens/attract';
-import { MainMenuScreen } from './screens/menu';
-import { LibraryScreen } from './screens/library';
-import { GameDetailScreen } from './screens/detail';
+import { HomeScreen } from './screens/home';
 import { WizardScreen } from './screens/wizard';
 import { GenerationScreen } from './screens/generation';
 import { PlayScreen } from './screens/play';
@@ -19,9 +17,7 @@ import { AssetsGalleryScreen } from './screens/assets-gallery';
 
 export type Screen =
   | { name: 'attract' }
-  | { name: 'menu' }
-  | { name: 'library' }
-  | { name: 'detail'; id: string }
+  | { name: 'home'; id?: string }
   | { name: 'wizard' }
   | { name: 'generation'; jobId: string; gameId: string }
   | { name: 'play'; id: string }
@@ -29,7 +25,7 @@ export type Screen =
   | { name: 'remap'; firstBoot: boolean; returnTo: Screen };
 
 /** Screens where idle-to-attract and hold-to-remap apply (shell menus only). */
-const MENU_SCREENS = new Set(['menu', 'library', 'detail', 'wizard', 'settings']);
+const MENU_SCREENS = new Set(['home', 'wizard', 'settings']);
 
 export function App(): ComponentChildren {
   // Dev-only asset gallery (http://localhost:5173/?dev=assets) — a normal
@@ -160,14 +156,8 @@ function KioskApp(): ComponentChildren {
     case 'attract':
       body = <AttractScreen go={go} />;
       break;
-    case 'menu':
-      body = <MainMenuScreen go={go} />;
-      break;
-    case 'library':
-      body = <LibraryScreen go={go} />;
-      break;
-    case 'detail':
-      body = <GameDetailScreen go={go} id={screen.id} />;
+    case 'home':
+      body = <HomeScreen go={go} initialId={screen.id} />;
       break;
     case 'wizard':
       body = <WizardScreen go={go} settings={settings} />;

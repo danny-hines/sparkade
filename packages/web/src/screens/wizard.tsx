@@ -318,7 +318,7 @@ export function WizardScreen(props: {
               }
             } else if (btn === 'B') {
               shellInput.blip('back');
-              props.go({ name: 'menu' });
+              props.go({ name: 'home' });
             }
           } else if (m.photoMode === 'camera') {
             if (btn === 'A' && countdown === 0) startCountdown();
@@ -585,18 +585,18 @@ export function WizardScreen(props: {
             {sttError && <div style="color:var(--danger);font-size:17px">{sttError}</div>}
             <div class="menu-list" style="width:520px">
               <div class={`focusable menu-item ${cursor === 0 ? 'focused' : ''}`}>
-                <span class="icon"><Icon name="mic" /></span> Say it out loud
+                <span class="icon"><Icon name="mic" /></span> Speak
                 <span class="hint">up to {GENERATION.maxRecordingSeconds}s</span>
               </div>
               <div class={`focusable menu-item ${cursor === 1 ? 'focused' : ''}`}>
-                <span class="icon"><Icon name="cards" /></span> Pick an idea card
+                <span class="icon"><Icon name="cards" /></span> Idea card
               </div>
               <div class={`focusable menu-item ${cursor === 2 ? 'focused' : ''}`}>
                 <span class="icon"><Icon name="sparkle" /></span> Surprise me
               </div>
               {import.meta.env.DEV && (
                 <div class={`focusable menu-item ${cursor === 3 ? 'focused' : ''}`}>
-                  <span class="icon"><Icon name="keyboard" /></span> Canned transcript (dev)
+                  <span class="icon"><Icon name="keyboard" /></span> Canned (dev)
                 </div>
               )}
             </div>

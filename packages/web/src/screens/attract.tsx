@@ -172,7 +172,7 @@ export function AttractScreen(props: { go: (s: Screen) => void }): ComponentChil
       shellInput.pushHandler((btn) => {
         if (btn === 'START' || btn === 'A') {
           shellInput.blip('select');
-          props.go({ name: 'menu' });
+          props.go({ name: 'home' });
         }
       }),
     [props.go],

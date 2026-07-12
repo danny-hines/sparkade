@@ -11,21 +11,17 @@ test('boots to attract; key screens produce no uncaught console errors', async (
   await expect(page.locator('.attract .logo')).toContainText('SPARK');
   await expect(page.locator('.press-start')).toBeVisible();
 
-  // menu
+  // home: New Game + the three golden games + Settings, all in one list
   await tap(page, 'Enter');
-  await expect(page.locator('.menu-item', { hasText: 'Play' })).toBeVisible();
-
-  // library shows the three golden games, Ready
-  await tap(page, 'KeyX'); // A on "Play"
-  await expect(page.locator('.game-card')).toHaveCount(3);
+  await expect(page.locator('.home-item.new')).toBeVisible();
+  await expect(page.locator('.home-item.game')).toHaveCount(3);
   await expect(page.locator('.badge.golden')).toHaveCount(3);
 
-  // settings
-  await tap(page, 'KeyZ'); // back to menu
-  await tap(page, 'ArrowDown', 2);
+  // settings is the last list item; Up wraps to it
+  await tap(page, 'ArrowUp');
   await tap(page, 'KeyX');
   await expect(page.locator('.settings-tabs')).toBeVisible();
-  await tap(page, 'KeyZ');
+  await tap(page, 'KeyZ'); // settings → home
 
   expect(errors).toEqual([]);
 });
@@ -35,8 +31,7 @@ test('keyboard-only: create via preset → honest progress → ready → play bo
   const errors = trackErrors(page);
   await toMenu(page);
 
-  // New Game
-  await tap(page, 'ArrowDown');
+  // New Game is the first (selected) list item
   await tap(page, 'KeyX');
   await expect(page.locator('.screen-title', { hasText: 'NEW GAME' })).toBeVisible();
 
@@ -46,7 +41,7 @@ test('keyboard-only: create via preset → honest progress → ready → play bo
 
   // Step 2: idea cards
   await expect(page.getByText('What should this game be?')).toBeVisible();
-  await tap(page, 'ArrowDown'); // to "Pick an idea card"
+  await tap(page, 'ArrowDown'); // to "Idea card"
   await tap(page, 'KeyX');
   await expect(page.locator('.idea-card').first()).toBeVisible();
   await tap(page, 'KeyX'); // pick the first card
@@ -77,9 +72,9 @@ test('keyboard-only: create via preset → honest progress → ready → play bo
   const frameB = await canvas.evaluate((c: HTMLCanvasElement) => c.toDataURL().length + c.toDataURL().slice(0, 512));
   expect(frameB).not.toBe(frameA);
 
-  // guaranteed shell escape: hold START ~2.3s → back to detail screen
+  // guaranteed shell escape: hold START ~2.3s → back to the home launcher
   await hold(page, 'Enter', 2400);
-  await expect(page.locator('.screen-title')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('.home-list')).toBeVisible({ timeout: 10_000 });
   await expect(page.locator('.badge.ready, .badge.golden').first()).toBeVisible();
 
   expect(errors).toEqual([]);
@@ -87,10 +82,7 @@ test('keyboard-only: create via preset → honest progress → ready → play bo
 
 test('score entry persists across a full page reload', async ({ page }) => {
   await toMenu(page);
-  await tap(page, 'KeyX'); // library
-  await expect(page.locator('.game-card').first()).toBeVisible();
-  // find the generated (non-golden) game; fall back to first golden otherwise
-  await tap(page, 'KeyX'); // open first card
+  await tap(page, 'ArrowDown'); // select the first game → its detail loads
   await expect(page.locator('.score-table')).toBeVisible();
   const gameId = await page.evaluate(async () => {
     const games = (await (await fetch('/api/games')).json()) as { id: string }[];
@@ -107,10 +99,8 @@ test('score entry persists across a full page reload', async ({ page }) => {
   await page.reload();
   await expect(page.locator('.press-start')).toBeVisible();
   await tap(page, 'Enter');
-  await expect(page.locator('.menu-item', { hasText: 'Play' })).toBeVisible(); // menu mounted
-  await tap(page, 'KeyX'); // library
-  await expect(page.locator('.game-card').first()).toBeVisible(); // wait for the async load
-  await tap(page, 'KeyX'); // first card
+  await expect(page.locator('.home-item.new')).toBeVisible(); // home mounted
+  await tap(page, 'ArrowDown'); // first game → detail
   await expect(page.locator('.score-table')).toContainText('DAN');
   await expect(page.locator('.score-table')).toContainText('4321');
 });
@@ -119,8 +109,7 @@ test('generation progress survives a page reload (durable jobs)', async ({ page 
   test.setTimeout(240_000);
   await toMenu(page);
   // start another preset generation
-  await tap(page, 'ArrowDown');
-  await tap(page, 'KeyX');
+  await tap(page, 'KeyX'); // New Game
   await tap(page, 'ArrowDown');
   await tap(page, 'KeyX'); // skip photo
   await tap(page, 'ArrowDown');
@@ -135,10 +124,8 @@ test('generation progress survives a page reload (durable jobs)', async ({ page 
   await page.reload();
   await expect(page.locator('.press-start')).toBeVisible();
   await tap(page, 'Enter');
-  await expect(page.locator('.menu-item', { hasText: 'Play' })).toBeVisible(); // menu mounted
-  // main menu shows the live active-generation card OR the job already finished —
-  // either way the library must reflect it truthfully
-  await tap(page, 'KeyX'); // library
+  await expect(page.locator('.home-item.new')).toBeVisible(); // home mounted
+  // the library (home list) must reflect the job truthfully once it finishes
   await expect
     .poll(
       async () =>
@@ -153,37 +140,32 @@ test('generation progress survives a page reload (durable jobs)', async ({ page 
 
 test('delete flow: Cancel is the default; hold-A deletes', async ({ page }) => {
   await toMenu(page);
-  await tap(page, 'KeyX'); // library
-  await expect(page.locator('.game-card').first()).toBeVisible();
-  const countBefore = await page.locator('.game-card').count();
+  const countBefore = await page.locator('.home-item.game').count();
   expect(countBefore).toBeGreaterThanOrEqual(4);
-  await tap(page, 'KeyX'); // open newest (generated) game
+  await tap(page, 'ArrowDown'); // first game (newest generated)
+  await tap(page, 'KeyX'); // focus into the detail panel (actions: Play | Delete)
 
-  // open delete modal (last action row)
-  await tap(page, 'ArrowUp'); // wrap to last item = Delete
+  // open delete modal: move to Delete, A
+  await tap(page, 'ArrowRight'); // → Delete action
   await tap(page, 'KeyX');
   await expect(page.locator('.modal')).toContainText('Delete');
 
   // default is Cancel: pressing A closes without deleting
   await tap(page, 'KeyX');
   await expect(page.locator('.modal')).toHaveCount(0);
-  await tap(page, 'KeyZ'); // back to library
-  await expect(page.locator('.game-card')).toHaveCount(countBefore);
+  await expect(page.locator('.home-item.game')).toHaveCount(countBefore);
 
-  // now really delete: focus Delete, hold A for 3s+
-  await expect(page.locator('.game-card').first()).toBeVisible();
-  await tap(page, 'KeyX'); // open again
-  await tap(page, 'ArrowUp');
-  await tap(page, 'KeyX'); // modal
-  await tap(page, 'ArrowRight'); // move to Delete
+  // now really delete: reopen, focus Delete, hold A for 3s+
+  await tap(page, 'KeyX'); // A on the Delete action → modal
+  await tap(page, 'ArrowRight'); // move to Delete inside the modal
   await expect(page.locator('.modal')).toContainText('Hold');
   // releasing early cancels
   await hold(page, 'KeyX', 800);
   await expect(page.locator('.modal')).toBeVisible();
   // full hold deletes
   await hold(page, 'KeyX', 3600);
-  await expect(page.locator('.screen-title', { hasText: 'LIBRARY' })).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator('.game-card')).toHaveCount(countBefore - 1);
+  await expect(page.locator('.modal')).toHaveCount(0, { timeout: 10_000 });
+  await expect(page.locator('.home-item.game')).toHaveCount(countBefore - 1, { timeout: 10_000 });
 });
 
 test('remap wizard completes and saves; defaults restored afterwards', async ({ page }) => {
@@ -211,7 +193,7 @@ test('remap wizard completes and saves; defaults restored afterwards', async ({ 
   await page.keyboard.up('KeyI');
   // START (newly mapped to Enter) saves
   await hold(page, 'Enter', 300);
-  await expect(page.locator('.menu-item', { hasText: 'New Game' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('.home-item.new')).toBeVisible({ timeout: 10_000 });
 
   // the new map is live: KeyI now navigates up. Verify via saved settings, then restore defaults.
   const saved = await page.evaluate(async () => (await (await fetch('/api/settings')).json()) as { input: { keyboard: Record<string, string> } });

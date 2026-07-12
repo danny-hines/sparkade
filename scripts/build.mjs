@@ -4,6 +4,7 @@
 //   3. cli           → packages/cli/dist          (single Node ESM bundle)
 // Engine/archetypes/shared/generation are bundled into their consumers; prompts and golden
 // games are read from the repo at runtime (the Pi runs from /opt/sparkade).
+import { chmodSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 import { run } from './proc.mjs';
@@ -18,5 +19,13 @@ await run('npx', ['vite', 'build'], { cwd: join(root, 'packages', 'server') });
 
 console.log('build 3/3: cli');
 await run('npx', ['vite', 'build'], { cwd: join(root, 'packages', 'cli') });
+// The CLI is symlinked to /usr/local/bin/sparkade and run directly, so it must
+// stay executable across rebuilds — vite writes it 0644 (the shebang is in the
+// vite banner). No-op on Windows; that's fine.
+try {
+  chmodSync(join(root, 'packages', 'cli', 'dist', 'index.js'), 0o755);
+} catch {
+  /* non-fatal (e.g. dist missing on a partial build) */
+}
 
 console.log('build: done');

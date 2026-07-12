@@ -118,6 +118,17 @@
             "maxItems": 48,
             "items": { "type": "string", "minLength": 4, "maxLength": 48, "pattern": "^[0-9a-f.]+$" }
           }
+        },
+        "headSlot": {
+          "description": "Optional, heroes only: where the player's photo-likeness head is composited onto this sprite. x/y is the top-left in sprite pixels; size 12 or 16 picks the baked head. Put it on a custom hero body you want to wear the player's face.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "x": { "type": "integer", "minimum": 0, "maximum": 48 },
+            "y": { "type": "integer", "minimum": 0, "maximum": 48 },
+            "size": { "enum": [12, 16] }
+          },
+          "required": ["x", "y", "size"]
         }
       },
       "required": ["w", "h", "rows"],

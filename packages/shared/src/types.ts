@@ -27,6 +27,10 @@ export interface SpriteData {
   /** Optional extra animation frames (same w×h as `rows`); the engine cycles
    *  [rows, ...frames] as an idle/walk animation instead of the auto-bob. */
   frames?: string[][];
+  /** Heroes only: where the baked likeness head is composited onto this sprite
+   *  (top-left in sprite pixels + which baked size). Lets a custom hero body
+   *  still wear the player's face. */
+  headSlot?: { x: number; y: number; size: 12 | 16 };
 }
 
 /** `lib:<id>` (built-in library) or `custom:<id>` (defined in sprites.custom). */

@@ -12,11 +12,13 @@ Two kinds of refs:
 - `lib:<id>` — the built-in library (professionally drawn, always safe). Available ids: {{LIB_SPRITES}}
 - `custom:<id>` — your own pixel art defined in `sprites.custom`.
 
-**Likeness note:** the hero's HEAD is replaced by the player's photo when one exists — hero refs should usually stay `lib:` (those bodies have head slots).
+**Likeness note:** when a photo exists, the hero's HEAD is replaced by the player's baked photo. Built-in library hero bodies already have head slots. A `custom:` hero body can wear the face too — just give its sprite a `headSlot` `{ "x":…, "y":…, "size": 12|16 }` marking where the head lands (the empty area where you'd draw a head). So you can draw a bespoke hero AND keep the player's face.
 
 {{RESKIN_NOTES}}
 
-Custom sprite format: `{ "w": 16, "h": 16, "rows": ["16 chars each…"] }` — chars `0-f` index the game palette (slot meanings: 1 outline, 2-4 background, 5-7 hero, 8-a enemy, b hazard, c warm, d gold, e light, f white), `.` = transparent. Draw with a 1px index-1 outline, 15–85% opaque coverage, readable silhouette. Enemies in enemy slots (8/9/a) so the palette recolors them cohesively. A couple of great custom enemies personalize a game more than ten mediocre ones — when in doubt, use the library.
+Custom sprite format: `{ "w": 16, "h": 16, "rows": ["16 chars each…"] }` — chars `0-f` index the game palette (slot meanings: 1 outline, 2-4 background, 5-7 hero, 8-a enemy, b hazard, c warm, d gold, e light, f white), `.` = transparent. Draw with a 1px index-1 outline, 15–85% opaque coverage, readable silhouette. Enemies in enemy slots (8/9/a) so the palette recolors them cohesively.
+
+**Draw a signature sprite.** Every game should have at least ONE bespoke custom sprite that no other game has — the creature or character the premise is really about (a marquee boss, a custom hero body, or the standout enemy). The library is the professional baseline; a well-drawn custom centerpiece is what makes THIS game unmistakably its own. Quality over quantity — one or two great custom sprites beat ten mediocre ones, and the library is always safe for the supporting cast.
 
 **Animation (optional):** add a `frames` array of 1–3 extra frames to a custom sprite (each the same w×h as `rows`); the engine cycles `[rows, ...frames]` as a lively idle/walk loop — ideal for a blinking eye, flapping wing, snapping jaw, or pulsing core. Keep motion within the same silhouette so it reads. Omit `frames` for a subtle automatic bob.
 

@@ -160,6 +160,13 @@ export class SpriteStore {
           // No authored frames: synthesize a 1px-bob walk frame for liveliness.
           entry = { frames: [data, bobbed(data)], anims: { idle: [0], walk: [0, 1] } };
         }
+        // A custom hero can opt into wearing the player's baked likeness head by
+        // declaring headSlot; mirror it across every frame so applyLikeness (hero
+        // only) composites the face just like a built-in hero's headSlots.
+        if (entry && data.headSlot) {
+          const hs = data.headSlot;
+          entry.headSlots = entry.frames.map(() => ({ x: hs.x, y: hs.y, size: hs.size }));
+        }
       }
     }
     if (!entry) {

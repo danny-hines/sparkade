@@ -44,7 +44,7 @@ export function defaultConfig(): SparkadeConfig {
     },
     stages,
     pricing: { ...DEFAULT_PRICING },
-    likeness: { describeInStory: false },
+    likeness: { describeInStory: false, smartFeatures: false },
     presets: IDEA_CARDS.map((c) => ({ ...c })),
     audio: { musicVol: 0.7, sfxVol: 0.8, uiVol: 0.4 },
     input: { gamepad: {}, keyboard: { ...DEFAULT_KEYBOARD_MAP } },
@@ -65,6 +65,9 @@ Edit with \`sparkade config edit\` (or any editor; restart the service after).
   A model missing from this table shows "cost unavailable" (never $0.00).
 - likeness.describeInStory: when true, the design stage may see the player's photo to reference
   appearance in the story (observable features only). Ships OFF; the photo never leaves the device otherwise.
+- likeness.smartFeatures: when true, a vision call reads the player's photo for its true (lighting-
+  normalized) skin/hair colours and builds the avatar palette from them instead of the game palette
+  (fixes faces going gray). Ships OFF; enabling it sends the photo to the provider.
 - presets: the six idea cards shown in the New Game wizard.
 - audio: shell + engine volumes (also editable in Settings).
 - input: saved control mappings (managed by the remap wizard; keys are KeyboardEvent codes or b<n>/a<n>+/-).

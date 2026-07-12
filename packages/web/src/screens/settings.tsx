@@ -51,7 +51,9 @@ export function SettingsScreen(props: {
   const [inputs, setInputs] = useState<{ cameras: DeviceInfo[]; mics: DeviceInfo[] } | null>(null);
   const [probe, setProbe] = useState<MediaProbe | null>(null);
   const [devSel, setDevSel] = useState<DeviceSel>(props.settings?.devices ?? {});
+  const [smartFeatures, setSmartFeatures] = useState(props.settings?.likeness?.smartFeatures ?? false);
   const oskTarget = useRef<string>('');
+  const deviceListRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef({ tab, zone, panelCursor, tabs, osk, networks, inputs });
   stateRef.current = { tab, zone, panelCursor, tabs, osk, networks, inputs };
 
@@ -61,6 +63,7 @@ export function SettingsScreen(props: {
   useEffect(() => {
     if (props.settings) setAudio(props.settings.audio);
     if (props.settings) setDevSel(props.settings.devices ?? {});
+    if (props.settings) setSmartFeatures(props.settings.likeness?.smartFeatures ?? false);
   }, [props.settings]);
   useEffect(() => {
     if (tab === 'wifi' && networks === null) {
@@ -77,6 +80,13 @@ export function SettingsScreen(props: {
     }
   }, [tab, networks, inputs]);
 
+  // The Camera & Mic list can outgrow its column (no-device messages,
+  // diagnostics, the likeness toggle); keep the focused row scrolled into view.
+  useEffect(() => {
+    if (tab !== 'devices' || zone !== 'panel') return;
+    deviceListRef.current?.querySelector('.focusable.focused')?.scrollIntoView({ block: 'nearest' });
+  }, [tab, zone, panelCursor, inputs]);
+
   const saveAudio = (next: typeof audio) => {
     setAudio(next);
     shellInput.setVolumes(next);
@@ -90,6 +100,15 @@ export function SettingsScreen(props: {
           ? { ...cur, cameraId: d.id, cameraLabel: d.label }
           : { ...cur, micId: d.id, micLabel: d.label };
       void api.saveSettings({ devices: next }).then(props.onSettingsChanged);
+      return next;
+    });
+    shellInput.blip('select');
+  };
+
+  const toggleSmartFeatures = () => {
+    setSmartFeatures((cur) => {
+      const next = !cur;
+      void api.saveSettings({ likeness: { smartFeatures: next } }).then(props.onSettingsChanged);
       return next;
     });
     shellInput.blip('select');
@@ -180,18 +199,20 @@ export function SettingsScreen(props: {
         } else if (s.tab === 'devices') {
           const cams = s.inputs?.cameras ?? [];
           const mics = s.inputs?.mics ?? [];
-          const rows = cams.length + mics.length + 1; // + rescan row
+          const rows = cams.length + mics.length + 2; // + rescan row + likeness toggle
           if (btn === 'UP' || btn === 'DOWN') {
             setPanelCursor((c) => (c + (btn === 'DOWN' ? 1 : rows - 1)) % rows);
             shellInput.blip('move');
           } else if (btn === 'A') {
             if (s.panelCursor < cams.length) chooseDevice('camera', cams[s.panelCursor]!);
             else if (s.panelCursor < cams.length + mics.length) chooseDevice('mic', mics[s.panelCursor - cams.length]!);
-            else {
+            else if (s.panelCursor === cams.length + mics.length) {
               setInputs(null); // rescan
               setProbe(null);
               setPanelCursor(0);
               shellInput.blip('select');
+            } else {
+              toggleSmartFeatures();
             }
           }
         } else if (s.tab === 'wifi') {
@@ -293,7 +314,7 @@ export function SettingsScreen(props: {
           )}
           {tab === 'devices' && (
             <div class="devices-layout">
-              <div class="device-lists">
+              <div class="device-lists" ref={deviceListRef}>
                 {inputs === null ? (
                   <div style="color:var(--text-dim)"><Icon name="sparkle" class="spin" /> Detecting cameras &amp; mics…</div>
                 ) : (
@@ -320,6 +341,17 @@ export function SettingsScreen(props: {
                     <div class={`focusable device-row device-rescan ${zone === 'panel' && panelCursor === inputs.cameras.length + inputs.mics.length ? 'focused' : ''}`}>
                       <span class="device-check"><Icon name="refresh" /></span>
                       <span class="device-label">Rescan devices</span>
+                    </div>
+                    <div class="device-group" style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line,#333)">
+                      Player likeness
+                    </div>
+                    <div style="font-size:13px;color:var(--text-dim);margin:0 0 6px 4px;max-width:440px;line-height:1.5">
+                      Reads your photo's true skin &amp; hair tones so faces don't come out gray.
+                      Enabling sends the photo to the model.
+                    </div>
+                    <div class={`focusable device-row likeness-toggle-row ${zone === 'panel' && panelCursor === inputs.cameras.length + inputs.mics.length + 1 ? 'focused' : ''}`}>
+                      <span class="device-check">{smartFeatures ? <Icon name="check" /> : <Icon name="ring" />}</span>
+                      <span class="device-label">Smart avatar colours — {smartFeatures ? 'On' : 'Off'}</span>
                     </div>
                     {inputs.cameras.length === 0 && inputs.mics.length === 0 && (
                       <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line,#333)">

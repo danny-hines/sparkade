@@ -24,6 +24,7 @@ import {
   type StageName,
 } from '@sparkade/shared';
 import { bakeLikeness } from '../likeness/likeness';
+import { buildFaceAnalysisPrompt, buildPortraitPalette, type FaceFeatures } from '../likeness/features';
 import { ProviderAuthError, ProviderHttpError, ProviderNetworkError, stageProvider } from '../providers/index';
 import type { ConfigStore } from '../storage/config';
 import type { Db } from '../storage/db';
@@ -442,7 +443,24 @@ export class GenerationRunner {
       const staging = this.files.stagingFor(jobId);
       const assetsDir = ensureDir(join(staging, 'assets'));
       if (photo) {
-        const baked = await bakeLikeness(photo, spec.palette);
+        // Opt-in: read the photo's true (lighting-normalized) skin/hair colours
+        // and bake against a portrait palette built from them, instead of the
+        // game palette (which can quantize a face to gray). Falls back cleanly.
+        let likenessPalette = spec.palette;
+        if (config.likeness.smartFeatures) {
+          try {
+            emit('building-assets', 'Reading your photo…');
+            const feat = (await callLlm('design', buildFaceAnalysisPrompt(), {
+              image: photo,
+              label: 'Read likeness',
+              stage: 'building-assets',
+            })) as FaceFeatures;
+            likenessPalette = buildPortraitPalette(feat);
+          } catch {
+            /* vision unavailable / failed → keep the game palette */
+          }
+        }
+        const baked = await bakeLikeness(photo, likenessPalette);
         writeFileSync(join(assetsDir, 'head12.png'), baked.head12);
         writeFileSync(join(assetsDir, 'head16.png'), baked.head16);
         writeFileSync(join(assetsDir, 'portrait.png'), baked.portrait);

@@ -292,7 +292,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     const body = req.body as {
       audio?: { musicVol: number; sfxVol: number; uiVol: number };
       input?: { gamepad?: Record<string, LogicalButton>; keyboard?: Record<string, LogicalButton> };
-      likeness?: { describeInStory: boolean };
+      likeness?: { describeInStory?: boolean; smartFeatures?: boolean };
       devices?: { cameraId?: string; cameraLabel?: string; micId?: string; micLabel?: string };
     } | null;
     if (!body) return reply.code(400).send({ error: 'empty body' });
@@ -308,7 +308,13 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
         if (body.input.gamepad) c.input.gamepad = body.input.gamepad;
         if (body.input.keyboard && Object.keys(body.input.keyboard).length > 0) c.input.keyboard = body.input.keyboard;
       }
-      if (body.likeness) c.likeness = { describeInStory: !!body.likeness.describeInStory };
+      if (body.likeness) {
+        c.likeness = {
+          ...c.likeness,
+          ...(body.likeness.describeInStory !== undefined ? { describeInStory: !!body.likeness.describeInStory } : {}),
+          ...(body.likeness.smartFeatures !== undefined ? { smartFeatures: !!body.likeness.smartFeatures } : {}),
+        };
+      }
       if (body.devices) {
         // Store only short strings; empty string clears back to browser default.
         const s = (v: unknown): string | undefined =>

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
 import { HEAD_SPRITE_SIZES, PORTRAIT_SIZE } from '@sparkade/shared';
 import { bakeLikeness } from '../src/likeness/likeness';
+import { buildPortraitPalette, type FaceFeatures } from '../src/likeness/features';
 
 const PALETTE = [
   '#000000', '#1a1c2c', '#29366f', '#3b5dc9', '#41a6f6', '#38b764', '#a7f070', '#ffcd75',
@@ -82,5 +83,50 @@ describe('likeness bake', () => {
       }
     }
     expect(warm).toBeGreaterThan(cool * 3);
+  });
+});
+
+const face: FaceFeatures = {
+  skinTone: '#c98f6b',
+  hairColor: '#3a2a1e',
+  glasses: false,
+  facialHair: false,
+  headwear: false,
+  headwearColor: 'none',
+};
+
+describe('buildPortraitPalette', () => {
+  it('centers the palette on the detected skin + hair, all valid hex', () => {
+    const p = buildPortraitPalette(face);
+    expect(p).toHaveLength(16);
+    expect(p[4]).toBe('#c98f6b'); // skin base
+    expect(p[7]).toBe('#3a2a1e'); // hair base
+    expect(p[0]).toBe('#000000'); // unused transparent slot
+    expect(p.every((c) => /^#[0-9a-f]{6}$/.test(c))).toBe(true);
+  });
+
+  it('normalizes shorthand/uppercase hex and falls back on garbage', () => {
+    const p = buildPortraitPalette({ ...face, skinTone: 'ABC', hairColor: 'not-a-color' });
+    expect(p[4]).toBe('#aabbcc'); // 'ABC' → #aabbcc
+    expect(p[7]).toBe('#2a2320'); // hair fallback
+  });
+
+  it('derives hair from skin when bald instead of using the fallback brown', () => {
+    const p = buildPortraitPalette({ ...face, skinTone: '#8d5524', hairColor: 'none' });
+    expect(p[7]).toMatch(/^#[0-9a-f]{6}$/);
+    expect(p[7]).not.toBe('#2a2320');
+  });
+
+  it('uses the headwear colour only when headwear is present', () => {
+    const off = buildPortraitPalette({ ...face, headwear: false, headwearColor: '#ff0000' });
+    const on = buildPortraitPalette({ ...face, headwear: true, headwearColor: '#ff0000' });
+    expect(off[11]).toBe(off[7]); // no headwear → slot mirrors hair
+    expect(on[11]).toBe('#ff0000');
+  });
+
+  it('never throws on empty/garbage input (graceful for the mock provider)', () => {
+    const p = buildPortraitPalette({} as FaceFeatures);
+    expect(p).toHaveLength(16);
+    expect(p.every((c) => /^#[0-9a-f]{6}$/.test(c))).toBe(true);
   });
 });

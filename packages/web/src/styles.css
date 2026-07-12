@@ -907,7 +907,11 @@ h2.pixel {
   flex: 1;
   min-width: 0;
   max-height: 380px;
-  overflow: hidden;
+  overflow-y: auto;
+  scrollbar-width: none; /* keyboard-scrolled; focused row is kept in view */
+}
+.device-lists::-webkit-scrollbar {
+  display: none;
 }
 
 .device-group {
@@ -933,6 +937,7 @@ h2.pixel {
   gap: 12px;
   padding: 9px 18px;
   font-size: 19px;
+  scroll-margin-block: 14px;
 }
 
 .device-row .device-check {
@@ -944,6 +949,18 @@ h2.pixel {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The likeness toggle carries readable state ("— On/Off"), not a device id —
+   let it wrap in the narrow column instead of truncating to "Smart ava…". */
+.likeness-toggle-row {
+  align-items: flex-start;
+}
+.likeness-toggle-row .device-label {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  line-height: 1.35;
 }
 
 .device-rescan {

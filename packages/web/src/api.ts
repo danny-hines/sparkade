@@ -49,7 +49,7 @@ export interface GameDetail {
 export interface SettingsPayload {
   audio: { musicVol: number; sfxVol: number; uiVol: number };
   input: { gamepad: Record<string, LogicalButton>; keyboard: Record<string, LogicalButton> };
-  likeness: { describeInStory: boolean };
+  likeness: { describeInStory: boolean; smartFeatures?: boolean };
   devices: { cameraId?: string; cameraLabel?: string; micId?: string; micLabel?: string };
   presets: { id: string; title: string; archetype: string; premise: string; tone: string }[];
   stages: Record<string, { provider: string; model: string }>;
@@ -100,6 +100,7 @@ export const api = {
   saveSettings: (patch: {
     audio?: { musicVol: number; sfxVol: number; uiVol: number };
     input?: { gamepad?: Record<string, LogicalButton>; keyboard?: Record<string, LogicalButton> };
+    likeness?: { describeInStory?: boolean; smartFeatures?: boolean };
     devices?: { cameraId?: string; cameraLabel?: string; micId?: string; micLabel?: string };
   }) =>
     fetch('/api/settings', {

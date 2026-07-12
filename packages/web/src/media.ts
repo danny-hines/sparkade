@@ -123,3 +123,45 @@ export async function getUserMediaForDevice(
   }
   return gumWithTimeout(md, build(undefined), 8000);
 }
+
+/** What Chromium actually sees, for on-device diagnosis when the picker comes
+ *  up empty. The getUserMedia error NAME is the key signal:
+ *    NotFoundError    → Chromium enumerates no such device (session can't see it)
+ *    NotReadableError → device found but can't be opened (busy / driver / format)
+ *    NotAllowedError  → permission denied (auto-grant flag not working)
+ *    OverconstrainedError → device exists but not at requested constraints */
+export interface MediaProbe {
+  secureContext: boolean;
+  hasMediaDevices: boolean;
+  deviceCount: number;
+  devices: string[];
+  videoResult: string;
+  audioResult: string;
+}
+
+async function probeGum(md: MediaDevices, c: MediaStreamConstraints): Promise<string> {
+  try {
+    const s = await gumWithTimeout(md, c, 6000);
+    const n = s.getTracks().length;
+    s.getTracks().forEach((t) => t.stop());
+    return `ok — ${n} track${n === 1 ? '' : 's'}`;
+  } catch (e) {
+    const err = e as Error;
+    return `${err.name || 'Error'}: ${err.message || '(no message)'}`;
+  }
+}
+
+export async function probeMedia(): Promise<MediaProbe> {
+  const md = navigator.mediaDevices;
+  const secureContext = typeof window !== 'undefined' && window.isSecureContext;
+  if (!md?.enumerateDevices) {
+    return { secureContext, hasMediaDevices: false, deviceCount: 0, devices: [], videoResult: 'n/a', audioResult: 'n/a' };
+  }
+  const raw = await withTimeout(md.enumerateDevices(), 4000, [] as MediaDeviceInfo[]);
+  const devices = raw.map(
+    (d) => `${d.kind} · id=${d.deviceId ? d.deviceId.slice(0, 8) + '…' : '(blank)'} · label=${d.label || '(blank)'}`,
+  );
+  const videoResult = await probeGum(md, { video: true });
+  const audioResult = await probeGum(md, { audio: true });
+  return { secureContext, hasMediaDevices: true, deviceCount: raw.length, devices, videoResult, audioResult };
+}

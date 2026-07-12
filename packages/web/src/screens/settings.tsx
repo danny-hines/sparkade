@@ -5,12 +5,24 @@ import type { ComponentChildren } from 'preact';
 import { LOGICAL_BUTTONS, type SystemInfo, type WifiNetwork } from '@sparkade/shared';
 import { api, type SettingsPayload } from '../api';
 import { FooterLegend, newOskState, OnScreenKeyboard, oskHandle, usd, type OskState } from '../components';
-import { enumerateInputs, getUserMediaForDevice, type DeviceInfo } from '../media';
+import { enumerateInputs, getUserMediaForDevice, probeMedia, type DeviceInfo, type MediaProbe } from '../media';
 import { shellInput } from '../shell-input';
 import type { Screen } from '../app';
 
 type Tab = 'controls' | 'audio' | 'devices' | 'wifi' | 'system' | 'model';
 type DeviceSel = { cameraId?: string; cameraLabel?: string; micId?: string; micLabel?: string };
+
+/** Human-readable dump of what Chromium sees, shown when no inputs enumerate. */
+function describeProbe(p: MediaProbe): string {
+  return [
+    `secure context : ${p.secureContext ? 'yes' : 'NO'}`,
+    `mediaDevices   : ${p.hasMediaDevices ? 'yes' : 'NO'}`,
+    `devices seen   : ${p.deviceCount}`,
+    ...p.devices.map((d) => `  • ${d}`),
+    `getUserMedia video : ${p.videoResult}`,
+    `getUserMedia audio : ${p.audioResult}`,
+  ].join('\n');
+}
 
 export function SettingsScreen(props: {
   go: (s: Screen) => void;
@@ -36,6 +48,7 @@ export function SettingsScreen(props: {
   const [osk, setOsk] = useState<OskState | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [inputs, setInputs] = useState<{ cameras: DeviceInfo[]; mics: DeviceInfo[] } | null>(null);
+  const [probe, setProbe] = useState<MediaProbe | null>(null);
   const [devSel, setDevSel] = useState<DeviceSel>(props.settings?.devices ?? {});
   const oskTarget = useRef<string>('');
   const stateRef = useRef({ tab, zone, panelCursor, tabs, osk, networks, inputs });
@@ -53,7 +66,13 @@ export function SettingsScreen(props: {
       void api.wifiNetworks().then(setNetworks).catch((e: Error) => setWifiMsg(e.message));
     }
     if (tab === 'devices' && inputs === null) {
-      void enumerateInputs().then(setInputs).catch(() => setInputs({ cameras: [], mics: [] }));
+      void enumerateInputs()
+        .then((r) => {
+          setInputs(r);
+          // Nothing enumerated → probe the media stack so we can see WHY on-device.
+          if (r.cameras.length === 0 && r.mics.length === 0) void probeMedia().then(setProbe).catch(() => {});
+        })
+        .catch(() => setInputs({ cameras: [], mics: [] }));
     }
   }, [tab, networks, inputs]);
 
@@ -169,6 +188,7 @@ export function SettingsScreen(props: {
             else if (s.panelCursor < cams.length + mics.length) chooseDevice('mic', mics[s.panelCursor - cams.length]!);
             else {
               setInputs(null); // rescan
+              setProbe(null);
               setPanelCursor(0);
               shellInput.blip('select');
             }
@@ -300,6 +320,18 @@ export function SettingsScreen(props: {
                       <span class="device-check">↻</span>
                       <span class="device-label">Rescan devices</span>
                     </div>
+                    {inputs.cameras.length === 0 && inputs.mics.length === 0 && (
+                      <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line,#333)">
+                        <div class="device-group">Diagnostics</div>
+                        {probe === null ? (
+                          <div style="color:var(--text-dim)"><span class="spin">✦</span> Probing media stack…</div>
+                        ) : (
+                          <pre style="font-size:13px;line-height:1.5;color:var(--text-dim);white-space:pre-wrap;word-break:break-word;margin:0">
+                            {describeProbe(probe)}
+                          </pre>
+                        )}
+                      </div>
+                    )}
                   </>
                 )}
               </div>

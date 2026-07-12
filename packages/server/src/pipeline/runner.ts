@@ -24,6 +24,7 @@ import {
   type StageName,
 } from '@sparkade/shared';
 import { bakeLikeness } from '../likeness/likeness';
+import { drawAvatarLikeness } from '../likeness/avatar';
 import { buildFaceAnalysisPrompt, buildPortraitPalette, type FaceFeatures } from '../likeness/features';
 import { ProviderAuthError, ProviderHttpError, ProviderNetworkError, stageProvider } from '../providers/index';
 import type { ConfigStore } from '../storage/config';
@@ -446,25 +447,26 @@ export class GenerationRunner {
         // Opt-in: read the photo's true (lighting-normalized) skin/hair colours
         // and bake against a portrait palette built from them, instead of the
         // game palette (which can quantize a face to gray). Falls back cleanly.
-        let likenessPalette = spec.palette;
-        // Game-palette fallback (few skin tones) needs a strong dither to fake
-        // gradients; the rich vision palette reads far cleaner with a light one.
-        let portraitDither = 30;
+        let feat: FaceFeatures | null = null;
         if (config.likeness.smartFeatures) {
           try {
             emit('building-assets', 'Reading your photo…');
-            const feat = (await callLlm('design', buildFaceAnalysisPrompt(), {
+            feat = (await callLlm('design', buildFaceAnalysisPrompt(), {
               image: photo,
               label: 'Read likeness',
               stage: 'building-assets',
             })) as FaceFeatures;
-            likenessPalette = buildPortraitPalette(feat);
-            portraitDither = 10;
           } catch {
-            /* vision unavailable / failed → keep the game palette */
+            /* vision unavailable / failed → photo bake against the game palette */
           }
         }
-        const baked = await bakeLikeness(photo, likenessPalette, portraitDither);
+        // "avatar" style DRAWS a pixel face from the detected traits (needs feat);
+        // "photo" quantizes the real photo (rich portrait palette + light dither
+        // when feat is available, else the game palette + strong dither).
+        const baked =
+          config.likeness.style === 'avatar' && feat
+            ? await drawAvatarLikeness(feat)
+            : await bakeLikeness(photo, feat ? buildPortraitPalette(feat) : spec.palette, feat ? 10 : 30);
         writeFileSync(join(assetsDir, 'head12.png'), baked.head12);
         writeFileSync(join(assetsDir, 'head16.png'), baked.head16);
         writeFileSync(join(assetsDir, 'portrait.png'), baked.portrait);

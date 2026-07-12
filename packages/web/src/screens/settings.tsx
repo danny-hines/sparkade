@@ -52,6 +52,7 @@ export function SettingsScreen(props: {
   const [probe, setProbe] = useState<MediaProbe | null>(null);
   const [devSel, setDevSel] = useState<DeviceSel>(props.settings?.devices ?? {});
   const [smartFeatures, setSmartFeatures] = useState(props.settings?.likeness?.smartFeatures ?? false);
+  const [likenessStyle, setLikenessStyle] = useState<'photo' | 'avatar'>(props.settings?.likeness?.style ?? 'photo');
   const oskTarget = useRef<string>('');
   const deviceListRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef({ tab, zone, panelCursor, tabs, osk, networks, inputs });
@@ -64,6 +65,7 @@ export function SettingsScreen(props: {
     if (props.settings) setAudio(props.settings.audio);
     if (props.settings) setDevSel(props.settings.devices ?? {});
     if (props.settings) setSmartFeatures(props.settings.likeness?.smartFeatures ?? false);
+    if (props.settings) setLikenessStyle(props.settings.likeness?.style ?? 'photo');
   }, [props.settings]);
   useEffect(() => {
     if (tab === 'wifi' && networks === null) {
@@ -109,6 +111,15 @@ export function SettingsScreen(props: {
     setSmartFeatures((cur) => {
       const next = !cur;
       void api.saveSettings({ likeness: { smartFeatures: next } }).then(props.onSettingsChanged);
+      return next;
+    });
+    shellInput.blip('select');
+  };
+
+  const cycleLikenessStyle = () => {
+    setLikenessStyle((cur) => {
+      const next = cur === 'photo' ? 'avatar' : 'photo';
+      void api.saveSettings({ likeness: { style: next } }).then(props.onSettingsChanged);
       return next;
     });
     shellInput.blip('select');
@@ -199,20 +210,22 @@ export function SettingsScreen(props: {
         } else if (s.tab === 'devices') {
           const cams = s.inputs?.cameras ?? [];
           const mics = s.inputs?.mics ?? [];
-          const rows = cams.length + mics.length + 2; // + rescan row + likeness toggle
+          const rows = cams.length + mics.length + 3; // + rescan + smart toggle + style
           if (btn === 'UP' || btn === 'DOWN') {
             setPanelCursor((c) => (c + (btn === 'DOWN' ? 1 : rows - 1)) % rows);
             shellInput.blip('move');
-          } else if (btn === 'A') {
-            if (s.panelCursor < cams.length) chooseDevice('camera', cams[s.panelCursor]!);
-            else if (s.panelCursor < cams.length + mics.length) chooseDevice('mic', mics[s.panelCursor - cams.length]!);
-            else if (s.panelCursor === cams.length + mics.length) {
+          } else if (btn === 'A' || btn === 'LEFT' || btn === 'RIGHT') {
+            if (btn === 'A' && s.panelCursor < cams.length) chooseDevice('camera', cams[s.panelCursor]!);
+            else if (btn === 'A' && s.panelCursor < cams.length + mics.length) chooseDevice('mic', mics[s.panelCursor - cams.length]!);
+            else if (btn === 'A' && s.panelCursor === cams.length + mics.length) {
               setInputs(null); // rescan
               setProbe(null);
               setPanelCursor(0);
               shellInput.blip('select');
-            } else {
-              toggleSmartFeatures();
+            } else if (s.panelCursor === cams.length + mics.length + 1) {
+              if (btn === 'A') toggleSmartFeatures();
+            } else if (s.panelCursor === cams.length + mics.length + 2) {
+              cycleLikenessStyle(); // A / Left / Right all flip photo <-> avatar
             }
           }
         } else if (s.tab === 'wifi') {
@@ -353,6 +366,13 @@ export function SettingsScreen(props: {
                     <div class={`focusable device-row likeness-toggle-row ${zone === 'panel' && panelCursor === inputs.cameras.length + inputs.mics.length + 1 ? 'focused' : ''}`}>
                       <span class="device-check">{smartFeatures ? <Icon name="check" /> : <Icon name="ring" />}</span>
                       <span class="device-label">Smart avatar colours — {smartFeatures ? 'On' : 'Off'}</span>
+                    </div>
+                    <div class={`focusable device-row likeness-toggle-row ${zone === 'panel' && panelCursor === inputs.cameras.length + inputs.mics.length + 2 ? 'focused' : ''}`}>
+                      <span class="device-check">{likenessStyle === 'avatar' ? <Icon name="sparkle" /> : <Icon name="camera" />}</span>
+                      <span class="device-label">
+                        Style — {likenessStyle === 'avatar' ? 'Drawn avatar' : 'Your photo'}
+                        {likenessStyle === 'avatar' && !smartFeatures ? ' (needs smart colours on)' : ''}
+                      </span>
                     </div>
                     {inputs.cameras.length === 0 && inputs.mics.length === 0 && (
                       <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line,#333)">

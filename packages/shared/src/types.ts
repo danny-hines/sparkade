@@ -622,7 +622,7 @@ export interface SparkadeConfig {
   providers: Record<string, ProviderConfig>;
   stages: Record<StageName, StageConfig>;
   pricing: Record<string, PriceRow>;
-  likeness: { describeInStory: boolean; smartFeatures?: boolean };
+  likeness: { describeInStory: boolean; smartFeatures?: boolean; style?: 'photo' | 'avatar' };
   presets: { id: string; title: string; archetype: ArchetypeId; premise: string; tone: string }[];
   audio: { musicVol: number; sfxVol: number; uiVol: number };
   input: {

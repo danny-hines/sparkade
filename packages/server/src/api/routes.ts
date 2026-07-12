@@ -292,7 +292,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     const body = req.body as {
       audio?: { musicVol: number; sfxVol: number; uiVol: number };
       input?: { gamepad?: Record<string, LogicalButton>; keyboard?: Record<string, LogicalButton> };
-      likeness?: { describeInStory?: boolean; smartFeatures?: boolean };
+      likeness?: { describeInStory?: boolean; smartFeatures?: boolean; style?: 'photo' | 'avatar' };
       devices?: { cameraId?: string; cameraLabel?: string; micId?: string; micLabel?: string };
     } | null;
     if (!body) return reply.code(400).send({ error: 'empty body' });
@@ -313,6 +313,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
           ...c.likeness,
           ...(body.likeness.describeInStory !== undefined ? { describeInStory: !!body.likeness.describeInStory } : {}),
           ...(body.likeness.smartFeatures !== undefined ? { smartFeatures: !!body.likeness.smartFeatures } : {}),
+          ...(body.likeness.style ? { style: body.likeness.style === 'avatar' ? 'avatar' : 'photo' } : {}),
         };
       }
       if (body.devices) {

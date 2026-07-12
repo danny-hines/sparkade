@@ -44,7 +44,7 @@ export function defaultConfig(): SparkadeConfig {
     },
     stages,
     pricing: { ...DEFAULT_PRICING },
-    likeness: { describeInStory: false, smartFeatures: true },
+    likeness: { describeInStory: false, smartFeatures: true, style: 'photo' },
     presets: IDEA_CARDS.map((c) => ({ ...c })),
     audio: { musicVol: 0.7, sfxVol: 0.8, uiVol: 0.4 },
     input: { gamepad: {}, keyboard: { ...DEFAULT_KEYBOARD_MAP } },
@@ -70,6 +70,10 @@ Edit with \`sparkade config edit\` (or any editor; restart the service after).
   (without it, faces quantize to the game palette and go gray/green). Ships ON — this is a photo->game
   app, so the photo is the input. Set false to keep the photo fully on-device (faces revert to the
   game-palette bake).
+- likeness.style: "photo" (default) quantizes the actual photo into the pixel head/portrait; "avatar"
+  instead DRAWS a clean pixel-art character from the detected traits (skin tone, hair, glasses, facial
+  hair, headwear) — webcam-proof and more stylised. "avatar" needs smartFeatures on (it draws from the
+  detected features); with smartFeatures off it falls back to the photo bake.
 - presets: the six idea cards shown in the New Game wizard.
 - audio: shell + engine volumes (also editable in Settings).
 - input: saved control mappings (managed by the remap wizard; keys are KeyboardEvent codes or b<n>/a<n>+/-).

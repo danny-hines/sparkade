@@ -311,13 +311,27 @@ export function makeBackdrop(palette: string[], seed: number, variant?: Backdrop
         }
         x += tw + rng.int(2, 10);
       }
-      const railY = H - rng.int(95, 130);
-      ctx.fillStyle = shade(light, 1.1);
-      ctx.globalAlpha = 0.65;
-      ctx.fillRect(0, railY, W, 2);
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = shade(mid, 0.75);
-      for (let px = rng.int(0, 40); px < W; px += 64) ctx.fillRect(px, railY + 2, 2, H - railY - 2);
+      // Elevated monorail. Structure it so it reads as a transit line, not a
+      // seam: support pylons down to the ground, a beam with a bright top edge,
+      // running lights, and one lit car. Pylon/light spacings divide W (512) so
+      // the horizontally-tiled near layer has no visible seam.
+      const railY = H - rng.int(80, 100);
+      ctx.fillStyle = shade(mid, 1.15); // lighter than the towers (mid×0.6) → visible against them
+      for (let px = rng.int(0, 64); px < W; px += 64) {
+        ctx.fillRect(px, railY + 3, 3, H - railY - 3); // support pylon to the ground
+        ctx.fillRect(px - 2, railY + 1, 7, 3); // cap under the beam
+      }
+      ctx.fillStyle = shade(light, 0.85); // beam body
+      ctx.fillRect(0, railY, W, 3);
+      ctx.fillStyle = shade(light, 1.4); // bright top rail
+      ctx.fillRect(0, railY - 1, W, 1);
+      ctx.fillStyle = shade(light, 1.5); // running lights
+      for (let lx = rng.int(0, 16); lx < W; lx += 16) ctx.fillRect(lx, railY + 1, 1, 1);
+      const carX = rng.int(24, W - 44); // a single car on the line
+      ctx.fillStyle = shade(light, 1.15);
+      ctx.fillRect(carX, railY - 5, 20, 6);
+      ctx.fillStyle = shade(light, 1.7);
+      for (let wx = carX + 3; wx < carX + 17; wx += 4) ctx.fillRect(wx, railY - 4, 2, 2); // windows
     } else if (v === 'ruins') {
       // broken skyline: shorn towers, dark window holes, slabs, rubble, I-beams
       const wall = shade(mid, 0.7);

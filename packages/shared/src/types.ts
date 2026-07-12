@@ -9,6 +9,7 @@ import type {
   LogicalButton,
   SfxEvent,
   StageName,
+  WeatherKind,
 } from './constants';
 
 // ---------------------------------------------------------------------------
@@ -315,6 +316,8 @@ export interface GameSpecBase {
   sprites: SpritesBlock;
   /** Procedural parallax backdrop scene; omitted → mood-based pick from the seed. */
   backdrop?: BackdropVariantId;
+  /** Ambient weather/particle overlay; omitted → 'none' (clear). */
+  weather?: WeatherKind;
   music: MusicBlock;
   sfx?: SfxBlock;
   scoring: ScoringBlock;

@@ -17,6 +17,7 @@ import type { InputBroker } from './input';
 import { GameLoop } from './loop';
 import { HowToPlayCard, InitialsEntry, LeaderboardView, PauseOverlay, ScoreTally, type LeaderboardRow } from './overlays';
 import { ParticleSystem } from './particles';
+import { makeWeather, type Weather } from './weather';
 import { Camera, Renderer } from './renderer';
 import { Rng } from './rng';
 import { SpriteStore } from './sprites';
@@ -82,6 +83,7 @@ export class GameHost {
   private hitStopMs = 0;
   private playT = 0;
   private disposed = false;
+  private weather: Weather;
 
   constructor(
     private opts: {
@@ -138,6 +140,7 @@ export class GameHost {
     });
 
     this.howto = new HowToPlayCard(opts.spec.meta.title, opts.archetype.controlHelp);
+    this.weather = makeWeather(opts.spec.weather ?? 'none', opts.spec.palette, opts.spec.seed);
     this.instance = opts.archetype.create(this.engineCtx, opts.spec);
     this.loop = new GameLoop({ update: (dt) => this.update(dt), render: () => this.render() });
   }
@@ -203,6 +206,7 @@ export class GameHost {
         this.playT += dt;
         this.instance.update(dt, input);
         this.engineCtx.particles.update(dt);
+        this.weather.update(dt);
         const result = this.instance.result;
         if (result) {
           this.music.stopSong();
@@ -317,6 +321,9 @@ export class GameHost {
       case 'game':
       case 'paused':
         this.instance.render();
+        // Ambient weather sits over the scene but under gameplay particles (so
+        // hit sparks stay crisp) and the HUD/story cards (always legible).
+        this.weather.draw(r.ctx, this.engineCtx.camera.x, this.engineCtx.camera.y);
         this.engineCtx.particles.render(r, this.engineCtx.camera.x, this.engineCtx.camera.y);
         this.engineCtx.hud.render(r, this.instance.hud, {
           showKeys: this.opts.spec.archetype === 'adventure',

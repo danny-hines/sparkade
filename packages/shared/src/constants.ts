@@ -383,6 +383,30 @@ export const BACKDROP_VARIANTS = [
 export type BackdropVariantId = (typeof BACKDROP_VARIANTS)[number];
 
 /**
+ * Procedural weather / ambient-particle overlays (engine `makeWeather`), drawn
+ * over gameplay and under the HUD in the game's palette colors. Source of truth
+ * shared with the archetype schemas' optional `weather` field (a unit test
+ * enforces the enums match). Default is 'none' — purely additive, so games
+ * without the field render exactly as before.
+ */
+export const WEATHER_KINDS = [
+  'none',
+  'rain',
+  'storm',
+  'snow',
+  'embers',
+  'ash',
+  'leaves',
+  'petals',
+  'fog',
+  'bubbles',
+  'fireflies',
+  'dust',
+] as const;
+
+export type WeatherKind = (typeof WEATHER_KINDS)[number];
+
+/**
  * Palette slot conventions. Library art and prompt templates agree on these
  * semantics so any generated 16-color palette recolors everything coherently.
  */

@@ -11,6 +11,8 @@ import {
   FONT_GLYPHS,
   LIBRARY,
   makeBackdrop,
+  makeWeather,
+  WEATHER_KINDS,
   type LibraryEntry,
 } from '@sparkade/engine';
 import { LIB_TILE_THEMES, PALETTE_MOODS } from '@sparkade/shared';
@@ -157,6 +159,43 @@ function PaletteCell(props: { mood: PaletteMood }): ComponentChildren {
   );
 }
 
+/** A live weather panel: the real makeWeather overlay over a sample backdrop. */
+function WeatherCell(props: { kind: string; palette: string[]; seed: number }): ComponentChildren {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    canvas.width = 512;
+    canvas.height = 300;
+    const ctx = canvas.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    const backdrop = makeBackdrop(props.palette, props.seed, 'mountains');
+    const weather = makeWeather(props.kind as never, props.palette, props.seed);
+    let scroll = 0;
+    let last = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      raf = requestAnimationFrame(tick);
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      scroll += dt * 40;
+      weather.update(dt);
+      ctx.fillStyle = props.palette[2] ?? '#111';
+      ctx.fillRect(0, 0, 512, 300);
+      backdrop.draw(ctx, scroll, 0);
+      weather.draw(ctx, scroll, 0);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [props.kind, props.palette, props.seed]);
+  return (
+    <div class="gal-cell">
+      <canvas ref={ref} style="width:340px;height:199px" />
+      <div class="gal-id">{props.kind}</div>
+    </div>
+  );
+}
+
 /** A live backdrop panel: the real generator, parallax animated. */
 function BackdropCell(props: { variant: string; palette: string[]; seed: number }): ComponentChildren {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -192,7 +231,7 @@ function BackdropCell(props: { variant: string; palette: string[]; seed: number 
   );
 }
 
-const TABS = ['Palettes', 'Backdrops', ...SPRITE_TABS.map(([t]) => t), 'Tiles', 'Font'] as const;
+const TABS = ['Palettes', 'Backdrops', 'Weather', ...SPRITE_TABS.map(([t]) => t), 'Tiles', 'Font'] as const;
 
 export function AssetsGalleryScreen(): ComponentChildren {
   const [games, setGames] = useState<GameListItem[]>([]);
@@ -232,6 +271,7 @@ export function AssetsGalleryScreen(): ComponentChildren {
   const countFor = (name: string): number => {
     if (name === 'Palettes') return PALETTE_MOODS.length;
     if (name === 'Backdrops') return BACKDROP_VARIANTS.length;
+    if (name === 'Weather') return WEATHER_KINDS.length;
     if (name === 'Font') return Object.keys(FONT_GLYPHS).length;
     if (name === 'Tiles') return ids.filter(isTileId).length;
     return ids.filter(SPRITE_TABS.find(([t]) => t === name)?.[1] ?? (() => false)).length;
@@ -336,6 +376,23 @@ export function AssetsGalleryScreen(): ComponentChildren {
             <div class="gal-grid">
               {BACKDROP_VARIANTS.map((v) => (
                 <BackdropCell key={`${v}-${seed}-${paletteId}`} variant={v} palette={palette} seed={seed} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab === 'Weather' && (
+          <div>
+            <div class="gal-controls gal-subcontrols">
+              <span class="gal-dim">Ambient overlays (real makeWeather) over a sample backdrop — as drawn over gameplay, under the HUD.</span>
+              <label>
+                Seed <input type="number" value={seed} style="width:110px" onChange={(e) => setSeed(Number((e.target as HTMLInputElement).value) || 0)} />
+              </label>
+              <button type="button" onClick={() => setSeed(Math.floor(Math.random() * 2 ** 31))}>Reroll</button>
+            </div>
+            <div class="gal-grid">
+              {WEATHER_KINDS.map((k) => (
+                <WeatherCell key={`${k}-${seed}-${paletteId}`} kind={k} palette={palette} seed={seed} />
               ))}
             </div>
           </div>

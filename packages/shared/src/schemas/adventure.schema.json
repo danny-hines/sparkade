@@ -27,6 +27,13 @@
         "factory"
       ]
     },
+    "weather": {
+      "description": "Ambient weather/particle overlay drawn over gameplay in your palette colors. Match the premise (rain, snow, embers, fog, fireflies, …); keep it subtle; omit or 'none' for clear.",
+      "enum": [
+        "none", "rain", "storm", "snow", "embers", "ash",
+        "leaves", "petals", "fog", "bubbles", "fireflies", "dust"
+      ]
+    },
     "levels": {
       "description": "Exactly one dungeon.",
       "type": "array",

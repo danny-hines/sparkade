@@ -165,7 +165,9 @@ function annotated(ids: readonly string[]): string {
 }
 
 /** Static backdrop guidance shared by all three archetypes (system prompt). */
-const BACKDROP_NOTE = `BACKDROP — set the top-level "backdrop" field to the parallax scene behind gameplay (procedurally drawn in your palette's background colors): starfield (deep space + planet), hills (rolling countryside), clouds (open sky), caves (cavern silhouette), mountains (snow-capped peaks), candy (lollipop hills + sprinkles), city (futuristic lit skyline + monorail), ruins (shattered towers + rubble), pyramids (dunes + stepped monuments), circuit (inside a computer — grid + traces), factory (smokestacks, gantries, pipes). Pick the scene that matches the premise; omit only if none fit.`;
+const BACKDROP_NOTE = `BACKDROP — set the top-level "backdrop" field to the parallax scene behind gameplay (procedurally drawn in your palette's background colors): starfield (deep space + planet), hills (rolling countryside), clouds (open sky), caves (cavern silhouette), mountains (snow-capped peaks), candy (lollipop hills + sprinkles), city (futuristic lit skyline + monorail), ruins (shattered towers + rubble), pyramids (dunes + stepped monuments), circuit (inside a computer — grid + traces), factory (smokestacks, gantries, pipes). Pick the scene that matches the premise; omit only if none fit.
+
+WEATHER (optional) — set the top-level "weather" field for a subtle ambient particle overlay in your palette colors: rain, storm (heavy driving rain), snow, embers (rising sparks — fire/volcano), ash (falling grey flecks — ruins/aftermath), leaves (autumn/forest), petals (blossom/candy), fog (drifting mist), bubbles (undersea), fireflies (glowing night motes), dust (drifting desert/dungeon motes). Choose one that reinforces the mood, or "none"/omit for clear air. It's atmosphere — don't let it fight the gameplay.`;
 
 /** Per-archetype library menus (annotated, grouped) + reskinnable-slot documentation. */
 function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: string } {

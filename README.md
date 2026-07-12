@@ -35,11 +35,12 @@ file-upload fallback and the voice step offers canned transcripts.
 `http://127.0.0.1:8080/dev/assets` redirects there) is a tabbed gallery of the entire built-in
 sprite library — heroes/ships, enemies, 12 bosses (four per archetype), NPCs, projectiles/pickups,
 and 11 themed tile families — plus the bitmap font, all 11 procedural backdrops with live parallax,
-and the ~two-dozen curated palette moods (each with an in-use scene). Switch between the preview
-palette and any installed game's palette, zoom, toggle animation, see 3×3 seamless-tiling previews
-for every tile family, overlay hero head-slots, and reroll backdrop seeds. Rendered by the real
-engine code, so what you review is what ships (`scripts/check-art.mts` and
-`scripts/check-palettes.mts` validate the data; this page is for taste).
+the ~two-dozen curated palette moods (each with an in-use scene), and the ambient weather overlays
+(each animated over a sample backdrop). Switch between the preview palette and any installed game's
+palette, zoom, toggle animation, see 3×3 seamless-tiling previews for every tile family, overlay
+hero head-slots, and reroll backdrop/weather seeds. Rendered by the real engine code, so what you
+review is what ships (`scripts/check-art.mts` and `scripts/check-palettes.mts` validate the data;
+this page is for taste).
 
 To hit a real model, copy `.env.example` to `.env`, set `META_API_KEY`, and use `npm run dev`.
 
@@ -112,10 +113,11 @@ sparkade backup [file] / backup restore <file>
 2. **Archetype templates** (hand-written): the platformer/shooter/adventure gameplay systems,
    each with a strict JSON Schema, semantic linter, duration estimator and content floors.
 3. **Generated game spec** (model-authored, pure data): story, palette, sprites, levels,
-   boss, backdrop, music score, SFX params, scoring — validated, auto-repaired (RFC 6902 patches
-   at temperature 0), and bounded. The model composes each game's look from a broad built-in
-   library (multiple hero/ship bodies, enemies, per-archetype bosses, 11 themed tile families)
-   and picks a parallax backdrop scene, or draws its own pure-data sprites. The 16-color palette
+   boss, backdrop, weather, music score, SFX params, scoring — validated, auto-repaired (RFC 6902
+   patches at temperature 0), and bounded. The model composes each game's look from a broad built-in
+   library (multiple hero/ship bodies, enemies, per-archetype bosses, 11 themed tile families),
+   picks a parallax backdrop scene and an optional ambient weather overlay (rain, snow, embers,
+   fog, fireflies, …), or draws its own pure-data sprites. The 16-color palette
    recolors everything, so it is checked for legibility (dark outline, hero popping off the
    background, readable text, distinct hazard, …); a palette that fails snaps to the nearest of
    ~two dozen curated "moods" the model also gets as a cookbook. String fields are scanned;

@@ -71,7 +71,7 @@ export interface NewJobInputs {
 
 interface SpecParts {
   levels?: unknown;
-  entities?: { sprites: unknown; boss: unknown; sfx?: unknown; backdrop?: unknown };
+  entities?: { sprites: unknown; boss: unknown; sfx?: unknown; backdrop?: unknown; weather?: unknown };
   music?: unknown;
 }
 
@@ -590,6 +590,7 @@ export class GenerationRunner {
       music: (parts.music ?? {}) as never,
       ...(parts.entities?.sfx ? { sfx: parts.entities.sfx as GameSpec['sfx'] } : {}),
       ...(parts.entities?.backdrop ? { backdrop: parts.entities.backdrop as GameSpec['backdrop'] } : {}),
+      ...(parts.entities?.weather ? { weather: parts.entities.weather as GameSpec['weather'] } : {}),
       scoring: design.scoring,
     } as GameSpec;
   }
@@ -649,7 +650,7 @@ export class GenerationRunner {
     for (const d of diagnostics) {
       if (d.path.startsWith('/levels')) owners.add('levels');
       else if (d.path.startsWith('/music')) owners.add('music');
-      else if (d.path.startsWith('/sprites') || d.path.startsWith('/boss') || d.path.startsWith('/sfx') || d.path.startsWith('/backdrop')) owners.add('entities');
+      else if (d.path.startsWith('/sprites') || d.path.startsWith('/boss') || d.path.startsWith('/sfx') || d.path.startsWith('/backdrop') || d.path.startsWith('/weather')) owners.add('entities');
       else owners.add('levels'); // duration/floors and cross-cutting issues are level-shaped
     }
     emit('writing-spec', `Regenerating ${[...owners].join(' + ')}…`);
@@ -659,7 +660,7 @@ export class GenerationRunner {
         spec = { ...spec, levels: (r.levels ?? r) as never };
       } else if (owner === 'entities') {
         const r = (await callLlm('entities', buildEntitiesPrompt(archetype, design, hasPhoto, recentUse), { label: 'Entities recast', stage: 'writing-spec' })) as SpecParts['entities'];
-        spec = { ...spec, sprites: r!.sprites as GameSpec['sprites'], boss: r!.boss as never, ...(r!.sfx ? { sfx: r!.sfx as GameSpec['sfx'] } : {}), ...(r!.backdrop ? { backdrop: r!.backdrop as GameSpec['backdrop'] } : {}) };
+        spec = { ...spec, sprites: r!.sprites as GameSpec['sprites'], boss: r!.boss as never, ...(r!.sfx ? { sfx: r!.sfx as GameSpec['sfx'] } : {}), ...(r!.backdrop ? { backdrop: r!.backdrop as GameSpec['backdrop'] } : {}), ...(r!.weather ? { weather: r!.weather as GameSpec['weather'] } : {}) };
       } else {
         const r = (await callLlm('music', buildMusicPrompt(archetype, design), { label: 'Music recomposed', stage: 'writing-spec' })) as { music: unknown };
         spec = { ...spec, music: (r.music ?? r) as never };

@@ -5,6 +5,7 @@ import {
   COMMON_DEF_NAMES,
   DESIGN_SCHEMA,
   stageSchema,
+  WEATHER_KINDS,
 } from '@sparkade/shared';
 
 describe('archetype schemas', () => {
@@ -42,6 +43,14 @@ describe('archetype schemas', () => {
       const s = schema as { properties: Record<string, { enum?: string[] }>; required: string[] };
       expect(s.properties['backdrop']?.enum, `${id}.backdrop enum`).toEqual([...BACKDROP_VARIANTS]);
       expect(s.required, `${id} must keep backdrop optional`).not.toContain('backdrop');
+    }
+  });
+
+  it('weather enum matches the engine kind list (schema/engine sync guard)', () => {
+    for (const [id, schema] of Object.entries(ARCHETYPE_SCHEMAS)) {
+      const s = schema as { properties: Record<string, { enum?: string[] }>; required: string[] };
+      expect(s.properties['weather']?.enum, `${id}.weather enum`).toEqual([...WEATHER_KINDS]);
+      expect(s.required, `${id} must keep weather optional`).not.toContain('weather');
     }
   });
 

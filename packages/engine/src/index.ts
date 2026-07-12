@@ -21,6 +21,7 @@ export {
   type Backdrop,
   type BackdropVariant,
 } from './backdrops';
+export { WEATHER_KINDS, makeWeather, type Weather, type WeatherKind } from './weather';
 export { ParticleSystem } from './particles';
 export { aabbOverlap, moveAABB, cellsUnder, type AABB, type TileGrid, type Solidity, type MoveResult } from './physics';
 export { AudioSys } from './audio/audio';

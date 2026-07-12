@@ -5,6 +5,7 @@
 import type {
   ArchetypeId,
   BackdropVariantId,
+  Difficulty,
   JobStage,
   LightingMode,
   LogicalButton,
@@ -330,6 +331,8 @@ export interface GameSpecBase {
   lighting?: LightingMode;
   /** VFX intensity multiplier for screen-shake (0–1.5); omitted → 1 (default). */
   juice?: number;
+  /** Enemy-aggression tier from the design stage; omitted → 'standard'. */
+  difficulty?: Difficulty;
   music: MusicBlock;
   sfx?: SfxBlock;
   scoring: ScoringBlock;

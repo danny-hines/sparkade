@@ -23,12 +23,14 @@ import {
   INTERNAL_HEIGHT,
   INTERNAL_WIDTH,
   TILE_SIZE,
+  difficultyScale,
   type AdventureDoor,
   type AdventureDungeon,
   type AdventureEntity,
   type AdventureEntityType,
   type AdventureRoom,
   type AdventureSpec,
+  type DifficultyScale,
 } from '@sparkade/shared';
 import { estimateAdventureDurationS } from './lint';
 
@@ -294,11 +296,13 @@ class AdventureGame implements GameInstance {
   private waveSprite: ResolvedSprite;
   private boomSprite: ResolvedSprite;
   private bombSprite: ResolvedSprite;
+  private diff!: DifficultyScale;
 
   constructor(
     private engine: EngineContext,
     private spec: AdventureSpec,
   ) {
+    this.diff = difficultyScale(spec.difficulty);
     this.dungeon = spec.levels[0]!;
     for (const role of Object.keys(ROLE_FALLBACK)) {
       this.sprites[role] = engine.sprites.byRole(role, ROLE_FALLBACK[role]!);
@@ -595,7 +599,7 @@ class AdventureGame implements GameInstance {
       e.dirX = this.engine.rng.chance(0.5) ? 1 : -1;
       e.dirY = 0;
       e.t = 0;
-      e.hp = type === 'bruiser' ? 3 : 1;
+      e.hp = Math.max(1, Math.round((type === 'bruiser' ? 3 : 1) * this.diff.hp));
       e.fireT = 0;
       e.stunT = 0;
       e.hitT = 0;
@@ -1207,7 +1211,7 @@ class AdventureGame implements GameInstance {
       case 'shooter': {
         e.fireT += dt;
         e.dirX = pcx >= ecx ? 1 : -1;
-        if (e.fireT >= 2.2) {
+        if (e.fireT >= 2.2 / this.diff.fire) {
           e.fireT = 0;
           const dx = pcx - ecx;
           const dy = pcy - ecy;

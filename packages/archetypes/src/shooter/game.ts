@@ -15,6 +15,8 @@ import {
   FEEL,
   INTERNAL_HEIGHT,
   INTERNAL_WIDTH,
+  difficultyScale,
+  type DifficultyScale,
   type ShooterEnemyType,
   type ShooterLevel,
   type ShooterPath,
@@ -220,10 +222,13 @@ class ShooterGame implements GameInstance {
   private pickupSprites: Record<ShooterPickupType, ResolvedSprite>;
   private foeDims: Record<ShooterEnemyType, { w: number; h: number }>;
 
+  private diff!: DifficultyScale;
+
   constructor(
     private engine: EngineContext,
     private spec: ShooterSpec,
   ) {
+    this.diff = difficultyScale(this.spec.difficulty);
     for (const role of Object.keys(ROLE_FALLBACK)) {
       this.sprites[role] = engine.sprites.byRole(role, ROLE_FALLBACK[role]!);
     }
@@ -578,8 +583,8 @@ class ShooterGame implements GameInstance {
       e.y = -16 + oy;
       e.baseX = e.x;
       e.t = 0;
-      e.hp = w.hp;
-      e.fireRate = w.fireRate;
+      e.hp = Math.max(1, Math.round(w.hp * this.diff.hp));
+      e.fireRate = w.fireRate * this.diff.fire;
       e.fireT = -rng.range(0, 0.8); // stagger the first volley
       e.state = ST_APPROACH;
       e.holdT = 0;

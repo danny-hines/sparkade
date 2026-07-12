@@ -114,6 +114,29 @@ export const FEEL = {
   damageFlashMs: 100,
 } as const;
 
+// Difficulty: the design stage picks one; archetypes scale enemy aggression from
+// it. Deliberately conservative and geometry-neutral — it only touches enemy hp
+// and fire cadence, never level layout, entity counts, or the jump kernel, so it
+// can't make a validated level unsolvable.
+export const DIFFICULTIES = ['chill', 'standard', 'spicy'] as const;
+export type Difficulty = (typeof DIFFICULTIES)[number];
+export interface DifficultyScale {
+  /** enemy hp multiplier (clamp to ≥1 after rounding at the call site) */
+  hp: number;
+  /** enemy fire-cadence multiplier: >1 = faster (more shots/sec / shorter interval) */
+  fire: number;
+}
+export function difficultyScale(d: Difficulty | undefined): DifficultyScale {
+  switch (d) {
+    case 'chill':
+      return { hp: 0.8, fire: 0.8 };
+    case 'spicy':
+      return { hp: 1.3, fire: 1.3 };
+    default:
+      return { hp: 1, fire: 1 };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Audio
 // ---------------------------------------------------------------------------

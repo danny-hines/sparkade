@@ -611,6 +611,7 @@ export class GenerationRunner {
       ...(parts.entities?.weather ? { weather: parts.entities.weather as GameSpec['weather'] } : {}),
       ...(parts.entities?.lighting ? { lighting: parts.entities.lighting as GameSpec['lighting'] } : {}),
       ...(parts.entities?.juice !== undefined ? { juice: parts.entities.juice as GameSpec['juice'] } : {}),
+      ...(design.difficulty ? { difficulty: design.difficulty } : {}),
       scoring: design.scoring,
     } as GameSpec;
   }

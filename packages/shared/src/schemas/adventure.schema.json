@@ -44,6 +44,10 @@
       "minimum": 0,
       "maximum": 1.5
     },
+    "difficulty": {
+      "description": "Enemy-aggression tier (scales enemy hp + fire cadence). Assembled from the design doc; not authored in this stage.",
+      "enum": ["chill", "standard", "spicy"]
+    },
     "levels": {
       "description": "Exactly one dungeon.",
       "type": "array",

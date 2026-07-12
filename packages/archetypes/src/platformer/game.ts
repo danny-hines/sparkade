@@ -21,6 +21,8 @@ import {
   INTERNAL_HEIGHT,
   INTERNAL_WIDTH,
   TILE_SIZE,
+  difficultyScale,
+  type DifficultyScale,
   type PlatformerEntity,
   type PlatformerLevel,
   type PlatformerSpec,
@@ -130,11 +132,13 @@ class PlatformerGame implements GameInstance {
   private boss: (Ent & { attack: BossAttackState; phaseIx: number; invulnT: number; maxHp: number }) | null = null;
 
   private sprites: Record<string, ResolvedSprite> = {};
+  private diff!: DifficultyScale;
 
   constructor(
     private engine: EngineContext,
     private spec: PlatformerSpec,
   ) {
+    this.diff = difficultyScale(this.spec.difficulty);
     for (const role of Object.keys(ROLE_FALLBACK)) {
       this.sprites[role] = engine.sprites.byRole(role, ROLE_FALLBACK[role]!);
     }
@@ -574,7 +578,7 @@ class PlatformerGame implements GameInstance {
         }
         case 'shooter': {
           e.fireT += dt;
-          const interval = (e.props.fireIntervalMs ?? 2200) / 1000;
+          const interval = (e.props.fireIntervalMs ?? 2200) / 1000 / this.diff.fire;
           if (e.fireT >= interval && Math.abs(this.px - e.x) < INTERNAL_WIDTH * 0.6) {
             e.fireT = 0;
             if (e.props.aim === 'arc') {

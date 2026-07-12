@@ -48,6 +48,7 @@ export function defaultConfig(): SparkadeConfig {
     presets: IDEA_CARDS.map((c) => ({ ...c })),
     audio: { musicVol: 0.7, sfxVol: 0.8, uiVol: 0.4 },
     input: { gamepad: {}, keyboard: { ...DEFAULT_KEYBOARD_MAP } },
+    devices: {},
   };
 }
 
@@ -137,6 +138,7 @@ function mergeConfig(defaults: SparkadeConfig, onDisk: Partial<SparkadeConfig>):
       gamepad: onDisk.input?.gamepad ?? defaults.input.gamepad,
       keyboard: onDisk.input?.keyboard ?? defaults.input.keyboard,
     },
+    devices: { ...defaults.devices, ...(onDisk.devices ?? {}) },
   };
   return merged;
 }

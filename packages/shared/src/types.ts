@@ -602,6 +602,14 @@ export interface SparkadeConfig {
     gamepad: Record<string, LogicalButton>;
     keyboard: Record<string, LogicalButton>;
   };
+  /** Preferred capture devices (empty → browser default). Chosen in Settings →
+   * Camera & Mic; label kept for display + fallback if the deviceId changes. */
+  devices: {
+    cameraId?: string;
+    cameraLabel?: string;
+    micId?: string;
+    micLabel?: string;
+  };
 }
 
 // ---------------------------------------------------------------------------

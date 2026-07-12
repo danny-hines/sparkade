@@ -280,6 +280,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       audio: c.audio,
       input: c.input,
       likeness: c.likeness,
+      devices: c.devices,
       presets: c.presets,
       stages: c.stages, // read-only in the UI; keys never appear here
       pricing: c.pricing,
@@ -291,6 +292,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       audio?: { musicVol: number; sfxVol: number; uiVol: number };
       input?: { gamepad?: Record<string, LogicalButton>; keyboard?: Record<string, LogicalButton> };
       likeness?: { describeInStory: boolean };
+      devices?: { cameraId?: string; cameraLabel?: string; micId?: string; micLabel?: string };
     } | null;
     if (!body) return reply.code(400).send({ error: 'empty body' });
     configStore.update((c) => {
@@ -306,6 +308,17 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
         if (body.input.keyboard && Object.keys(body.input.keyboard).length > 0) c.input.keyboard = body.input.keyboard;
       }
       if (body.likeness) c.likeness = { describeInStory: !!body.likeness.describeInStory };
+      if (body.devices) {
+        // Store only short strings; empty string clears back to browser default.
+        const s = (v: unknown): string | undefined =>
+          typeof v === 'string' && v.trim() ? v.slice(0, 200) : undefined;
+        c.devices = {
+          cameraId: s(body.devices.cameraId),
+          cameraLabel: s(body.devices.cameraLabel),
+          micId: s(body.devices.micId),
+          micLabel: s(body.devices.micLabel),
+        };
+      }
     });
     return { ok: true };
   });

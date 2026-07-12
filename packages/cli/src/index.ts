@@ -407,7 +407,11 @@ function cmdDoctor(): void {
     }
     console.log(`${name.padEnd(14)} ${result}`);
   }
-  console.log('\nprovider ping: run `sparkade provider test` (makes one tiny paid call)');
+  console.log(
+    '\nWrong camera/mic used at capture? The kiosk picks a default input — choose the\n' +
+      'right USB device in Settings → Camera & Mic (with a live preview + mic meter).',
+  );
+  console.log('provider ping: run `sparkade provider test` (makes one tiny paid call)');
 }
 
 function cmdKiosk(enable: boolean): void {

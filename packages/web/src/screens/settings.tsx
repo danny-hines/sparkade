@@ -5,10 +5,12 @@ import type { ComponentChildren } from 'preact';
 import { LOGICAL_BUTTONS, type SystemInfo, type WifiNetwork } from '@sparkade/shared';
 import { api, type SettingsPayload } from '../api';
 import { FooterLegend, newOskState, OnScreenKeyboard, oskHandle, usd, type OskState } from '../components';
+import { enumerateInputs, getUserMediaForDevice, type DeviceInfo } from '../media';
 import { shellInput } from '../shell-input';
 import type { Screen } from '../app';
 
-type Tab = 'controls' | 'audio' | 'wifi' | 'system' | 'model';
+type Tab = 'controls' | 'audio' | 'devices' | 'wifi' | 'system' | 'model';
+type DeviceSel = { cameraId?: string; cameraLabel?: string; micId?: string; micLabel?: string };
 
 export function SettingsScreen(props: {
   go: (s: Screen) => void;
@@ -20,6 +22,7 @@ export function SettingsScreen(props: {
   const tabs: { id: Tab; label: string }[] = [
     { id: 'controls', label: 'Controls' },
     { id: 'audio', label: 'Audio' },
+    { id: 'devices', label: 'Camera & Mic' },
     ...(info?.isPi ? [{ id: 'wifi' as Tab, label: 'WiFi' }] : []),
     { id: 'system', label: 'System info' },
     { id: 'model', label: 'Model info' },
@@ -32,26 +35,44 @@ export function SettingsScreen(props: {
   const [wifiMsg, setWifiMsg] = useState('');
   const [osk, setOsk] = useState<OskState | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [inputs, setInputs] = useState<{ cameras: DeviceInfo[]; mics: DeviceInfo[] } | null>(null);
+  const [devSel, setDevSel] = useState<DeviceSel>(props.settings?.devices ?? {});
   const oskTarget = useRef<string>('');
-  const stateRef = useRef({ tab, zone, panelCursor, tabs, osk, networks });
-  stateRef.current = { tab, zone, panelCursor, tabs, osk, networks };
+  const stateRef = useRef({ tab, zone, panelCursor, tabs, osk, networks, inputs });
+  stateRef.current = { tab, zone, panelCursor, tabs, osk, networks, inputs };
 
   useEffect(() => {
     void api.systemInfo().then(setInfo).catch(() => {});
   }, []);
   useEffect(() => {
     if (props.settings) setAudio(props.settings.audio);
+    if (props.settings) setDevSel(props.settings.devices ?? {});
   }, [props.settings]);
   useEffect(() => {
     if (tab === 'wifi' && networks === null) {
       void api.wifiNetworks().then(setNetworks).catch((e: Error) => setWifiMsg(e.message));
     }
-  }, [tab, networks]);
+    if (tab === 'devices' && inputs === null) {
+      void enumerateInputs().then(setInputs).catch(() => setInputs({ cameras: [], mics: [] }));
+    }
+  }, [tab, networks, inputs]);
 
   const saveAudio = (next: typeof audio) => {
     setAudio(next);
     shellInput.setVolumes(next);
     void api.saveSettings({ audio: next }).then(props.onSettingsChanged);
+  };
+
+  const chooseDevice = (kind: 'camera' | 'mic', d: DeviceInfo) => {
+    setDevSel((cur) => {
+      const next: DeviceSel =
+        kind === 'camera'
+          ? { ...cur, cameraId: d.id, cameraLabel: d.label }
+          : { ...cur, micId: d.id, micLabel: d.label };
+      void api.saveSettings({ devices: next }).then(props.onSettingsChanged);
+      return next;
+    });
+    shellInput.blip('select');
   };
 
   useEffect(
@@ -135,6 +156,22 @@ export function SettingsScreen(props: {
           if (btn === 'A') {
             shellInput.blip('select');
             props.go({ name: 'remap', firstBoot: false, returnTo: { name: 'settings', tab: 'controls' } });
+          }
+        } else if (s.tab === 'devices') {
+          const cams = s.inputs?.cameras ?? [];
+          const mics = s.inputs?.mics ?? [];
+          const rows = cams.length + mics.length + 1; // + rescan row
+          if (btn === 'UP' || btn === 'DOWN') {
+            setPanelCursor((c) => (c + (btn === 'DOWN' ? 1 : rows - 1)) % rows);
+            shellInput.blip('move');
+          } else if (btn === 'A') {
+            if (s.panelCursor < cams.length) chooseDevice('camera', cams[s.panelCursor]!);
+            else if (s.panelCursor < cams.length + mics.length) chooseDevice('mic', mics[s.panelCursor - cams.length]!);
+            else {
+              setInputs(null); // rescan
+              setPanelCursor(0);
+              shellInput.blip('select');
+            }
           }
         } else if (s.tab === 'wifi') {
           const list = s.networks ?? [];
@@ -231,6 +268,46 @@ export function SettingsScreen(props: {
               <p style="color:var(--text-dim);font-size:16px;margin-top:10px">
                 Tip: hold any single button for 5 seconds on any menu to remap.
               </p>
+            </div>
+          )}
+          {tab === 'devices' && (
+            <div class="devices-layout">
+              <div class="device-lists">
+                {inputs === null ? (
+                  <div style="color:var(--text-dim)"><span class="spin">✦</span> Finding cameras & mics…</div>
+                ) : (
+                  <>
+                    <div class="device-group">Camera</div>
+                    {inputs.cameras.length === 0 && <div class="device-none">No camera found — check the USB connection</div>}
+                    {inputs.cameras.map((d, i) => (
+                      <div key={d.id} class={`focusable device-row ${zone === 'panel' && panelCursor === i ? 'focused' : ''}`}>
+                        <span class="device-check">{devSel.cameraId === d.id ? '●' : '○'}</span>
+                        <span class="device-label">{d.label}</span>
+                      </div>
+                    ))}
+                    <div class="device-group">Microphone</div>
+                    {inputs.mics.length === 0 && <div class="device-none">No microphone found — check the USB connection</div>}
+                    {inputs.mics.map((d, i) => {
+                      const row = inputs.cameras.length + i;
+                      return (
+                        <div key={d.id} class={`focusable device-row ${zone === 'panel' && panelCursor === row ? 'focused' : ''}`}>
+                          <span class="device-check">{devSel.micId === d.id ? '●' : '○'}</span>
+                          <span class="device-label">{d.label}</span>
+                        </div>
+                      );
+                    })}
+                    <div class={`focusable device-row device-rescan ${zone === 'panel' && panelCursor === inputs.cameras.length + inputs.mics.length ? 'focused' : ''}`}>
+                      <span class="device-check">↻</span>
+                      <span class="device-label">Rescan devices</span>
+                    </div>
+                  </>
+                )}
+              </div>
+              {/* Rendered only after enumeration: keeps the preview's getUserMedia
+                  from racing the label-unlock throwaway, and makes Rescan (which
+                  nulls `inputs`) remount the monitor so a replugged device's
+                  preview re-acquires without leaving the tab. */}
+              {inputs !== null && <DeviceMonitor cameraId={devSel.cameraId} micId={devSel.micId} />}
             </div>
           )}
           {tab === 'wifi' && (
@@ -333,4 +410,94 @@ function signalBars(signal: number): string {
   if (signal > 50) return '▂▄▆_';
   if (signal > 25) return '▂▄__';
   return '▂___';
+}
+
+/** Live camera preview + mic level meter for the selected devices (a hardware
+ * sanity check: see the camera, watch the bar move when you speak). Holds the
+ * streams only while mounted (the Camera & Mic tab); cleaned up on unmount. */
+function DeviceMonitor(props: { cameraId?: string; micId?: string }): ComponentChildren {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [level, setLevel] = useState(0);
+  const [camErr, setCamErr] = useState(false);
+
+  useEffect(() => {
+    let stopped = false;
+    let stream: MediaStream | null = null;
+    setCamErr(false);
+    void getUserMediaForDevice('video', props.cameraId, { width: { ideal: 640 }, height: { ideal: 480 } })
+      .then((s) => {
+        if (stopped) {
+          s.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        stream = s;
+        if (videoRef.current) {
+          videoRef.current.srcObject = s;
+          void videoRef.current.play().catch(() => {});
+        }
+      })
+      .catch(() => setCamErr(true));
+    return () => {
+      stopped = true;
+      stream?.getTracks().forEach((t) => t.stop());
+    };
+  }, [props.cameraId]);
+
+  useEffect(() => {
+    let stopped = false;
+    let raf = 0;
+    let stream: MediaStream | null = null;
+    let ac: AudioContext | null = null;
+    void getUserMediaForDevice('audio', props.micId)
+      .then((s) => {
+        if (stopped) {
+          s.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        stream = s;
+        const Ctor =
+          window.AudioContext ??
+          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        ac = new Ctor();
+        const src = ac.createMediaStreamSource(s);
+        const an = ac.createAnalyser();
+        an.fftSize = 512;
+        src.connect(an);
+        const buf = new Uint8Array(an.fftSize);
+        const tick = () => {
+          an.getByteTimeDomainData(buf);
+          let sum = 0;
+          for (const v of buf) {
+            const d = (v - 128) / 128;
+            sum += d * d;
+          }
+          setLevel(Math.min(1, Math.sqrt(sum / buf.length) * 4));
+          raf = requestAnimationFrame(tick);
+        };
+        tick();
+      })
+      .catch(() => {});
+    return () => {
+      stopped = true;
+      cancelAnimationFrame(raf);
+      stream?.getTracks().forEach((t) => t.stop());
+      void ac?.close().catch(() => {});
+    };
+  }, [props.micId]);
+
+  return (
+    <div class="device-monitor">
+      <div class="device-preview">
+        {camErr ? (
+          <div class="device-preview-err">no camera signal</div>
+        ) : (
+          <video ref={videoRef} autoplay muted playsinline />
+        )}
+      </div>
+      <div class="mic-meter">
+        <div class="mic-meter-fill" style={{ width: `${Math.round(level * 100)}%` }} />
+      </div>
+      <div class="device-hint">Speak — the bar should move. Preview shows the selected camera.</div>
+    </div>
+  );
 }

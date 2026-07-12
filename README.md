@@ -184,7 +184,8 @@ the canonical **fighter** (Y high punch, X high kick, B low punch, A low kick, L
 - [ ] First boot with an unmapped encoder walks through **raw-input mapping** before any menu
       needs mapped buttons ("DragonRise Inc. Generic USB Joystick" and keyboard-mode clones both).
 - [ ] **Camera + mic capture**: photo step shows a mirrored preview with oval guide and countdown;
-      voice step meters and transcribes.
+      voice step meters and transcribes. If the wrong input is used, pick the USB camera/mic in
+      **Settings → Camera & Mic** (live preview + mic level meter); the choice persists in config.
 - [ ] A **real remote generation** completes in under 5 minutes with honest stage progress and a
       cost ticker; the final cost matches the meta.json breakdown.
 - [ ] A ready game **launches offline** (WiFi off) with music, SFX, story cards, boss, checkpoints.

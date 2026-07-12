@@ -6,6 +6,7 @@ import type { ComponentChildren } from 'preact';
 import { GENERATION, LIKENESS_OVAL, MAX_PHOTO_DIM, type ArchetypeId } from '@sparkade/shared';
 import { api, type SettingsPayload } from '../api';
 import { FooterLegend, Modal } from '../components';
+import { getUserMediaForDevice } from '../media';
 import { shellInput } from '../shell-input';
 import type { Screen } from '../app';
 
@@ -76,8 +77,10 @@ export function WizardScreen(props: {
   useEffect(() => {
     if (step === 'photo' && photoMode === 'camera') {
       let canceled = false;
-      void navigator.mediaDevices
-        .getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } } })
+      void getUserMediaForDevice('video', props.settings?.devices?.cameraId, {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      })
         .then((stream) => {
           if (canceled) {
             stream.getTracks().forEach((t) => t.stop());
@@ -176,7 +179,7 @@ export function WizardScreen(props: {
   const startRecording = async () => {
     setSttError('');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await getUserMediaForDevice('audio', props.settings?.devices?.micId);
       streamRef.current = stream;
       const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'

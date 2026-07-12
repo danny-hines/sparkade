@@ -659,6 +659,113 @@ h2.pixel {
   font-size: 17px;
 }
 
+/* ------------------------------------------------------- camera & mic */
+
+.devices-layout {
+  display: flex;
+  gap: 26px;
+  align-items: flex-start;
+}
+
+.device-lists {
+  flex: 1;
+  min-width: 0;
+  max-height: 380px;
+  overflow: hidden;
+}
+
+.device-group {
+  color: var(--cyan);
+  font-size: 15px;
+  letter-spacing: 1px;
+  margin: 12px 0 6px;
+}
+
+.device-group:first-child {
+  margin-top: 0;
+}
+
+.device-none {
+  color: var(--spark);
+  font-size: 17px;
+  padding: 4px 18px;
+}
+
+.device-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 18px;
+  font-size: 19px;
+}
+
+.device-row .device-check {
+  width: 18px;
+  color: var(--cyan);
+}
+
+.device-row .device-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-rescan {
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+
+.device-monitor {
+  width: 300px;
+  flex-shrink: 0;
+}
+
+.device-preview {
+  width: 300px;
+  height: 200px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #05060c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.device-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* mirror, like the capture preview */
+}
+
+.device-preview-err {
+  color: var(--text-dim);
+  font-size: 17px;
+}
+
+.mic-meter {
+  height: 14px;
+  margin-top: 10px;
+  border-radius: 7px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.mic-meter-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan), var(--gold));
+  transition: width 60ms linear;
+}
+
+.device-hint {
+  color: var(--text-dim);
+  font-size: 15px;
+  margin-top: 8px;
+  line-height: 1.3;
+}
+
 /* --------------------------------------------------------------- attract */
 
 .attract {

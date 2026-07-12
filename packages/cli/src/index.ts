@@ -177,6 +177,43 @@ function cmdConfig(args: string[]): void {
   } else if (op === 'edit') {
     const editor = process.env.EDITOR ?? 'nano';
     spawnSync(editor, [join(dataDir(), 'config.json')], { stdio: 'inherit' });
+  } else if (op === 'set-provider' && path) {
+    // sparkade config set-provider <meta|anthropic|compat> [model] [baseUrl]
+    // Points the five text-generation stages at the provider. The stt (voice
+    // transcription) stage stays on an audio-capable provider — only meta has
+    // audioIn — so a non-meta text provider still needs a Meta key for voice.
+    const name = path;
+    const [modelArg, baseUrlArg] = rest;
+    const cfg = readConfig() as {
+      providers: Record<string, { kind?: string; baseUrl?: string }>;
+      stages: Record<string, { provider: string; model: string }>;
+    };
+    if (!cfg.providers?.[name]) {
+      console.error(`unknown provider "${name}". Known: ${Object.keys(cfg.providers ?? {}).join(', ')}`);
+      process.exit(1);
+    }
+    const DEFAULT_MODELS: Record<string, string> = { meta: 'muse-spark-1.1', anthropic: 'claude-haiku-4-5-20251001' };
+    const model = modelArg || DEFAULT_MODELS[name];
+    if (!model) {
+      console.error(`provider "${name}" needs an explicit model: sparkade config set-provider ${name} <model> [baseUrl]`);
+      process.exit(1);
+    }
+    const TEXT_STAGES = ['design', 'levels', 'entities', 'music', 'repair'];
+    for (const s of TEXT_STAGES) cfg.stages[s] = { ...cfg.stages[s], provider: name, model };
+    if (name === 'meta') cfg.stages['stt'] = { provider: 'meta', model };
+    if (name === 'compat' && baseUrlArg) cfg.providers['compat']!.baseUrl = baseUrlArg;
+    writeConfig(cfg);
+    console.log(`text stages (design/levels/entities/music/repair) → ${name} · ${model}`);
+    const sttProvider = cfg.stages['stt']?.provider ?? 'meta';
+    if (name !== 'meta') {
+      console.log(`voice transcription (stt) stays on "${sttProvider}" — only Meta can transcribe audio.`);
+      console.log(`  → set that provider's key for voice input, or generate from the preset cards.`);
+    }
+    if (name === 'compat') {
+      const url = cfg.providers['compat']?.baseUrl;
+      console.log(url ? `compat baseUrl: ${url}` : 'compat baseUrl not set — sparkade config set providers.compat.baseUrl <url>');
+    }
+    console.log('Restart to apply: sparkade restart');
   } else if (op === 'set-key' && path) {
     // sparkade config set-key META_API_KEY <value> — written to the env file, 0600.
     const value = rest.join(' ');
@@ -193,7 +230,10 @@ function cmdConfig(args: string[]): void {
     chmodSync(ENV_FILE, 0o600);
     console.log(`${path} saved to ${ENV_FILE} (${maskKey(value)})`);
   } else {
-    console.log('usage: sparkade config get <path> | set <path> <value> | set-key <ENV> <value> | edit');
+    console.log(
+      'usage: sparkade config get <path> | set <path> <value> | set-key <ENV> <value>\n' +
+        '       | set-provider <meta|anthropic|compat> [model] [baseUrl] | edit',
+    );
   }
 }
 
@@ -427,6 +467,8 @@ usage:
   sparkade config get <path>          read config.json (dot path)
   sparkade config set <path> <value>  write config.json
   sparkade config set-key <ENV> <v>   store an API key in the env file (0600)
+  sparkade config set-provider <name> [model] [baseUrl]
+                                      point generation at meta | anthropic | compat
   sparkade config edit                open config.json in $EDITOR
   sparkade provider test              one tiny paid call per configured provider
   sparkade backup [file]              tar.gz the data dir

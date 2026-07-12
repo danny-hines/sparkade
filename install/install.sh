@@ -16,6 +16,20 @@ for arg in "$@"; do [ "$arg" = "--force" ] && FORCE=1; done
 log()  { printf '\n\033[1;36m» %s\033[0m\n' "$*"; }
 fail() { printf '\n\033[1;31m✗ %s\033[0m\n' "$*"; exit 1; }
 
+# Prompt on the controlling terminal even when the script is piped: `curl | bash`
+# makes stdin the pipe (so `[ -t 0 ]` is false and `read` would eat script text),
+# but /dev/tty is still the real terminal. Empty result when truly headless.
+have_tty() { [ -r /dev/tty ] && [ -w /dev/tty ]; }
+ask() { # ask "<prompt>" <varname> [default]
+  local __ans=""
+  if have_tty; then
+    printf '%s' "$1" > /dev/tty
+    IFS= read -r __ans < /dev/tty || __ans=""
+  fi
+  [ -z "$__ans" ] && __ans="${3:-}"
+  printf -v "$2" '%s' "$__ans"
+}
+
 # --- 1. verify hardware & OS -------------------------------------------------
 log "Checking hardware and OS"
 if [ "$FORCE" -ne 1 ]; then
@@ -93,25 +107,68 @@ sudo -u "$RUN_USER" npm ci --no-audit --no-fund
 log "Building"
 sudo -u "$RUN_USER" npm run build
 
-# --- 6. env file (0600) ------------------------------------------------------------
-log "Setting up /etc/sparkade/env"
+# --- 6. env file (0600) + provider / API key ---------------------------------------
+log "Provider & API key"
 $SUDO mkdir -p /etc/sparkade
-if [ ! -f /etc/sparkade/env ]; then
-  $SUDO touch /etc/sparkade/env
-  $SUDO chmod 0600 /etc/sparkade/env
-  $SUDO chown "$RUN_USER":"$RUN_USER" /etc/sparkade/env
-fi
-if ! grep -q '^META_API_KEY=' /etc/sparkade/env 2>/dev/null; then
-  if [ -t 0 ]; then
-    printf 'Enter your Meta Model API key (blank to skip — demo mode still works): '
-    read -r API_KEY || API_KEY=""
-    if [ -n "$API_KEY" ]; then
-      echo "META_API_KEY=$API_KEY" | $SUDO tee -a /etc/sparkade/env >/dev/null
-      echo "key saved."
-    fi
-  else
-    echo "No TTY — set the key later with: sparkade config set-key META_API_KEY <key>"
-  fi
+[ -f /etc/sparkade/env ] || $SUDO touch /etc/sparkade/env
+$SUDO chmod 0600 /etc/sparkade/env
+$SUDO chown "$RUN_USER":"$RUN_USER" /etc/sparkade/env
+
+env_set() { # env_set VAR VALUE — idempotent upsert into /etc/sparkade/env (0600)
+  $SUDO sed -i "/^$1=/d" /etc/sparkade/env 2>/dev/null || true
+  printf '%s=%s\n' "$1" "$2" | $SUDO tee -a /etc/sparkade/env >/dev/null
+}
+
+# The provider is applied to config.json AFTER the server first boots (step 9b),
+# since the config doesn't exist yet. "meta"/"skip" ⇒ no repointing needed.
+APPLY_PROVIDER=meta APPLY_MODEL="" APPLY_BASEURL=""
+
+if have_tty; then
+  cat > /dev/tty <<'MENU'
+
+Which AI service should generate games?
+  1) Meta Model API      (recommended — voice prompts, photo likeness, structured output)
+  2) Anthropic (Claude)  (text + photo; voice transcription still needs a Meta key)
+  3) OpenAI-compatible   (your own server — you supply the base URL + model)
+  4) Skip for now        (demo mode: the 3 preinstalled games; add a key later)
+MENU
+  ask "Choice [1]: " CHOICE 1
+  case "$CHOICE" in
+    2) APPLY_PROVIDER=anthropic ;;
+    3) APPLY_PROVIDER=compat ;;
+    4) APPLY_PROVIDER=skip ;;
+    *) APPLY_PROVIDER=meta ;;
+  esac
+
+  case "$APPLY_PROVIDER" in
+    meta)
+      ask "Meta Model API key (blank to skip — demo still works): " K
+      [ -n "$K" ] && { env_set META_API_KEY "$K"; echo "key saved." > /dev/tty; }
+      ;;
+    anthropic)
+      ask "Anthropic API key: " K
+      [ -n "$K" ] && env_set ANTHROPIC_API_KEY "$K"
+      ask "Model [claude-haiku-4-5-20251001]: " APPLY_MODEL claude-haiku-4-5-20251001
+      ask "Add a Meta key too, for VOICE prompts? (blank = presets only): " MK
+      [ -n "$MK" ] && env_set META_API_KEY "$MK"
+      ;;
+    compat)
+      ask "Base URL (e.g. http://192.168.1.50:8000/v1): " APPLY_BASEURL
+      ask "API key (blank if the server needs none): " K
+      [ -n "$K" ] && env_set COMPAT_API_KEY "$K"
+      ask "Model name your server serves: " APPLY_MODEL
+      ask "Add a Meta key too, for VOICE prompts? (blank = presets only): " MK
+      [ -n "$MK" ] && env_set META_API_KEY "$MK"
+      ;;
+    skip)
+      echo "Demo mode. Add a key later:  sparkade config set-key META_API_KEY <key>" > /dev/tty
+      ;;
+  esac
+else
+  log "Non-interactive install — no terminal to prompt on"
+  echo "Configure after boot:"
+  echo "  sparkade config set-key META_API_KEY <key>"
+  echo "  sparkade config set-provider meta|anthropic|compat [model] [baseUrl]"
 fi
 
 # --- 7. systemd service ---------------------------------------------------------------
@@ -153,6 +210,21 @@ $RUN_USER ALL=(root) NOPASSWD: /usr/bin/raspi-config nonint do_boot_behaviour *
 EOF
 $SUDO chmod 0440 /etc/sudoers.d/sparkade
 
+# --- 9b. point generation at the chosen provider (config.json exists after boot) --------
+if [ "$APPLY_PROVIDER" != "meta" ] && [ "$APPLY_PROVIDER" != "skip" ]; then
+  log "Pointing generation at '$APPLY_PROVIDER'"
+  for _ in $(seq 1 30); do [ -f "$DATA_DIR/config.json" ] && break; sleep 0.5; done
+  if [ -f "$DATA_DIR/config.json" ]; then
+    sudo -u "$RUN_USER" env SPARKADE_DATA="$DATA_DIR" \
+      node "$INSTALL_DIR/packages/cli/dist/index.js" \
+      config set-provider "$APPLY_PROVIDER" "$APPLY_MODEL" "$APPLY_BASEURL" \
+      || echo "  couldn't apply — set it later: sparkade config set-provider $APPLY_PROVIDER $APPLY_MODEL $APPLY_BASEURL"
+    $SUDO systemctl restart sparkade || true
+  else
+    echo "  config.json not ready yet — set it later: sparkade config set-provider $APPLY_PROVIDER $APPLY_MODEL $APPLY_BASEURL"
+  fi
+fi
+
 # --- 10. CLI symlink + first-boot data ---------------------------------------------------
 log "Linking the sparkade CLI"
 $SUDO ln -sf "$INSTALL_DIR/packages/cli/dist/index.js" /usr/local/bin/sparkade
@@ -182,8 +254,7 @@ cat <<EOF
 ════════════════════════════════════════════════════════════
 EOF
 
-if [ -t 0 ]; then
-  printf 'Reboot now? [y/N] '
-  read -r REBOOT || REBOOT=n
+if have_tty; then
+  ask "Reboot now to enter kiosk mode? [y/N] " REBOOT n
   case "$REBOOT" in y|Y) $SUDO reboot ;; esac
 fi

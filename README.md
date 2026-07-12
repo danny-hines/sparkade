@@ -51,19 +51,24 @@ Flash **Raspberry Pi OS Lite (Bookworm, 64-bit)**, boot, then:
 curl -fsSL https://raw.githubusercontent.com/danny-hines/sparkade/main/install/install.sh | bash
 ```
 
-The installer is idempotent. It installs X/openbox/chromium/Node 20, temporarily raises swap to
-1024 MB for the build, clones to `/opt/sparkade`, builds, installs the `sparkade` systemd service
-and CLI, configures console-autologin → `startx` → openbox → Chromium kiosk (with a relaunch loop
-that waits for the server, so a crash or slow boot never strands the cabinet), and scopes a
-sudoers rule to the exact `nmcli` invocations the WiFi settings screen uses. Set
-`SPARKADE_REPO=owner/repo` to install a fork; `--force` allows other Debian ARM boxes.
+The installer is idempotent. It **prompts you to pick an AI provider (Meta / Anthropic /
+OpenAI-compatible / skip-for-demo) and enter the API key** (the prompt works even through
+`curl | bash`), installs X/openbox/chromium/Node 20, temporarily raises swap to 1024 MB for the
+build, clones to `/opt/sparkade`, builds, installs the `sparkade` systemd service and CLI, wires
+the chosen provider into `config.json`, configures console-autologin → `startx` → openbox →
+Chromium kiosk (with a relaunch loop that waits for the server, so a crash or slow boot never
+strands the cabinet), and scopes a sudoers rule to the exact `nmcli` invocations the WiFi settings
+screen uses. Set `SPARKADE_REPO=owner/repo` to install a fork; `--force` allows other Debian ARM
+boxes. Only Meta can transcribe voice, so a non-Meta text provider keeps the `stt` stage on Meta —
+the installer offers to take a Meta key too, or you generate from the preset idea cards.
 
 After reboot the cabinet boots straight to the attract screen. Useful commands:
 
 ```bash
 sparkade status | logs -f | doctor | restart
-sparkade config set-key META_API_KEY <key>   # stored in /etc/sparkade/env (0600)
-sparkade provider test                        # one tiny paid call per provider
+sparkade config set-key META_API_KEY <key>            # stored in /etc/sparkade/env (0600)
+sparkade config set-provider anthropic [model]        # repoint generation (meta|anthropic|compat)
+sparkade provider test                                # one tiny paid call per provider
 sparkade update                               # fetch latest tag → npm ci → build → restart
 sparkade backup [file] / backup restore <file>
 ```

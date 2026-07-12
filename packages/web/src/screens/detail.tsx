@@ -91,20 +91,20 @@ export function GameDetailScreen(props: { go: (s: Screen) => void; id: string })
       <div class="screen-body two-col">
         <div>
           <GameCover cover={item.cover} gameId={item.id} seedText={item.title} class="detail-cover" />
-          <p style="color:var(--text-dim);margin:12px 0 6px;font-size:19px">{item.tagline}</p>
+          <p style="color:var(--text-dim);margin:8px 0 4px;font-size:14px">{item.tagline}</p>
           {spec && (
-            <p style="font-size:18px;line-height:1.4;max-height:96px;overflow:hidden">
+            <p style="font-size:13px;line-height:1.5;max-height:66px;overflow:hidden">
               {spec.story.intro.join(' ')}
             </p>
           )}
-          <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px 20px;font-size:16px;color:var(--text-dim)">
+          <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--text-dim)">
             {controlHelp.slice(0, 6).map((c) => (
               <span key={c.button}>
                 <b style="color:var(--cyan)">({c.button})</b> {c.label}
               </span>
             ))}
           </div>
-          <div style="margin-top:14px;font-size:17px;color:var(--text-dim)">
+          <div style="margin-top:8px;font-size:13px;color:var(--text-dim)">
             {item.golden ? (
               'Hand-crafted launch title — free'
             ) : (

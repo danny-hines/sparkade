@@ -19,4 +19,5 @@ export {
   estimateAdventureDurationS,
   buildGraph,
   checkKeyTopology,
+  reconcileDoors,
 } from './adventure/lint';

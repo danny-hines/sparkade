@@ -1,7 +1,13 @@
 // Adventure semantic lints: dungeon graph connectivity, key/lock topology
 // (every locked door has a reachable key earlier in the graph), boss room
 // reachability, content floors.
-import type { AdventureDungeon, AdventureRoom, AdventureSpec, LintError } from '@sparkade/shared';
+import type {
+  AdventureDoor,
+  AdventureDungeon,
+  AdventureRoom,
+  AdventureSpec,
+  LintError,
+} from '@sparkade/shared';
 import {
   err,
   lintDuration,
@@ -71,6 +77,40 @@ export function buildGraph(dungeon: AdventureDungeon): { edges: Edge[]; errors: 
     }
   });
   return { edges, errors };
+}
+
+const DOOR_RANK: Record<AdventureDoor, number> = { none: 0, open: 1, locked: 2, boss: 3 };
+const DOOR_BY_RANK: AdventureDoor[] = ['none', 'open', 'locked', 'boss'];
+
+/**
+ * Reconcile the two redundant declarations of every shared door so the dungeon
+ * graph is self-consistent. Each door is declared on both rooms that share the
+ * grid edge, and the model routinely declares it on one room but forgets the
+ * mirror on the neighbor (→ ADV_DOOR_MISMATCH) — a mechanical bookkeeping slip
+ * the repair loop struggles to close. Run as a normalization step before
+ * linting so generation isn't derailed by it. Mutates in place.
+ *
+ * Rules: a door with no room on the far side is dropped to 'none'; otherwise
+ * both sides take the more intentional kind (boss > locked > open > none). That
+ * mirrors one-sided doors (adding no connection the model didn't declare) and
+ * resolves genuine kind conflicts to the stronger gate, preserving puzzle
+ * intent. Any key/reachability gap that remains is left to the topology lints.
+ */
+export function reconcileDoors(dungeon: AdventureDungeon): void {
+  const byPos = new Map<string, AdventureRoom>();
+  for (const room of dungeon.rooms) byPos.set(`${room.gridPos.x},${room.gridPos.y}`, room);
+  for (const room of dungeon.rooms) {
+    for (const [dir, dx, dy, opposite] of DIRS) {
+      const neighbor = byPos.get(`${room.gridPos.x + dx},${room.gridPos.y + dy}`);
+      if (!neighbor) {
+        room.doors[dir] = 'none'; // door to nowhere — can't add the missing room
+        continue;
+      }
+      const win = DOOR_BY_RANK[Math.max(DOOR_RANK[room.doors[dir]], DOOR_RANK[neighbor.doors[opposite]])]!;
+      room.doors[dir] = win;
+      neighbor.doors[opposite] = win;
+    }
+  }
 }
 
 /**

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import type { AdventureSpec, GameSpec, PlatformerSpec, ShooterSpec } from '@sparkade/shared';
 import { MIN_DURATION_S } from '@sparkade/shared';
 import { archetypes } from '@sparkade/archetypes';
-import { checkKeyTopology, buildGraph } from '../src/adventure/lint';
+import { checkKeyTopology, buildGraph, reconcileDoors } from '../src/adventure/lint';
 import { parseLevelGrid, reachableCells } from '../src/platformer/lint';
 
 /** First solid cell in a level, for placing deliberately-embedded fixtures. */
@@ -196,6 +196,41 @@ describe('adventure lints (key/lock topology)', () => {
       errs.includes('ADV_UNREACHABLE_ROOM') || errs.includes('ADV_BOSS_UNREACHABLE'),
     ).toBe(true);
     expect(errs).toContain('ADV_KEYS_SHORT');
+  });
+
+  it('reconcileDoors mirrors a one-sided door so ADV_DOOR_MISMATCH clears', () => {
+    const spec = golden<AdventureSpec>('adventure');
+    const dungeon = spec.levels[0]!;
+    const room = dungeon.rooms.find((r) => r.doors.e !== 'none')!;
+    const neighbor = dungeon.rooms.find(
+      (r) => r.gridPos.x === room.gridPos.x + 1 && r.gridPos.y === room.gridPos.y,
+    )!;
+    neighbor.doors.w = 'none'; // drop one side → mismatch
+    expect(codes(archetypes.adventure.lint(spec))).toContain('ADV_DOOR_MISMATCH');
+    reconcileDoors(dungeon);
+    expect(neighbor.doors.w).toBe(room.doors.e);
+    expect(codes(archetypes.adventure.lint(spec))).not.toContain('ADV_DOOR_MISMATCH');
+  });
+
+  it('reconcileDoors resolves a kind conflict to the stronger gate', () => {
+    const spec = golden<AdventureSpec>('adventure');
+    const dungeon = spec.levels[0]!;
+    const room = dungeon.rooms.find((r) => r.doors.e !== 'none')!;
+    const neighbor = dungeon.rooms.find(
+      (r) => r.gridPos.x === room.gridPos.x + 1 && r.gridPos.y === room.gridPos.y,
+    )!;
+    room.doors.e = 'open';
+    neighbor.doors.w = 'locked';
+    reconcileDoors(dungeon);
+    expect(room.doors.e).toBe('locked');
+    expect(neighbor.doors.w).toBe('locked');
+  });
+
+  it('reconcileDoors leaves a consistent dungeon unchanged', () => {
+    const dungeon = golden<AdventureSpec>('adventure').levels[0]!;
+    const before = JSON.stringify(dungeon.rooms.map((r) => r.doors));
+    reconcileDoors(dungeon);
+    expect(JSON.stringify(dungeon.rooms.map((r) => r.doors))).toBe(before);
   });
 
   it('topology checker walks keys-before-locks correctly', () => {

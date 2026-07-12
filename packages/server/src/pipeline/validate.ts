@@ -12,6 +12,7 @@ import {
   type LintError,
   type SpriteData,
 } from '@sparkade/shared';
+import { reconcileDoors } from '@sparkade/archetypes';
 
 const ajv = new Ajv2020({ allErrors: true, strict: false });
 const compiled = new Map<string, ValidateFunction>();
@@ -275,6 +276,9 @@ export function normalizeTileGrids(spec: GameSpec): GameSpec {
     const dungeon = out.levels[0];
     if (dungeon?.rooms) {
       for (const room of dungeon.rooms) room.tiles = normalizeRows(room.tiles, 24);
+      // Mirror/agree the two declarations of each shared door so a one-sided
+      // door slip doesn't fail generation on ADV_DOOR_MISMATCH.
+      reconcileDoors(dungeon);
     }
   }
   return out;

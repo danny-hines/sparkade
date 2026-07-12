@@ -10,8 +10,14 @@ export type BackdropVariant = BackdropVariantId;
 export { BACKDROP_VARIANTS };
 
 export interface Backdrop {
-  /** Draw with parallax; scrollX/scrollY in world pixels. */
+  /** Draw the two background layers with parallax; scrollX/scrollY in world pixels. */
   draw(ctx: CanvasRenderingContext2D, scrollX: number, scrollY: number): void;
+  /**
+   * Optional close foreground layer (parallax > 1), meant to be drawn AFTER
+   * tiles/entities so it passes in front of gameplay for depth. Top-anchored so
+   * it never hides the player. A no-op when the variant has no foreground.
+   */
+  drawForeground(ctx: CanvasRenderingContext2D, scrollX: number, scrollY: number): void;
 }
 
 function shade(hex: string, factor: number): string {
@@ -484,6 +490,93 @@ export function makeBackdrop(palette: string[], seed: number, variant?: Backdrop
     }
   }
 
+  // Foreground layer (optional, per-variant): close scenery hanging from the top
+  // that scrolls FASTER than the world (parallax > 1), so the scene reads with
+  // depth instead of one flat plane and two games sharing a backdrop feel
+  // different. Top-anchored (only the upper strip is painted) so it passes in
+  // front of gameplay without ever hiding the player in the mid/lower field.
+  const foreMotif: 'teeth' | 'icicle' | 'candy' | 'girder' | 'foliage' | null =
+    v === 'caves'
+      ? 'teeth'
+      : v === 'mountains'
+        ? 'icicle'
+        : v === 'candy'
+          ? 'candy'
+          : v === 'factory'
+            ? 'girder'
+            : v === 'hills' || v === 'ruins'
+              ? 'foliage'
+              : null;
+  let fore: HTMLCanvasElement | null = null;
+  if (foreMotif) {
+    fore = document.createElement('canvas');
+    fore.width = W;
+    fore.height = H;
+    const ctx = fore.getContext('2d')!;
+    const silhouette = shade(dark, 0.4);
+    if (foreMotif === 'foliage') {
+      const base = palette[6] ?? palette[5] ?? mid; // foliage/vine green
+      const leafDark = shade(base, 0.5);
+      const leafMid = shade(base, 0.82);
+      ctx.fillStyle = leafDark;
+      wrapRect(ctx, W, 0, 0, W, rng.int(5, 9)); // canopy band along the top edge
+      const clusters = rng.int(5, 7);
+      for (let c = 0; c < clusters; c++) {
+        const cx = rng.int(0, W - 1);
+        const blobs = rng.int(5, 8);
+        for (let b = 0; b < blobs; b++) {
+          ctx.fillStyle = rng.chance(0.45) ? leafMid : leafDark;
+          wrapDisc(ctx, W, cx + rng.int(-18, 18), rng.int(-4, 24), rng.int(6, 14));
+        }
+        if (rng.chance(0.7)) {
+          ctx.fillStyle = leafDark;
+          wrapRect(ctx, W, cx + rng.int(-10, 10), 8, 1, rng.int(14, 38)); // dangling vine
+        }
+      }
+    } else {
+      // teeth family: things hanging from a ceiling (stalactites / icicles /
+      // candy drips / factory girders).
+      if (foreMotif === 'girder') {
+        ctx.fillStyle = shade(dark, 0.55);
+        wrapRect(ctx, W, 0, 0, W, 5); // ceiling beam the bars hang from
+      } else {
+        ctx.fillStyle = foreMotif === 'icicle' ? shade(light, 0.9) : silhouette;
+        wrapRect(ctx, W, 0, 0, W, rng.int(3, 6)); // rock/ice ceiling band
+      }
+      let x = rng.int(-8, 12);
+      while (x < W) {
+        const w = foreMotif === 'girder' ? rng.int(6, 12) : rng.int(10, 26);
+        const h = rng.int(14, foreMotif === 'girder' ? 32 : 48);
+        if (foreMotif === 'girder') {
+          ctx.fillStyle = shade(dark, 0.5);
+          wrapRect(ctx, W, x, 0, w, h);
+          wrapRect(ctx, W, x - 1, h - 3, w + 2, 3); // end flange
+        } else {
+          ctx.fillStyle =
+            foreMotif === 'icicle'
+              ? shade(light, 1.05)
+              : foreMotif === 'candy'
+                ? rng.chance(0.5)
+                  ? shade(light, 1.15)
+                  : shade(mid, 0.95)
+                : silhouette;
+          for (let sy = 0; sy < h; sy++) {
+            const sw = Math.max(1, Math.round(w * (1 - sy / h)));
+            wrapRect(ctx, W, x + ((w - sw) >> 1), sy, sw, 1); // narrows to a point
+          }
+          if (foreMotif === 'icicle') {
+            ctx.fillStyle = '#ffffff';
+            wrapRect(ctx, W, x + (w >> 1), h - 4, 1, 4); // bright tip
+          } else if (foreMotif === 'candy') {
+            ctx.fillStyle = shade(light, 1.25);
+            wrapDisc(ctx, W, x + (w >> 1), h, Math.max(2, w >> 2)); // gumdrop tip
+          }
+        }
+        x += w + rng.int(6, 26);
+      }
+    }
+  }
+
   return {
     draw(ctx: CanvasRenderingContext2D, scrollX: number, scrollY: number) {
       const fx = Math.round(scrollX * 0.1) % W;
@@ -493,6 +586,13 @@ export function makeBackdrop(palette: string[], seed: number, variant?: Backdrop
       if (fx > 0) ctx.drawImage(far, W - fx, -fy);
       ctx.drawImage(near, -nx, -Math.round(scrollY * 0.15));
       if (nx > 0) ctx.drawImage(near, W - nx, -Math.round(scrollY * 0.15));
+    },
+    drawForeground(ctx: CanvasRenderingContext2D, scrollX: number, scrollY: number) {
+      if (!fore) return;
+      const gx = ((Math.round(scrollX * 1.5) % W) + W) % W; // parallax > 1: closer than the player
+      const gy = Math.round(scrollY * 0.4);
+      ctx.drawImage(fore, -gx, -gy);
+      if (gx > 0) ctx.drawImage(fore, W - gx, -gy);
     },
   };
 }

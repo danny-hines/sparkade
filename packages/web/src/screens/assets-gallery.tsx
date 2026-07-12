@@ -217,6 +217,7 @@ function BackdropCell(props: { variant: string; palette: string[]; seed: number 
       ctx.fillStyle = props.palette[2] ?? '#111';
       ctx.fillRect(0, 0, 512, 300);
       backdrop.draw(ctx, scroll, 0);
+      backdrop.drawForeground(ctx, scroll, 0); // close foreground plane (parallax > 1)
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);

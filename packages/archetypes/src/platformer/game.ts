@@ -949,6 +949,9 @@ class PlatformerGame implements GameInstance {
         r.frame(this.px - cam.x - 4, this.py - cam.y - 4, 18, 22, this.spec.palette[4] ?? '#41a6f6');
       }
     }
+
+    // Close foreground scenery, drawn in front of gameplay (parallax > 1) for depth.
+    this.backdrop.drawForeground(r.ctx, cam.x, cam.y);
   }
 
   private entitySprite(e: Ent): ResolvedSprite | null {

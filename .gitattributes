@@ -1,0 +1,15 @@
+# Normalize line endings in the repo (store LF). Shell + kiosk + service files
+# MUST check out as LF everywhere — CRLF breaks bash/systemd on the Raspberry Pi.
+* text=auto
+*.sh text eol=lf
+*.mjs text eol=lf
+*.mts text eol=lf
+install/sparkade.service text eol=lf
+install/kiosk/xinitrc text eol=lf
+install/kiosk/openbox-autostart text eol=lf
+
+# Binary assets — never touch.
+*.png binary
+*.ttf binary
+*.woff binary
+*.woff2 binary

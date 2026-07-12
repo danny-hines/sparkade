@@ -1,0 +1,4 @@
+# Sparkade kiosk — openbox autostart
+xset s off -dpms &
+unclutter -idle 0.5 -root &
+"$HOME/.sparkade-kiosk-launch.sh" &

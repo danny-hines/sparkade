@@ -1,0 +1,16 @@
+{
+  "name": "@sparkade/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "sparkade": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@sparkade/shared": "*",
+    "better-sqlite3": "^12.2.0"
+  }
+}

@@ -1,0 +1,473 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sparkade://schemas/platformer",
+  "title": "Sparkade platformer game spec (specVersion 1)",
+  "type": "object",
+  "properties": {
+    "specVersion": { "const": 1 },
+    "archetype": { "const": "platformer" },
+    "seed": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
+    "meta": { "$ref": "#/$defs/meta" },
+    "palette": { "$ref": "#/$defs/palette" },
+    "story": { "$ref": "#/$defs/story" },
+    "sprites": { "$ref": "#/$defs/spritesBlock" },
+    "backdrop": {
+      "description": "Parallax backdrop scene drawn behind gameplay in your palette's background colors. Pick the scene that matches the premise; omit for a mood-based default.",
+      "enum": [
+        "starfield",
+        "hills",
+        "clouds",
+        "caves",
+        "mountains",
+        "candy",
+        "city",
+        "ruins",
+        "pyramids",
+        "circuit",
+        "factory"
+      ]
+    },
+    "levels": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "$ref": "#/$defs/level" }
+    },
+    "boss": { "$ref": "#/$defs/boss" },
+    "music": { "$ref": "#/$defs/music" },
+    "sfx": { "$ref": "#/$defs/sfx" },
+    "scoring": { "$ref": "#/$defs/scoring" }
+  },
+  "required": [
+    "specVersion",
+    "archetype",
+    "seed",
+    "meta",
+    "palette",
+    "story",
+    "sprites",
+    "levels",
+    "boss",
+    "music",
+    "scoring"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "hexColor": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+    "palette": {
+      "description": "Exactly 16 hex colors. Index 0 is always treated as transparent in sprites. Slot conventions: 1 outline/darkest, 2-4 background dark->light, 5-7 hero, 8-a enemies, b hazard, c warm accent, d gold, e light, f near-white.",
+      "type": "array",
+      "minItems": 16,
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/hexColor" }
+    },
+    "text": {
+      "description": "Display text: printable ASCII only (the bitmap font has no other glyphs).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[ -~]+$"
+    },
+    "shortName": { "type": "string", "minLength": 1, "maxLength": 24, "pattern": "^[ -~]+$" },
+    "spriteRef": {
+      "description": "Either 'lib:<id>' for a built-in library sprite or 'custom:<id>' for one defined in sprites.custom.",
+      "type": "string",
+      "pattern": "^(lib|custom):[a-z][a-z0-9_]{0,31}$"
+    },
+    "sprite": {
+      "description": "Palette-indexed pixel art. Characters 0-f index the 16-color palette, '.' is transparent. Every row must be exactly w characters long and rows.length must equal h.",
+      "type": "object",
+      "properties": {
+        "w": { "type": "integer", "minimum": 4, "maximum": 48 },
+        "h": { "type": "integer", "minimum": 4, "maximum": 48 },
+        "rows": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 48,
+          "items": { "type": "string", "minLength": 4, "maxLength": 48, "pattern": "^[0-9a-f.]+$" }
+        }
+      },
+      "required": ["w", "h", "rows"],
+      "additionalProperties": false
+    },
+    "meta": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[ -~]+$" },
+        "tagline": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[ -~]+$" }
+      },
+      "required": ["title", "tagline"],
+      "additionalProperties": false
+    },
+    "story": {
+      "type": "object",
+      "properties": {
+        "intro": {
+          "description": "1-3 story cards shown before level 1.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/text" }
+        },
+        "levelIntros": {
+          "description": "One card per level, exactly 3.",
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/text" }
+        },
+        "bossIntro": { "$ref": "#/$defs/text" },
+        "victory": { "type": "array", "minItems": 1, "maxItems": 3, "items": { "$ref": "#/$defs/text" } },
+        "defeat": { "type": "array", "minItems": 1, "maxItems": 3, "items": { "$ref": "#/$defs/text" } }
+      },
+      "required": ["intro", "levelIntros", "bossIntro", "victory", "defeat"],
+      "additionalProperties": false
+    },
+    "spritesBlock": {
+      "type": "object",
+      "properties": {
+        "custom": {
+          "description": "Custom pixel-art sprites by id. May be empty — library sprites are always available.",
+          "type": "object",
+          "maxProperties": 24,
+          "patternProperties": { "^[a-z][a-z0-9_]{0,31}$": { "$ref": "#/$defs/sprite" } },
+          "additionalProperties": false
+        },
+        "assign": {
+          "description": "role -> sprite reference. 'hero' and 'boss' are required; add one entry per enemy/pickup role you use.",
+          "type": "object",
+          "properties": {
+            "hero": { "$ref": "#/$defs/spriteRef" },
+            "boss": { "$ref": "#/$defs/spriteRef" }
+          },
+          "required": ["hero", "boss"],
+          "patternProperties": { "^[a-z][a-z0-9_]{0,23}$": { "$ref": "#/$defs/spriteRef" } },
+          "additionalProperties": false,
+          "maxProperties": 24
+        }
+      },
+      "required": ["custom", "assign"],
+      "additionalProperties": false
+    },
+    "pulseInstrument": {
+      "type": "object",
+      "properties": {
+        "duty": { "enum": [0.125, 0.25, 0.5] },
+        "vol": { "type": "number", "minimum": 0, "maximum": 1 },
+        "decay": { "type": "number", "minimum": 0.02, "maximum": 1.5 }
+      },
+      "required": ["duty", "vol", "decay"],
+      "additionalProperties": false
+    },
+    "bassInstrument": {
+      "type": "object",
+      "properties": {
+        "vol": { "type": "number", "minimum": 0, "maximum": 1 },
+        "decay": { "type": "number", "minimum": 0.02, "maximum": 1.5 }
+      },
+      "required": ["vol", "decay"],
+      "additionalProperties": false
+    },
+    "drumInstrument": {
+      "type": "object",
+      "properties": { "vol": { "type": "number", "minimum": 0, "maximum": 1 } },
+      "required": ["vol"],
+      "additionalProperties": false
+    },
+    "instruments": {
+      "type": "object",
+      "properties": {
+        "pulse1": { "$ref": "#/$defs/pulseInstrument" },
+        "pulse2": { "$ref": "#/$defs/pulseInstrument" },
+        "bass": { "$ref": "#/$defs/bassInstrument" },
+        "drums": { "$ref": "#/$defs/drumInstrument" }
+      },
+      "required": ["pulse1", "pulse2", "bass", "drums"],
+      "additionalProperties": false
+    },
+    "noteStep": {
+      "description": "'-' = rest, or '<note><octave>:<duration-in-16ths>' e.g. 'C4:2', 'Eb3:4', 'F#5:1'. Octaves 1-7, duration 1-16.",
+      "type": "string",
+      "pattern": "^(-|[A-G][#b]?[1-7]:(1[0-6]|[1-9]))$"
+    },
+    "drumStep": { "enum": ["K", "S", "H", "-"] },
+    "noteChannel": {
+      "description": "Exactly 16 steps (one bar of 16ths).",
+      "type": "array",
+      "minItems": 16,
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/noteStep" }
+    },
+    "drumChannel": {
+      "type": "array",
+      "minItems": 16,
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/drumStep" }
+    },
+    "pattern": {
+      "description": "One bar. Channels are optional; include only the ones that play.",
+      "type": "object",
+      "properties": {
+        "pulse1": { "$ref": "#/$defs/noteChannel" },
+        "pulse2": { "$ref": "#/$defs/noteChannel" },
+        "bass": { "$ref": "#/$defs/noteChannel" },
+        "drums": { "$ref": "#/$defs/drumChannel" }
+      },
+      "minProperties": 1,
+      "additionalProperties": false
+    },
+    "songRefList": {
+      "description": "Ordered list of pattern names to play in sequence (looped).",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_]{0,15}$" }
+    },
+    "music": {
+      "type": "object",
+      "properties": {
+        "bpm": { "type": "integer", "minimum": 70, "maximum": 200 },
+        "key": { "type": "string", "minLength": 1, "maxLength": 16, "pattern": "^[ -~]+$" },
+        "instruments": { "$ref": "#/$defs/instruments" },
+        "patterns": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 24,
+          "patternProperties": { "^[a-zA-Z][a-zA-Z0-9_]{0,15}$": { "$ref": "#/$defs/pattern" } },
+          "additionalProperties": false
+        },
+        "songs": {
+          "type": "object",
+          "properties": {
+            "theme": { "$ref": "#/$defs/songRefList" },
+            "boss": { "$ref": "#/$defs/songRefList" }
+          },
+          "required": ["theme", "boss"],
+          "patternProperties": { "^[a-z][a-zA-Z0-9_]{0,15}$": { "$ref": "#/$defs/songRefList" } },
+          "additionalProperties": false,
+          "maxProperties": 6
+        },
+        "jingles": {
+          "type": "object",
+          "properties": {
+            "victory": { "$ref": "#/$defs/pattern" },
+            "gameover": { "$ref": "#/$defs/pattern" },
+            "levelIntro": { "$ref": "#/$defs/pattern" }
+          },
+          "required": ["victory", "gameover", "levelIntro"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["bpm", "key", "instruments", "patterns", "songs", "jingles"],
+      "additionalProperties": false
+    },
+    "sfxParams": {
+      "type": "object",
+      "properties": {
+        "wave": { "enum": ["square", "saw", "sine", "noise", "triangle"] },
+        "freq": { "type": "number", "minimum": 40, "maximum": 4000 },
+        "freqSlide": {
+          "description": "Semitones per second of pitch slide (negative = down).",
+          "type": "number",
+          "minimum": -48,
+          "maximum": 48
+        },
+        "attack": { "type": "number", "minimum": 0, "maximum": 0.5 },
+        "sustain": { "type": "number", "minimum": 0, "maximum": 0.5 },
+        "decay": { "type": "number", "minimum": 0.01, "maximum": 1 },
+        "duty": { "enum": [0.125, 0.25, 0.5] },
+        "vol": { "type": "number", "minimum": 0, "maximum": 1 },
+        "vibratoDepth": { "type": "number", "minimum": 0, "maximum": 1 },
+        "vibratoSpeed": { "type": "number", "minimum": 0, "maximum": 40 },
+        "arpSemitones": { "type": "number", "minimum": -24, "maximum": 24 },
+        "arpTime": { "type": "number", "minimum": 0.02, "maximum": 0.5 },
+        "lowpass": { "type": "number", "minimum": 100, "maximum": 8000 }
+      },
+      "required": ["wave", "freq", "decay"],
+      "additionalProperties": false
+    },
+    "sfx": {
+      "description": "Optional overrides only — omit an event to keep the engine default.",
+      "type": "object",
+      "properties": {
+        "jump": { "$ref": "#/$defs/sfxParams" },
+        "shoot": { "$ref": "#/$defs/sfxParams" },
+        "hit": { "$ref": "#/$defs/sfxParams" },
+        "hurt": { "$ref": "#/$defs/sfxParams" },
+        "die": { "$ref": "#/$defs/sfxParams" },
+        "pickup": { "$ref": "#/$defs/sfxParams" },
+        "powerup": { "$ref": "#/$defs/sfxParams" },
+        "uiMove": { "$ref": "#/$defs/sfxParams" },
+        "uiSelect": { "$ref": "#/$defs/sfxParams" },
+        "uiBack": { "$ref": "#/$defs/sfxParams" },
+        "win": { "$ref": "#/$defs/sfxParams" },
+        "lose": { "$ref": "#/$defs/sfxParams" }
+      },
+      "additionalProperties": false
+    },
+    "scoring": {
+      "type": "object",
+      "properties": {
+        "events": {
+          "type": "object",
+          "properties": {
+            "enemyKill": { "type": "integer", "minimum": 0, "maximum": 100000 },
+            "pickup": { "type": "integer", "minimum": 0, "maximum": 100000 },
+            "bossHit": { "type": "integer", "minimum": 0, "maximum": 100000 },
+            "levelClear": { "type": "integer", "minimum": 0, "maximum": 100000 }
+          },
+          "required": ["enemyKill", "pickup", "bossHit", "levelClear"],
+          "additionalProperties": false
+        },
+        "timeBonusPerSecond": { "type": "integer", "minimum": 0, "maximum": 1000 }
+      },
+      "required": ["events", "timeBonusPerSecond"],
+      "additionalProperties": false
+    },
+    "coord": {
+      "type": "object",
+      "properties": {
+        "x": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "y": { "type": "integer", "minimum": 0, "maximum": 63 }
+      },
+      "required": ["x", "y"],
+      "additionalProperties": false
+    },
+    "legendTile": {
+      "enum": ["empty", "solid", "platform", "hazard", "checkpoint", "exit", "decoration"]
+    },
+    "entityType": {
+      "enum": [
+        "walker",
+        "flyer",
+        "shooter",
+        "chaser",
+        "spring",
+        "movingPlatform",
+        "coin",
+        "heart",
+        "powerup"
+      ]
+    },
+    "entityProps": {
+      "type": "object",
+      "properties": {
+        "dir": { "enum": [-1, 1] },
+        "speed": { "type": "number", "minimum": 0.2, "maximum": 3 },
+        "range": {
+          "description": "Patrol range in tiles.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12
+        },
+        "amplitude": {
+          "description": "Flyer sine amplitude in tiles.",
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 4
+        },
+        "periodMs": { "type": "integer", "minimum": 500, "maximum": 6000 },
+        "fireIntervalMs": { "type": "integer", "minimum": 600, "maximum": 5000 },
+        "aim": { "enum": ["aimed", "arc"] },
+        "dx": {
+          "description": "Moving platform travel in tiles (x).",
+          "type": "integer",
+          "minimum": -8,
+          "maximum": 8
+        },
+        "dy": {
+          "description": "Moving platform travel in tiles (y).",
+          "type": "integer",
+          "minimum": -8,
+          "maximum": 8
+        },
+        "kind": {
+          "description": "Powerup kind (powerup entities only).",
+          "enum": ["doubleJump", "projectile", "shield"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "entity": {
+      "type": "object",
+      "properties": {
+        "type": { "$ref": "#/$defs/entityType" },
+        "x": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "y": { "type": "integer", "minimum": 0, "maximum": 63 },
+        "props": { "$ref": "#/$defs/entityProps" }
+      },
+      "required": ["type", "x", "y"],
+      "additionalProperties": false
+    },
+    "level": {
+      "type": "object",
+      "properties": {
+        "name": { "$ref": "#/$defs/shortName" },
+        "musicSong": {
+          "description": "Must be a key of music.songs.",
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9_]{0,15}$"
+        },
+        "tiles": {
+          "description": "Row strings, top to bottom. Every row must be the same length (32-256 chars). Each character must appear in the legend or be '.' (empty). 1 tile = 16 px.",
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 32,
+          "items": { "type": "string", "minLength": 32, "maxLength": 256, "pattern": "^[ -~]+$" }
+        },
+        "legend": {
+          "description": "Single character -> tile type. '.' is always empty and may be omitted.",
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 16,
+          "patternProperties": { "^[ -~]$": { "$ref": "#/$defs/legendTile" } },
+          "additionalProperties": false
+        },
+        "entities": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/entity" }
+        },
+        "playerSpawn": { "$ref": "#/$defs/coord" },
+        "exit": { "$ref": "#/$defs/coord" }
+      },
+      "required": ["name", "musicSong", "tiles", "legend", "entities", "playerSpawn", "exit"],
+      "additionalProperties": false
+    },
+    "boss": {
+      "description": "The boss arena layout is built by the engine; this configures behavior only.",
+      "type": "object",
+      "properties": {
+        "name": { "$ref": "#/$defs/shortName" },
+        "hp": { "type": "integer", "minimum": 8, "maximum": 48 },
+        "phases": {
+          "description": "2-3 phases, entered at equal HP fractions.",
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "properties": {
+              "attacks": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "items": { "enum": ["stomp", "charge", "spread", "summon"] }
+              },
+              "tempo": {
+                "description": "Speed multiplier for this phase.",
+                "type": "number",
+                "minimum": 0.5,
+                "maximum": 2
+              }
+            },
+            "required": ["attacks", "tempo"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["name", "hp", "phases"],
+      "additionalProperties": false
+    }
+  }
+}

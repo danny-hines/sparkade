@@ -1,0 +1,304 @@
+{
+  "specVersion": 1,
+  "archetype": "shooter",
+  "seed": 20260710,
+  "meta": {
+    "title": "Void Petal",
+    "tagline": "One seed against the swarm. Replant the dead star."
+  },
+  "palette": [
+    "#000000",
+    "#120b1d",
+    "#1d1033",
+    "#2f1d52",
+    "#493473",
+    "#3cb96b",
+    "#8fe6a3",
+    "#f491c6",
+    "#7a4a21",
+    "#a86f32",
+    "#d69a45",
+    "#ff4f6d",
+    "#ff9d5c",
+    "#ffd35e",
+    "#b9e8ff",
+    "#f2fff5"
+  ],
+  "story": {
+    "intro": [
+      "The last greenhouse ark drifts toward a dead star, carrying every seed we have left.",
+      "You are Pip, a pod-ship grown from the stubbornest seed in the vault. Roots in. Petals out.",
+      "A meteor bloom has woken the chitin swarm. Keep the ark's glass unbroken all the way down."
+    ],
+    "levelIntros": [
+      "SEEDLING SHALLOWS: The swarm sends its smallest first. Pop them gently. Or not gently.",
+      "THE POLLEN DRIFT: Meteors thick as spring pollen. The ark sneezes. Stay close to it.",
+      "THORN GATE: The brood-hive coils around the dead star. Every thorn is pointed at you."
+    ],
+    "bossIntro": "BARON THORNWAKE unfurls, a hive grown around a stolen sapling. He thinks gardens waste good light. Prove him wrong.",
+    "victory": [
+      "The seed takes. Green threads race across the dead star's crust like dawn learning to run.",
+      "The ark opens every window. Somewhere inside, the keeper waters a fern and cries a little."
+    ],
+    "defeat": [
+      "The ark drifts dark and quiet. But a pod-ship is a seed, and seeds are patient. Again.",
+      "Thornwake laughs in spores. Let him. Spring has never once lost an argument with winter."
+    ]
+  },
+  "sprites": {
+    "custom": {
+      "hero_podship": {
+        "w": 16,
+        "h": 16,
+        "rows": [
+          ".......11.......",
+          "......1771......",
+          "......1771......",
+          ".....17ee71.....",
+          ".....16ee61.....",
+          "....16666661....",
+          "....16566561....",
+          ".11.16566561.11.",
+          "1551165665611551",
+          "1565165555615651",
+          "1555151771515551",
+          ".111.157751.111.",
+          ".....157751.....",
+          ".....1c77c1.....",
+          ".....1cddc1.....",
+          "......1dd1......"
+        ]
+      },
+      "foe_thornbud": {
+        "w": 16,
+        "h": 16,
+        "rows": [
+          ".......11.......",
+          "......1991......",
+          "..1..198891..1..",
+          ".191.198891.191.",
+          ".19911988911991.",
+          "..19889aa98891..",
+          ".198898aa898891.",
+          "1988981bb1898891",
+          "1988981bb1898891",
+          ".198898aa898891.",
+          "..19889aa98891..",
+          ".19911988911991.",
+          ".191.198891.191.",
+          "..1..198891..1..",
+          "......1991......",
+          ".......11......."
+        ]
+      },
+      "proj_petal": {
+        "w": 16,
+        "h": 16,
+        "rows": [
+          ".......11.......",
+          "......17f1......",
+          "......17f1......",
+          ".....17ff71.....",
+          ".....17ff71.....",
+          ".....17ff71.....",
+          "....17ffff71....",
+          "....17f77f71....",
+          "....17f77f71....",
+          "....17777771....",
+          ".....177771.....",
+          "......1771......",
+          "......1661......",
+          "......1661......",
+          ".......11.......",
+          "................"
+        ]
+      }
+    },
+    "assign": {
+      "hero": "custom:hero_podship",
+      "boss": "lib:boss_leviathan",
+      "popcorn": "lib:foe_popcorn",
+      "weaver": "lib:foe_weaver",
+      "tank": "lib:foe_tank",
+      "turret": "lib:foe_turret",
+      "kamikaze": "custom:foe_thornbud",
+      "projectile": "custom:proj_petal",
+      "spread": "lib:pickup_spread",
+      "rapid": "lib:pickup_rapid",
+      "shield": "lib:pickup_shield",
+      "bomb": "lib:pickup_bomb"
+    }
+  },
+  "levels": [
+    {
+      "name": "Seedling Shallows",
+      "musicSong": "theme",
+      "scroll": 35,
+      "durationS": 80,
+      "waves": [
+        { "t": 5, "enemyType": "popcorn", "count": 5, "formation": "vee", "path": "dive", "hp": 1, "fireRate": 0 },
+        { "t": 11, "enemyType": "popcorn", "count": 6, "formation": "arc", "path": "sweep", "hp": 1, "fireRate": 0 },
+        { "t": 24, "enemyType": "weaver", "count": 2, "formation": "line", "path": "sine", "hp": 2, "fireRate": 0.3 },
+        { "t": 36, "enemyType": "weaver", "count": 3, "formation": "vee", "path": "sine", "hp": 2, "fireRate": 0.3 },
+        { "t": 48, "enemyType": "tank", "count": 1, "formation": "column", "path": "hold", "hp": 8, "fireRate": 0.8 },
+        { "t": 60, "enemyType": "turret", "count": 2, "formation": "line", "path": "hold", "hp": 5, "fireRate": 0.6 },
+        { "t": 71, "enemyType": "kamikaze", "count": 4, "formation": "arc", "path": "dive", "hp": 1, "fireRate": 0 }
+      ],
+      "pickups": [
+        { "t": 14, "type": "spread" },
+        { "t": 52, "type": "bomb" }
+      ]
+    },
+    {
+      "name": "The Pollen Drift",
+      "musicSong": "theme",
+      "scroll": 45,
+      "durationS": 95,
+      "waves": [
+        { "t": 5, "enemyType": "popcorn", "count": 6, "formation": "arc", "path": "sweep", "hp": 1, "fireRate": 0 },
+        { "t": 9, "enemyType": "weaver", "count": 3, "formation": "vee", "path": "sine", "hp": 2, "fireRate": 0.3 },
+        { "t": 28, "enemyType": "tank", "count": 2, "formation": "line", "path": "hold", "hp": 7, "fireRate": 0.7 },
+        { "t": 32, "enemyType": "popcorn", "count": 6, "formation": "vee", "path": "dive", "hp": 1, "fireRate": 0 },
+        { "t": 52, "enemyType": "turret", "count": 2, "formation": "line", "path": "hold", "hp": 6, "fireRate": 0.7 },
+        { "t": 56, "enemyType": "weaver", "count": 4, "formation": "arc", "path": "sine", "hp": 2, "fireRate": 0.25 },
+        { "t": 76, "enemyType": "kamikaze", "count": 4, "formation": "vee", "path": "dive", "hp": 1, "fireRate": 0 },
+        { "t": 80, "enemyType": "popcorn", "count": 7, "formation": "arc", "path": "sweep", "hp": 1, "fireRate": 0 }
+      ],
+      "pickups": [
+        { "t": 20, "type": "spread" },
+        { "t": 47, "type": "rapid" },
+        { "t": 72, "type": "bomb" }
+      ]
+    },
+    {
+      "name": "Thorn Gate",
+      "musicSong": "theme",
+      "scroll": 60,
+      "durationS": 110,
+      "waves": [
+        { "t": 5, "enemyType": "popcorn", "count": 6, "formation": "vee", "path": "dive", "hp": 1, "fireRate": 0 },
+        { "t": 8, "enemyType": "weaver", "count": 4, "formation": "arc", "path": "sine", "hp": 3, "fireRate": 0.25 },
+        { "t": 32, "enemyType": "tank", "count": 2, "formation": "line", "path": "hold", "hp": 8, "fireRate": 0.7 },
+        { "t": 36, "enemyType": "popcorn", "count": 7, "formation": "vee", "path": "dive", "hp": 1, "fireRate": 0 },
+        { "t": 58, "enemyType": "turret", "count": 2, "formation": "line", "path": "hold", "hp": 6, "fireRate": 0.7 },
+        { "t": 61, "enemyType": "weaver", "count": 4, "formation": "arc", "path": "sine", "hp": 3, "fireRate": 0.25 },
+        { "t": 84, "enemyType": "turret", "count": 3, "formation": "arc", "path": "hold", "hp": 6, "fireRate": 0.7 },
+        { "t": 88, "enemyType": "tank", "count": 2, "formation": "column", "path": "hold", "hp": 8, "fireRate": 0.7 },
+        { "t": 92, "enemyType": "kamikaze", "count": 6, "formation": "vee", "path": "dive", "hp": 1, "fireRate": 0 }
+      ],
+      "pickups": [
+        { "t": 28, "type": "rapid" },
+        { "t": 54, "type": "bomb" },
+        { "t": 80, "type": "shield" }
+      ]
+    }
+  ],
+  "boss": {
+    "name": "Baron Thornwake",
+    "hp": 90,
+    "pods": 2,
+    "podHp": 12,
+    "phases": [
+      { "pattern": "fan", "bulletSpeed": 0.8, "fireIntervalMs": 1400 },
+      { "pattern": "spiral", "bulletSpeed": 1, "fireIntervalMs": 1100 },
+      { "pattern": "walls", "bulletSpeed": 1.2, "fireIntervalMs": 900 }
+    ]
+  },
+  "music": {
+    "bpm": 150,
+    "key": "E minor",
+    "instruments": {
+      "pulse1": { "duty": 0.25, "vol": 0.5, "decay": 0.4 },
+      "pulse2": { "duty": 0.125, "vol": 0.28, "decay": 0.12 },
+      "bass": { "vol": 0.55, "decay": 0.3 },
+      "drums": { "vol": 0.45 }
+    },
+    "patterns": {
+      "tA": {
+        "pulse1": ["E4:2", "-", "G4:2", "-", "B4:4", "-", "-", "-", "A4:2", "-", "G4:2", "-", "A4:2", "-", "B4:2", "-"],
+        "pulse2": ["E3:1", "G3:1", "B3:1", "E4:1", "E3:1", "G3:1", "B3:1", "E4:1", "E3:1", "G3:1", "B3:1", "E4:1", "E3:1", "G3:1", "B3:1", "E4:1"],
+        "bass": ["E2:2", "-", "E2:2", "-", "B2:2", "-", "E2:2", "-", "E2:2", "-", "E2:2", "-", "B2:2", "-", "B2:2", "-"],
+        "drums": ["K", "H", "H", "H", "S", "H", "H", "H", "K", "H", "K", "H", "S", "H", "H", "H"]
+      },
+      "tB": {
+        "pulse1": ["C5:4", "-", "-", "-", "B4:2", "-", "G4:2", "-", "A4:4", "-", "-", "-", "G4:2", "-", "E4:2", "-"],
+        "pulse2": ["C3:1", "E3:1", "G3:1", "C4:1", "C3:1", "E3:1", "G3:1", "C4:1", "C3:1", "E3:1", "G3:1", "C4:1", "C3:1", "E3:1", "G3:1", "C4:1"],
+        "bass": ["C3:2", "-", "C3:2", "-", "G2:2", "-", "C3:2", "-", "C3:2", "-", "C3:2", "-", "G2:2", "-", "G2:2", "-"],
+        "drums": ["K", "H", "H", "H", "S", "H", "H", "H", "K", "H", "K", "H", "S", "H", "H", "H"]
+      },
+      "tC": {
+        "pulse1": ["B4:2", "-", "D5:2", "-", "G5:4", "-", "-", "-", "F#5:2", "-", "D5:2", "-", "B4:2", "-", "G4:2", "-"],
+        "pulse2": ["G3:1", "B3:1", "D4:1", "G4:1", "G3:1", "B3:1", "D4:1", "G4:1", "G3:1", "B3:1", "D4:1", "G4:1", "G3:1", "B3:1", "D4:1", "G4:1"],
+        "bass": ["G2:2", "-", "G2:2", "-", "D3:2", "-", "G2:2", "-", "G2:2", "-", "G2:2", "-", "D3:2", "-", "D3:2", "-"],
+        "drums": ["K", "H", "H", "H", "S", "H", "H", "H", "K", "H", "K", "H", "S", "H", "S", "H"]
+      },
+      "tD": {
+        "pulse1": ["A4:2", "-", "F#4:2", "-", "D4:4", "-", "-", "-", "E4:2", "-", "F#4:2", "-", "A4:4", "-", "-", "-"],
+        "pulse2": ["D3:1", "F#3:1", "A3:1", "D4:1", "D3:1", "F#3:1", "A3:1", "D4:1", "D3:1", "F#3:1", "A3:1", "D4:1", "D3:1", "F#3:1", "A3:1", "D4:1"],
+        "bass": ["D3:2", "-", "D3:2", "-", "A2:2", "-", "D3:2", "-", "D3:2", "-", "D3:2", "-", "A2:2", "-", "A2:2", "-"],
+        "drums": ["K", "H", "H", "H", "S", "H", "H", "H", "K", "H", "K", "H", "S", "H", "H", "S"]
+      },
+      "tE": {
+        "pulse1": ["B4:2", "-", "G4:2", "-", "E4:2", "-", "G4:2", "-", "B4:2", "-", "D5:2", "-", "E5:4", "-", "-", "-"],
+        "pulse2": ["E3:1", "G3:1", "B3:1", "E4:1", "E3:1", "G3:1", "B3:1", "E4:1", "E3:1", "G3:1", "B3:1", "E4:1", "G3:1", "A3:1", "B3:1", "D4:1"],
+        "bass": ["E2:2", "-", "E2:2", "-", "B2:2", "-", "B2:2", "-", "C3:2", "-", "D3:2", "-", "E3:2", "-", "B2:2", "-"],
+        "drums": ["K", "H", "H", "H", "S", "H", "H", "H", "K", "H", "K", "H", "S", "S", "S", "S"]
+      },
+      "bA": {
+        "pulse1": ["E4:2", "-", "G4:2", "-", "B4:2", "-", "A4:1", "G4:1", "E4:2", "-", "G4:2", "-", "D5:2", "-", "B4:2", "-"],
+        "pulse2": ["E3:1", "B3:1", "E4:1", "B3:1", "E3:1", "B3:1", "E4:1", "B3:1", "E3:1", "B3:1", "E4:1", "B3:1", "E3:1", "B3:1", "E4:1", "B3:1"],
+        "bass": ["E2:1", "E2:1", "E3:1", "E2:1", "E2:1", "E2:1", "E3:1", "E2:1", "E2:1", "E2:1", "E3:1", "E2:1", "E2:1", "E2:1", "D3:1", "E3:1"],
+        "drums": ["K", "H", "S", "H", "K", "K", "S", "H", "K", "H", "S", "H", "K", "K", "S", "H"]
+      },
+      "bB": {
+        "pulse1": ["C5:2", "-", "G4:2", "-", "E4:2", "-", "D4:1", "E4:1", "C4:2", "-", "E4:2", "-", "G4:2", "-", "B4:2", "-"],
+        "pulse2": ["C3:1", "G3:1", "C4:1", "G3:1", "C3:1", "G3:1", "C4:1", "G3:1", "C3:1", "G3:1", "C4:1", "G3:1", "C3:1", "G3:1", "C4:1", "G3:1"],
+        "bass": ["C2:1", "C2:1", "C3:1", "C2:1", "C2:1", "C2:1", "C3:1", "C2:1", "C2:1", "C2:1", "C3:1", "C2:1", "C2:1", "C2:1", "B2:1", "B2:1"],
+        "drums": ["K", "H", "S", "H", "K", "K", "S", "H", "K", "H", "S", "H", "K", "K", "S", "H"]
+      },
+      "bC": {
+        "pulse1": ["B4:2", "-", "D#5:2", "-", "F#5:2", "-", "D#5:1", "B4:1", "F#4:2", "-", "A4:2", "-", "G4:2", "-", "F#4:2", "-"],
+        "pulse2": ["B3:1", "D#4:1", "F#4:1", "D#4:1", "B3:1", "D#4:1", "F#4:1", "D#4:1", "B3:1", "D#4:1", "F#4:1", "D#4:1", "B3:1", "D#4:1", "F#4:1", "D#4:1"],
+        "bass": ["B2:1", "B2:1", "B3:1", "B2:1", "B2:1", "B2:1", "B3:1", "B2:1", "F#2:1", "F#2:1", "F#3:1", "F#2:1", "B2:1", "A2:1", "G2:1", "F#2:1"],
+        "drums": ["K", "H", "S", "H", "K", "K", "S", "H", "K", "H", "S", "H", "S", "S", "S", "S"]
+      }
+    },
+    "songs": {
+      "theme": ["tA", "tB", "tC", "tD", "tA", "tB", "tC", "tE"],
+      "boss": ["bA", "bA", "bB", "bC"]
+    },
+    "jingles": {
+      "victory": {
+        "pulse1": ["E4:2", "-", "G4:2", "-", "B4:2", "-", "C5:2", "-", "D5:2", "-", "B4:2", "-", "E5:4", "-", "-", "-"],
+        "pulse2": ["E3:8", "-", "-", "-", "-", "-", "-", "-", "B3:4", "-", "-", "-", "E4:4", "-", "-", "-"],
+        "bass": ["E2:4", "-", "-", "-", "G2:4", "-", "-", "-", "B2:4", "-", "-", "-", "E3:4", "-", "-", "-"],
+        "drums": ["K", "-", "H", "-", "K", "-", "H", "-", "K", "-", "H", "-", "S", "-", "-", "-"]
+      },
+      "gameover": {
+        "pulse1": ["B4:2", "-", "A4:2", "-", "G4:2", "-", "F#4:2", "-", "E4:6", "-", "-", "-", "-", "-", "-", "-"],
+        "pulse2": ["-", "-", "-", "-", "G3:2", "-", "E3:2", "-", "B2:8", "-", "-", "-", "-", "-", "-", "-"],
+        "bass": ["E3:4", "-", "-", "-", "B2:4", "-", "-", "-", "E2:8", "-", "-", "-", "-", "-", "-", "-"],
+        "drums": ["K", "-", "-", "-", "-", "-", "-", "-", "K", "-", "-", "-", "-", "-", "-", "-"]
+      },
+      "levelIntro": {
+        "pulse1": ["E4:1", "-", "E4:1", "-", "G4:2", "-", "B4:2", "-", "E5:4", "-", "-", "-", "-", "-", "-", "-"],
+        "bass": ["E2:2", "-", "E2:2", "-", "E2:2", "-", "B2:2", "-", "E2:4", "-", "-", "-", "-", "-", "-", "-"],
+        "drums": ["K", "-", "K", "-", "S", "-", "K", "-", "K", "-", "-", "-", "-", "-", "-", "-"]
+      }
+    }
+  },
+  "sfx": {
+    "shoot": { "wave": "square", "freq": 880, "freqSlide": -20, "decay": 0.08, "duty": 0.125, "vol": 0.22 },
+    "pickup": { "wave": "triangle", "freq": 660, "freqSlide": 14, "decay": 0.18, "vol": 0.4, "arpSemitones": 7, "arpTime": 0.05 },
+    "die": { "wave": "noise", "freq": 200, "freqSlide": -28, "decay": 0.45, "vol": 0.5, "lowpass": 1400 }
+  },
+  "scoring": {
+    "events": {
+      "enemyKill": 100,
+      "pickup": 50,
+      "bossHit": 250,
+      "levelClear": 1000
+    },
+    "timeBonusPerSecond": 10
+  }
+}

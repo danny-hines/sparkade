@@ -1,0 +1,20 @@
+[Unit]
+Description=Sparkade arcade server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=/opt/sparkade
+EnvironmentFile=-/etc/sparkade/env
+Environment=SPARKADE_DATA=@DATA@
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node /opt/sparkade/packages/server/dist/index.js
+Restart=always
+RestartSec=3
+# 1 GB device: keep Node from ballooning
+Environment=NODE_OPTIONS=--max-old-space-size=384
+
+[Install]
+WantedBy=multi-user.target

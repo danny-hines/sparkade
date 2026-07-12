@@ -1,0 +1,2 @@
+# Sparkade kiosk .xinitrc — started by .bash_profile on tty1 autologin.
+exec openbox-session

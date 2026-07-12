@@ -1,0 +1,16 @@
+{
+  "name": "@sparkade/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@sparkade/archetypes": "*",
+    "@sparkade/engine": "*",
+    "@sparkade/shared": "*",
+    "preact": "^10.25.4"
+  }
+}

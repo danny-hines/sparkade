@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sparkade://schemas/design",
+  "title": "Sparkade design pass output",
+  "type": "object",
+  "properties": {
+    "title": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[ -~]+$" },
+    "tagline": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[ -~]+$" },
+    "archetype": { "enum": ["platformer", "shooter", "adventure"] },
+    "palette": {
+      "description": "Exactly 16 hex colors. Index 0 is treated as transparent. Slot conventions: 1 outline/darkest, 2-4 background dark->light, 5-7 hero, 8-a enemies, b hazard, c warm accent, d gold, e light, f near-white.",
+      "type": "array",
+      "minItems": 16,
+      "maxItems": 16,
+      "items": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }
+    },
+    "heroConcept": {
+      "description": "One line: who the hero is and what they look like.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "pattern": "^[ -~]+$"
+    },
+    "story": {
+      "type": "object",
+      "properties": {
+        "intro": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[ -~]+$" }
+        },
+        "levelIntros": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[ -~]+$" }
+        },
+        "bossIntro": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[ -~]+$" },
+        "victory": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[ -~]+$" }
+        },
+        "defeat": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[ -~]+$" }
+        }
+      },
+      "required": ["intro", "levelIntros", "bossIntro", "victory", "defeat"],
+      "additionalProperties": false
+    },
+    "levelPlan": {
+      "description": "Exactly 4 entries: level 1, level 2, level 3, boss.",
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 24, "pattern": "^[ -~]+$" },
+          "summary": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[ -~]+$" }
+        },
+        "required": ["name", "summary"],
+        "additionalProperties": false
+      }
+    },
+    "cast": {
+      "description": "Enemy cast mapped onto the archetype's enemy vocabulary.",
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "description": "An enemy type from the chosen archetype's vocabulary.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 24,
+            "pattern": "^[a-z][a-zA-Z0-9_]{0,23}$"
+          },
+          "concept": { "type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[ -~]+$" }
+        },
+        "required": ["role", "concept"],
+        "additionalProperties": false
+      }
+    },
+    "musicBrief": {
+      "type": "object",
+      "properties": {
+        "key": { "type": "string", "minLength": 1, "maxLength": 16, "pattern": "^[ -~]+$" },
+        "bpm": { "type": "integer", "minimum": 70, "maximum": 200 },
+        "themeMood": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[ -~]+$" },
+        "bossMood": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[ -~]+$" }
+      },
+      "required": ["key", "bpm", "themeMood", "bossMood"],
+      "additionalProperties": false
+    },
+    "scoring": {
+      "type": "object",
+      "properties": {
+        "events": {
+          "type": "object",
+          "properties": {
+            "enemyKill": { "type": "integer", "minimum": 0, "maximum": 100000 },
+            "pickup": { "type": "integer", "minimum": 0, "maximum": 100000 },
+            "bossHit": { "type": "integer", "minimum": 0, "maximum": 100000 },
+            "levelClear": { "type": "integer", "minimum": 0, "maximum": 100000 }
+          },
+          "required": ["enemyKill", "pickup", "bossHit", "levelClear"],
+          "additionalProperties": false
+        },
+        "timeBonusPerSecond": { "type": "integer", "minimum": 0, "maximum": 1000 }
+      },
+      "required": ["events", "timeBonusPerSecond"],
+      "additionalProperties": false
+    },
+    "difficulty": { "enum": ["chill", "standard", "spicy"] }
+  },
+  "required": [
+    "title",
+    "tagline",
+    "archetype",
+    "palette",
+    "heroConcept",
+    "story",
+    "levelPlan",
+    "cast",
+    "musicBrief",
+    "scoring",
+    "difficulty"
+  ],
+  "additionalProperties": false
+}

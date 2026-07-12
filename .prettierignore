@@ -1,0 +1,8 @@
+node_modules
+dist
+data
+.e2e-data
+playwright-report
+test-results
+packages/generation/golden
+packages/web/public/fonts

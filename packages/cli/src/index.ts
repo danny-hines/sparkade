@@ -35,8 +35,12 @@ function dataDir(): string {
   return join(homedir(), '.sparkade');
 }
 
-function sh(cmd: string, args: string[], opts: { quiet?: boolean; check?: boolean } = {}): string {
-  const res = spawnSync(cmd, args, { encoding: 'utf8', stdio: opts.quiet ? 'pipe' : ['inherit', 'pipe', 'pipe'] });
+function sh(cmd: string, args: string[], opts: { quiet?: boolean; check?: boolean; cwd?: string } = {}): string {
+  const res = spawnSync(cmd, args, {
+    encoding: 'utf8',
+    cwd: opts.cwd,
+    stdio: opts.quiet ? 'pipe' : ['inherit', 'pipe', 'pipe'],
+  });
   if (opts.check !== false && res.status !== 0) {
     throw new Error(`${cmd} ${args.join(' ')} failed: ${res.stderr ?? ''}`);
   }
@@ -150,10 +154,12 @@ function cmdUpdate(): void {
     sh('git', ['-C', dir, 'checkout', 'main'], {});
     sh('git', ['-C', dir, 'pull', '--ff-only'], {});
   }
+  // npm must run IN the repo, not wherever the user typed `sparkade update`
+  // (the git steps use -C, but these need cwd or npm ci finds no lockfile).
   console.log('npm ci …');
-  sh('npm', ['ci', '--no-audit', '--no-fund'], {});
+  sh('npm', ['ci', '--no-audit', '--no-fund'], { cwd: dir });
   console.log('build …');
-  sh('npm', ['run', 'build'], {});
+  sh('npm', ['run', 'build'], { cwd: dir });
   console.log('restarting service (the kiosk reloads itself via version poll) …');
   tryRun('sudo', ['-n', 'systemctl', 'restart', SERVICE]);
   console.log('update complete. The data dir was not touched.');

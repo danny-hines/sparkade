@@ -34,6 +34,7 @@ export function GameCover(props: {
   gameId?: string;
   seedText: string;
   class?: string;
+  pending?: boolean;
 }): ComponentChildren {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -67,7 +68,27 @@ export function GameCover(props: {
         ctx.fillRect(x, y, 1, 1);
       }
       ctx.globalAlpha = 1;
-      if (!cover) return;
+      if (!cover) {
+        if (props.pending) {
+          // Queued/generating games have no cover art yet — a centered gem
+          // outline reads as "cover incoming" rather than a broken empty box.
+          ctx.globalAlpha = 0.55;
+          ctx.strokeStyle = pal[13] ?? '#ffd75e';
+          ctx.lineWidth = 1;
+          const cx = 64;
+          const cy = 36;
+          const r = 8;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy - r);
+          ctx.lineTo(cx + r, cy);
+          ctx.lineTo(cx, cy + r);
+          ctx.lineTo(cx - r, cy);
+          ctx.closePath();
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+        return;
+      }
       const baseline = 68;
 
       // Boss: large, dim, stage-right — every game's boss differs.
@@ -139,7 +160,7 @@ export function GameCover(props: {
     return () => {
       disposed = true;
     };
-  }, [props.cover, props.gameId, props.seedText]);
+  }, [props.cover, props.gameId, props.seedText, props.pending]);
   return <canvas ref={ref} class={props.class} />;
 }
 

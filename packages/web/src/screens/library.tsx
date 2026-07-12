@@ -95,7 +95,12 @@ export function LibraryScreen(props: { go: (s: Screen) => void }): ComponentChil
               const ix = page * PAGE + i;
               return (
                 <div key={g.id} class={`focusable game-card ${ix === cursor ? 'focused' : ''}`}>
-                  <GameCover cover={g.cover} gameId={g.id} seedText={g.title} />
+                  <GameCover
+                    cover={g.cover}
+                    gameId={g.id}
+                    seedText={g.title}
+                    pending={g.status === 'queued' || g.status === 'generating'}
+                  />
                   <div class="title">{g.title}</div>
                   <div class="sub">
                     <span class={`badge ${g.golden ? 'golden' : g.status}`}>

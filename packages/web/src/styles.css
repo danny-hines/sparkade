@@ -155,6 +155,8 @@ h2.pixel {
 .card-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
+  grid-auto-rows: 205px; /* pin every row so a partial last row can't resize */
+  align-items: start;
   gap: 18px;
 }
 
@@ -164,6 +166,7 @@ h2.pixel {
   flex-direction: column;
   gap: 8px;
   height: 205px;
+  overflow: hidden;
 }
 
 .game-card canvas {

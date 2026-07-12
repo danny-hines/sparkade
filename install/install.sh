@@ -38,8 +38,8 @@ if [ "$FORCE" -ne 1 ]; then
 fi
 . /etc/os-release
 case "${VERSION_CODENAME:-}" in
-  bookworm) ;;
-  *) [ "$FORCE" -eq 1 ] || fail "Raspberry Pi OS Bookworm required (found: ${VERSION_CODENAME:-unknown})." ;;
+  bookworm|trixie) ;;
+  *) [ "$FORCE" -eq 1 ] || fail "Raspberry Pi OS Bookworm or Trixie required (found: ${VERSION_CODENAME:-unknown}). Re-run with --force to try anyway." ;;
 esac
 ARCH="$(dpkg --print-architecture)"
 if [ "$ARCH" != "arm64" ] && [ "$FORCE" -ne 1 ]; then
@@ -62,11 +62,15 @@ $SUDO apt-get install -y --no-install-recommends \
 systemctl is-active --quiet NetworkManager \
   || echo "WARNING: NetworkManager is not active; WiFi settings in the UI won't work until it is."
 
-# --- 3. Node 20 (NodeSource arm64) ---------------------------------------------
-if ! command -v node >/dev/null 2>&1 || [ "$(node -e 'console.log(process.versions.node.split(".")[0])')" -lt 20 ]; then
-  log "Installing Node.js 20 (NodeSource)"
-  curl -fsSL https://deb.nodesource.com/setup_20.x | $SUDO bash -
-  $SUDO apt-get install -y nodejs
+# --- 3. Node 20+ (NodeSource, with a distro-package fallback for newer releases) ---
+node_major() { command -v node >/dev/null 2>&1 && node -e 'console.log(process.versions.node.split(".")[0])' 2>/dev/null || echo 0; }
+if [ "$(node_major)" -lt 20 ]; then
+  log "Installing Node.js 20"
+  if ! { curl -fsSL https://deb.nodesource.com/setup_20.x | $SUDO bash - && $SUDO apt-get install -y nodejs; }; then
+    log "NodeSource unavailable for this release — falling back to the distro nodejs package"
+    $SUDO apt-get install -y nodejs npm || true
+  fi
+  [ "$(node_major)" -lt 20 ] && fail "Node >= 20 could not be installed. Install it manually (e.g. 'sudo apt-get install nodejs npm') and re-run."
 else
   log "Node $(node --version) already present"
 fi

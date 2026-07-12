@@ -188,6 +188,32 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
     }
   });
 
+  // Optional custom boss arena: must be a valid, playable fight room so the
+  // engine's fixed player/boss spawns land on ground (the engine also lifts the
+  // spawn out of solid as a backstop).
+  const arena = spec.boss.arena;
+  if (arena) {
+    const ap = '/boss/arena';
+    out.push(...lintRowLengths(arena.tiles, ap, 'PLAT_ARENA_ROWS_UNEQUAL'));
+    if (!out.some((e) => e.code === 'PLAT_ARENA_ROWS_UNEQUAL')) {
+      const h = arena.tiles.length;
+      const w = arena.tiles[0]?.length ?? 0;
+      const kindAt = (x: number, y: number): string => {
+        const ch = arena.tiles[y]?.[x];
+        return ch === undefined || ch === '.' ? 'empty' : (arena.legend[ch] ?? 'empty');
+      };
+      let wallsOk = true;
+      for (let y = 0; y < h; y++) if (kindAt(0, y) !== 'solid' || kindAt(w - 1, y) !== 'solid') wallsOk = false;
+      if (!wallsOk) out.push(err('PLAT_ARENA_NO_WALLS', ap, 'boss arena needs solid wall columns on the far left and far right'));
+      let floorOk = h >= 2;
+      for (let x = 1; x < w - 1; x++) if (kindAt(x, h - 1) !== 'solid' || kindAt(x, h - 2) !== 'solid') floorOk = false;
+      if (!floorOk) out.push(err('PLAT_ARENA_NO_FLOOR', ap, 'boss arena needs a solid floor across the bottom two rows'));
+      let filled = 0;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (kindAt(x, y) === 'solid' || kindAt(x, y) === 'platform') filled++;
+      if (w * h > 0 && filled / (w * h) > 0.7) out.push(err('PLAT_ARENA_TOO_DENSE', ap, 'boss arena is too filled-in; leave open space to fight'));
+    }
+  }
+
   // Content floors
   if (enemyTypesUsed.size < 4) {
     out.push(err('PLAT_FLOOR_ENEMY_TYPES', '/levels', `uses ${enemyTypesUsed.size} distinct enemy types (walker/flyer/shooter/chaser); the floor is 4`));

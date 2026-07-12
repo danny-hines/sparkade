@@ -134,6 +134,31 @@ describe('platformer lints', () => {
     spec.sprites.assign['walker'] = 'custom:never_defined';
     expect(codes(archetypes.platformer.lint(spec))).toContain('SPRITE_UNKNOWN_REF');
   });
+
+  it('a valid custom boss arena passes; a floorless one → PLAT_ARENA_NO_FLOOR', () => {
+    const arena = (withFloor: boolean) => {
+      const w = 30;
+      const h = 16;
+      const tiles: string[] = [];
+      for (let y = 0; y < h; y++) {
+        let row = '';
+        for (let x = 0; x < w; x++) {
+          const wall = x === 0 || x === w - 1;
+          const floor = withFloor && y >= h - 2;
+          row += wall || floor ? '#' : '.';
+        }
+        tiles.push(row);
+      }
+      return { tiles, legend: { '#': 'solid' as const } };
+    };
+    const ok = golden<PlatformerSpec>('platformer');
+    ok.boss.arena = arena(true);
+    expect(codes(archetypes.platformer.lint(ok)).filter((c) => c.startsWith('PLAT_ARENA'))).toEqual([]);
+
+    const bad = golden<PlatformerSpec>('platformer');
+    bad.boss.arena = arena(false);
+    expect(codes(archetypes.platformer.lint(bad))).toContain('PLAT_ARENA_NO_FLOOR');
+  });
 });
 
 describe('shooter lints', () => {

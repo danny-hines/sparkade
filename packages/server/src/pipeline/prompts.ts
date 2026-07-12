@@ -260,7 +260,7 @@ export function buildEntitiesPrompt(
   const schema = stageSchema(archetype, 'entities');
   const bossNotes: Record<ArchetypeId, string> = {
     platformer:
-      'Attacks vocabulary: stomp (leap + shockwave), charge (dash), spread (projectile fan), summon (minions). tempo 0.5–2 scales speed.',
+      'Attacks vocabulary: stomp (leap + shockwave), charge (dash), spread (projectile fan), summon (minions). tempo 0.5–2 scales speed. Optionally set boss.arena to a custom fight room (same tile format as a level) themed to the finale — it MUST have solid wall columns on the far left/right and a solid floor across the bottom two rows; leave open space to move. Omit it for the default arena.',
     shooter:
       'Bullet patterns: fan, spiral, walls (rows with a gap), aimed. pods are destructible side turrets. bulletSpeed multiplies base speed.',
     adventure:

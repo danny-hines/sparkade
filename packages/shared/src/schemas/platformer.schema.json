@@ -454,7 +454,7 @@
       "additionalProperties": false
     },
     "boss": {
-      "description": "The boss arena layout is built by the engine; this configures behavior only.",
+      "description": "Boss behavior and finale. The arena defaults to the engine's built-in walled room; set the optional arena field for a custom fight room.",
       "type": "object",
       "properties": {
         "name": { "$ref": "#/$defs/shortName" },
@@ -483,6 +483,29 @@
             "required": ["attacks", "tempo"],
             "additionalProperties": false
           }
+        },
+        "arena": {
+          "description": "Optional custom boss-fight arena, same tile format as a level. It MUST have solid side-wall columns and a solid floor across the bottom two rows so the player and boss have ground to fight on. Omit to use the engine's default arena.",
+          "type": "object",
+          "properties": {
+            "tiles": {
+              "description": "Row strings, top to bottom, all the same length. 1 tile = 16 px.",
+              "type": "array",
+              "minItems": 14,
+              "maxItems": 20,
+              "items": { "type": "string", "minLength": 28, "maxLength": 48, "pattern": "^[ -~]+$" }
+            },
+            "legend": {
+              "description": "Single character -> tile type. '.' is always empty and may be omitted.",
+              "type": "object",
+              "minProperties": 1,
+              "maxProperties": 16,
+              "patternProperties": { "^[ -~]$": { "$ref": "#/$defs/legendTile" } },
+              "additionalProperties": false
+            }
+          },
+          "required": ["tiles", "legend"],
+          "additionalProperties": false
         }
       },
       "required": ["name", "hp", "phases"],

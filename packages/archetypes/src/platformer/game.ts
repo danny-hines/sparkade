@@ -212,7 +212,7 @@ class PlatformerGame implements GameInstance {
     } else build();
   }
 
-  private buildBossArena(): void {
+  private defaultArenaTiles(): string[] {
     // Hand-built arena: 34 tiles wide, walls, flat floor, two side platforms.
     const cols = 34;
     const rows = 17;
@@ -227,7 +227,20 @@ class PlatformerGame implements GameInstance {
       }
       tiles.push(row);
     }
-    this.buildGrid(tiles, { '#': 'solid', '=': 'platform' });
+    return tiles;
+  }
+
+  private buildBossArena(): void {
+    // Use the model's custom arena when it authored one, else the default. The
+    // arena lint guarantees side walls + a solid bottom-two-rows floor, so the
+    // fixed player/boss spawns below stay valid; the spawn also self-lifts out
+    // of solid as a safety net.
+    const custom = this.spec.boss.arena;
+    const tiles = custom?.tiles?.length ? custom.tiles : this.defaultArenaTiles();
+    const legend = custom?.tiles?.length ? custom.legend : { '#': 'solid', '=': 'platform' };
+    const rows = tiles.length;
+    const cols = tiles[0]?.length ?? 34;
+    this.buildGrid(tiles, legend);
     // Boss arena keeps its 'caves' fallback (matching pre-backdrop-field behavior) so
     // published games without a `backdrop` field render identically; an explicit spec
     // backdrop now carries into the boss fight too. Do NOT drop the fallback to match

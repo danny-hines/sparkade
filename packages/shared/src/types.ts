@@ -201,6 +201,10 @@ export interface PlatformerBoss {
   name: string;
   hp: number;
   phases: { attacks: PlatformerBossAttack[]; tempo: number }[];
+  /** Optional custom boss-fight arena (same tile format as levels). Omit → the
+   *  engine's default walled arena. Must have solid side walls and a solid floor
+   *  across the bottom two rows so the player and boss have a floor to fight on. */
+  arena?: { tiles: string[]; legend: Record<string, PlatformerTileType> };
 }
 
 // ---------------------------------------------------------------------------

@@ -34,6 +34,16 @@
         "leaves", "petals", "fog", "bubbles", "fireflies", "dust"
       ]
     },
+    "lighting": {
+      "description": "Lighting mood: a translucent color wash over the scene for day/night/sunset variety. Pick one that matches the premise; omit or 'none' for untinted daylight.",
+      "enum": ["none", "dawn", "dusk", "night", "gloom"]
+    },
+    "juice": {
+      "description": "Screen-shake intensity multiplier (0-1.5). 1 is the default feel; lower for a calm game, higher for a punchy one. Omit for 1.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1.5
+    },
     "levels": {
       "description": "Exactly one dungeon.",
       "type": "array",

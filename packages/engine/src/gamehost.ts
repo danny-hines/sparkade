@@ -26,6 +26,15 @@ import { StoryCards } from './storycard';
 import { Hud } from './hud';
 import type { GameInstance, LikenessAssets } from './types';
 
+/** Lighting mood → a translucent color wash over the scene. undefined = untinted. */
+const LIGHTING_TINTS: Record<string, { color: string; alpha: number } | undefined> = {
+  none: undefined,
+  dawn: { color: '#ff9e7a', alpha: 0.16 },
+  dusk: { color: '#ff7330', alpha: 0.24 },
+  night: { color: '#0c1836', alpha: 0.42 },
+  gloom: { color: '#26331f', alpha: 0.32 },
+};
+
 /** Everything an archetype needs to run a game. */
 export interface EngineContext {
   renderer: Renderer;
@@ -85,6 +94,7 @@ export class GameHost {
   private playT = 0;
   private disposed = false;
   private weather: Weather;
+  private lightTint: { color: string; alpha: number } | null = null;
 
   constructor(
     private opts: {
@@ -143,6 +153,8 @@ export class GameHost {
 
     this.howto = new HowToPlayCard(opts.spec.meta.title, opts.archetype.controlHelp);
     this.weather = makeWeather(opts.spec.weather ?? 'none', opts.spec.palette, opts.spec.seed);
+    this.renderer.juice = Math.max(0, Math.min(1.5, opts.spec.juice ?? 1));
+    this.lightTint = LIGHTING_TINTS[opts.spec.lighting ?? 'none'] ?? null;
     this.instance = opts.archetype.create(this.engineCtx, opts.spec);
     this.loop = new GameLoop({ update: (dt) => this.update(dt), render: () => this.render() });
   }
@@ -323,6 +335,15 @@ export class GameHost {
       case 'game':
       case 'paused':
         this.instance.render();
+        // Lighting wash tints the scene for mood; drawn under weather + HUD so
+        // particles and chrome stay crisp and legible.
+        if (this.lightTint) {
+          r.ctx.save();
+          r.ctx.globalAlpha = this.lightTint.alpha;
+          r.ctx.fillStyle = this.lightTint.color;
+          r.ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+          r.ctx.restore();
+        }
         // Ambient weather sits over the scene but under gameplay particles (so
         // hit sparks stay crisp) and the HUD/story cards (always legible).
         this.weather.draw(r.ctx, this.engineCtx.camera.x, this.engineCtx.camera.y);

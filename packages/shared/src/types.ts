@@ -6,6 +6,7 @@ import type {
   ArchetypeId,
   BackdropVariantId,
   JobStage,
+  LightingMode,
   LogicalButton,
   SfxEvent,
   StageName,
@@ -325,6 +326,10 @@ export interface GameSpecBase {
   backdrop?: BackdropVariantId;
   /** Ambient weather/particle overlay; omitted → 'none' (clear). */
   weather?: WeatherKind;
+  /** Lighting mood wash over the scene; omitted → 'none' (untinted). */
+  lighting?: LightingMode;
+  /** VFX intensity multiplier for screen-shake (0–1.5); omitted → 1 (default). */
+  juice?: number;
   music: MusicBlock;
   sfx?: SfxBlock;
   scoring: ScoringBlock;

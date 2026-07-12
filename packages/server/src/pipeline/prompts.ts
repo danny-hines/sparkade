@@ -167,7 +167,11 @@ function annotated(ids: readonly string[]): string {
 /** Static backdrop guidance shared by all three archetypes (system prompt). */
 const BACKDROP_NOTE = `BACKDROP — set the top-level "backdrop" field to the parallax scene behind gameplay (procedurally drawn in your palette's background colors): starfield (deep space + planet), hills (rolling countryside), clouds (open sky), caves (cavern silhouette), mountains (snow-capped peaks), candy (lollipop hills + sprinkles), city (futuristic lit skyline + monorail), ruins (shattered towers + rubble), pyramids (dunes + stepped monuments), circuit (inside a computer — grid + traces), factory (smokestacks, gantries, pipes). Pick the scene that matches the premise; omit only if none fit.
 
-WEATHER (optional) — set the top-level "weather" field for a subtle ambient particle overlay in your palette colors: rain, storm (heavy driving rain), snow, embers (rising sparks — fire/volcano), ash (falling grey flecks — ruins/aftermath), leaves (autumn/forest), petals (blossom/candy), fog (drifting mist), bubbles (undersea), fireflies (glowing night motes), dust (drifting desert/dungeon motes). Choose one that reinforces the mood, or "none"/omit for clear air. It's atmosphere — don't let it fight the gameplay.`;
+WEATHER (optional) — set the top-level "weather" field for a subtle ambient particle overlay in your palette colors: rain, storm (heavy driving rain), snow, embers (rising sparks — fire/volcano), ash (falling grey flecks — ruins/aftermath), leaves (autumn/forest), petals (blossom/candy), fog (drifting mist), bubbles (undersea), fireflies (glowing night motes), dust (drifting desert/dungeon motes). Choose one that reinforces the mood, or "none"/omit for clear air. It's atmosphere — don't let it fight the gameplay.
+
+LIGHTING (optional) — set the top-level "lighting" field to wash the scene in a mood: dawn (soft warm), dusk (orange sunset), night (deep blue), gloom (murky green-grey). Match the premise's time of day / tone, or "none"/omit for plain daylight.
+
+JUICE (optional) — set the top-level "juice" number (0–1.5) to scale screen-shake intensity: ~0.5 for a calm or cozy game, 1 (default) for most, up to ~1.4 for a punchy action game. Omit for the default feel.`;
 
 /** Per-archetype library menus (annotated, grouped) + reskinnable-slot documentation. */
 function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: string } {

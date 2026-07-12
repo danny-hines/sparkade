@@ -45,6 +45,8 @@ export class Renderer {
   private shakeMag = 0;
   /** Per-game chrome colors; set by the host from the game's palette. */
   theme: UiTheme = DEFAULT_THEME;
+  /** Per-game VFX intensity (screen-shake) multiplier; 1 = default feel. */
+  juice = 1;
 
   constructor(visibleCanvas: HTMLCanvasElement) {
     this.visible = visibleCanvas;
@@ -88,7 +90,7 @@ export class Renderer {
 
   shake(ms: number, magnitude = 3): void {
     this.shakeUntil = performance.now() + ms;
-    this.shakeMag = magnitude;
+    this.shakeMag = magnitude * this.juice;
   }
 
   draw(img: CanvasImageSource, x: number, y: number): void {

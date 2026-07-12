@@ -407,6 +407,16 @@ export const WEATHER_KINDS = [
 export type WeatherKind = (typeof WEATHER_KINDS)[number];
 
 /**
+ * Per-game lighting mood: a translucent color wash over the scene (drawn under
+ * the weather + HUD so they stay legible), for day/night/sunset variety.
+ * 'none' = untinted. The enum in all three archetype schema JSONs must
+ * byte-match this list (enforced by schemas.test.ts).
+ */
+export const LIGHTING_MODES = ['none', 'dawn', 'dusk', 'night', 'gloom'] as const;
+
+export type LightingMode = (typeof LIGHTING_MODES)[number];
+
+/**
  * Palette slot conventions. Library art and prompt templates agree on these
  * semantics so any generated 16-color palette recolors everything coherently.
  */

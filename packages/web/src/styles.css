@@ -188,6 +188,9 @@ h2.pixel {
   border-radius: 10px;
   background: var(--bg-panel);
   flex: none;
+  /* leave room for the focus ring when scrollIntoView() aligns the first/last
+     item flush to an edge (container padding only covers the scroll extremes). */
+  scroll-margin-block: 12px;
 }
 .home-item.new,
 .home-item.settings {

@@ -15,10 +15,17 @@ for _ in $(seq 1 60); do
 done
 
 while true; do
+  # --use-fake-ui-for-media-stream: auto-grant the camera/mic permission (no mouse
+  #   to click the prompt on a kiosk).
+  # --disable-features=WebRtcPipeWireCamera: on trixie's Chromium (M130+) the camera
+  #   defaults to the PipeWire/portal backend, which isn't running in this bare
+  #   startx session — so it enumerates zero cameras and getUserMedia hangs. This
+  #   forces the direct V4L2 path (/dev/video0). Harmless on older Chromium.
   "$CHROMIUM" --kiosk --window-size=1024,600 --window-position=0,0 \
     --noerrdialogs --disable-infobars --disable-session-crashed-bubble \
     --autoplay-policy=no-user-gesture-required \
     --use-fake-ui-for-media-stream \
+    --disable-features=WebRtcPipeWireCamera \
     --check-for-update-interval=31536000 http://127.0.0.1:8080
   sleep 2
 done

@@ -50,15 +50,21 @@ SUDO=sudo
 [ "$(id -u)" = "0" ] && SUDO=""
 
 # --- 2. apt packages ----------------------------------------------------------
-log "Installing packages (git, X, openbox, chromium, alsa, ffmpeg)"
+log "Installing packages (git, X, openbox, chromium, pipewire, ffmpeg)"
 $SUDO apt-get update -qq
 # chromium vs chromium-browser package-name split:
 CHROMIUM_PKG=chromium
 apt-cache show chromium >/dev/null 2>&1 || CHROMIUM_PKG=chromium-browser
 # x11-xserver-utils provides `xset` (used to disable screen blanking); without
 # it the kiosk's blanking-disable silently no-ops and the display sleeps.
+# pipewire + pipewire-pulse + wireplumber: Chromium enumerates the MIC only via a
+# PulseAudio-compatible server (never raw ALSA), so without these the Camera & Mic
+# picker shows no microphone even though `arecord` sees it. dbus-user-session gives
+# the autologin session a user D-Bus bus so those user services actually start on a
+# minimal (no-desktop) image.
 $SUDO apt-get install -y --no-install-recommends \
   git curl ca-certificates xserver-xorg xinit openbox unclutter x11-xserver-utils \
+  pipewire pipewire-pulse wireplumber pipewire-alsa dbus-user-session \
   "$CHROMIUM_PKG" alsa-utils ffmpeg
 # NetworkManager ships with Bookworm — verify, don't install.
 systemctl is-active --quiet NetworkManager \
@@ -194,6 +200,9 @@ $SUDO systemctl restart sparkade
 # --- 8. kiosk boot ---------------------------------------------------------------------
 log "Configuring kiosk boot (console autologin → startx → openbox → chromium)"
 $SUDO raspi-config nonint do_boot_behaviour B2 || echo "raspi-config unavailable — enable console autologin manually"
+# USB camera/mic device access: Chromium runs as the kiosk user, which must be in
+# the `video` group to open /dev/video* and `audio` for the sound devices.
+$SUDO usermod -aG video,audio "$RUN_USER" 2>/dev/null || echo "could not add $RUN_USER to video/audio groups"
 install -m 0755 "$INSTALL_DIR/install/kiosk/launch.sh" "$RUN_HOME/.sparkade-kiosk-launch.sh"
 install -m 0644 "$INSTALL_DIR/install/kiosk/xinitrc" "$RUN_HOME/.xinitrc"
 mkdir -p "$RUN_HOME/.config/openbox"

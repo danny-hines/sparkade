@@ -63,7 +63,7 @@ const BAYER4 = [
  * downscale, quantize (dithered at portrait size), oval mask, outline.
  * Returns a PNG buffer.
  */
-async function bakeSize(photo: Buffer, palette: Rgb[], size: number): Promise<Buffer> {
+async function bakeSize(photo: Buffer, palette: Rgb[], size: number, portraitDither: number): Promise<Buffer> {
   const img = sharp(photo).rotate(); // honor EXIF orientation defensively
   const meta = await img.metadata();
   const w = meta.width ?? 512;
@@ -94,10 +94,12 @@ async function bakeSize(photo: Buffer, palette: Rgb[], size: number): Promise<Bu
   const rx = size / 2 - 0.5;
   const ry = size / 2 - 0.2; // slightly taller oval
   const outlineColor = palette[1]!;
-  // Ordered dithering fakes gradients with few colors — essential when a game
-  // palette has one or two skin-ish tones. Off for the tiny heads (at 12px it
-  // just reads as noise).
-  const ditherAmp = size >= 32 ? 30 : 0;
+  // Ordered dithering fakes gradients with few colors — valuable for the
+  // game-palette fallback (one or two skin-ish tones), but on a rich vision-
+  // derived skin palette a heavy dither just reads as muddy speckle, so callers
+  // pass a lower amp for that path. Off entirely for the tiny heads (at 12px it
+  // is pure noise).
+  const ditherAmp = size >= 32 ? portraitDither : 0;
 
   const opaque: boolean[] = new Array(size * size).fill(false);
   for (let y = 0; y < size; y++) {
@@ -181,12 +183,21 @@ export interface LikenessArtifacts {
   portrait: Buffer;
 }
 
-export async function bakeLikeness(photo: Buffer, paletteHex: string[]): Promise<LikenessArtifacts> {
+/**
+ * @param portraitDither ordered-dither strength for the 64px portrait. Default 30
+ *   suits the game-palette fallback (few skin tones); pass ~10 when quantizing
+ *   against a rich vision-derived skin palette so the face reads clean, not muddy.
+ */
+export async function bakeLikeness(
+  photo: Buffer,
+  paletteHex: string[],
+  portraitDither = 30,
+): Promise<LikenessArtifacts> {
   const palette = paletteHex.map(hexToRgb);
   const [head12, head16, portrait] = await Promise.all([
-    bakeSize(photo, palette, 12),
-    bakeSize(photo, palette, 16),
-    bakeSize(photo, palette, 64),
+    bakeSize(photo, palette, 12, portraitDither),
+    bakeSize(photo, palette, 16, portraitDither),
+    bakeSize(photo, palette, 64, portraitDither),
   ]);
   return { head12, head16, portrait };
 }

@@ -447,6 +447,9 @@ export class GenerationRunner {
         // and bake against a portrait palette built from them, instead of the
         // game palette (which can quantize a face to gray). Falls back cleanly.
         let likenessPalette = spec.palette;
+        // Game-palette fallback (few skin tones) needs a strong dither to fake
+        // gradients; the rich vision palette reads far cleaner with a light one.
+        let portraitDither = 30;
         if (config.likeness.smartFeatures) {
           try {
             emit('building-assets', 'Reading your photo…');
@@ -456,11 +459,12 @@ export class GenerationRunner {
               stage: 'building-assets',
             })) as FaceFeatures;
             likenessPalette = buildPortraitPalette(feat);
+            portraitDither = 10;
           } catch {
             /* vision unavailable / failed → keep the game palette */
           }
         }
-        const baked = await bakeLikeness(photo, likenessPalette);
+        const baked = await bakeLikeness(photo, likenessPalette, portraitDither);
         writeFileSync(join(assetsDir, 'head12.png'), baked.head12);
         writeFileSync(join(assetsDir, 'head16.png'), baked.head16);
         writeFileSync(join(assetsDir, 'portrait.png'), baked.portrait);

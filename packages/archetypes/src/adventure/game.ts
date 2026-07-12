@@ -523,6 +523,30 @@ class AdventureGame implements GameInstance {
       this.doors.push({ dir: g.dir, kind, neighbor: nIx, cells: g.cells });
     }
 
+    // Keep each doorway's landing walkable. The opening is carved above, but the
+    // tiles the player lands on just inside are author-controlled and can hold a
+    // hazard (damage on entry) or a wall/pit (blocked in the doorway). Clear
+    // those in the 2 cells inward of every open doorway so entry is always safe.
+    for (const g of DOOR_GEOM) {
+      if (room.doors[g.dir] === 'none') continue;
+      for (const c of g.cells) {
+        for (let d = 1; d <= 2; d++) {
+          const tx = c.tx - g.dx * d;
+          const ty = c.ty - g.dy * d;
+          if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS) continue;
+          const idx = ty * COLS + tx;
+          const tk = this.kinds[idx];
+          if (tk === 'wall' || tk === 'pit' || tk === 'hazard') {
+            this.kinds[idx] = 'floor';
+            if (tk === 'hazard') {
+              const hi = this.hazardCells.findIndex((h) => h.tx === tx && h.ty === ty);
+              if (hi >= 0) this.hazardCells.splice(hi, 1);
+            }
+          }
+        }
+      }
+    }
+
     // Entities (respawn on re-entry except collected keys/hearts/items).
     for (const e of this.ents) e.active = false;
     room.entities.forEach((es, i) => {

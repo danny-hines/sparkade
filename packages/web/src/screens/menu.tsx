@@ -11,7 +11,7 @@ import type { Screen } from '../app';
 const ITEMS = [
   { icon: '▶', label: 'Play', hint: 'Browse the library' },
   { icon: '✦', label: 'New Game', hint: 'Dream one up' },
-  { icon: '⚙', label: 'Settings', hint: 'Controls · Audio · System' },
+  { icon: '⚙', label: 'Settings', hint: 'System Configuration' },
 ] as const;
 
 export function MainMenuScreen(props: { go: (s: Screen) => void }): ComponentChildren {

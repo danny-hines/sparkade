@@ -50,7 +50,10 @@ export function WizardScreen(props: {
   const [isPi, setIsPi] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  const [cardsScroll, setCardsScroll] = useState({ atTop: true, atBottom: true });
   const idempotencyKey = useRef(`ik-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -60,6 +63,16 @@ export function WizardScreen(props: {
   modeRef.current = { step, photoMode, ideaMode, cursor };
 
   const presets = props.settings?.presets ?? [];
+
+  // Idea-card grid can outgrow the screen; track scroll state for the up/down hint.
+  const recomputeCards = (): void => {
+    const el = gridRef.current;
+    if (!el) return;
+    setCardsScroll({
+      atTop: el.scrollTop <= 1,
+      atBottom: el.scrollTop + el.clientHeight >= el.scrollHeight - 1,
+    });
+  };
 
   // ----- camera lifecycle: request only while on the camera step ------------
   const stopCamera = () => {
@@ -120,6 +133,14 @@ export function WizardScreen(props: {
       void api.estimate().then(setEstimate).catch(() => setEstimate(null));
     }
   }, [step]);
+
+  // Keep the focused idea card scrolled into view and refresh the up/down hint.
+  useEffect(() => {
+    if (step === 'idea' && ideaMode === 'cards') {
+      cardRef.current?.scrollIntoView({ block: 'nearest' });
+      recomputeCards();
+    }
+  }, [cursor, ideaMode, step, presets.length]);
 
   // ----- capture ------------------------------------------------------------
   const snapPhoto = () => {
@@ -621,9 +642,13 @@ export function WizardScreen(props: {
           </div>
         )}
         {step === 'idea' && ideaMode === 'cards' && (
-          <div class="idea-grid">
+          <div class="idea-grid" ref={gridRef} onScroll={recomputeCards}>
             {presets.map((p, i) => (
-              <div key={p.id} class={`focusable idea-card ${i === cursor ? 'focused' : ''}`}>
+              <div
+                key={p.id}
+                ref={i === cursor ? cardRef : undefined}
+                class={`focusable idea-card ${i === cursor ? 'focused' : ''}`}
+              >
                 <div class="genre">{p.archetype} · {p.tone}</div>
                 <div class="name">{p.title}</div>
                 <div class="premise">{p.premise}</div>
@@ -711,6 +736,16 @@ export function WizardScreen(props: {
                 ]
         }
       />
+      {step === 'idea' && ideaMode === 'cards' && !(cardsScroll.atTop && cardsScroll.atBottom) && (
+        <div class="wizard-scroll-hint" title="scroll">
+          <span class={cardsScroll.atTop ? 'off' : ''}>
+            <Icon name="pixUp" />
+          </span>
+          <span class={cardsScroll.atBottom ? 'off' : ''}>
+            <Icon name="pixDown" />
+          </span>
+        </div>
+      )}
       {submitting && (
         <Modal>
           <h3>

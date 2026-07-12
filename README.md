@@ -70,7 +70,7 @@ sparkade status | logs -f | doctor | restart
 sparkade config set-key META_API_KEY <key>            # stored in /etc/sparkade/env (0600)
 sparkade config set-provider anthropic [model]        # repoint generation (meta|anthropic|compat)
 sparkade provider test                                # one tiny paid call per provider
-sparkade update                               # fetch latest tag → npm ci → build → restart
+sparkade update                               # pull latest → install (only if deps changed) → build → restart
 sparkade backup [file] / backup restore <file>
 ```
 

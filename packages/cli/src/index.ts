@@ -139,6 +139,15 @@ function cmdLogs(follow: boolean): void {
 function cmdUpdate(): void {
   const dir = repoDir();
   console.log(`updating ${dir} …`);
+  // Track the lockfile so we can skip a reinstall when only source changed.
+  const lockId = (): string => {
+    try {
+      return sh('git', ['-C', dir, 'rev-parse', 'HEAD:package-lock.json'], { quiet: true });
+    } catch {
+      return '';
+    }
+  };
+  const lockBefore = lockId();
   sh('git', ['-C', dir, 'fetch', '--tags', '--force'], {});
   let target = '';
   try {
@@ -155,12 +164,24 @@ function cmdUpdate(): void {
     sh('git', ['-C', dir, 'pull', '--ff-only'], {});
   }
   // npm must run IN the repo, not wherever the user typed `sparkade update`
-  // (the git steps use -C, but these need cwd or npm ci finds no lockfile).
+  // (the git steps use -C, but these need cwd or npm would find no lockfile).
   // Skip the Playwright browser download — a dev-only e2e dep the cabinet never
-  // runs; downloading it is the slowest part of an update on the Pi's network.
+  // runs; downloading it is a big time sink on the Pi's network.
   process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = '1';
-  console.log('npm ci …');
-  sh('npm', ['ci', '--no-audit', '--no-fund'], { cwd: dir });
+  // Incremental install: `npm ci` wipes node_modules and recompiles the native
+  // modules (better-sqlite3, sharp) on EVERY run — ~10-15 min on a Pi 3B+. Only
+  // reinstall when the lockfile actually changed; a source-only update then goes
+  // straight to the build. (The installer still uses `npm ci` for a clean first
+  // install.)
+  const depsChanged = lockId() !== lockBefore;
+  if (depsChanged || !existsSync(join(dir, 'node_modules'))) {
+    console.log('dependencies changed — installing …');
+    sh('npm', ['install', '--no-audit', '--no-fund'], { cwd: dir });
+    // Keep the working tree clean so the next `git pull --ff-only` never trips.
+    tryRun('git', ['-C', dir, 'checkout', '--', 'package-lock.json']);
+  } else {
+    console.log('dependencies unchanged — skipping install');
+  }
   console.log('build …');
   sh('npm', ['run', 'build'], { cwd: dir });
   console.log('restarting service (the kiosk reloads itself via version poll) …');

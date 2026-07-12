@@ -264,7 +264,7 @@ export function SettingsScreen(props: {
                   <span style="width:56px;text-align:right">{Math.round(audio[key] * 100)}%</span>
                 </div>
               ))}
-              <p style="color:var(--text-dim);font-size:16px;margin-top:14px"><Icon name="arrowLeft" /> <Icon name="play" /> adjust · <Btn>B</Btn> back to tabs</p>
+              <p style="color:var(--text-dim);font-size:16px;margin-top:14px"><Icon name="arrowLeft" /> <Icon name="arrowRight" /> adjust · <Btn>B</Btn> back to tabs</p>
             </div>
           )}
           {tab === 'controls' && (

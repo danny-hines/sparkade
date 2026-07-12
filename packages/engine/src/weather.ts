@@ -43,7 +43,8 @@ type Recycle = 'down' | 'up' | 'wrap';
 interface Kind {
   count: number;
   alpha: number;
-  parallax: number; // fraction of camera scroll applied to x (depth)
+  parallax: number; // fraction of camera scroll applied to x (depth); ~1 = world-anchored
+  flash?: boolean; // periodic full-screen lightning flash over the scene (storm)
   recycle: Recycle;
   colors: (pal: string[]) => string[];
   spawn: (p: P, rng: Rng, cols: string[]) => void;
@@ -89,6 +90,7 @@ const KINDS: Partial<Record<WeatherKind, Kind>> = {
     count: 72,
     alpha: 0.6,
     parallax: 0.15,
+    flash: true,
     recycle: 'down',
     colors: (pal) => [pal[14] ?? '#cde', shade(pal[4] ?? '#8fd', 1.1)],
     spawn: (p, rng, cols) => {
@@ -137,7 +139,7 @@ const KINDS: Partial<Record<WeatherKind, Kind>> = {
   embers: {
     count: 72,
     alpha: 0.95,
-    parallax: 0.1,
+    parallax: 0.65, // embers drift up from world fires — anchor them
     recycle: 'up',
     // hot spark: orange-forward with white-hot tips (reads apart from gold fireflies)
     colors: (pal) => [pal[12] ?? '#fa0', pal[12] ?? '#fa0', pal[13] ?? '#fd5', pal[15] ?? '#fff'],
@@ -184,7 +186,7 @@ const KINDS: Partial<Record<WeatherKind, Kind>> = {
   leaves: {
     count: 30,
     alpha: 0.85,
-    parallax: 0.18,
+    parallax: 0.5, // leaves fall through the world — anchor them a bit
     recycle: 'down',
     colors: (pal) => [pal[6] ?? '#7d4', pal[13] ?? '#fd5', pal[12] ?? '#fa0'],
     spawn: (p, rng, cols) => {
@@ -210,7 +212,7 @@ const KINDS: Partial<Record<WeatherKind, Kind>> = {
   petals: {
     count: 48,
     alpha: 0.88,
-    parallax: 0.16,
+    parallax: 0.5, // petals drift through the world — anchor them a bit
     recycle: 'down',
     colors: (pal) => [pal[15] ?? '#fff', pal[15] ?? '#fff', pal[6] ?? '#f9c', pal[14] ?? '#ecd'],
     spawn: (p, rng, cols) => {
@@ -271,7 +273,7 @@ const KINDS: Partial<Record<WeatherKind, Kind>> = {
   bubbles: {
     count: 34,
     alpha: 0.5,
-    parallax: 0.1,
+    parallax: 0.85, // bubbles rise from the world, not the camera — anchor them
     recycle: 'up',
     colors: (pal) => [pal[14] ?? '#adf', pal[15] ?? '#fff'],
     spawn: (p, rng, cols) => {
@@ -298,7 +300,7 @@ const KINDS: Partial<Record<WeatherKind, Kind>> = {
   fireflies: {
     count: 40,
     alpha: 1,
-    parallax: 0.15,
+    parallax: 0.7, // fireflies hover in the world — anchor them
     recycle: 'wrap',
     // classic yellow-green glow: gold + green, no orange, to read apart from embers
     colors: (pal) => [pal[13] ?? '#fd5', pal[13] ?? '#fd5', pal[6] ?? '#af6', pal[6] ?? '#af6'],
@@ -351,15 +353,31 @@ class NoWeather implements Weather {
   draw(): void {}
 }
 
+// Lightning flash envelope: a bright attack that flickers and decays over ~0.24s,
+// so a storm periodically lights the whole scene white. Drawn over gameplay (but
+// under the HUD/particles), a full-screen wash that reads as a distant strike.
+const FLASH_DUR = 0.24;
+const FLASH_COLOR = '#eef2ff';
+function flashAlpha(t: number): number {
+  const decay = Math.exp(-t * 13);
+  const flicker = 0.6 + 0.4 * Math.sin(t * 85);
+  return Math.max(0, Math.min(0.6, 0.6 * decay * flicker));
+}
+
 class Field implements Weather {
   private ps: P[];
   private t = 0;
+  private flashT = -1; // elapsed time within the current flash, or <0 when idle
+  private nextFlash = 0;
+  private flashRng: Rng;
   constructor(
     private kind: Kind,
     seed: number,
     palette: string[],
   ) {
     const rng = new Rng(seed ^ 0x77ea731);
+    this.flashRng = new Rng(seed ^ 0x1ee7);
+    this.nextFlash = this.flashRng.range(1.2, 3.2);
     const cols = kind.colors(palette);
     this.ps = Array.from({ length: kind.count }, () => {
       const p: P = { x: 0, y: 0, vx: 0, vy: 0, s: 1, ph: 0, c: '#fff' };
@@ -370,6 +388,15 @@ class Field implements Weather {
 
   update(dt: number): void {
     this.t += dt;
+    if (this.kind.flash) {
+      if (this.flashT >= 0) {
+        this.flashT += dt;
+        if (this.flashT > FLASH_DUR) this.flashT = -1;
+      } else if (this.t >= this.nextFlash) {
+        this.flashT = 0;
+        this.nextFlash = this.t + this.flashRng.range(2.5, 6.5);
+      }
+    }
     const m = 24;
     for (const p of this.ps) {
       this.kind.step(p, dt, this.t);
@@ -397,6 +424,14 @@ class Field implements Weather {
       ctx.globalAlpha = base; // reset per particle (render may multiply for flicker)
       this.kind.render(ctx, p, this.t);
       p.x = realX;
+    }
+    if (this.kind.flash && this.flashT >= 0) {
+      const a = flashAlpha(this.flashT);
+      if (a > 0.02) {
+        ctx.globalAlpha = a;
+        ctx.fillStyle = FLASH_COLOR;
+        ctx.fillRect(0, 0, W, H);
+      }
     }
     ctx.restore();
   }

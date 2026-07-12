@@ -346,8 +346,9 @@ export function SettingsScreen(props: {
                       Player likeness
                     </div>
                     <div style="font-size:13px;color:var(--text-dim);margin:0 0 6px 4px;max-width:440px;line-height:1.5">
-                      Reads your photo's true skin &amp; hair tones so faces don't come out gray.
-                      Enabling sends the photo to the model.
+                      Reads your photo's true skin &amp; hair tones with the vision model so faces
+                      look right instead of tinting to the game's colours. Turn off to keep the
+                      photo on-device.
                     </div>
                     <div class={`focusable device-row likeness-toggle-row ${zone === 'panel' && panelCursor === inputs.cameras.length + inputs.mics.length + 1 ? 'focused' : ''}`}>
                       <span class="device-check">{smartFeatures ? <Icon name="check" /> : <Icon name="ring" />}</span>

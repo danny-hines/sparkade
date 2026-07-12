@@ -82,9 +82,6 @@ async function bakeSize(photo: Buffer, palette: Rgb[], size: number): Promise<Bu
   let chain = sharp(photo)
     .rotate()
     .extract({ left, top, width: cropW, height: cropH })
-    // Webcam shots are dim and flat; stretch the histogram so the palette
-    // quantizer has luminance range to work with.
-    .normalize()
     .resize(size, size, { fit: 'fill', kernel: 'cubic' });
   if (size >= 32) {
     chain = chain.sharpen({ sigma: 1 }); // crisp features before quantization (portrait only)
@@ -111,6 +108,28 @@ async function bakeSize(photo: Buffer, palette: Rgb[], size: number): Promise<Bu
       opaque[y * size + x] = true;
     }
   }
+
+  // Face-region contrast stretch: measure the luminance spread over ONLY the
+  // oval (face) pixels — not the masked-out background — so a bright window or a
+  // dim room can't skew the histogram and crush the face into one tonal blob
+  // (the old whole-crop .normalize() did exactly that). Map the face's 5th–95th
+  // luminance percentile to a healthy range; clamp the gain so flat, evenly-lit
+  // faces aren't over-amplified into JPEG noise. Same affine map on every
+  // channel, so skin hue is preserved — only exposure/contrast changes.
+  const lums: number[] = [];
+  for (let p = 0; p < size * size; p++) {
+    if (!opaque[p]) continue;
+    const si = p * 3;
+    lums.push(0.299 * raw[si]! + 0.587 * raw[si + 1]! + 0.114 * raw[si + 2]!);
+  }
+  lums.sort((a, b) => a - b);
+  const lo = lums.length ? lums[Math.floor(lums.length * 0.05)]! : 0;
+  const hi = lums.length ? lums[Math.floor(lums.length * 0.95)]! : 255;
+  const TARGET_LO = 30;
+  const TARGET_HI = 236;
+  const gain = Math.max(1, Math.min(3.5, (TARGET_HI - TARGET_LO) / Math.max(1, hi - lo)));
+  const stretch = (v: number) => (v - lo) * gain + TARGET_LO;
+
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const i = (y * size + x) * 4;
@@ -119,9 +138,9 @@ async function bakeSize(photo: Buffer, palette: Rgb[], size: number): Promise<Bu
       const dither = ditherAmp * BAYER4[y % 4]![x % 4]!;
       const q = nearest(
         palette,
-        Math.max(0, Math.min(255, raw[si]! + dither)),
-        Math.max(0, Math.min(255, raw[si + 1]! + dither)),
-        Math.max(0, Math.min(255, raw[si + 2]! + dither)),
+        Math.max(0, Math.min(255, stretch(raw[si]!) + dither)),
+        Math.max(0, Math.min(255, stretch(raw[si + 1]!) + dither)),
+        Math.max(0, Math.min(255, stretch(raw[si + 2]!) + dither)),
       );
       out[i] = q.r;
       out[i + 1] = q.g;

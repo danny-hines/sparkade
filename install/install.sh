@@ -55,8 +55,10 @@ $SUDO apt-get update -qq
 # chromium vs chromium-browser package-name split:
 CHROMIUM_PKG=chromium
 apt-cache show chromium >/dev/null 2>&1 || CHROMIUM_PKG=chromium-browser
+# x11-xserver-utils provides `xset` (used to disable screen blanking); without
+# it the kiosk's blanking-disable silently no-ops and the display sleeps.
 $SUDO apt-get install -y --no-install-recommends \
-  git curl ca-certificates xserver-xorg xinit openbox unclutter \
+  git curl ca-certificates xserver-xorg xinit openbox unclutter x11-xserver-utils \
   "$CHROMIUM_PKG" alsa-utils ffmpeg
 # NetworkManager ships with Bookworm — verify, don't install.
 systemctl is-active --quiet NetworkManager \
@@ -196,6 +198,9 @@ install -m 0755 "$INSTALL_DIR/install/kiosk/launch.sh" "$RUN_HOME/.sparkade-kios
 install -m 0644 "$INSTALL_DIR/install/kiosk/xinitrc" "$RUN_HOME/.xinitrc"
 mkdir -p "$RUN_HOME/.config/openbox"
 install -m 0755 "$INSTALL_DIR/install/kiosk/openbox-autostart" "$RUN_HOME/.config/openbox/autostart"
+# Disable display blanking/DPMS at the X-server level (race-free; no xset needed).
+$SUDO mkdir -p /etc/X11/xorg.conf.d
+$SUDO install -m 0644 "$INSTALL_DIR/install/kiosk/xorg-blanking.conf" /etc/X11/xorg.conf.d/10-sparkade-blanking.conf
 $SUDO chown -R "$RUN_USER":"$RUN_USER" "$RUN_HOME/.xinitrc" "$RUN_HOME/.config/openbox" "$RUN_HOME/.sparkade-kiosk-launch.sh"
 if ! grep -q 'sparkade kiosk autostart' "$RUN_HOME/.bash_profile" 2>/dev/null; then
   cat >> "$RUN_HOME/.bash_profile" <<'EOF'

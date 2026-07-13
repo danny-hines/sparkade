@@ -622,7 +622,14 @@ export interface SparkadeConfig {
   providers: Record<string, ProviderConfig>;
   stages: Record<StageName, StageConfig>;
   pricing: Record<string, PriceRow>;
-  likeness: { describeInStory: boolean; smartFeatures?: boolean; style?: 'photo' | 'avatar' };
+  likeness: {
+    describeInStory: boolean;
+    smartFeatures?: boolean;
+    style?: 'photo' | 'avatar';
+    /** Experimental: generate the story-card portrait with an image model instead
+     *  of the pixel-photo bake. OFF by default; swappable to Meta Muse Image. */
+    portraitGen?: { enabled: boolean; baseUrl: string; model: string; apiKeyEnv: string; size?: string };
+  };
   presets: { id: string; title: string; archetype: ArchetypeId; premise: string; tone: string }[];
   audio: { musicVol: number; sfxVol: number; uiVol: number };
   input: {

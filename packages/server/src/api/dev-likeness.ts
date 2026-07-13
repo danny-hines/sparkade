@@ -7,6 +7,7 @@ import type { MultipartFile } from '@fastify/multipart';
 import { drawAvatarLikeness } from '../likeness/avatar';
 import { bakeLikeness, type LikenessArtifacts } from '../likeness/likeness';
 import { buildFaceAnalysisPrompt, buildPortraitPalette, type FaceFeatures } from '../likeness/features';
+import { generatePortrait } from '../likeness/portrait-gen';
 import { parseModelJson } from '../pipeline/prompts';
 import { stageProvider } from '../providers/index';
 import type { ConfigStore } from '../storage/config';
@@ -67,5 +68,33 @@ export function registerDevLikenessRoutes(app: FastifyInstance, configStore: Con
       bake: toDataUris(bake),
       photo: `data:image/jpeg;base64,${photo.toString('base64')}`,
     };
+  });
+
+  // Photo + features → an image-model-generated portrait, for prototyping the
+  // experimental portraitGen path before enabling it in the pipeline. Uses the
+  // configured portraitGen block regardless of its `enabled` flag; needs its
+  // API key set (OPENAI_API_KEY for the default OpenAI placeholder).
+  app.post('/api/dev/likeness/generate', async (req, reply) => {
+    let photo: Buffer | undefined;
+    let features: FaceFeatures | undefined;
+    for await (const part of (req as FastifyRequest & { parts: () => AsyncIterable<Record<string, unknown>> }).parts()) {
+      if (part.type === 'file' && part.fieldname === 'photo') photo = await (part as { toBuffer: () => Promise<Buffer> }).toBuffer();
+      else if (part.type === 'field' && part.fieldname === 'features') {
+        try {
+          features = JSON.parse(String((part as { value: unknown }).value)) as FaceFeatures;
+        } catch {
+          /* ignore malformed features; generatePortrait tolerates a bare object */
+        }
+      }
+    }
+    if (!photo) return reply.code(400).send({ error: 'no photo uploaded' });
+    const pg = configStore.get().likeness.portraitGen;
+    if (!pg) return reply.code(400).send({ error: 'likeness.portraitGen is not configured' });
+    try {
+      const buf = await generatePortrait(photo, features ?? ({} as FaceFeatures), pg);
+      return { portrait: `data:image/png;base64,${buf.toString('base64')}` };
+    } catch (e) {
+      return reply.code(502).send({ error: `portrait gen failed: ${e instanceof Error ? e.message : String(e)}` });
+    }
   });
 }

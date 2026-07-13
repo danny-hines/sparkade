@@ -69,7 +69,10 @@ export function LikenessLabScreen(): ComponentChildren {
   const [avatar, setAvatar] = useState<Sprites | null>(null);
   const [bake, setBake] = useState<Sprites | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [gen, setGen] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [err, setErr] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -112,6 +115,8 @@ export function LikenessLabScreen(): ComponentChildren {
   }, [sent]);
 
   const analyze = (file: File): void => {
+    setPhotoFile(file);
+    setGen(null);
     setAnalyzing(true);
     setErr('');
     const form = new FormData();
@@ -137,6 +142,27 @@ export function LikenessLabScreen(): ComponentChildren {
       })
       .catch((e: Error) => {
         setAnalyzing(false);
+        setErr(e.message);
+      });
+  };
+
+  // Experimental: image-model portrait from the current photo + features.
+  const generate = (): void => {
+    if (!photoFile) return;
+    setGenerating(true);
+    setErr('');
+    const form = new FormData();
+    form.append('photo', photoFile);
+    form.append('features', JSON.stringify(sent));
+    void fetch('/api/dev/likeness/generate', { method: 'POST', body: form })
+      .then((r) => r.json())
+      .then((r: { portrait?: string; error?: string }) => {
+        setGenerating(false);
+        if (r.error) setErr(r.error);
+        else if (r.portrait) setGen(r.portrait);
+      })
+      .catch((e: Error) => {
+        setGenerating(false);
         setErr(e.message);
       });
   };
@@ -219,8 +245,9 @@ export function LikenessLabScreen(): ComponentChildren {
         <div class="lab-controls">
           <div class="lab-actions">
             <button onClick={() => fileRef.current?.click()}>{analyzing ? 'Analyzing…' : 'Drop / pick a photo → analyze'}</button>
+            {photoFile && <button onClick={generate}>{generating ? 'Painting…' : 'Generate portrait (exp)'}</button>}
             <button onClick={randomize}>Randomize</button>
-            <button onClick={() => { setFeat(DEFAULT); setBald(false); setBake(null); setPhoto(null); }}>Reset</button>
+            <button onClick={() => { setFeat(DEFAULT); setBald(false); setBake(null); setPhoto(null); setGen(null); }}>Reset</button>
             <input
               ref={fileRef}
               type="file"
@@ -263,6 +290,13 @@ export function LikenessLabScreen(): ComponentChildren {
             <div class="lab-preview-title">Source photo</div>
             {photo ? <img src={photo} style="width:220px;height:220px;object-fit:cover;border-radius:8px" /> : <div class="lab-empty">—</div>}
           </div>
+          {(gen || generating) && (
+            <div class="lab-preview">
+              <div class="lab-preview-title">Generated portrait</div>
+              {gen ? <img class="lab-pixel" src={gen} style="width:220px;height:220px" /> : <div class="lab-empty">painting…</div>}
+              <div class="lab-note">experimental image-model portrait (story card only)</div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -25,6 +25,7 @@ import {
 } from '@sparkade/shared';
 import { bakeLikeness, type LikenessArtifacts } from '../likeness/likeness';
 import { drawAvatarLikeness } from '../likeness/avatar';
+import { generatePortrait } from '../likeness/portrait-gen';
 import { buildFaceAnalysisPrompt, buildPortraitPalette, type FaceFeatures } from '../likeness/features';
 import { ProviderAuthError, ProviderHttpError, ProviderNetworkError, stageProvider } from '../providers/index';
 import type { ConfigStore } from '../storage/config';
@@ -473,7 +474,19 @@ export class GenerationRunner {
             drawAvatarLikeness(feat),
             bakeLikeness(photo, buildPortraitPalette(feat), 10),
           ]);
-          baked = { head12: avatar.head12, head16: avatar.head16, portrait: photoBake.portrait };
+          // Experimental: an image model may repaint the story-card portrait
+          // (off by default). Any failure keeps the pixel-photo bake.
+          let portrait = photoBake.portrait;
+          const pg = config.likeness.portraitGen;
+          if (pg?.enabled) {
+            try {
+              emit('building-assets', 'Painting your portrait…');
+              portrait = await generatePortrait(photo, feat, pg);
+            } catch {
+              /* image model unavailable / failed → keep the pixel-photo portrait */
+            }
+          }
+          baked = { head12: avatar.head12, head16: avatar.head16, portrait };
         } else {
           baked = await bakeLikeness(photo, feat ? buildPortraitPalette(feat) : spec.palette, feat ? 10 : 30);
         }

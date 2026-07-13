@@ -13,7 +13,9 @@ import {
   FONT_GLYPHS,
   LIBRARY,
   makeBackdrop,
+  makeScrollBackdrop,
   makeWeather,
+  SHOOTER_BACKDROP_VARIANTS,
   WEATHER_KINDS,
   type LibraryEntry,
 } from '@sparkade/engine';
@@ -207,6 +209,37 @@ function WeatherCell(props: { kind: string; palette: string[]; seed: number }): 
   );
 }
 
+/** A live VERTICAL-scroll shooter backdrop: the real makeScrollBackdrop, scrolled. */
+function ShooterBgCell(props: { variant: string; palette: string[]; seed: number }): ComponentChildren {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    canvas.width = 512;
+    canvas.height = 300;
+    const ctx = canvas.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    const bd = makeScrollBackdrop(props.palette, props.seed, props.variant as never);
+    let scrollY = 0;
+    let last = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      raf = requestAnimationFrame(tick);
+      scrollY += ((now - last) / 1000) * 80; // simulate the world scroll
+      last = now;
+      bd.draw(ctx, scrollY);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [props.variant, props.palette, props.seed]);
+  return (
+    <div class="gal-cell">
+      <canvas ref={ref} style="width:300px;height:176px;image-rendering:pixelated" />
+      <div class="gal-id">{props.variant}</div>
+    </div>
+  );
+}
+
 /** A live backdrop panel: the real generator, parallax animated. */
 function BackdropCell(props: { variant: string; palette: string[]; seed: number }): ComponentChildren {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -318,7 +351,7 @@ function RoomCell(props: { palette: string[]; shade: boolean }): ComponentChildr
   );
 }
 
-const TABS = ['Palettes', 'Room', 'Backdrops', 'Weather', ...SPRITE_TABS.map(([t]) => t), 'Tiles', 'Font'] as const;
+const TABS = ['Palettes', 'Room', 'Backdrops', 'Shooter BG', 'Weather', ...SPRITE_TABS.map(([t]) => t), 'Tiles', 'Font'] as const;
 
 export function AssetsGalleryScreen(): ComponentChildren {
   const [games, setGames] = useState<GameListItem[]>([]);
@@ -360,6 +393,7 @@ export function AssetsGalleryScreen(): ComponentChildren {
     if (name === 'Palettes') return PALETTE_MOODS.length;
     if (name === 'Room') return 2;
     if (name === 'Backdrops') return BACKDROP_VARIANTS.length;
+    if (name === 'Shooter BG') return SHOOTER_BACKDROP_VARIANTS.length;
     if (name === 'Weather') return WEATHER_KINDS.length;
     if (name === 'Font') return Object.keys(FONT_GLYPHS).length;
     if (name === 'Tiles') return ids.filter(isTileId).length;
@@ -483,6 +517,26 @@ export function AssetsGalleryScreen(): ComponentChildren {
             <div class="gal-grid">
               {BACKDROP_VARIANTS.map((v) => (
                 <BackdropCell key={`${v}-${seed}-${paletteId}`} variant={v} palette={palette} seed={seed} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab === 'Shooter BG' && (
+          <div>
+            <div class="gal-controls gal-subcontrols">
+              <span class="gal-dim">
+                Vertical-scroll shooter backdrops (real makeScrollBackdrop) — top-down / fly-through scenes that tile
+                vertically. Each generated shooter gets one theme (model-picked, else seed-varied) instead of always starfield.
+              </span>
+              <label>
+                Seed <input type="number" value={seed} style="width:110px" onChange={(e) => setSeed(Number((e.target as HTMLInputElement).value) || 0)} />
+              </label>
+              <button type="button" onClick={() => setSeed(Math.floor(Math.random() * 2 ** 31))}>Reroll</button>
+            </div>
+            <div class="gal-grid">
+              {SHOOTER_BACKDROP_VARIANTS.map((v) => (
+                <ShooterBgCell key={`${v}-${seed}-${paletteId}`} variant={v} palette={palette} seed={seed} />
               ))}
             </div>
           </div>

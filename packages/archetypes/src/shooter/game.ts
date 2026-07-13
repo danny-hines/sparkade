@@ -2,14 +2,16 @@
 // convention: d-pad move, Y fire (hold = autofire), X hold-then-release charge
 // shot, B bomb, A speed toggle, START pause (host-owned).
 import {
-  makeBackdrop,
-  type Backdrop,
+  makeScrollBackdrop,
+  pickScrollVariant,
   type EngineContext,
   type GameInstance,
   type GameResult,
   type HudState,
   type InputSnapshot,
   type ResolvedSprite,
+  type ScrollBackdrop,
+  type ScrollBackdropVariant,
 } from '@sparkade/engine';
 import {
   FEEL,
@@ -49,9 +51,6 @@ const POD_FIRE_INTERVAL = 1.6;
 const BOSS_ENTRANCE_S = 2;
 const BOSS_Y = 70;
 const KAMIKAZE_TRIGGER_Y = 120;
-/** Vertical wrap period of the backdrop's far layer (0.05 parallax factor). */
-const SCROLL_PERIOD = H / 0.05;
-
 // enemy states
 const ST_APPROACH = 0;
 const ST_HOLD = 1;
@@ -173,7 +172,10 @@ class ShooterGame implements GameInstance {
   private phase: 'cards' | 'play' = 'cards';
   private levelIndex = 0; // 0..2 levels, spec.levels.length = boss
   private level!: ShooterLevel;
-  private backdrop!: Backdrop;
+  private backdrop!: ScrollBackdrop;
+  /** One vertical-scroll scene for the whole game (levels vary only the seed, so
+   *  layout differs but the theme stays consistent). Model-picked, else seeded. */
+  private bgVariant: ScrollBackdropVariant;
   private scrollY = 0;
   private clock = 0;
   private lastWaveT = 0;
@@ -229,6 +231,7 @@ class ShooterGame implements GameInstance {
     private spec: ShooterSpec,
   ) {
     this.diff = difficultyScale(this.spec.difficulty);
+    this.bgVariant = pickScrollVariant(this.spec.palette, this.spec.seed, this.spec.backdrop);
     for (const role of Object.keys(ROLE_FALLBACK)) {
       this.sprites[role] = engine.sprites.byRole(role, ROLE_FALLBACK[role]!);
     }
@@ -294,7 +297,7 @@ class ShooterGame implements GameInstance {
   private loadLevel(ix: number): void {
     const level = this.spec.levels[ix]!;
     this.level = level;
-    this.backdrop = makeBackdrop(this.spec.palette, this.spec.seed + ix * 101, this.spec.backdrop ?? 'starfield');
+    this.backdrop = makeScrollBackdrop(this.spec.palette, this.spec.seed + ix * 101, this.bgVariant);
     this.scrollY = 0;
     this.clock = 0;
     this.lastWaveT = 0;
@@ -324,7 +327,7 @@ class ShooterGame implements GameInstance {
   }
 
   private buildBoss(): void {
-    this.backdrop = makeBackdrop(this.spec.palette, this.spec.seed + 777, this.spec.backdrop ?? 'starfield');
+    this.backdrop = makeScrollBackdrop(this.spec.palette, this.spec.seed + 777, this.bgVariant);
     this.clearPools();
     this.spawnPlayer();
     const b = this.spec.boss;
@@ -1162,12 +1165,9 @@ class ShooterGame implements GameInstance {
     r.clear(this.spec.palette[2]);
     if (!this.backdrop) return; // pre-first-level intro cards
 
-    // Downward-scrolling starfield (reads as flying up). backdrop.draw offsets
-    // layers by -round(scroll*factor), so passing a negative, growing scroll
-    // moves them down. Two draws one far-layer period apart wrap it seamlessly.
-    const s = this.scrollY % SCROLL_PERIOD;
-    this.backdrop.draw(r.ctx, 0, SCROLL_PERIOD - s);
-    this.backdrop.draw(r.ctx, 0, -s);
+    // Vertical-scroll scene: the generator tiles its layers at H and parallaxes
+    // them downward (reads as flying up) as scrollY grows.
+    this.backdrop.draw(r.ctx, this.scrollY);
 
     // pickups
     for (const p of this.picks) {

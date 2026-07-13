@@ -11,6 +11,7 @@ import type {
   LightingMode,
   LogicalButton,
   SfxEvent,
+  ShooterBackdropId,
   StageName,
   WeatherKind,
 } from './constants';
@@ -328,8 +329,10 @@ export interface GameSpecBase {
   palette: string[];
   story: StoryBlock;
   sprites: SpritesBlock;
-  /** Procedural parallax backdrop scene; omitted → mood-based pick from the seed. */
-  backdrop?: BackdropVariantId;
+  /** Procedural parallax backdrop scene; omitted → mood-based pick from the seed.
+   *  Platformer/adventure use BackdropVariantId (horizontal); shooter narrows
+   *  this to ShooterBackdropId (vertical) — see the per-spec override below. */
+  backdrop?: BackdropVariantId | ShooterBackdropId;
   /** Ambient weather/particle overlay; omitted → 'none' (clear). */
   weather?: WeatherKind;
   /** Lighting mood wash over the scene; omitted → 'none' (untinted). */
@@ -347,18 +350,24 @@ export interface GameSpecBase {
 
 export interface PlatformerSpec extends GameSpecBase {
   archetype: 'platformer';
+  /** Horizontal side-scroll scene; omitted → seed-varied pick. */
+  backdrop?: BackdropVariantId;
   levels: PlatformerLevel[];
   boss: PlatformerBoss;
 }
 
 export interface ShooterSpec extends GameSpecBase {
   archetype: 'shooter';
+  /** Vertical-scroll scene (top-down / fly-through); omitted → seed-varied pick. */
+  backdrop?: ShooterBackdropId;
   levels: ShooterLevel[];
   boss: ShooterBoss;
 }
 
 export interface AdventureSpec extends GameSpecBase {
   archetype: 'adventure';
+  /** Horizontal side-scroll scene; omitted → seed-varied pick. */
+  backdrop?: BackdropVariantId;
   levels: AdventureDungeon[];
   boss: AdventureBoss;
 }

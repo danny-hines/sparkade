@@ -5,6 +5,7 @@ import {
   COMMON_DEF_NAMES,
   DESIGN_SCHEMA,
   LIGHTING_MODES,
+  SHOOTER_BACKDROP_VARIANTS,
   stageSchema,
   WEATHER_KINDS,
 } from '@sparkade/shared';
@@ -42,7 +43,10 @@ describe('archetype schemas', () => {
   it('backdrop enum matches the engine variant list (schema/engine sync guard)', () => {
     for (const [id, schema] of Object.entries(ARCHETYPE_SCHEMAS)) {
       const s = schema as { properties: Record<string, { enum?: string[] }>; required: string[] };
-      expect(s.properties['backdrop']?.enum, `${id}.backdrop enum`).toEqual([...BACKDROP_VARIANTS]);
+      // The shooter is a vertical scroller and uses its own top-down variant set;
+      // platformer/adventure use the shared horizontal list.
+      const expected = id === 'shooter' ? [...SHOOTER_BACKDROP_VARIANTS] : [...BACKDROP_VARIANTS];
+      expect(s.properties['backdrop']?.enum, `${id}.backdrop enum`).toEqual(expected);
       expect(s.required, `${id} must keep backdrop optional`).not.toContain('backdrop');
     }
   });

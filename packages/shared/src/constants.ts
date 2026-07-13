@@ -426,6 +426,29 @@ export const BACKDROP_VARIANTS = [
 export type BackdropVariantId = (typeof BACKDROP_VARIANTS)[number];
 
 /**
+ * VERTICAL-scroll backdrop variants for the shooter archetype (engine
+ * `makeScrollBackdrop`). The shared BACKDROP_VARIANTS above are all horizontal,
+ * horizon-anchored side-scroll scenes — wrong for a top-down vertical shmup, so
+ * a space shooter could only ever pick 'starfield'. These are top-down /
+ * fly-through scenes that tile VERTICALLY. Source of truth shared with
+ * shooter.schema.json's `backdrop` enum (a unit test enforces the match).
+ * Grouped: space · aerial/terrestrial · hazard/exotic.
+ */
+export const SHOOTER_BACKDROP_VARIANTS = [
+  'deepspace',
+  'nebula',
+  'asteroids',
+  'ocean',
+  'metropolis',
+  'canyon',
+  'lava',
+  'swamp',
+  'tundra',
+] as const;
+
+export type ShooterBackdropId = (typeof SHOOTER_BACKDROP_VARIANTS)[number];
+
+/**
  * Procedural weather / ambient-particle overlays (engine `makeWeather`), drawn
  * over gameplay and under the HUD in the game's palette colors. Source of truth
  * shared with the archetype schemas' optional `weather` field (a unit test

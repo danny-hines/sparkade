@@ -711,7 +711,7 @@ export class GenerationRunner {
         spec = { ...spec, levels: (r.levels ?? r) as never };
       } else if (owner === 'entities') {
         const r = (await callLlm('entities', buildEntitiesPrompt(archetype, design, hasPhoto, recentUse), { label: 'Entities recast', stage: 'writing-spec' })) as SpecParts['entities'];
-        spec = { ...spec, sprites: r!.sprites as GameSpec['sprites'], boss: r!.boss as never, ...(r!.sfx ? { sfx: r!.sfx as GameSpec['sfx'] } : {}), ...(r!.backdrop ? { backdrop: r!.backdrop as GameSpec['backdrop'] } : {}), ...(r!.weather ? { weather: r!.weather as GameSpec['weather'] } : {}), ...(r!.lighting ? { lighting: r!.lighting as GameSpec['lighting'] } : {}), ...(r!.juice !== undefined ? { juice: r!.juice as GameSpec['juice'] } : {}) };
+        spec = { ...spec, sprites: r!.sprites as GameSpec['sprites'], boss: r!.boss as never, ...(r!.sfx ? { sfx: r!.sfx as GameSpec['sfx'] } : {}), ...(r!.backdrop ? { backdrop: r!.backdrop as never } : {}), ...(r!.weather ? { weather: r!.weather as GameSpec['weather'] } : {}), ...(r!.lighting ? { lighting: r!.lighting as GameSpec['lighting'] } : {}), ...(r!.juice !== undefined ? { juice: r!.juice as GameSpec['juice'] } : {}) };
       } else {
         const r = (await callLlm('music', buildMusicPrompt(archetype, design), { label: 'Music recomposed', stage: 'writing-spec' })) as { music: unknown };
         spec = { ...spec, music: (r.music ?? r) as never };

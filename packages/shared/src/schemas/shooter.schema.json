@@ -12,19 +12,17 @@
     "story": { "$ref": "#/$defs/story" },
     "sprites": { "$ref": "#/$defs/spritesBlock" },
     "backdrop": {
-      "description": "Parallax backdrop scene drawn behind gameplay in your palette's background colors. Pick the scene that matches the premise; omit for a mood-based default.",
+      "description": "Vertically-scrolling backdrop scene drawn behind gameplay in your palette's background colors (this is a top-down vertical shooter — the scene flies past beneath the player). Pick the one that matches the premise: deepspace (star sea), nebula (glowing gas clouds), asteroids (drifting rock field), ocean (top-down sea with islands & wakes), metropolis (top-down city grid at night), canyon (winding river through rock), lava (molten rivers), swamp (toxic bog), tundra (cracked ice). Omit for a seed-varied default.",
       "enum": [
-        "starfield",
-        "hills",
-        "clouds",
-        "caves",
-        "mountains",
-        "candy",
-        "city",
-        "ruins",
-        "pyramids",
-        "circuit",
-        "factory"
+        "deepspace",
+        "nebula",
+        "asteroids",
+        "ocean",
+        "metropolis",
+        "canyon",
+        "lava",
+        "swamp",
+        "tundra"
       ]
     },
     "weather": {

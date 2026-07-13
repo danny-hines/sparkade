@@ -8,6 +8,8 @@ import type { ComponentChildren } from 'preact';
 import {
   BACKDROP_VARIANTS,
   decodeSprite,
+  drawObstacleShadows,
+  drawObstacleTile,
   FONT_GLYPHS,
   LIBRARY,
   makeBackdrop,
@@ -23,6 +25,15 @@ import { api } from '../api';
 const PREVIEW_PALETTE = [
   '#000000', '#1a1c2c', '#29366f', '#3b5dc9', '#41a6f6', '#38b764', '#a7f070', '#ffcd75',
   '#b13e53', '#ef7d57', '#5d275d', '#e04040', '#ffa300', '#ffd75e', '#94b0c2', '#f4f4f4',
+];
+
+// A deliberately low-contrast DUNGEON palette that still PASSES paletteProblems
+// (dark bands 2/3/4 bunched within a hair, ascending). Reproduces the "invisible
+// obstacle" bug: wall art is slot-2 body + faint slot-3 bevels == the slot-2
+// floor. Use it on the Room tab to see the obstacle-contrast pass rescue it.
+const LOWCON_PALETTE = [
+  '#000000', '#0b0d13', '#242833', '#2b2f3b', '#333844', '#57a0e0', '#7dc0f5', '#bfe4ff',
+  '#b048c0', '#c96fd8', '#e6b0f0', '#ff3b3b', '#ffa300', '#ffd75e', '#9fb4c6', '#f4f4f4',
 ];
 
 type Matcher = (id: string) => boolean;
@@ -232,7 +243,82 @@ function BackdropCell(props: { variant: string; palette: string[]; seed: number 
   );
 }
 
-const TABS = ['Palettes', 'Backdrops', 'Weather', ...SPRITE_TABS.map(([t]) => t), 'Tiles', 'Font'] as const;
+// A sample dungeon room (W wall, P pit, B pushable block, . floor) used by the
+// Room tab to review floor↔obstacle contrast — the exact thing that vanishes on
+// a low-contrast palette / the cabinet LCD.
+const ROOM_LAYOUT = [
+  'WWWWWWWWWWWWWWWWWWWW',
+  'W..................W',
+  'W....WWWW..........W',
+  'W....W.....PP......W',
+  'W....W.....PP......W',
+  'W.........B........W',
+  'W..................W',
+  'W......WW....WWW...W',
+  'W......WW..........W',
+  'W..................W',
+  'WWWWWWWWWWWWWWWWWWWW',
+];
+
+/** A composited dungeon room drawn with the REAL tile art + obstacle-shadow
+ *  helper, so `shade` on/off shows exactly what ships. */
+function RoomCell(props: { palette: string[]; shade: boolean }): ComponentChildren {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const TILE = 16;
+    const ROWS = ROOM_LAYOUT.length;
+    const COLS = ROOM_LAYOUT[0]!.length;
+    canvas.width = COLS * TILE;
+    canvas.height = ROWS * TILE;
+    const ctx = canvas.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    const dec = (id: string) => decodeSprite(LIBRARY[id]!.frames[0]!, props.palette);
+    const floor = dec('tile_floor');
+    const wall = dec('tile_wall');
+    const pit = dec('tile_pit');
+    const block = dec('tile_block');
+    const at = (tx: number, ty: number): string =>
+      ty >= 0 && ty < ROWS && tx >= 0 && tx < COLS ? ROOM_LAYOUT[ty]![tx] ?? '.' : 'W';
+
+    // Base terrain: floor everywhere, then walls/pits (blocks sit on floor later).
+    for (let ty = 0; ty < ROWS; ty++)
+      for (let tx = 0; tx < COLS; tx++) {
+        const c = at(tx, ty);
+        ctx.drawImage(c === 'W' ? wall : c === 'P' ? pit : floor, tx * TILE, ty * TILE);
+      }
+
+    const sink = {
+      rect: (x: number, y: number, w: number, h: number, color: string) => {
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, w, h);
+      },
+    };
+    if (props.shade)
+      drawObstacleShadows(
+        sink, { x: 0, y: 0 }, COLS, ROWS, TILE,
+        (tx, ty) => at(tx, ty) === 'W' || at(tx, ty) === 'P',
+        (tx, ty) => at(tx, ty) === '.' || at(tx, ty) === 'B',
+      );
+
+    // Blocks on top of the floor + their own outline (matches the game order).
+    for (let ty = 0; ty < ROWS; ty++)
+      for (let tx = 0; tx < COLS; tx++)
+        if (at(tx, ty) === 'B') {
+          ctx.drawImage(block, tx * TILE, ty * TILE);
+          if (props.shade) drawObstacleTile(sink, tx * TILE, ty * TILE, TILE, true, true, true, true);
+        }
+  }, [props.palette, props.shade]);
+  return (
+    <div class="gal-cell">
+      <canvas ref={ref} style={`width:${ROOM_LAYOUT[0]!.length * 32}px;image-rendering:pixelated`} />
+      <div class="gal-id">{props.shade ? 'WITH obstacle-contrast pass' : 'raw tile art (ships today)'}</div>
+    </div>
+  );
+}
+
+const TABS = ['Palettes', 'Room', 'Backdrops', 'Weather', ...SPRITE_TABS.map(([t]) => t), 'Tiles', 'Font'] as const;
 
 export function AssetsGalleryScreen(): ComponentChildren {
   const [games, setGames] = useState<GameListItem[]>([]);
@@ -260,6 +346,7 @@ export function AssetsGalleryScreen(): ComponentChildren {
   const palettes = useMemo(() => {
     const list: { id: string; title: string; palette: string[] }[] = [
       { id: 'preview', title: 'Preview (slot semantics)', palette: PREVIEW_PALETTE },
+      { id: 'lowcon', title: 'Low-contrast dungeon (repro)', palette: LOWCON_PALETTE },
     ];
     for (const g of games) {
       if (g.cover?.palette) list.push({ id: g.id, title: `${g.title} (${g.archetype})`, palette: g.cover.palette });
@@ -271,6 +358,7 @@ export function AssetsGalleryScreen(): ComponentChildren {
   const ids = Object.keys(LIBRARY);
   const countFor = (name: string): number => {
     if (name === 'Palettes') return PALETTE_MOODS.length;
+    if (name === 'Room') return 2;
     if (name === 'Backdrops') return BACKDROP_VARIANTS.length;
     if (name === 'Weather') return WEATHER_KINDS.length;
     if (name === 'Font') return Object.keys(FONT_GLYPHS).length;
@@ -363,6 +451,22 @@ export function AssetsGalleryScreen(): ComponentChildren {
               {PALETTE_MOODS.map((m) => (
                 <PaletteCell key={m.id} mood={m} />
               ))}
+            </div>
+          </div>
+        )}
+
+        {tab === 'Room' && (
+          <div>
+            <div class="gal-controls gal-subcontrols">
+              <span class="gal-dim">
+                Floor↔obstacle contrast. Pick the <b>Low-contrast dungeon (repro)</b> palette above: on the left the
+                walls/pits/block sink into the floor (the ship-today bug); on the right the obstacle-contrast pass
+                forces a palette-independent raised-block silhouette.
+              </span>
+            </div>
+            <div class="gal-grid">
+              <RoomCell palette={palette} shade={false} />
+              <RoomCell palette={palette} shade={true} />
             </div>
           </div>
         )}

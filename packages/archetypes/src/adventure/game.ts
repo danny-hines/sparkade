@@ -3,6 +3,8 @@
 // A interact/talk, SELECT dungeon map, START pause (host-owned).
 import {
   aabbOverlap,
+  drawObstacleShadows,
+  drawObstacleTile,
   drawTileLayer,
   makeBackdrop,
   moveAABB,
@@ -630,6 +632,22 @@ class AdventureGame implements GameInstance {
       if (b.sliding && b.toTx === tx && b.toTy === ty) return b;
     }
     return null;
+  }
+
+  /** Casts a raised-block silhouette (see drawObstacleShadows). Walls and pits
+   *  share the floor's base color and must be forced to read against it. */
+  private isObstacleTile(tx: number, ty: number): boolean {
+    const k = this.kindAt(tx, ty);
+    return k === 'wall' || k === 'pit';
+  }
+
+  /** Walkable terrain an obstacle shadow can fall onto (excludes doorways, which
+   *  have their own dark art, and cells holding a pushable block). */
+  private isTerrainTile(tx: number, ty: number): boolean {
+    if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS) return false;
+    const k = this.kinds[ty * COLS + tx]!;
+    if (k !== 'floor' && k !== 'decoration' && k !== 'switch') return false;
+    return !this.blockAt(tx, ty);
   }
 
   private solidity(tx: number, ty: number, forEnemy: boolean): Solidity {
@@ -1726,6 +1744,15 @@ class AdventureGame implements GameInstance {
       return frames[frameIx % frames.length] ?? frames[0] ?? null;
     });
 
+    // Guarantee obstacle contrast: wall/pit art shares the floor's base color,
+    // so on a low-contrast palette (or the cabinet's dark LCD) they vanish into
+    // the terrain. Stamp a palette-independent raised-block silhouette.
+    drawObstacleShadows(
+      r, cam, COLS, ROWS, TILE_SIZE,
+      (tx, ty) => this.isObstacleTile(tx, ty),
+      (tx, ty) => this.isTerrainTile(tx, ty),
+    );
+
     // Decorations, switches, hazards on top of floor.
     const decoFrames = this.tileFrames['deco']!;
     for (const c of this.decoCells) {
@@ -1763,10 +1790,12 @@ class AdventureGame implements GameInstance {
       }
     }
 
-    // Blocks.
+    // Blocks (free-standing pushables sit on floor — outline all four sides).
     const blockFrames = this.tileFrames['block']!;
     for (const b of this.blocks) {
-      if (b.active) r.draw(blockFrames[0]!, b.x - cam.x, b.y - cam.y);
+      if (!b.active) continue;
+      r.draw(blockFrames[0]!, b.x - cam.x, b.y - cam.y);
+      drawObstacleTile(r, b.x - cam.x, b.y - cam.y, TILE_SIZE, true, true, true, true);
     }
 
     // Bombs (blink near the end of the fuse).

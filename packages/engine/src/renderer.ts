@@ -157,3 +157,80 @@ export function drawTileLayer(
     }
   }
 }
+
+// Obstacle contrast pass. Dungeon wall/block/floor art all share palette slot 2
+// as its base fill, so a wall's face is the *same color* as the floor — the art
+// separates them only with thin slot-1/slot-3 bevels. On a low-contrast
+// generated palette (the bg 2/3/4 bands bunched together, which the validator
+// permits) and on the cabinet's dark-crushing LCD, those bevels wash out and
+// solid obstacles turn invisible against the terrain. These helpers stamp a
+// palette-INDEPENDENT raised-block silhouette — lit top/left edges, shadowed
+// bottom/right edges, plus a shadow cast onto the floor — so an obstacle always
+// reads as a discrete block whatever the palette or panel does.
+const OBSTACLE_LIGHT = 'rgba(255,255,255,0.20)'; // lit top-left bevel
+const OBSTACLE_SEAM = 'rgba(0,0,0,0.40)'; // shadowed bottom-right bevel
+const OBSTACLE_CAST = 'rgba(0,0,0,0.30)'; // shadow cast onto adjacent floor
+const OBSTACLE_EDGE = 2; // bevel thickness, px
+const OBSTACLE_CAST_PX = 2; // cast-shadow width, px
+
+/**
+ * Draw the raised-block silhouette for one obstacle tile at screen (sx, sy).
+ * Each flag says whether that side faces walkable floor (so it needs an edge);
+ * sides facing another obstacle are left seamless. `n`/`w` get a light bevel,
+ * `s`/`e` a dark bevel + a shadow cast outward onto the floor.
+ */
+/** Just the bit of {@link Renderer} these helpers need — so a dev tool can drive
+ *  them with a bare canvas context via a `{ rect }` adapter. */
+export interface RectSink {
+  rect(x: number, y: number, w: number, h: number, color: string): void;
+}
+
+export function drawObstacleTile(
+  r: RectSink,
+  sx: number,
+  sy: number,
+  size: number,
+  n: boolean,
+  s: boolean,
+  e: boolean,
+  w: boolean,
+): void {
+  if (n) r.rect(sx, sy, size, OBSTACLE_EDGE, OBSTACLE_LIGHT);
+  if (w) r.rect(sx, sy, OBSTACLE_EDGE, size, OBSTACLE_LIGHT);
+  if (s) r.rect(sx, sy + size - OBSTACLE_EDGE, size, OBSTACLE_EDGE, OBSTACLE_SEAM);
+  if (e) r.rect(sx + size - OBSTACLE_EDGE, sy, OBSTACLE_EDGE, size, OBSTACLE_SEAM);
+  if (s) r.rect(sx, sy + size, size + (e ? OBSTACLE_CAST_PX : 0), OBSTACLE_CAST_PX, OBSTACLE_CAST);
+  if (e) r.rect(sx + size, sy, OBSTACLE_CAST_PX, size, OBSTACLE_CAST);
+}
+
+/**
+ * Grid convenience for {@link drawObstacleTile}: over the visible cell range,
+ * outline every `solidAt` cell that borders a `floorAt` cell. Run it AFTER the
+ * tile layer and BEFORE sprites so obstacles sit above the floor but under
+ * actors. Free-standing obstacles (pushable blocks at sub-tile positions) call
+ * {@link drawObstacleTile} directly at their pixel position.
+ */
+export function drawObstacleShadows(
+  r: RectSink,
+  cam: { x: number; y: number },
+  cols: number,
+  rows: number,
+  tileSize: number,
+  solidAt: (tx: number, ty: number) => boolean,
+  floorAt: (tx: number, ty: number) => boolean,
+): void {
+  const x0 = Math.max(0, Math.floor(cam.x / tileSize));
+  const y0 = Math.max(0, Math.floor(cam.y / tileSize));
+  const x1 = Math.min(cols - 1, Math.ceil((cam.x + INTERNAL_WIDTH) / tileSize));
+  const y1 = Math.min(rows - 1, Math.ceil((cam.y + INTERNAL_HEIGHT) / tileSize));
+  for (let ty = y0; ty <= y1; ty++) {
+    for (let tx = x0; tx <= x1; tx++) {
+      if (!solidAt(tx, ty)) continue;
+      const n = floorAt(tx, ty - 1);
+      const s = floorAt(tx, ty + 1);
+      const e = floorAt(tx + 1, ty);
+      const w = floorAt(tx - 1, ty);
+      if (n || s || e || w) drawObstacleTile(r, tx * tileSize - cam.x, ty * tileSize - cam.y, tileSize, n, s, e, w);
+    }
+  }
+}

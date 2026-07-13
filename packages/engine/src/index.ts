@@ -13,7 +13,7 @@ export {
   SpriteStore,
   type ResolvedSprite,
 } from './sprites';
-export { Renderer, Camera, drawTileLayer } from './renderer';
+export { Renderer, Camera, drawTileLayer, drawObstacleShadows, drawObstacleTile } from './renderer';
 export {
   BACKDROP_VARIANTS,
   makeBackdrop,

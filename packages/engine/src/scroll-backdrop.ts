@@ -79,9 +79,11 @@ function bakeLayer(paint: (ctx: CanvasRenderingContext2D) => void): HTMLCanvasEl
   return c;
 }
 
-/** A soft translucent cloud deck (overlapping puffs), tiling vertically. Higher
- *  `density`/`alpha` = heavier cover. Drawn as the fast, close layer on ground
- *  scenes so the distant terrain reads as a single receding plane beneath it. */
+/** A soft cloud deck built like the horizontal 'clouds' backdrop: clusters of
+ *  flat, slightly-ragged horizontal SLABS (not stacked circles — those compound
+ *  into bright cores where they overlap), tiling vertically. Higher `density` =
+ *  heavier cover. The fast, close layer on ground scenes so the distant terrain
+ *  reads as a single receding plane beneath it. */
 function bakeClouds(density: number, tint: string, alpha: number, rng: Rng): HTMLCanvasElement {
   return bakeLayer((ctx) => {
     ctx.globalAlpha = alpha;
@@ -89,7 +91,12 @@ function bakeClouds(density: number, tint: string, alpha: number, rng: Rng): HTM
     for (let i = 0; i < density; i++) {
       const cx = rng.int(0, W - 1);
       const cy = rng.int(0, H - 1);
-      for (let p = 0; p < rng.int(4, 7); p++) discV(ctx, cx + rng.int(-26, 26), cy + rng.int(-12, 12), rng.int(10, 26));
+      const cw = rng.int(34, 84);
+      for (let p = 0; p < rng.int(4, 6); p++) {
+        const px = cx + rng.int(-cw / 2, cw / 2);
+        const pw = rng.int(16, cw);
+        fillV(ctx, px, cy + rng.int(-5, 5), pw, rng.int(5, 9));
+      }
     }
     ctx.globalAlpha = 1;
   });
@@ -370,7 +377,7 @@ export function makeScrollBackdrop(
         }),
         p: 0.28,
       });
-      layers.push({ canvas: bakeClouds(10, shade(light, 1.25), 0.42, rng), p: 0.78 });
+      layers.push({ canvas: bakeClouds(11, shade(light, 1.25), 0.5, rng), p: 0.78 });
       break;
     }
     case 'swamp': {
@@ -405,7 +412,7 @@ export function makeScrollBackdrop(
         }),
         p: 0.28,
       });
-      layers.push({ canvas: bakeClouds(12, shade(leaf, 0.85), 0.34, rng), p: 0.72 });
+      layers.push({ canvas: bakeClouds(13, shade(leaf, 0.85), 0.44, rng), p: 0.72 });
       break;
     }
     case 'tundra': {
@@ -428,7 +435,7 @@ export function makeScrollBackdrop(
         }),
         p: 0.28,
       });
-      const snow = bakeClouds(9, '#ffffff', 0.4, rng);
+      const snow = bakeClouds(10, '#ffffff', 0.5, rng);
       {
         const c = snow.getContext('2d')!;
         c.fillStyle = '#ffffff'; // blowing flakes on the fast layer

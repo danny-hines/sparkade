@@ -7,44 +7,89 @@
 // The photo is sent to the provider only when the opt-in is on.
 import type { BuiltPrompt } from '../pipeline/prompts';
 
+export type FaceShape = 'round' | 'oval' | 'square' | 'long' | 'heart';
+export type ChinShape = 'round' | 'pointed' | 'square' | 'wide';
+export type Size3 = 'small' | 'medium' | 'large';
+export type EyeSpacing = 'close' | 'average' | 'wide';
+export type EyeShape = 'round' | 'almond' | 'narrow';
+export type BrowThickness = 'thin' | 'medium' | 'thick';
+export type BrowShape = 'straight' | 'arched' | 'angled';
+export type EarProminence = 'hidden' | 'small' | 'average' | 'prominent';
+export type FacialHair = 'none' | 'stubble' | 'mustache' | 'goatee' | 'beard';
+
 export interface FaceFeatures {
-  skinTone: string; // hex — true base skin, normalized for lighting
-  hairColor: string; // hex, or "none"
-  glasses: boolean;
-  facialHair: boolean;
-  headwear: boolean;
+  // Colouring — true tones, normalized for the photo's lighting.
+  skinTone: string; // hex
+  hairColor: string; // hex, or "none" (bald / shaved)
+  facialHairColor: string; // hex, or "none" (clean-shaven)
   headwearColor: string; // hex, or "none"
+  // Accessories.
+  glasses: boolean;
+  headwear: boolean;
+  facialHair: FacialHair;
+  // Proportions estimated from the photo, so the drawn avatar varies in
+  // STRUCTURE (not just colour). Optional — the renderer defaults each.
+  faceShape?: FaceShape;
+  chin?: ChinShape;
+  noseSize?: Size3;
+  eyeSpacing?: EyeSpacing;
+  eyeShape?: EyeShape;
+  eyebrows?: BrowThickness;
+  eyebrowShape?: BrowShape;
+  ears?: EarProminence;
 }
 
 export const FACE_SCHEMA: Record<string, unknown> = {
   type: 'object',
   additionalProperties: false,
-  required: ['skinTone', 'hairColor', 'glasses', 'facialHair', 'headwear', 'headwearColor'],
+  required: [
+    'skinTone', 'hairColor', 'facialHairColor', 'headwearColor', 'glasses', 'headwear', 'facialHair',
+    'faceShape', 'chin', 'noseSize', 'eyeSpacing', 'eyeShape', 'eyebrows', 'eyebrowShape', 'ears',
+  ],
   properties: {
     skinTone: { type: 'string', description: "hex of the person's true base skin tone in neutral daylight" },
-    hairColor: { type: 'string', description: 'hex of hair colour, or "none" if bald/shaved/no visible hair' },
-    glasses: { type: 'boolean' },
-    facialHair: { type: 'boolean' },
-    headwear: { type: 'boolean' },
+    hairColor: { type: 'string', description: 'hex of hair colour, or "none" if bald/shaved' },
+    facialHairColor: { type: 'string', description: 'hex of facial-hair colour, or "none" if clean-shaven' },
     headwearColor: { type: 'string', description: 'hex of the headwear, or "none"' },
+    glasses: { type: 'boolean' },
+    headwear: { type: 'boolean', description: 'true if wearing a hat / cap / head covering' },
+    facialHair: { enum: ['none', 'stubble', 'mustache', 'goatee', 'beard'] },
+    faceShape: { enum: ['round', 'oval', 'square', 'long', 'heart'], description: 'overall face outline & height:width ratio' },
+    chin: { enum: ['round', 'pointed', 'square', 'wide'] },
+    noseSize: { enum: ['small', 'medium', 'large'], description: 'nose size relative to the face' },
+    eyeSpacing: { enum: ['close', 'average', 'wide'], description: 'gap between the eyes' },
+    eyeShape: { enum: ['round', 'almond', 'narrow'] },
+    eyebrows: { enum: ['thin', 'medium', 'thick'], description: 'eyebrow thickness' },
+    eyebrowShape: { enum: ['straight', 'arched', 'angled'] },
+    ears: { enum: ['hidden', 'small', 'average', 'prominent'], description: 'ear prominence, or "hidden" if covered/not visible' },
   },
 };
 
 export function buildFaceAnalysisPrompt(): BuiltPrompt {
   const system = [
-    "You describe a person's face from a photo so we can build a faithful pixel-art avatar of them for a retro video game.",
+    "You are a character artist. Study the attached photo and describe the person's face as a set of PROPORTIONS and traits, so we can DRAW a faithful pixel-art avatar of them (we do not trace the photo — we redraw from your description). Judge every shape by its proportion relative to the head.",
     '',
-    "Report the person's ACTUAL colouring, normalized for the photo's lighting — ignore colour casts, harsh shadows, and flash; infer the true tones as they would look in neutral daylight.",
+    "Colour — report the person's ACTUAL tones, normalized for the photo's lighting (ignore colour casts, flash, and harsh shadows; infer the true colours as in neutral daylight):",
+    '- skinTone: hex of the true base skin tone.',
+    '- hairColor: hex, or "none" if bald / shaved.',
+    '- facialHairColor: hex, or "none" if clean-shaven.',
+    '- headwearColor: hex, or "none".',
     '',
-    'Fields:',
-    "- skinTone: hex of the person's true base skin tone.",
-    '- hairColor: hex of their hair colour, or "none" if bald / shaved / no visible hair.',
-    '- glasses: true if they are wearing glasses.',
-    '- facialHair: true if they have visible facial hair (beard / moustache / stubble).',
-    '- headwear: true if they are wearing a hat / cap / head covering.',
-    '- headwearColor: hex of the headwear, or "none".',
+    'Accessories:',
+    '- glasses / headwear: booleans.',
+    '- facialHair: none | stubble | mustache | goatee | beard.',
     '',
-    'Be accurate and respectful about skin tone across all ethnicities — never lighten or darken. Output only the structured fields.',
+    'Proportions (estimate from the photo):',
+    '- faceShape: round | oval | square | long | heart — the overall outline and height:width.',
+    '- chin: round | pointed | square | wide.',
+    '- noseSize: small | medium | large (relative to the face).',
+    '- eyeSpacing: close | average | wide.',
+    '- eyeShape: round | almond | narrow.',
+    '- eyebrows: thin | medium | thick.',
+    '- eyebrowShape: straight | arched | angled.',
+    '- ears: hidden | small | average | prominent.',
+    '',
+    'Be accurate and respectful about skin tone across all ethnicities — never lighten or darken. Do NOT infer age, gender, health, identity, or any other sensitive attribute; describe only the visible geometry and colours. Output only the structured fields.',
   ].join('\n');
   return {
     system,

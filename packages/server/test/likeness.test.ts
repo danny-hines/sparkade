@@ -89,8 +89,9 @@ describe('likeness bake', () => {
 const face: FaceFeatures = {
   skinTone: '#c98f6b',
   hairColor: '#3a2a1e',
+  facialHairColor: 'none',
   glasses: false,
-  facialHair: false,
+  facialHair: 'none',
   headwear: false,
   headwearColor: 'none',
 };

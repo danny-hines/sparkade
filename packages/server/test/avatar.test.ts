@@ -8,8 +8,9 @@ import type { FaceFeatures } from '../src/likeness/features';
 const base: FaceFeatures = {
   skinTone: '#c98f6b',
   hairColor: '#2a2320',
+  facialHairColor: 'none',
   glasses: false,
-  facialHair: false,
+  facialHair: 'none',
   headwear: false,
   headwearColor: 'none',
 };

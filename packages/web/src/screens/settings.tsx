@@ -53,6 +53,7 @@ export function SettingsScreen(props: {
   const [devSel, setDevSel] = useState<DeviceSel>(props.settings?.devices ?? {});
   const [smartFeatures, setSmartFeatures] = useState(props.settings?.likeness?.smartFeatures ?? false);
   const [likenessStyle, setLikenessStyle] = useState<'photo' | 'avatar'>(props.settings?.likeness?.style ?? 'photo');
+  const [portraitGen, setPortraitGen] = useState(props.settings?.likeness?.portraitGen?.enabled ?? false);
   const oskTarget = useRef<string>('');
   const deviceListRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef({ tab, zone, panelCursor, tabs, osk, networks, inputs });
@@ -66,6 +67,7 @@ export function SettingsScreen(props: {
     if (props.settings) setDevSel(props.settings.devices ?? {});
     if (props.settings) setSmartFeatures(props.settings.likeness?.smartFeatures ?? false);
     if (props.settings) setLikenessStyle(props.settings.likeness?.style ?? 'photo');
+    if (props.settings) setPortraitGen(props.settings.likeness?.portraitGen?.enabled ?? false);
   }, [props.settings]);
   useEffect(() => {
     if (tab === 'wifi' && networks === null) {
@@ -120,6 +122,15 @@ export function SettingsScreen(props: {
     setLikenessStyle((cur) => {
       const next = cur === 'photo' ? 'avatar' : 'photo';
       void api.saveSettings({ likeness: { style: next } }).then(props.onSettingsChanged);
+      return next;
+    });
+    shellInput.blip('select');
+  };
+
+  const togglePortraitGen = () => {
+    setPortraitGen((cur) => {
+      const next = !cur;
+      void api.saveSettings({ likeness: { portraitGen: { enabled: next } } }).then(props.onSettingsChanged);
       return next;
     });
     shellInput.blip('select');
@@ -210,7 +221,7 @@ export function SettingsScreen(props: {
         } else if (s.tab === 'devices') {
           const cams = s.inputs?.cameras ?? [];
           const mics = s.inputs?.mics ?? [];
-          const rows = cams.length + mics.length + 3; // + rescan + smart toggle + style
+          const rows = cams.length + mics.length + 4; // + rescan + smart + style + AI portrait
           if (btn === 'UP' || btn === 'DOWN') {
             setPanelCursor((c) => (c + (btn === 'DOWN' ? 1 : rows - 1)) % rows);
             shellInput.blip('move');
@@ -226,6 +237,8 @@ export function SettingsScreen(props: {
               if (btn === 'A') toggleSmartFeatures();
             } else if (s.panelCursor === cams.length + mics.length + 2) {
               cycleLikenessStyle(); // A / Left / Right all flip photo <-> avatar
+            } else if (s.panelCursor === cams.length + mics.length + 3) {
+              if (btn === 'A') togglePortraitGen();
             }
           }
         } else if (s.tab === 'wifi') {
@@ -373,6 +386,10 @@ export function SettingsScreen(props: {
                         Style — {likenessStyle === 'avatar' ? 'Avatar + photo' : 'Your photo'}
                         {likenessStyle === 'avatar' && !smartFeatures ? ' (needs smart colours on)' : ''}
                       </span>
+                    </div>
+                    <div class={`focusable device-row likeness-toggle-row ${zone === 'panel' && panelCursor === inputs.cameras.length + inputs.mics.length + 3 ? 'focused' : ''}`}>
+                      <span class="device-check">{portraitGen ? <Icon name="check" /> : <Icon name="ring" />}</span>
+                      <span class="device-label">AI story portrait — {portraitGen ? 'On' : 'Off'}</span>
                     </div>
                     {inputs.cameras.length === 0 && inputs.mics.length === 0 && (
                       <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line,#333)">

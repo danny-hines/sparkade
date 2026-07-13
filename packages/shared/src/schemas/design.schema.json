@@ -6,7 +6,7 @@
   "properties": {
     "title": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[ -~]+$" },
     "tagline": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[ -~]+$" },
-    "archetype": { "enum": ["platformer", "shooter", "adventure"] },
+    "archetype": { "enum": ["platformer", "shooter", "adventure", "hshooter"] },
     "palette": {
       "description": "Exactly 16 hex colors. Index 0 is treated as transparent. Slot conventions: 1 outline/darkest, 2-4 background dark->light, 5-7 hero, 8-a enemies, b hazard, c warm accent, d gold, e light, f near-white.",
       "type": "array",

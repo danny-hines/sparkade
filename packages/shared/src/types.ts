@@ -254,6 +254,39 @@ export interface ShooterBoss {
 }
 
 // ---------------------------------------------------------------------------
+// Horizontal shooter spec (R-Type-like: flies left→right through terrain)
+// ---------------------------------------------------------------------------
+
+/** A terrain control point: at world column `x` (tiles), the ceiling extends
+ *  `ceil` tiles down from the top and the floor `floor` tiles up from the
+ *  bottom. The engine lerps a smooth corridor between successive points. */
+export interface HShooterTerrainPoint {
+  x: number;
+  ceil: number;
+  floor: number;
+}
+
+export type HShooterTurretSide = 'floor' | 'ceil';
+
+/** A stationary gun mounted on the terrain at world column `x`, on the floor or
+ *  ceiling; scrolls in with the stage and fires at the player while on screen. */
+export interface HShooterTurret {
+  x: number;
+  side: HShooterTurretSide;
+}
+
+export interface HShooterLevel {
+  name: string;
+  musicSong: string;
+  scroll: number;
+  durationS: number;
+  terrain: HShooterTerrainPoint[];
+  turrets: HShooterTurret[];
+  waves: ShooterWave[];
+  pickups: { t: number; type: ShooterPickupType }[];
+}
+
+// ---------------------------------------------------------------------------
 // Adventure spec
 // ---------------------------------------------------------------------------
 
@@ -372,7 +405,15 @@ export interface AdventureSpec extends GameSpecBase {
   boss: AdventureBoss;
 }
 
-export type GameSpec = PlatformerSpec | ShooterSpec | AdventureSpec;
+export interface HShooterSpec extends GameSpecBase {
+  archetype: 'hshooter';
+  /** Far backdrop behind the terrain (horizontal scene); omitted → seed pick. */
+  backdrop?: BackdropVariantId;
+  levels: HShooterLevel[];
+  boss: ShooterBoss;
+}
+
+export type GameSpec = PlatformerSpec | ShooterSpec | AdventureSpec | HShooterSpec;
 
 // ---------------------------------------------------------------------------
 // Design doc (output of the design pass; design.schema.json)

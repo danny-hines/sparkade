@@ -5,6 +5,7 @@
 import platformerSchemaJson from './schemas/platformer.schema.json';
 import shooterSchemaJson from './schemas/shooter.schema.json';
 import adventureSchemaJson from './schemas/adventure.schema.json';
+import hshooterSchemaJson from './schemas/hshooter.schema.json';
 import designSchemaJson from './schemas/design.schema.json';
 import type { ArchetypeId } from './constants';
 
@@ -12,6 +13,7 @@ export const ARCHETYPE_SCHEMAS: Record<ArchetypeId, Record<string, unknown>> = {
   platformer: platformerSchemaJson as Record<string, unknown>,
   shooter: shooterSchemaJson as Record<string, unknown>,
   adventure: adventureSchemaJson as Record<string, unknown>,
+  hshooter: hshooterSchemaJson as Record<string, unknown>,
 };
 
 export const DESIGN_SCHEMA = designSchemaJson as Record<string, unknown>;

@@ -209,6 +209,15 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       `ITEMS: ${LIB_ITEMS.join(', ')}`,
       `SMALL ART (self-describing): ${small}`,
     ].join('\n'),
+    hshooter: [
+      '\nSHIPS (the engine flips them to face RIGHT; all take the photo-likeness head in the canopy):',
+      annotated(LIB_SHIPS),
+      'FOE BODIES (any body can skin any behavior role; they fly in from the right):',
+      annotated(LIB_FOES_SHOOTER),
+      'BOSSES (screen-scale; enters from the right):',
+      annotated(LIB_BOSSES_SHOOTER),
+      `SMALL ART (self-describing): ${small}`,
+    ].join('\n'),
   };
   const tileRoles: Record<ArchetypeId, string[]> = {
     platformer: ['tile_solid', 'tile_platform', 'tile_hazard', 'tile_checkpoint', 'tile_exit', 'tile_deco'],
@@ -225,6 +234,7 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       'tile_door_boss',
       'tile_door_open',
     ],
+    hshooter: [],
   };
   const extraRoles: Record<ArchetypeId, string> = {
     platformer:
@@ -233,6 +243,8 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       'Also reskinnable via assign: projectile (your ship\'s shot), enemyShot, pod (boss side-turrets), pickup_spread, pickup_rapid, pickup_shield, pickup_bomb.',
     adventure:
       'Also reskinnable via assign: proj_arrow, proj_wave (sword slash), item_boomerang, proj_bomb, enemyShot.',
+    hshooter:
+      'Also reskinnable via assign: projectile (your ship\'s shot), enemyShot, pod (boss side-turrets), pickup_spread, pickup_rapid, pickup_shield, pickup_bomb. The scrolling terrain corridor is drawn by the engine from your palette (no tile sprites).',
   };
   const roles = tileRoles[archetype];
   const reskinNotes =
@@ -269,6 +281,8 @@ export function buildEntitiesPrompt(
       'Bullet patterns: fan, spiral, walls (rows with a gap), aimed. pods are destructible side turrets. bulletSpeed multiplies base speed.',
     adventure:
       'Patterns: charge (telegraphed dash), teleport (vanish + radial burst), spiral (rotating bullets), summon (minions). tempo 0.5–2 scales speed.',
+    hshooter:
+      'Bullet patterns: fan, spiral, walls (a vertical bullet column with a gap), aimed. The boss flies in from the right of an open arena. pods are destructible turrets. bulletSpeed multiplies base speed.',
   };
   const menu = spriteMenu(archetype);
   const system = renderTemplate(loadTemplate('entities'), {

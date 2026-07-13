@@ -17,7 +17,7 @@ import {
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const args = process.argv.slice(2);
-const targets = (args.length ? args : ['platformer', 'shooter', 'adventure']).map((a) =>
+const targets = (args.length ? args : ['platformer', 'shooter', 'adventure', 'hshooter']).map((a) =>
   a.endsWith('.json') ? a : join(root, 'packages', 'generation', 'golden', `golden-${a}.json`),
 );
 

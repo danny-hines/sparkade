@@ -268,8 +268,8 @@ export function WizardScreen(props: {
 
   // ----- surprise -------------------------------------------------------------
   const surpriseMe = () => {
-    const archetypesList: ArchetypeId[] = ['platformer', 'shooter', 'adventure'];
-    const arche = archetypesList[Math.floor(Math.random() * 3)]!;
+    const archetypesList: ArchetypeId[] = ['platformer', 'shooter', 'adventure', 'hshooter'];
+    const arche = archetypesList[Math.floor(Math.random() * archetypesList.length)]!;
     const spark = SURPRISE_SPARKS[Math.floor(Math.random() * SURPRISE_SPARKS.length)]!;
     setTranscript(
       `Surprise me! Invent a completely original ${arche} — perhaps something like ${spark}, or better. Pick a bold premise nobody has seen.`,

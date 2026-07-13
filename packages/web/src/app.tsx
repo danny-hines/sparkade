@@ -16,6 +16,7 @@ import { RemapScreen } from './screens/remap';
 import { AssetsGalleryScreen } from './screens/assets-gallery';
 import { LikenessLabScreen } from './screens/likeness-lab';
 import { SpriteEditorScreen } from './screens/sprite-editor';
+import { PlaytestScreen } from './screens/playtest';
 
 export type Screen =
   | { name: 'attract' }
@@ -38,6 +39,7 @@ export function App(): ComponentChildren {
     if (dev === 'assets') return <AssetsGalleryScreen />;
     if (dev === 'likeness') return <LikenessLabScreen />;
     if (dev === 'sprite-editor') return <SpriteEditorScreen />;
+    if (dev === 'playtest') return <PlaytestScreen />;
   }
   return <KioskApp />;
 }

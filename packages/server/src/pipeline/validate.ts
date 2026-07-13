@@ -170,12 +170,24 @@ const ROLE_LIB_FALLBACK: Record<ArchetypeId, Record<string, string>> = {
     item: 'lib:pickup_power',
     enemyShot: 'lib:proj_pellet',
   },
+  hshooter: {
+    hero: 'lib:ship_dart',
+    boss: 'lib:boss_leviathan',
+    popcorn: 'lib:foe_popcorn',
+    weaver: 'lib:foe_weaver',
+    tank: 'lib:foe_tank',
+    turret: 'lib:foe_turret',
+    kamikaze: 'lib:foe_kamikaze',
+    projectile: 'lib:proj_bolt',
+    enemyShot: 'lib:proj_pellet',
+  },
 };
 
 const GENERIC_FALLBACK: Record<ArchetypeId, string> = {
   platformer: 'lib:enemy_walker',
   shooter: 'lib:foe_popcorn',
   adventure: 'lib:enemy_walker',
+  hshooter: 'lib:foe_popcorn',
 };
 
 export function spriteProblem(s: SpriteData, opts: { isTile?: boolean } = {}): string | null {

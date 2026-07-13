@@ -441,7 +441,6 @@ export const SHOOTER_BACKDROP_VARIANTS = [
   'ocean',
   'metropolis',
   'canyon',
-  'lava',
   'swamp',
   'tundra',
 ] as const;

@@ -12,7 +12,7 @@
     "story": { "$ref": "#/$defs/story" },
     "sprites": { "$ref": "#/$defs/spritesBlock" },
     "backdrop": {
-      "description": "Vertically-scrolling backdrop scene drawn behind gameplay in your palette's background colors (this is a top-down vertical shooter — the scene flies past beneath the player). Pick the one that matches the premise: deepspace (star sea), nebula (glowing gas clouds), asteroids (drifting rock field), ocean (top-down sea with islands & wakes), metropolis (top-down city grid at night), canyon (winding river through rock), lava (molten rivers), swamp (toxic bog), tundra (cracked ice). Omit for a seed-varied default.",
+      "description": "Vertically-scrolling backdrop scene drawn behind gameplay in your palette's background colors (this is a top-down vertical shooter — the scene flies past beneath the player). Pick the one that matches the premise: deepspace (star sea with planets), nebula (glowing gas clouds), asteroids (drifting, tumbling rock field), ocean (open sea under cloud cover), metropolis (city rooftops under heavy clouds at night), canyon (river winding through rock, under clouds), swamp (toxic bog under fog), tundra (cracked ice under snow clouds). Omit for a seed-varied default.",
       "enum": [
         "deepspace",
         "nebula",
@@ -20,7 +20,6 @@
         "ocean",
         "metropolis",
         "canyon",
-        "lava",
         "swamp",
         "tundra"
       ]

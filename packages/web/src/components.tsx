@@ -43,6 +43,14 @@ export function GameCover(props: {
     if (!canvas) return;
     let disposed = false;
 
+    // Where the baked likeness head lands on the hero: hand-authored for a
+    // library hero, or the custom hero's own headSlot. Recent games use custom
+    // heroes (signature-sprite prompt), which the cover previously ignored —
+    // dropping their head — so fall back to the custom sprite's slot.
+    const cov = props.cover;
+    const heroLibId = cov?.heroRef?.startsWith('lib:') ? cov.heroRef.slice(4) : null;
+    const headSlot = heroLibId ? LIBRARY[heroLibId]?.headSlots?.[0] : cov?.hero?.headSlot;
+
     const draw = (head: HTMLImageElement | null) => {
       if (disposed) return;
       canvas.width = 128;
@@ -125,8 +133,7 @@ export function GameCover(props: {
       if (cover.hero) {
         try {
           let heroCanvas = decodeSprite(cover.hero, cover.palette);
-          const libId = cover.heroRef?.startsWith('lib:') ? cover.heroRef.slice(4) : null;
-          const slot = libId ? LIBRARY[libId]?.headSlots?.[0] : undefined;
+          const slot = headSlot;
           if (head && slot) {
             const composed = document.createElement('canvas');
             composed.width = heroCanvas.width;
@@ -156,7 +163,7 @@ export function GameCover(props: {
     if (props.cover?.hasLikeness && props.gameId) {
       const img = new Image();
       img.onload = () => draw(img);
-      img.src = `/api/games/${props.gameId}/assets/head12.png`;
+      img.src = `/api/games/${props.gameId}/assets/head${headSlot?.size ?? 12}.png`;
     }
     return () => {
       disposed = true;

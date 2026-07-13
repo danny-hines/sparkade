@@ -25,6 +25,7 @@ export type TemplateName =
   | 'levels-shooter'
   | 'levels-adventure'
   | 'levels-hshooter'
+  | 'levels-fighter'
   | 'entities'
   | 'music'
   | 'repair';

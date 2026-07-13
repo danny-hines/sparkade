@@ -8,8 +8,9 @@ import { GameHost, InputBroker } from '@sparkade/engine';
 import { archetypes } from '@sparkade/archetypes';
 import type { GameSpec } from '@sparkade/shared';
 import goldenHshooter from '../../../generation/golden/golden-hshooter.json';
+import goldenFighter from '../../../generation/golden/golden-fighter.json';
 
-const GOLDENS: Record<string, unknown> = { hshooter: goldenHshooter };
+const GOLDENS: Record<string, unknown> = { hshooter: goldenHshooter, fighter: goldenFighter };
 
 export function PlaytestScreen(): ComponentChildren {
   const ref = useRef<HTMLCanvasElement>(null);

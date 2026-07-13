@@ -181,6 +181,11 @@ const ROLE_LIB_FALLBACK: Record<ArchetypeId, Record<string, string>> = {
     projectile: 'lib:proj_bolt',
     enemyShot: 'lib:proj_pellet',
   },
+  fighter: {
+    // Fighters are procedural; hero/boss assigns are unused placeholders.
+    hero: 'lib:hero_squire',
+    boss: 'lib:boss_titan',
+  },
 };
 
 const GENERIC_FALLBACK: Record<ArchetypeId, string> = {
@@ -188,6 +193,7 @@ const GENERIC_FALLBACK: Record<ArchetypeId, string> = {
   shooter: 'lib:foe_popcorn',
   adventure: 'lib:enemy_walker',
   hshooter: 'lib:foe_popcorn',
+  fighter: 'lib:enemy_walker',
 };
 
 export function spriteProblem(s: SpriteData, opts: { isTile?: boolean } = {}): string | null {

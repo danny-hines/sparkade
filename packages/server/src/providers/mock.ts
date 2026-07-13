@@ -138,11 +138,12 @@ export class MockProvider implements Provider {
 
   private pickArchetype(prompt: string): ArchetypeId {
     const p = prompt.toLowerCase();
+    if (/(fight|versus|brawl|duel|karate|kung.?fu|boxer|boxing|martial|kombat|tournament.*(fight|duel)|street.?fight)/.test(p)) return 'fighter';
     if (/(r-?type|gradius|side.?scroll|horizontal|cavern.?flight|through the (cave|tunnel))/.test(p)) return 'hshooter';
     if (/(shoot|ship|space|plane|fly|blast)/.test(p)) return 'shooter';
     if (/(dungeon|explore|zelda|adventure|museum|quest|garden(?!.*(defend|orbit)))/.test(p)) return 'adventure';
     if (/(platform|jump|climb|run|tower|mountain)/.test(p)) return 'platformer';
-    const all: ArchetypeId[] = ['platformer', 'shooter', 'adventure', 'hshooter'];
+    const all: ArchetypeId[] = ['platformer', 'shooter', 'adventure', 'hshooter', 'fighter'];
     return all[prompt.length % all.length]!;
   }
 }
@@ -164,10 +165,10 @@ function detectStage(req: CompleteRequest): MockStage {
 function detectArchetype(req: CompleteRequest): ArchetypeId | null {
   const title = String((req.jsonSchema as { title?: string } | undefined)?.title ?? '');
   const hay = `${title}\n${req.system.slice(0, 400)}`;
-  const m = /(hshooter|horizontal shooter|platformer|shooter|adventure)/i.exec(hay);
+  const m = /(hshooter|horizontal shooter|fighting game|fighter|platformer|shooter|adventure)/i.exec(hay);
   if (!m) return null;
   const w = m[1]!.toLowerCase();
-  return (w === 'horizontal shooter' ? 'hshooter' : w) as ArchetypeId;
+  return (w === 'horizontal shooter' ? 'hshooter' : w === 'fighting game' ? 'fighter' : w) as ArchetypeId;
 }
 
 function clamp(s: string, n: number): string {

@@ -5,18 +5,21 @@ import { platformer } from './platformer/index';
 import { shooter } from './shooter/index';
 import { adventure } from './adventure/index';
 import { hshooter } from './hshooter/index';
+import { fighter } from './fighter/index';
 
 export const archetypes: Record<ArchetypeId, Archetype> = {
   platformer,
   shooter,
   adventure,
   hshooter,
+  fighter,
 };
 
 export type { Archetype } from './types';
 export { lintPlatformer, estimatePlatformerDurationS, reachableCells } from './platformer/lint';
 export { lintShooter, estimateShooterDurationS } from './shooter/lint';
 export { lintHShooter, estimateHShooterDurationS } from './hshooter/lint';
+export { lintFighter, estimateFighterDurationS } from './fighter/lint';
 export {
   lintAdventure,
   estimateAdventureDurationS,

@@ -185,7 +185,7 @@ export const JINGLE_DUCK = 0.3;
 // Archetypes
 // ---------------------------------------------------------------------------
 
-export const ARCHETYPE_IDS = ['platformer', 'shooter', 'adventure', 'hshooter'] as const;
+export const ARCHETYPE_IDS = ['platformer', 'shooter', 'adventure', 'hshooter', 'fighter'] as const;
 export type ArchetypeId = (typeof ARCHETYPE_IDS)[number];
 
 /** Minimum estimated interactive play time (seconds) — the five-minute rule. */

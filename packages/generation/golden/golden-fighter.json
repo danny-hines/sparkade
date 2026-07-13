@@ -1,0 +1,176 @@
+{
+  "specVersion": 1,
+  "archetype": "fighter",
+  "seed": 20260714,
+  "meta": {
+    "title": "Nine Fists",
+    "tagline": "Climb a moonlit rooftop ladder. Nine fists to the crown."
+  },
+  "palette": [
+    "#000000",
+    "#120b1d",
+    "#1d1033",
+    "#2f1d52",
+    "#493473",
+    "#3cb96b",
+    "#8fe6a3",
+    "#f491c6",
+    "#7a4a21",
+    "#a86f32",
+    "#d69a45",
+    "#ff4f6d",
+    "#ff9d5c",
+    "#ffd35e",
+    "#b9e8ff",
+    "#f2fff5"
+  ],
+  "backdrop": "city",
+  "story": {
+    "intro": [
+      "Every harvest moon, the rooftops of Lantern City open a single stair to the sky.",
+      "Climb it fighting. Nine hands guard the way up; the last wears the moth-silver crown.",
+      "You are the Ronin, sworn to no house. Tonight your only house is your own two fists."
+    ],
+    "levelIntros": [
+      "THE TILE GATE: A quick shadow named Tile tests newcomers. Fast, but light. Read the rush.",
+      "THE LONG BALCONY: Brass hits like a falling bell. Heavy and slow; punish what he leaves open.",
+      "LANTERN ROW: Vesper dances between the lanterns, quick and clever. Corner her and close."
+    ],
+    "bossIntro": "THE MOTH KING descends, crown dull as old silver. He has held this roof for nine moons. Take it.",
+    "victory": [
+      "The crown is cold and lighter than it looks. You set it down and let the moon keep it.",
+      "Down in the city they will say a masterless fist climbed the sky. Let them. You were only passing through."
+    ],
+    "defeat": [
+      "You fall back down the stair, breath ragged, pride dented. The moon will rise again. So will you.",
+      "A hand you could not beat, this time. The rooftops remember every climb. Come back and finish it."
+    ]
+  },
+  "sprites": {
+    "custom": {},
+    "assign": {
+      "hero": "lib:hero_squire",
+      "boss": "lib:boss_titan"
+    }
+  },
+  "player": {
+    "name": "RONIN",
+    "build": "balanced",
+    "colorSlot": 5,
+    "hp": 100
+  },
+  "levels": [
+    {
+      "name": "The Tile Gate",
+      "musicSong": "theme",
+      "opponent": { "name": "TILE", "build": "nimble", "colorSlot": 8, "hp": 85 }
+    },
+    {
+      "name": "The Long Balcony",
+      "musicSong": "theme",
+      "opponent": { "name": "BRASS", "build": "heavy", "colorSlot": 6, "hp": 120, "powerScale": 1.12 }
+    },
+    {
+      "name": "Lantern Row",
+      "musicSong": "theme",
+      "opponent": { "name": "VESPER", "build": "balanced", "colorSlot": 9, "hp": 105, "speedScale": 1.12 }
+    }
+  ],
+  "boss": {
+    "name": "The Moth King",
+    "build": "heavy",
+    "colorSlot": 11,
+    "hp": 150,
+    "powerScale": 1.1,
+    "phases": [
+      { "aggression": 1.1 },
+      { "aggression": 1.5 },
+      { "aggression": 1.9 }
+    ]
+  },
+  "music": {
+    "bpm": 150,
+    "key": "E minor",
+    "instruments": {
+      "pulse1": { "duty": 0.25, "vol": 0.5, "decay": 0.4 },
+      "pulse2": { "duty": 0.125, "vol": 0.28, "decay": 0.12 },
+      "bass": { "vol": 0.55, "decay": 0.3 },
+      "drums": { "vol": 0.45 }
+    },
+    "patterns": {
+      "tA": {
+        "pulse1": ["E4:2", "-", "G4:2", "-", "B4:4", "-", "-", "-", "A4:2", "-", "G4:2", "-", "A4:2", "-", "B4:2", "-"],
+        "pulse2": ["E3:1", "G3:1", "B3:1", "E4:1", "E3:1", "G3:1", "B3:1", "E4:1", "E3:1", "G3:1", "B3:1", "E4:1", "E3:1", "G3:1", "B3:1", "E4:1"],
+        "bass": ["E2:2", "-", "E2:2", "-", "B2:2", "-", "E2:2", "-", "E2:2", "-", "E2:2", "-", "B2:2", "-", "B2:2", "-"],
+        "drums": ["K", "H", "H", "H", "S", "H", "H", "H", "K", "H", "K", "H", "S", "H", "H", "H"]
+      },
+      "tB": {
+        "pulse1": ["C5:4", "-", "-", "-", "B4:2", "-", "G4:2", "-", "A4:4", "-", "-", "-", "G4:2", "-", "E4:2", "-"],
+        "pulse2": ["C3:1", "E3:1", "G3:1", "C4:1", "C3:1", "E3:1", "G3:1", "C4:1", "C3:1", "E3:1", "G3:1", "C4:1", "C3:1", "E3:1", "G3:1", "C4:1"],
+        "bass": ["C3:2", "-", "C3:2", "-", "G2:2", "-", "C3:2", "-", "C3:2", "-", "C3:2", "-", "G2:2", "-", "G2:2", "-"],
+        "drums": ["K", "H", "H", "H", "S", "H", "H", "H", "K", "H", "K", "H", "S", "H", "H", "H"]
+      },
+      "tC": {
+        "pulse1": ["B4:2", "-", "D5:2", "-", "G5:4", "-", "-", "-", "F#5:2", "-", "D5:2", "-", "B4:2", "-", "G4:2", "-"],
+        "pulse2": ["G3:1", "B3:1", "D4:1", "G4:1", "G3:1", "B3:1", "D4:1", "G4:1", "G3:1", "B3:1", "D4:1", "G4:1", "G3:1", "B3:1", "D4:1", "G4:1"],
+        "bass": ["G2:2", "-", "G2:2", "-", "D3:2", "-", "G2:2", "-", "G2:2", "-", "G2:2", "-", "D3:2", "-", "D3:2", "-"],
+        "drums": ["K", "H", "H", "H", "S", "H", "H", "H", "K", "H", "K", "H", "S", "H", "S", "H"]
+      },
+      "tD": {
+        "pulse1": ["A4:2", "-", "F#4:2", "-", "D4:4", "-", "-", "-", "E4:2", "-", "F#4:2", "-", "A4:4", "-", "-", "-"],
+        "pulse2": ["D3:1", "F#3:1", "A3:1", "D4:1", "D3:1", "F#3:1", "A3:1", "D4:1", "D3:1", "F#3:1", "A3:1", "D4:1", "D3:1", "F#3:1", "A3:1", "D4:1"],
+        "bass": ["D3:2", "-", "D3:2", "-", "A2:2", "-", "D3:2", "-", "D3:2", "-", "D3:2", "-", "A2:2", "-", "A2:2", "-"],
+        "drums": ["K", "H", "H", "H", "S", "H", "H", "H", "K", "H", "K", "H", "S", "H", "H", "S"]
+      },
+      "bA": {
+        "pulse1": ["E4:2", "-", "G4:2", "-", "B4:2", "-", "A4:1", "G4:1", "E4:2", "-", "G4:2", "-", "D5:2", "-", "B4:2", "-"],
+        "pulse2": ["E3:1", "B3:1", "E4:1", "B3:1", "E3:1", "B3:1", "E4:1", "B3:1", "E3:1", "B3:1", "E4:1", "B3:1", "E3:1", "B3:1", "E4:1", "B3:1"],
+        "bass": ["E2:1", "E2:1", "E3:1", "E2:1", "E2:1", "E2:1", "E3:1", "E2:1", "E2:1", "E2:1", "E3:1", "E2:1", "E2:1", "E2:1", "D3:1", "E3:1"],
+        "drums": ["K", "H", "S", "H", "K", "K", "S", "H", "K", "H", "S", "H", "K", "K", "S", "H"]
+      },
+      "bB": {
+        "pulse1": ["C5:2", "-", "G4:2", "-", "E4:2", "-", "D4:1", "E4:1", "C4:2", "-", "E4:2", "-", "G4:2", "-", "B4:2", "-"],
+        "pulse2": ["C3:1", "G3:1", "C4:1", "G3:1", "C3:1", "G3:1", "C4:1", "G3:1", "C3:1", "G3:1", "C4:1", "G3:1", "C3:1", "G3:1", "C4:1", "G3:1"],
+        "bass": ["C2:1", "C2:1", "C3:1", "C2:1", "C2:1", "C2:1", "C3:1", "C2:1", "C2:1", "C2:1", "C3:1", "C2:1", "C2:1", "C2:1", "B2:1", "B2:1"],
+        "drums": ["K", "H", "S", "H", "K", "K", "S", "H", "K", "H", "S", "H", "K", "K", "S", "H"]
+      }
+    },
+    "songs": {
+      "theme": ["tA", "tB", "tC", "tD", "tA", "tB", "tC", "tD"],
+      "boss": ["bA", "bA", "bB", "bB"]
+    },
+    "jingles": {
+      "victory": {
+        "pulse1": ["E4:2", "-", "G4:2", "-", "B4:2", "-", "C5:2", "-", "D5:2", "-", "B4:2", "-", "E5:4", "-", "-", "-"],
+        "pulse2": ["E3:8", "-", "-", "-", "-", "-", "-", "-", "B3:4", "-", "-", "-", "E4:4", "-", "-", "-"],
+        "bass": ["E2:4", "-", "-", "-", "G2:4", "-", "-", "-", "B2:4", "-", "-", "-", "E3:4", "-", "-", "-"],
+        "drums": ["K", "-", "H", "-", "K", "-", "H", "-", "K", "-", "H", "-", "S", "-", "-", "-"]
+      },
+      "gameover": {
+        "pulse1": ["B4:2", "-", "A4:2", "-", "G4:2", "-", "F#4:2", "-", "E4:6", "-", "-", "-", "-", "-", "-", "-"],
+        "pulse2": ["-", "-", "-", "-", "G3:2", "-", "E3:2", "-", "B2:8", "-", "-", "-", "-", "-", "-", "-"],
+        "bass": ["E3:4", "-", "-", "-", "B2:4", "-", "-", "-", "E2:8", "-", "-", "-", "-", "-", "-", "-"],
+        "drums": ["K", "-", "-", "-", "-", "-", "-", "-", "K", "-", "-", "-", "-", "-", "-", "-"]
+      },
+      "levelIntro": {
+        "pulse1": ["E4:1", "-", "E4:1", "-", "G4:2", "-", "B4:2", "-", "E5:4", "-", "-", "-", "-", "-", "-", "-"],
+        "bass": ["E2:2", "-", "E2:2", "-", "E2:2", "-", "B2:2", "-", "E2:4", "-", "-", "-", "-", "-", "-", "-"],
+        "drums": ["K", "-", "K", "-", "S", "-", "K", "-", "K", "-", "-", "-", "-", "-", "-", "-"]
+      }
+    }
+  },
+  "sfx": {
+    "hit": { "wave": "noise", "freq": 320, "freqSlide": -12, "decay": 0.12, "vol": 0.4, "lowpass": 2200 },
+    "shoot": { "wave": "square", "freq": 300, "freqSlide": -30, "decay": 0.07, "duty": 0.5, "vol": 0.18 },
+    "win": { "wave": "triangle", "freq": 520, "freqSlide": 12, "decay": 0.3, "vol": 0.4, "arpSemitones": 7, "arpTime": 0.06 }
+  },
+  "scoring": {
+    "events": {
+      "enemyKill": 100,
+      "pickup": 50,
+      "bossHit": 250,
+      "levelClear": 1000
+    },
+    "timeBonusPerSecond": 10
+  }
+}

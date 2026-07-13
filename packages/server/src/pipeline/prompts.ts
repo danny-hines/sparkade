@@ -218,6 +218,9 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       annotated(LIB_BOSSES_SHOOTER),
       `SMALL ART (self-describing): ${small}`,
     ].join('\n'),
+    fighter: [
+      '\nFIGHTERS ARE DRAWN PROCEDURALLY — there are NO body sprites to pick. Set sprites.assign.hero and sprites.assign.boss to any library sprite (both are unused placeholders), e.g. "hero": "lib:hero_squire", "boss": "lib:boss_titan". A fighter\'s look comes from its build (nimble/balanced/heavy) and palette colorSlot, authored in the roster (player / levels[].opponent / boss).',
+    ].join('\n'),
   };
   const tileRoles: Record<ArchetypeId, string[]> = {
     platformer: ['tile_solid', 'tile_platform', 'tile_hazard', 'tile_checkpoint', 'tile_exit', 'tile_deco'],
@@ -235,6 +238,7 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       'tile_door_open',
     ],
     hshooter: [],
+    fighter: [],
   };
   const extraRoles: Record<ArchetypeId, string> = {
     platformer:
@@ -245,6 +249,8 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       'Also reskinnable via assign: proj_arrow, proj_wave (sword slash), item_boomerang, proj_bomb, enemyShot.',
     hshooter:
       'Also reskinnable via assign: projectile (your ship\'s shot), enemyShot, pod (boss side-turrets), pickup_spread, pickup_rapid, pickup_shield, pickup_bomb. The scrolling terrain corridor is drawn by the engine from your palette (no tile sprites).',
+    fighter:
+      'Nothing to reskin — fighters, arena and effects are all drawn by the engine from your palette. Make the roster read apart by giving each fighter a distinct build + colorSlot.',
   };
   const roles = tileRoles[archetype];
   const reskinNotes =
@@ -283,6 +289,8 @@ export function buildEntitiesPrompt(
       'Patterns: charge (telegraphed dash), teleport (vanish + radial burst), spiral (rotating bullets), summon (minions). tempo 0.5–2 scales speed.',
     hshooter:
       'Bullet patterns: fan, spiral, walls (a vertical bullet column with a gap), aimed. The boss flies in from the right of an open arena. pods are destructible turrets. bulletSpeed multiplies base speed.',
+    fighter:
+      'The boss is the final ladder fighter: give it a distinct build + colorSlot from the player and the ladder opponents, more HP (100-200), and 2-3 rage phases (aggression 0.8-2, rising as its HP drops).',
   };
   const menu = spriteMenu(archetype);
   const system = renderTemplate(loadTemplate('entities'), {

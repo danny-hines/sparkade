@@ -287,6 +287,59 @@ export interface HShooterLevel {
 }
 
 // ---------------------------------------------------------------------------
+// Fighter spec (1v1 arcade-ladder fighting game)
+// ---------------------------------------------------------------------------
+
+/** A build for the procedural articulated fighter: which palette slots color the
+ *  body, and a size/bulk lean. The move set + frame data are hand-authored in
+ *  the engine (identical for all fighters) — only look + light stat leans vary. */
+export type FighterBuild = 'nimble' | 'balanced' | 'heavy';
+
+export interface FighterCharacter {
+  name: string;
+  build: FighterBuild;
+  /** Palette slot (5-a) for the body's main color; trims derive from it. */
+  colorSlot: number;
+  hp: number;
+  /** Light, clamped stat leans (0.85-1.15); balance is guaranteed by clamping. */
+  speedScale?: number;
+  powerScale?: number;
+}
+
+export interface FighterLevel {
+  /** Bout / arena name (e.g. "The Salt Pier"). */
+  name: string;
+  musicSong: string;
+  opponent: FighterCharacter;
+}
+
+/** Boss aggression tier, entered at descending HP fractions (rage as it's hurt). */
+export interface FighterPhase {
+  aggression: number;
+}
+
+export interface FighterBoss {
+  name: string;
+  build: FighterBuild;
+  colorSlot: number;
+  hp: number;
+  speedScale?: number;
+  powerScale?: number;
+  phases: FighterPhase[];
+}
+
+export interface FighterSpec extends GameSpecBase {
+  archetype: 'fighter';
+  /** Backdrop behind the arena (horizontal scene); omitted → seed pick. */
+  backdrop?: BackdropVariantId;
+  /** The player's fighter; omitted → an engine default. */
+  player?: FighterCharacter;
+  /** Ladder rungs (AI opponents), fought in order; boss is the final rung. */
+  levels: FighterLevel[];
+  boss: FighterBoss;
+}
+
+// ---------------------------------------------------------------------------
 // Adventure spec
 // ---------------------------------------------------------------------------
 
@@ -413,7 +466,7 @@ export interface HShooterSpec extends GameSpecBase {
   boss: ShooterBoss;
 }
 
-export type GameSpec = PlatformerSpec | ShooterSpec | AdventureSpec | HShooterSpec;
+export type GameSpec = PlatformerSpec | ShooterSpec | AdventureSpec | HShooterSpec | FighterSpec;
 
 // ---------------------------------------------------------------------------
 // Design doc (output of the design pass; design.schema.json)

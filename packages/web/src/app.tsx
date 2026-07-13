@@ -15,6 +15,7 @@ import { SettingsScreen } from './screens/settings';
 import { RemapScreen } from './screens/remap';
 import { AssetsGalleryScreen } from './screens/assets-gallery';
 import { LikenessLabScreen } from './screens/likeness-lab';
+import { SpriteEditorScreen } from './screens/sprite-editor';
 
 export type Screen =
   | { name: 'attract' }
@@ -36,6 +37,7 @@ export function App(): ComponentChildren {
     const dev = new URLSearchParams(location.search).get('dev');
     if (dev === 'assets') return <AssetsGalleryScreen />;
     if (dev === 'likeness') return <LikenessLabScreen />;
+    if (dev === 'sprite-editor') return <SpriteEditorScreen />;
   }
   return <KioskApp />;
 }

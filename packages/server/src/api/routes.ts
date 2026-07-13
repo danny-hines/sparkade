@@ -17,6 +17,7 @@ import { connectWifi, listNetworks, wifiStatus } from '../system/wifi';
 import { piMode, primaryIp } from '../util';
 import { registerDevAssetRoutes } from './dev-assets';
 import { registerDevLikenessRoutes } from './dev-likeness';
+import { registerDevSpriteRoutes } from './dev-sprite';
 
 export interface ApiContext {
   db: Db;
@@ -39,6 +40,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
   if (process.env.SPARKADE_DEV === '1') {
     registerDevAssetRoutes(app);
     registerDevLikenessRoutes(app, configStore);
+    registerDevSpriteRoutes(app);
   }
 
   // ---- same-origin gate on mutating requests ------------------------------

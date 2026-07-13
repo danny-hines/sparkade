@@ -1240,6 +1240,167 @@ body.dev-gallery #root {
   text-align: center;
 }
 
+/* ---- Sprite Editor (dev) ---- */
+.sed-page {
+  padding: 18px 28px 60px;
+  font-size: 14px;
+  color: var(--text);
+}
+.sed-header {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.sed-header h1 {
+  font-size: 18px;
+}
+.sed-sub {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.sed-link {
+  margin-left: auto;
+  color: var(--cyan);
+  text-decoration: none;
+}
+.sed-body {
+  display: flex;
+  gap: 30px;
+  align-items: flex-start;
+}
+.sed-side {
+  width: 280px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.sed-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.sed-field > span {
+  color: var(--cyan);
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+.sed-field select {
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px;
+  font: inherit;
+}
+.sed-frames {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.sed-frames button {
+  min-width: 30px;
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  font: inherit;
+}
+.sed-frames button.on {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+.sed-palette {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+.sed-swatch {
+  aspect-ratio: 1;
+  border: 2px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 11px;
+  color: #000;
+  text-shadow: 0 0 2px #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sed-swatch.on {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 1px var(--cyan);
+}
+.sed-swatch.transparent {
+  background:
+    repeating-conic-gradient(#3a3340 0% 25%, #2a2530 0% 50%) 0 / 12px 12px;
+  color: var(--text-dim);
+  text-shadow: none;
+}
+.sed-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+.sed-actions button {
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+.sed-actions button.primary {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+.sed-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.sed-msg {
+  font-size: 12px;
+  color: var(--ok, #38b764);
+  word-break: break-all;
+}
+.sed-dirty {
+  font-size: 12px;
+  color: var(--gold);
+}
+.sed-main {
+  display: flex;
+  gap: 26px;
+  align-items: flex-start;
+}
+.sed-canvas {
+  image-rendering: pixelated;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: crosshair;
+  background: #1a1622;
+  touch-action: none;
+}
+.sed-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.sed-preview-title {
+  color: var(--cyan);
+  font-size: 12px;
+}
+.sed-pixel {
+  image-rendering: pixelated;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
 .gal-page {
   padding: 18px 28px 60px;
   font-size: 14px;

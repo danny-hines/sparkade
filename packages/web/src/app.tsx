@@ -14,6 +14,7 @@ import { PlayScreen } from './screens/play';
 import { SettingsScreen } from './screens/settings';
 import { RemapScreen } from './screens/remap';
 import { AssetsGalleryScreen } from './screens/assets-gallery';
+import { LikenessLabScreen } from './screens/likeness-lab';
 
 export type Screen =
   | { name: 'attract' }
@@ -31,8 +32,10 @@ export function App(): ComponentChildren {
   // Dev-only asset gallery (http://localhost:5173/?dev=assets) — a normal
   // mouse-and-scroll page outside the kiosk state machine; the DEV gate makes
   // Vite strip it from production builds entirely.
-  if (import.meta.env.DEV && new URLSearchParams(location.search).get('dev') === 'assets') {
-    return <AssetsGalleryScreen />;
+  if (import.meta.env.DEV) {
+    const dev = new URLSearchParams(location.search).get('dev');
+    if (dev === 'assets') return <AssetsGalleryScreen />;
+    if (dev === 'likeness') return <LikenessLabScreen />;
   }
   return <KioskApp />;
 }

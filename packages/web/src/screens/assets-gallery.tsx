@@ -302,7 +302,8 @@ export function AssetsGalleryScreen(): ComponentChildren {
     <div class="gal-page">
       <div class="gal-header">
         <h1>
-          Sparkade asset gallery <span class="gal-dim">(dev only — colors come from the selected palette)</span>
+          Sparkade asset gallery <span class="gal-dim">(dev only — colors come from the selected palette)</span>{' '}
+          <a href="/?dev=likeness" style="color:var(--cyan);text-decoration:none;font-size:14px">→ likeness lab</a>
         </h1>
         <div class="gal-controls">
           <label>

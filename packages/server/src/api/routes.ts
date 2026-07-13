@@ -16,6 +16,7 @@ import type { GameFiles } from '../storage/files';
 import { connectWifi, listNetworks, wifiStatus } from '../system/wifi';
 import { piMode, primaryIp } from '../util';
 import { registerDevAssetRoutes } from './dev-assets';
+import { registerDevLikenessRoutes } from './dev-likeness';
 
 export interface ApiContext {
   db: Db;
@@ -34,37 +35,41 @@ const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
   const { db, files, configStore, runner, hub } = ctx;
 
-  // Dev-only asset review gallery (never registered in kiosk/production).
-  if (process.env.SPARKADE_DEV === '1') registerDevAssetRoutes(app);
+  // Dev-only asset review gallery + likeness lab (never registered in kiosk/production).
+  if (process.env.SPARKADE_DEV === '1') {
+    registerDevAssetRoutes(app);
+    registerDevLikenessRoutes(app, configStore);
+  }
 
   // ---- same-origin gate on mutating requests ------------------------------
+  const isDev = process.env.SPARKADE_DEV === '1';
   const allowedOrigins = new Set<string>([
     `http://127.0.0.1:${ctx.port}`,
     `http://localhost:${ctx.port}`,
   ]);
-  if (process.env.SPARKADE_DEV === '1') {
-    allowedOrigins.add('http://127.0.0.1:5173');
-    allowedOrigins.add('http://localhost:5173');
-  }
+  // In dev, any localhost origin is fine (Vite may land on 5173, 5174, … and the
+  // asset gallery / likeness lab are localhost-only tooling). Prod stays strict.
+  const devLocalhost = /^http:\/\/(localhost|127\.0\.0\.1):\d+$/;
+  const originAllowed = (origin: string | undefined): boolean =>
+    !origin || allowedOrigins.has(origin) || (isDev && devLocalhost.test(origin));
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
     if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return;
-    const origin = req.headers.origin;
-    if (origin && !allowedOrigins.has(origin)) {
+    if (!originAllowed(req.headers.origin)) {
       await reply.code(403).send({ error: 'cross-origin requests are not allowed' });
     }
   });
-  if (process.env.SPARKADE_DEV === '1') {
-    // CORS for the Vite dev origin only (prod is same-origin, no CORS needed).
+  if (isDev) {
+    // CORS for the Vite dev origin (any localhost port; prod is same-origin).
     app.addHook('onSend', async (req, reply) => {
       const origin = req.headers.origin;
-      if (origin && allowedOrigins.has(origin)) {
+      if (origin && originAllowed(origin)) {
         reply.header('access-control-allow-origin', origin);
         reply.header('vary', 'origin');
       }
     });
     app.options('/api/*', async (req, reply) => {
       const origin = req.headers.origin;
-      if (origin && allowedOrigins.has(origin)) {
+      if (origin && originAllowed(origin)) {
         reply.header('access-control-allow-origin', origin);
         reply.header('access-control-allow-methods', 'GET,POST,PUT,DELETE');
         reply.header('access-control-allow-headers', 'content-type');

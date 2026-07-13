@@ -40,14 +40,44 @@ export function SpriteEditorScreen(): ComponentChildren {
   const [zoom, setZoom] = useState(22);
   const [msg, setMsg] = useState('');
   const [saving, setSaving] = useState(false);
+  const [undoStack, setUndoStack] = useState<string[][]>([]);
+  const [redoStack, setRedoStack] = useState<string[][]>([]);
 
   const editRef = useRef<HTMLCanvasElement>(null);
   const previewRef = useRef<HTMLCanvasElement>(null);
   const paintRef = useRef<string | null>(null);
+  const workingRef = useRef<string[]>([]);
+  const strokeStartRef = useRef<string[] | null>(null);
+  const undoRef = useRef<() => void>(() => {});
+  const redoRef = useRef<() => void>(() => {});
+  workingRef.current = working;
 
   const entry = LIBRARY[spriteId];
   const frame = entry?.frames[frameIx];
   const dirty = working.join('\n') !== original.join('\n');
+
+  // Undo / redo. One stroke (click or drag) = one step: the pre-stroke snapshot
+  // is committed on mouse-up only if the stroke actually changed something.
+  const doUndo = (): void => {
+    if (undoStack.length === 0) return;
+    setRedoStack((r) => [...r, workingRef.current]);
+    setWorking(undoStack[undoStack.length - 1]!);
+    setUndoStack((u) => u.slice(0, -1));
+    setMsg('');
+  };
+  const doRedo = (): void => {
+    if (redoStack.length === 0) return;
+    setUndoStack((u) => [...u, workingRef.current].slice(-100));
+    setWorking(redoStack[redoStack.length - 1]!);
+    setRedoStack((r) => r.slice(0, -1));
+    setMsg('');
+  };
+  undoRef.current = doUndo;
+  redoRef.current = doRedo;
+  const pushUndo = (snapshot: string[]): void => {
+    setUndoStack((u) => [...u, snapshot].slice(-100));
+    setRedoStack([]);
+  };
 
   useEffect(() => {
     document.documentElement.classList.add('dev-gallery');
@@ -64,9 +94,30 @@ export function SpriteEditorScreen(): ComponentChildren {
     if (f) {
       setWorking([...f.rows]);
       setOriginal([...f.rows]);
+      setUndoStack([]);
+      setRedoStack([]);
+      strokeStartRef.current = null;
       setMsg('');
     }
   }, [spriteId, frameIx]);
+
+  // Ctrl/Cmd+Z undo, Ctrl+Y / Ctrl+Shift+Z redo (via refs so one stable listener
+  // always runs the latest logic).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undoRef.current();
+      } else if (k === 'y' || (k === 'z' && e.shiftKey)) {
+        e.preventDefault();
+        redoRef.current();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Draw the editable grid.
   useEffect(() => {
@@ -142,6 +193,13 @@ export function SpriteEditorScreen(): ComponentChildren {
       next[y] = next[y]!.slice(0, x) + ch + next[y]!.slice(x + 1);
       return next;
     });
+  };
+
+  const endStroke = (): void => {
+    paintRef.current = null;
+    const start = strokeStartRef.current;
+    strokeStartRef.current = null;
+    if (start && start.join('\n') !== workingRef.current.join('\n')) pushUndo(start);
   };
 
   const copyRows = (): void => {
@@ -246,7 +304,9 @@ export function SpriteEditorScreen(): ComponentChildren {
           </label>
 
           <div class="sed-actions">
-            <button disabled={!dirty} onClick={() => setWorking([...original])}>Revert</button>
+            <button disabled={undoStack.length === 0} onClick={doUndo} title="Ctrl+Z">Undo{undoStack.length ? ` (${undoStack.length})` : ''}</button>
+            <button disabled={redoStack.length === 0} onClick={doRedo} title="Ctrl+Shift+Z">Redo</button>
+            <button disabled={!dirty} onClick={() => { pushUndo([...working]); setWorking([...original]); }}>Revert all</button>
             <button onClick={copyRows}>Copy rows</button>
             <button class="primary" disabled={!dirty || saving} onClick={save}>{saving ? 'Saving…' : 'Save to source'}</button>
           </div>
@@ -262,14 +322,15 @@ export function SpriteEditorScreen(): ComponentChildren {
             onMouseDown={(e) => {
               e.preventDefault();
               const ch = (e as MouseEvent).button === 2 ? '.' : active;
+              strokeStartRef.current = [...working];
               paintRef.current = ch;
               paintAt(e as MouseEvent, ch);
             }}
             onMouseMove={(e) => {
               if (paintRef.current !== null) paintAt(e as MouseEvent, paintRef.current);
             }}
-            onMouseUp={() => (paintRef.current = null)}
-            onMouseLeave={() => (paintRef.current = null)}
+            onMouseUp={endStroke}
+            onMouseLeave={endStroke}
           />
           <div class="sed-preview">
             <div class="sed-preview-title">preview</div>

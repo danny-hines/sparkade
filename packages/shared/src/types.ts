@@ -254,34 +254,23 @@ export interface ShooterBoss {
 }
 
 // ---------------------------------------------------------------------------
-// Horizontal shooter spec (R-Type-like: flies left→right through terrain)
+// Horizontal shooter spec (R-Type-like: flies left→right through a tile stage)
 // ---------------------------------------------------------------------------
 
-/** A terrain control point: at world column `x` (tiles), the ceiling extends
- *  `ceil` tiles down from the top and the floor `floor` tiles up from the
- *  bottom. The engine lerps a smooth corridor between successive points. */
-export interface HShooterTerrainPoint {
-  x: number;
-  ceil: number;
-  floor: number;
-}
-
-export type HShooterTurretSide = 'floor' | 'ceil';
-
-/** A stationary gun mounted on the terrain at world column `x`, on the floor or
- *  ceiling; scrolls in with the stage and fires at the player while on screen. */
-export interface HShooterTurret {
-  x: number;
-  side: HShooterTurretSide;
-}
+/** Tile kinds for the auto-scrolling stage (same idea as the platformer): the
+ *  ship AND enemies collide with `solid`; `hazard` damages on contact. */
+export type HShooterTileType = 'empty' | 'solid' | 'hazard' | 'decoration';
 
 export interface HShooterLevel {
   name: string;
   musicSong: string;
   scroll: number;
   durationS: number;
-  terrain: HShooterTerrainPoint[];
-  turrets: HShooterTurret[];
+  /** ASCII tile grid (rows). Top/bottom rows are the ceiling/floor; solids in
+   *  the middle are obstacles to weave through. Must be wide enough to scroll
+   *  for the whole level (cols*16 ≥ scroll*durationS + a screen). */
+  tiles: string[];
+  legend: Record<string, HShooterTileType>;
   waves: ShooterWave[];
   pickups: { t: number; type: ShooterPickupType }[];
 }

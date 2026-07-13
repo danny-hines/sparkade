@@ -401,41 +401,9 @@
       "required": ["t", "type"],
       "additionalProperties": false
     },
-    "terrainPoint": {
-      "description": "A ceiling/floor corridor control point. The engine lerps a smooth passage between successive points as the stage scrolls.",
-      "type": "object",
-      "properties": {
-        "x": {
-          "description": "World column in 16px tiles (roughly scroll*durationS/16 wide). Sorted ascending across the array.",
-          "type": "number",
-          "minimum": 0,
-          "maximum": 4000
-        },
-        "ceil": {
-          "description": "Ceiling thickness from the top, in tiles (0 = open sky). The screen is ~18 tiles tall.",
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 10
-        },
-        "floor": {
-          "description": "Floor thickness from the bottom, in tiles (0 = open). Keep 18 - ceil - floor >= 4 so the ship can always pass.",
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 10
-        }
-      },
-      "required": ["x", "ceil", "floor"],
-      "additionalProperties": false
-    },
-    "turret": {
-      "description": "A stationary gun mounted on the terrain surface; scrolls in with the stage and fires at the ship while on screen.",
-      "type": "object",
-      "properties": {
-        "x": { "description": "World column in tiles where the turret sits.", "type": "number", "minimum": 0, "maximum": 4000 },
-        "side": { "enum": ["floor", "ceil"] }
-      },
-      "required": ["x", "side"],
-      "additionalProperties": false
+    "legendTile": {
+      "description": "A tile kind. 'solid' = ceiling/floor/obstacle the ship AND enemies collide with; 'hazard' = damages on contact (fly-through); 'decoration' = cosmetic (no collision). '.' is always empty.",
+      "enum": ["solid", "hazard", "decoration"]
     },
     "level": {
       "type": "object",
@@ -447,7 +415,7 @@
           "pattern": "^[a-z][a-zA-Z0-9_]{0,15}$"
         },
         "scroll": {
-          "description": "Terrain + backdrop scroll speed in px/s.",
+          "description": "Stage + backdrop scroll speed in px/s.",
           "type": "number",
           "minimum": 20,
           "maximum": 120
@@ -458,18 +426,20 @@
           "minimum": 45,
           "maximum": 150
         },
-        "terrain": {
-          "description": "Ceiling/floor corridor the ship threads through. Vary it to make players read ahead and weave. Sorted by x; the first point should be at x=0 and the last near the level's right edge (scroll*durationS/16 tiles).",
+        "tiles": {
+          "description": "The stage as row strings, top to bottom (like a platformer level, but it auto-scrolls). Every row must be the SAME length. Make it ~19 rows tall to fill the screen; a solid ceiling band up top and floor band along the bottom, plus mid-field obstacle blocks to weave around. Width must cover the whole scroll: cols*16 >= scroll*durationS + a screen. 1 tile = 16px. '.' = empty.",
           "type": "array",
-          "minItems": 2,
-          "maxItems": 48,
-          "items": { "$ref": "#/$defs/terrainPoint" }
+          "minItems": 12,
+          "maxItems": 20,
+          "items": { "type": "string", "minLength": 40, "maxLength": 340, "pattern": "^[ -~]+$" }
         },
-        "turrets": {
-          "description": "Optional stationary guns mounted on the terrain (needs terrain). Space them out.",
-          "type": "array",
-          "maxItems": 24,
-          "items": { "$ref": "#/$defs/turret" }
+        "legend": {
+          "description": "Single character -> tile kind. '.' is always empty and may be omitted.",
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 12,
+          "patternProperties": { "^[ -~]$": { "$ref": "#/$defs/legendTile" } },
+          "additionalProperties": false
         },
         "waves": {
           "type": "array",
@@ -483,7 +453,7 @@
           "items": { "$ref": "#/$defs/levelPickup" }
         }
       },
-      "required": ["name", "musicSong", "scroll", "durationS", "terrain", "turrets", "waves", "pickups"],
+      "required": ["name", "musicSong", "scroll", "durationS", "tiles", "legend", "waves", "pickups"],
       "additionalProperties": false
     },
     "boss": {

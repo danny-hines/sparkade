@@ -237,7 +237,7 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       'tile_door_boss',
       'tile_door_open',
     ],
-    hshooter: [],
+    hshooter: ['tile_solid', 'tile_hazard', 'tile_deco'],
     fighter: [],
   };
   const extraRoles: Record<ArchetypeId, string> = {
@@ -248,7 +248,7 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
     adventure:
       'Also reskinnable via assign: proj_arrow, proj_wave (sword slash), item_boomerang, proj_bomb, enemyShot.',
     hshooter:
-      'Also reskinnable via assign: projectile (your ship\'s shot), enemyShot, pod (boss side-turrets), pickup_spread, pickup_rapid, pickup_shield, pickup_bomb. The scrolling terrain corridor is drawn by the engine from your palette (no tile sprites).',
+      'Also reskinnable via assign: projectile (your ship\'s shot), enemyShot, pod (boss side-turrets), pickup_spread, pickup_rapid, pickup_shield, pickup_bomb.',
     fighter:
       'Nothing to reskin — fighters, arena and effects are all drawn by the engine from your palette. Make the roster read apart by giving each fighter a distinct build + colorSlot.',
   };

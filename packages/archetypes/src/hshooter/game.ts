@@ -1,13 +1,17 @@
-// Horizontal shooter gameplay (R-Type / Gradius-like: the ship flies left→right
-// through a scrolling terrain corridor with wave enemies, wall turrets, and a
-// boss). Reuses the vertical shooter's proven pools / boss engine / charge+bomb,
-// flipped to the horizontal axis, and adds a ceiling/floor terrain corridor
-// (contact damages) with terrain-mounted turrets. Controls per SNES convention:
-// d-pad move, Y fire (hold = autofire), X hold-then-release charge shot, B bomb,
-// A speed toggle, START pause (host-owned).
+// Horizontal shooter gameplay (R-Type / Gradius-like). The ship flies left→right
+// through an AUTO-SCROLLING TILE STAGE built with the same tile system as the
+// platformer: a ceiling and floor plus mid-field obstacle blocks, all SOLID.
+// Everything lives in WORLD coordinates with an auto-scrolling camera; the ship
+// AND the enemies collide with the terrain via the shared moveAABB (walls block,
+// they don't merely damage), and shots die on walls. Reuses the vertical
+// shooter's pools / boss engine / charge+bomb, flipped to the horizontal axis.
+// Controls: d-pad move, Y fire (hold), X charge shot, B bomb, A speed toggle.
 import {
+  drawTileLayer,
   makeBackdrop,
+  moveAABB,
   pickVariant,
+  type AABB,
   type Backdrop,
   type BackdropVariant,
   type EngineContext,
@@ -16,6 +20,8 @@ import {
   type HudState,
   type InputSnapshot,
   type ResolvedSprite,
+  type Solidity,
+  type TileGrid,
 } from '@sparkade/engine';
 import {
   FEEL,
@@ -26,7 +32,7 @@ import {
   type DifficultyScale,
   type HShooterLevel,
   type HShooterSpec,
-  type HShooterTurret,
+  type HShooterTileType,
   type ShooterEnemyType,
   type ShooterPath,
   type ShooterPickupType,
@@ -37,11 +43,12 @@ import { estimateHShooterDurationS } from './lint';
 const W = INTERNAL_WIDTH;
 const H = INTERNAL_HEIGHT;
 const TILE = TILE_SIZE;
-const SPEED_LOW = 110;
-const SPEED_HIGH = 170;
-const PLAYER_MIN_X = 14;
-const PLAYER_MAX_X = W * 0.58;
-const PLAYER_HALF = 6; // half hurt-box for terrain clamp
+const SPEED_LOW = 120;
+const SPEED_HIGH = 190;
+const PLAYER_MIN_SX = 10; // ship's screen-x band (world x = scrollX + screen x)
+const PLAYER_MAX_SX = W * 0.56;
+const PW = 12;
+const PH = 10;
 const FIRE_RATE = 8;
 const RAPID_RATE = 12;
 const PLAYER_SHOT_SPEED = 340;
@@ -56,33 +63,33 @@ const MAX_BOMBS = 4;
 const BOMB_DMG = 3;
 const POD_FIRE_INTERVAL = 1.6;
 const BOSS_ENTRANCE_S = 2;
-const BOSS_X = W - 70;
-const KAMIKAZE_TRIGGER_X = W - 140;
-// enemy states
+const BOSS_SX = W - 70;
+const KAMIKAZE_TRIGGER_SX = W - 150;
+const ECOLL = 5; // enemy terrain half-box
 const ST_APPROACH = 0;
 const ST_HOLD = 1;
 const ST_LEAVE = 2;
 const ST_HOMING = 3;
 
+type TileKind = HShooterTileType;
+
 interface Foe {
   active: boolean;
   type: ShooterEnemyType;
   path: ShooterPath;
-  x: number; // center
+  x: number; // WORLD center
   y: number;
-  vx: number;
+  vx: number; // WORLD velocity
   vy: number;
-  baseY: number; // sine anchor
+  baseY: number;
   t: number;
   hp: number;
   fireRate: number;
   fireT: number;
   state: number;
-  holdX: number;
+  holdSX: number; // screen-x to park at (hold path)
   holdT: number;
   holdDur: number;
-  savedVx: number;
-  savedVy: number;
   phase: number;
   speedMul: number;
   flashT: number;
@@ -132,7 +139,7 @@ interface Pod {
 
 interface BossState {
   active: boolean;
-  x: number;
+  x: number; // WORLD center
   y: number;
   t: number;
   hp: number;
@@ -186,12 +193,17 @@ class HShooterGame implements GameInstance {
   private lastWaveT = 0;
   private waveFired: boolean[] = [];
   private pickupFired: boolean[] = [];
-  private turretIx = 0; // next terrain turret to scroll in
+
+  // tile stage
+  private grid: { cols: number; rows: number; kind(x: number, y: number): TileKind } = {
+    cols: 0, rows: 0, kind: () => 'empty',
+  };
+  private tileFrames: Record<string, HTMLCanvasElement[]> = {};
 
   private foes: Foe[] = Array.from({ length: 24 }, () => ({
     active: false, type: 'popcorn', path: 'dive', x: 0, y: 0, vx: 0, vy: 0, baseY: 0, t: 0,
-    hp: 1, fireRate: 0, fireT: 0, state: ST_APPROACH, holdX: 0, holdT: 0, holdDur: 0,
-    savedVx: 0, savedVy: 0, phase: 0, speedMul: 1, flashT: 0, chargeSeq: 0,
+    hp: 1, fireRate: 0, fireT: 0, state: ST_APPROACH, holdSX: 0, holdT: 0, holdDur: 0,
+    phase: 0, speedMul: 1, flashT: 0, chargeSeq: 0,
   }));
   private pshots: PShot[] = Array.from({ length: 8 }, () => ({
     active: false, x: 0, y: 0, vx: 0, vy: 0, dmg: 1, pierce: false, seq: 0, t: 0,
@@ -203,7 +215,7 @@ class HShooterGame implements GameInstance {
     active: false, type: 'spread', x: 0, y: 0, baseY: 0, t: 0,
   }));
 
-  // player (center-based)
+  // player (WORLD center)
   private px = 60;
   private py = H / 2;
   private pvy = 0;
@@ -228,6 +240,8 @@ class HShooterGame implements GameInstance {
   private pickupSprites: Record<ShooterPickupType, ResolvedSprite>;
   private foeDims: Record<ShooterEnemyType, { w: number; h: number }>;
   private diff!: DifficultyScale;
+  private pbox: AABB = { x: 0, y: 0, w: PW, h: PH };
+  private ebox: AABB = { x: 0, y: 0, w: ECOLL * 2, h: ECOLL * 2 };
 
   constructor(
     private engine: EngineContext,
@@ -255,9 +269,7 @@ class HShooterGame implements GameInstance {
 
   start(): void {
     const cards = this.spec.story.intro.map((line) => ({
-      title: this.spec.meta.title,
-      lines: [line],
-      portrait: this.engine.portrait,
+      title: this.spec.meta.title, lines: [line], portrait: this.engine.portrait,
     }));
     this.engine.cards.show(cards, () => this.enterLevel(0));
   }
@@ -274,6 +286,58 @@ class HShooterGame implements GameInstance {
 
   private isBoss(): boolean {
     return this.levelIndex >= this.spec.levels.length;
+  }
+
+  // ---------------------------------------------------------- tile stage
+
+  private buildGrid(tiles: string[], legend: Record<string, TileKind>): void {
+    const rows = tiles.length;
+    const cols = tiles[0]?.length ?? 0;
+    const kinds: TileKind[] = new Array(cols * rows).fill('empty');
+    for (let y = 0; y < rows; y++) {
+      const row = tiles[y] ?? '';
+      for (let x = 0; x < cols; x++) {
+        const ch = row[x] ?? '.';
+        kinds[y * cols + x] = ch === '.' ? 'empty' : (legend[ch] ?? 'empty');
+      }
+    }
+    this.grid = {
+      cols, rows,
+      kind: (x, y) => (x < 0 || y < 0 || x >= cols || y >= rows ? 'empty' : kinds[y * cols + x]!),
+    };
+    const art: Record<string, string> = {
+      solid: 'lib:tile_solid',
+      hazard: 'lib:tile_hazard',
+      decoration: 'lib:tile_deco',
+    };
+    this.tileFrames = {};
+    for (const [kind, ref] of Object.entries(art)) {
+      this.tileFrames[kind] = this.engine.sprites.byRole(ref.slice(4), ref, { bob: false }).frames;
+    }
+  }
+
+  private solidity(tx: number, ty: number): Solidity {
+    return this.grid.kind(tx, ty) === 'solid' ? 'solid' : 'empty';
+  }
+
+  private tileGrid(): TileGrid {
+    return { cols: this.grid.cols, rows: this.grid.rows, tileSize: TILE, solidityAt: (x, y) => this.solidity(x, y) };
+  }
+
+  private solidAtWorld(wx: number, wy: number): boolean {
+    return this.grid.kind(Math.floor(wx / TILE), Math.floor(wy / TILE)) === 'solid';
+  }
+
+  /** Nearest open world-y at a world-x, searching out from a preferred y. */
+  private openYAt(wx: number, preferY: number): number {
+    const tx = Math.floor(wx / TILE);
+    const ty = clamp(Math.floor(preferY / TILE), 0, this.grid.rows - 1);
+    if (this.grid.kind(tx, ty) !== 'solid') return ty * TILE + TILE / 2;
+    for (let d = 1; d < this.grid.rows; d++) {
+      if (this.grid.kind(tx, ty - d) !== 'solid') return (ty - d) * TILE + TILE / 2;
+      if (this.grid.kind(tx, ty + d) !== 'solid') return (ty + d) * TILE + TILE / 2;
+    }
+    return preferY;
   }
 
   // -------------------------------------------------------------- level flow
@@ -299,10 +363,10 @@ class HShooterGame implements GameInstance {
     const level = this.spec.levels[ix]!;
     this.level = level;
     this.backdrop = makeBackdrop(this.spec.palette, this.spec.seed + ix * 101, this.bgVariant);
+    this.buildGrid(level.tiles, level.legend);
     this.scrollX = 0;
     this.clock = 0;
     this.lastWaveT = 0;
-    this.turretIx = 0;
     this.waveFired = level.waves.map(() => false);
     this.pickupFired = level.pickups.map(() => false);
     this.clearPools();
@@ -329,9 +393,9 @@ class HShooterGame implements GameInstance {
   }
 
   private buildBoss(): void {
-    // Flat arena for the boss (level.terrain of the last level is ignored — the
-    // boss room is open so its patterns aren't blocked by a corridor).
-    this.level = { ...this.level, terrain: [], turrets: [] };
+    // Flat open arena for the boss (empty grid so patterns aren't blocked).
+    this.buildGrid([], {});
+    this.scrollX = 0;
     this.backdrop = makeBackdrop(this.spec.palette, this.spec.seed + 777, this.bgVariant);
     this.clearPools();
     this.spawnPlayer();
@@ -364,44 +428,13 @@ class HShooterGame implements GameInstance {
   }
 
   private spawnPlayer(): void {
-    this.px = 60;
-    this.py = H / 2;
+    this.px = this.scrollX + 50;
+    this.py = this.grid.cols > 0 ? this.openYAt(this.px, H / 2) : H / 2;
     this.pvy = 0;
     this.fireCd = 0;
     this.chargeT = 0;
     this.chargeReady = false;
     this.invulnT = 0;
-  }
-
-  // --------------------------------------------------------------- terrain
-
-  /** Corridor bounds (pixels) at a world column, lerped from control points.
-   *  Returns the ceiling depth from the top and the floor surface y. */
-  private terrainAt(worldX: number): { ceilPx: number; floorPx: number } {
-    const pts = this.level.terrain;
-    if (!pts || pts.length === 0) return { ceilPx: 0, floorPx: H };
-    const col = worldX / TILE;
-    let ceil = pts[0]!.ceil;
-    let floor = pts[0]!.floor;
-    if (col <= pts[0]!.x) {
-      ceil = pts[0]!.ceil;
-      floor = pts[0]!.floor;
-    } else if (col >= pts[pts.length - 1]!.x) {
-      ceil = pts[pts.length - 1]!.ceil;
-      floor = pts[pts.length - 1]!.floor;
-    } else {
-      for (let i = 1; i < pts.length; i++) {
-        if (col <= pts[i]!.x) {
-          const a = pts[i - 1]!;
-          const b = pts[i]!;
-          const f = (col - a.x) / Math.max(0.001, b.x - a.x);
-          ceil = a.ceil + (b.ceil - a.ceil) * f;
-          floor = a.floor + (b.floor - a.floor) * f;
-          break;
-        }
-      }
-    }
-    return { ceilPx: ceil * TILE, floorPx: H - floor * TILE };
   }
 
   // ----------------------------------------------------------------- update
@@ -410,14 +443,12 @@ class HShooterGame implements GameInstance {
     if (this.phase !== 'play') return;
     this.playT += dt;
     this.animT += dt;
-    this.scrollX += (this.isBoss() ? 0 : this.level.scroll) * dt;
+    if (!this.isBoss()) this.scrollX += this.level.scroll * dt;
+    this.engine.camera.snap(this.scrollX, 0);
 
     this.updatePlayer(dt, input);
     if (this.phase !== 'play') return;
-    if (!this.isBoss()) {
-      this.updateTimeline(dt);
-      this.updateTurrets();
-    }
+    if (!this.isBoss()) this.updateTimeline(dt);
     this.updateFoes(dt);
     if (this.phase !== 'play') return;
     if (this.boss) this.updateBoss(dt);
@@ -431,30 +462,34 @@ class HShooterGame implements GameInstance {
   }
 
   private updatePlayer(dt: number, input: InputSnapshot): void {
-    const ax = (input.LEFT.held ? -1 : 0) + (input.RIGHT.held ? 1 : 0);
-    const ay = (input.UP.held ? -1 : 0) + (input.DOWN.held ? 1 : 0);
+    const inx = (input.LEFT.held ? -1 : 0) + (input.RIGHT.held ? 1 : 0);
+    const iny = (input.UP.held ? -1 : 0) + (input.DOWN.held ? 1 : 0);
     const speed = this.fast ? SPEED_HIGH : SPEED_LOW;
-    const norm = ax !== 0 && ay !== 0 ? 0.7071 : 1;
-    this.pvy = ay * speed * norm;
-    this.px = clamp(this.px + ax * speed * norm * dt, PLAYER_MIN_X, PLAYER_MAX_X);
-    this.py = clamp(this.py + this.pvy * dt, 10, H - 10);
+    const norm = inx !== 0 && iny !== 0 ? 0.7071 : 1;
+    this.pvy = iny * speed * norm;
+    // Carry with the scroll (holds screen position), plus input; blocked by walls.
+    const carry = this.isBoss() ? 0 : this.level.scroll * dt;
+    const mvx = carry + inx * speed * norm * dt;
+    const mvy = this.pvy * dt;
+    this.pbox.x = this.px - PW / 2;
+    this.pbox.y = this.py - PH / 2;
+    const moved = moveAABB(this.tileGrid(), this.pbox, mvx, mvy);
+    this.px = moved.x + PW / 2;
+    this.py = clamp(moved.y + PH / 2, 6, H - 6);
 
-    // terrain: clamp out of solid ceiling/floor, damage on contact
-    const t = this.terrainAt(this.scrollX + this.px);
-    const top = t.ceilPx + PLAYER_HALF;
-    const bot = t.floorPx - PLAYER_HALF;
-    if (bot > top) {
-      const clamped = clamp(this.py, top, bot);
-      if (clamped !== this.py) {
-        this.py = clamped;
-        if (this.invulnT <= 0) {
-          this.hurtPlayer(1);
-          if (this.phase !== 'play') return;
-        }
+    // Screen-x band: can't outrun the screen; crushed if a wall holds it back.
+    const sx = this.px - this.scrollX;
+    if (sx > PLAYER_MAX_SX) this.px = this.scrollX + PLAYER_MAX_SX;
+    else if (sx < PLAYER_MIN_SX) {
+      if (this.invulnT <= 0) {
+        this.hurtPlayer(1);
+        if (this.phase !== 'play') return;
       }
+      this.px = this.scrollX + PLAYER_MIN_SX;
+      this.py = this.openYAt(this.px, this.py);
     }
 
-    // engine thruster puffs (trailing left)
+    // thruster
     this.thrustT += dt;
     if (this.thrustT >= 0.07) {
       this.thrustT = 0;
@@ -466,12 +501,9 @@ class HShooterGame implements GameInstance {
     if (input.A.pressed) {
       this.fast = !this.fast;
       this.engine.sfx.play('jump');
-      this.engine.particles.burst(this.px - 6, this.py, 6, {
-        color: this.spec.palette[this.fast ? 14 : 4], speed: 60, life: 0.3, gravity: 0,
-      });
     }
 
-    // Y: autofire (rightward)
+    // Y: autofire (rightward, world)
     this.fireCd = Math.max(0, this.fireCd - dt);
     if (input.Y.held && this.fireCd <= 0) {
       if (this.fireNormalShot(this.px + 8, this.py, PLAYER_SHOT_SPEED, 0)) {
@@ -505,20 +537,19 @@ class HShooterGame implements GameInstance {
         if (this.fireChargeShot(this.px + 10, this.py, CHARGE_SHOT_SPEED, 0)) {
           this.engine.sfx.play('shoot');
           this.engine.shake(80, 1);
-          this.engine.particles.burst(this.px + 12, this.py, 10, {
-            color: this.spec.palette[15], speed: 90, life: 0.3, gravity: 0,
-          });
         }
-      } else {
-        this.engine.particles.burst(this.px + 8, this.py, 3, {
-          color: this.spec.palette[3], speed: 30, life: 0.2, gravity: 0,
-        });
       }
       this.chargeT = 0;
       this.chargeReady = false;
     }
 
     if (input.B.pressed && this.hud.bombs > 0) this.detonateBomb();
+
+    // hazard tile under the ship
+    if (this.invulnT <= 0 && this.grid.kind(Math.floor(this.px / TILE), Math.floor(this.py / TILE)) === 'hazard') {
+      this.hurtPlayer(1);
+      if (this.phase !== 'play') return;
+    }
 
     this.invulnT = Math.max(0, this.invulnT - dt);
   }
@@ -528,13 +559,12 @@ class HShooterGame implements GameInstance {
     for (const s of this.eshots) {
       if (!s.active) continue;
       s.active = false;
-      this.engine.particles.burst(s.x, s.y, 2, { color: this.spec.palette[14], speed: 50, life: 0.3, gravity: 0 });
+      this.engine.particles.burst(s.x, s.y, 2, { color: this.spec.palette[14], speed: 50, life: 0.3 });
     }
     for (const e of this.foes) {
       if (!e.active) continue;
       e.hp -= BOMB_DMG;
       e.flashT = 0.15;
-      this.engine.particles.burst(e.x, e.y, 4, { color: this.spec.palette[11], speed: 70, life: 0.35 });
       if (e.hp <= 0) this.killFoe(e);
     }
     const b = this.boss;
@@ -545,7 +575,6 @@ class HShooterGame implements GameInstance {
       for (const pod of this.pods) {
         if (!pod.alive) continue;
         pod.hp -= BOMB_DMG;
-        pod.flashT = 0.15;
         if (pod.hp <= 0) this.killPod(pod, b);
       }
     }
@@ -553,7 +582,7 @@ class HShooterGame implements GameInstance {
     this.engine.shake(400, 5);
     this.engine.hitStop(60);
     this.engine.particles.burst(this.px + 20, this.py, 24, {
-      color: this.spec.palette[12], speed: 190, life: 0.6, gravity: 0, size: 3,
+      color: this.spec.palette[12], speed: 190, life: 0.6, size: 3,
     });
   }
 
@@ -581,48 +610,10 @@ class HShooterGame implements GameInstance {
     }
   }
 
-  /** Scroll terrain turrets in from the right as the stage advances. */
-  private updateTurrets(): void {
-    const turrets = this.level.turrets;
-    while (this.turretIx < turrets.length) {
-      const tr = turrets[this.turretIx]!;
-      const worldX = tr.x * TILE;
-      if (worldX > this.scrollX + W + 20) break; // not yet on the horizon
-      this.turretIx++;
-      this.spawnTurret(tr, worldX);
-    }
-  }
-
-  private spawnTurret(tr: HShooterTurret, worldX: number): void {
-    const e = this.claimFoe();
-    if (!e) return;
-    const t = this.terrainAt(worldX);
-    e.type = 'turret';
-    e.path = 'dive';
-    e.x = worldX - this.scrollX;
-    e.y = tr.side === 'ceil' ? t.ceilPx + 8 : t.floorPx - 8;
-    e.baseY = e.y;
-    e.vx = -this.level.scroll; // ride the terrain
-    e.vy = 0;
-    e.t = 0;
-    e.hp = Math.max(2, Math.round(3 * this.diff.hp));
-    e.fireRate = 0.7 * this.diff.fire;
-    e.fireT = -this.engine.rng.range(0, 1);
-    e.state = ST_HOLD; // fires freely while on screen
-    e.holdX = -9999;
-    e.holdDur = 0;
-    e.phase = 0;
-    e.flashT = 0;
-    e.chargeSeq = 0;
-    e.speedMul = 1;
-  }
-
   private spawnWave(w: ShooterWave): void {
     const rng = this.engine.rng;
     const sweepDir = rng.chance(0.5) ? 1 : -1;
-    const centerY = w.path === 'sweep'
-      ? (sweepDir > 0 ? 60 : H - 60)
-      : rng.range(60, H - 60);
+    const centerY = w.path === 'sweep' ? (sweepDir > 0 ? 70 : H - 70) : this.openYAt(this.scrollX + W + 24, rng.range(60, H - 60));
     const height = Math.max(64, (w.count - 1) * 28);
     for (let i = 0; i < w.count; i++) {
       const e = this.claimFoe();
@@ -630,30 +621,26 @@ class HShooterGame implements GameInstance {
       let ox = 0;
       let oy = 0;
       switch (w.formation) {
-        case 'line':
-          oy = (i - (w.count - 1) / 2) * 30;
-          break;
+        case 'line': oy = (i - (w.count - 1) / 2) * 30; break;
         case 'vee': {
           const k = Math.ceil(i / 2);
           const side = i === 0 ? 0 : i % 2 === 1 ? -1 : 1;
           oy = side * k * 24;
-          ox = k * 22; // arms trail to the right
+          ox = k * 22;
           break;
         }
-        case 'column':
-          ox = i * 34; // enter one by one from the right
-          break;
+        case 'column': ox = i * 34; break;
         case 'arc': {
           const f = w.count > 1 ? i / (w.count - 1) : 0.5;
           oy = (f - 0.5) * height;
-          ox = Math.sin(f * Math.PI) * 26; // bow toward the player (left)
+          ox = Math.sin(f * Math.PI) * 26;
           break;
         }
       }
       e.type = w.enemyType;
       e.path = w.path;
       e.y = clamp(centerY + oy, 16, H - 16);
-      e.x = W + 16 + ox;
+      e.x = this.scrollX + W + 16 + ox;
       e.baseY = e.y;
       e.t = 0;
       e.hp = Math.max(1, Math.round(w.hp * this.diff.hp));
@@ -665,31 +652,21 @@ class HShooterGame implements GameInstance {
       e.flashT = 0;
       e.chargeSeq = 0;
       e.speedMul = e.type === 'popcorn' ? 1.2 : e.type === 'tank' ? 0.6 : 1;
-      switch (w.path) {
-        case 'dive':
-          e.vx = -70 * e.speedMul;
-          e.vy = 0;
-          break;
-        case 'sweep':
-          e.vx = -65 * e.speedMul;
-          e.vy = sweepDir * -55 * e.speedMul;
-          break;
-        case 'sine':
-          e.vx = -55 * e.speedMul;
-          e.vy = 0;
-          break;
-        case 'hold':
-          e.vx = -70 * e.speedMul;
-          e.vy = 0;
-          break;
-      }
-      if (w.path === 'hold') {
-        e.holdX = W * 0.62 + rng.range(-24, 24);
-        e.holdDur = 4;
+      // WORLD velocities. Turrets are mounted (vx 0) so they scroll off with the
+      // terrain; others drift left in world (= faster-left on screen).
+      if (e.type === 'turret') {
+        e.vx = 0;
+        e.vy = 0;
       } else {
-        e.holdX = -9999;
-        e.holdDur = 0;
+        switch (w.path) {
+          case 'dive': e.vx = -70 * e.speedMul; e.vy = 0; break;
+          case 'sweep': e.vx = -60 * e.speedMul; e.vy = sweepDir * -50 * e.speedMul; break;
+          case 'sine': e.vx = -50 * e.speedMul; e.vy = 0; break;
+          case 'hold': e.vx = -70 * e.speedMul; e.vy = 0; break;
+        }
       }
+      e.holdSX = w.path === 'hold' ? W * 0.62 + rng.range(-24, 24) : -9999;
+      e.holdDur = w.path === 'hold' ? 4 : 0;
     }
   }
 
@@ -703,9 +680,9 @@ class HShooterGame implements GameInstance {
       if (p.active) continue;
       p.active = true;
       p.type = type;
-      p.baseY = this.engine.rng.range(50, H - 50);
+      p.baseY = this.openYAt(this.scrollX + W + 10, this.engine.rng.range(60, H - 60));
       p.y = p.baseY;
-      p.x = W + 10;
+      p.x = this.scrollX + W + 10;
       p.t = 0;
       return;
     }
@@ -713,19 +690,27 @@ class HShooterGame implements GameInstance {
 
   // ---------------------------------------------------------------- enemies
 
+  private moveFoe(e: Foe, dt: number): void {
+    this.ebox.x = e.x - ECOLL;
+    this.ebox.y = e.y - ECOLL;
+    const m = moveAABB(this.tileGrid(), this.ebox, e.vx * dt, e.vy * dt);
+    e.x = m.x + ECOLL;
+    e.y = m.y + ECOLL;
+    if (m.hitY) e.vy = 0;
+  }
+
   private updateFoes(dt: number): void {
     for (const e of this.foes) {
       if (!e.active) continue;
       const prevT = e.t;
       e.t += dt;
       e.flashT = Math.max(0, e.flashT - dt);
+      const sx = e.x - this.scrollX; // screen x
 
-      if (e.type === 'kamikaze' && e.state === ST_APPROACH && e.x < KAMIKAZE_TRIGGER_X) {
-        e.state = ST_HOMING;
-      }
+      if (e.type === 'kamikaze' && e.state === ST_APPROACH && sx < KAMIKAZE_TRIGGER_SX) e.state = ST_HOMING;
 
       if (e.type === 'turret') {
-        e.x += e.vx * dt; // ride the terrain leftward
+        // mounted: no self-movement (scrolls off with the terrain)
       } else if (e.state === ST_HOLD) {
         e.holdT += dt;
         if (e.holdT >= e.holdDur) {
@@ -741,32 +726,23 @@ class HShooterGame implements GameInstance {
         e.vy += (dy / len) * 240 * dt;
         const sp = Math.hypot(e.vx, e.vy);
         const max = 220 * e.speedMul;
-        if (sp > max) {
-          e.vx = (e.vx / sp) * max;
-          e.vy = (e.vy / sp) * max;
-        }
-        e.x += e.vx * dt;
-        e.y += e.vy * dt;
+        if (sp > max) { e.vx = (e.vx / sp) * max; e.vy = (e.vy / sp) * max; }
+        this.moveFoe(e, dt);
       } else {
         if (e.path === 'sine' && e.state === ST_APPROACH) {
-          e.x += e.vx * dt;
-          e.y = e.baseY + Math.sin(e.t * 2.4 + e.phase) * 42;
+          e.vy = (e.baseY + Math.sin(e.t * 2.4 + e.phase) * 42 - e.y) / Math.max(dt, 0.0001);
+          this.moveFoe(e, dt);
+          e.vy = 0;
         } else {
-          e.x += e.vx * dt;
-          e.y += e.vy * dt;
+          this.moveFoe(e, dt);
         }
-        if (e.type === 'weaver') {
-          e.y += (Math.sin(e.t * 6 + e.phase) - Math.sin(prevT * 6 + e.phase)) * 14;
-        }
-        if (e.state === ST_APPROACH && e.x <= e.holdX && e.holdDur > 0) {
-          e.state = ST_HOLD;
-          e.holdT = 0;
-        }
+        if (e.type === 'weaver') e.y += (Math.sin(e.t * 6 + e.phase) - Math.sin(prevT * 6 + e.phase)) * 14;
+        if (e.state === ST_APPROACH && sx <= e.holdSX && e.holdDur > 0) { e.state = ST_HOLD; e.holdT = 0; }
       }
 
-      // fire aimed shots at the player
+      // fire aimed shots
       if (e.fireRate > 0) {
-        const onScreen = e.x > 8 && e.x < W - 4 && e.y > 8 && e.y < H - 8;
+        const onScreen = sx > 8 && sx < W - 4 && e.y > 8 && e.y < H - 8;
         const gated = e.type !== 'turret' && e.path === 'hold' && e.state !== ST_HOLD;
         if (onScreen && !gated) {
           e.fireT += dt;
@@ -779,11 +755,7 @@ class HShooterGame implements GameInstance {
         }
       }
 
-      // off-screen culling (left / top / bottom; right is inbound)
-      if (e.x < -48 || e.y < -48 || e.y > H + 48) {
-        e.active = false;
-        continue;
-      }
+      if (sx < -48 || e.y < -48 || e.y > H + 48) { e.active = false; continue; }
 
       const d = this.foeDims[e.type];
       if (this.invulnT <= 0 && this.overlap(e.x, e.y, d.w, d.h, this.px, this.py, 4, 4)) {
@@ -801,7 +773,7 @@ class HShooterGame implements GameInstance {
     e.active = false;
     this.hud.score += this.spec.scoring.events.enemyKill;
     this.engine.sfx.play('hit');
-    this.engine.particles.burst(e.x, e.y, 10, { color: this.spec.palette[8], speed: 95, life: 0.45, gravity: 0 });
+    this.engine.particles.burst(e.x, e.y, 10, { color: this.spec.palette[8], speed: 95, life: 0.45 });
   }
 
   // ------------------------------------------------------------------- boss
@@ -815,11 +787,12 @@ class HShooterGame implements GameInstance {
 
     if (b.entranceT < BOSS_ENTRANCE_S) {
       b.entranceT = Math.min(BOSS_ENTRANCE_S, b.entranceT + dt);
-      b.x = W + 60 - (W + 60 - BOSS_X) * (b.entranceT / BOSS_ENTRANCE_S);
+      b.x = this.scrollX + W + 60 - (W + 60 - BOSS_SX) * (b.entranceT / BOSS_ENTRANCE_S);
       b.y = H / 2;
       this.hud.boss = { hp: Math.max(0, b.hp), maxHp: b.maxHp, name: this.spec.boss.name };
       return;
     }
+    b.x = this.scrollX + BOSS_SX;
     b.y = H / 2 + Math.sin(b.t * 0.9) * 60;
 
     const phases = this.spec.boss.phases;
@@ -860,7 +833,6 @@ class HShooterGame implements GameInstance {
         break;
       }
       case 'walls': {
-        // vertical bullet column moving left with a random gap
         if (b.fireT >= interval) {
           b.fireT -= interval;
           const gapY = this.engine.rng.range(24, H - 72);
@@ -900,8 +872,7 @@ class HShooterGame implements GameInstance {
       }
     }
 
-    if (this.invulnT <= 0 &&
-        this.overlap(b.x, b.y, bossSprite.w - 8, bossSprite.h - 8, this.px, this.py, 4, 4)) {
+    if (this.invulnT <= 0 && this.overlap(b.x, b.y, bossSprite.w - 8, bossSprite.h - 8, this.px, this.py, 4, 4)) {
       this.hurtPlayer(1);
       if (this.phase !== 'play') return;
     }
@@ -915,9 +886,7 @@ class HShooterGame implements GameInstance {
     this.hud.score += this.spec.scoring.events.bossHit;
     this.engine.sfx.play('hit');
     this.engine.shake(150, 2);
-    this.engine.particles.burst(b.x + pod.ox, b.y + pod.oy, 14, {
-      color: this.spec.palette[9], speed: 110, life: 0.5,
-    });
+    this.engine.particles.burst(b.x + pod.ox, b.y + pod.oy, 14, { color: this.spec.palette[9], speed: 110, life: 0.5 });
   }
 
   private defeatBoss(b: BossState): void {
@@ -927,7 +896,7 @@ class HShooterGame implements GameInstance {
     const rng = this.engine.rng;
     for (let i = 0; i < 5; i++) {
       this.engine.particles.burst(b.x + rng.range(-24, 24), b.y + rng.range(-16, 16), 16, {
-        color: this.spec.palette[i % 2 === 0 ? 12 : 14], speed: 170, life: 0.9, gravity: 0, size: 3,
+        color: this.spec.palette[i % 2 === 0 ? 12 : 14], speed: 170, life: 0.9, size: 3,
       });
     }
     this.engine.shake(600, 6);
@@ -939,11 +908,7 @@ class HShooterGame implements GameInstance {
       this.spec.story.victory.map((line) => ({ lines: [line], portrait: this.engine.portrait })),
       () => {
         const par = estimateHShooterDurationS(this.spec) * 1.35;
-        this.result = {
-          outcome: 'won',
-          score: this.hud.score,
-          timeBonusSeconds: Math.max(0, Math.round(par - this.playT)),
-        };
+        this.result = { outcome: 'won', score: this.hud.score, timeBonusSeconds: Math.max(0, Math.round(par - this.playT)) };
       },
     );
   }
@@ -996,10 +961,8 @@ class HShooterGame implements GameInstance {
       p.t += dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      if (p.x > W + 16 || p.y < -16 || p.y > H + 16) {
-        p.active = false;
-        continue;
-      }
+      const sx = p.x - this.scrollX;
+      if (sx > W + 16 || p.y < -16 || p.y > H + 16 || this.solidAtWorld(p.x, p.y)) { p.active = false; continue; }
       const pw = p.pierce ? 16 : 10;
       const ph = p.pierce ? 12 : 6;
 
@@ -1023,7 +986,6 @@ class HShooterGame implements GameInstance {
           if (p.pierce && pod.chargeSeq === p.seq) continue;
           if (!this.overlap(p.x, p.y, pw, ph, b.x + pod.ox, b.y + pod.oy, 12, 12)) continue;
           pod.hp -= p.dmg;
-          pod.flashT = 0.1;
           if (p.pierce) pod.chargeSeq = p.seq;
           else p.active = false;
           if (pod.hp <= 0) this.killPod(pod, b);
@@ -1050,10 +1012,8 @@ class HShooterGame implements GameInstance {
       s.t += dt;
       s.x += s.vx * dt;
       s.y += s.vy * dt;
-      if (s.x < -16 || s.x > W + 16 || s.y < -16 || s.y > H + 16) {
-        s.active = false;
-        continue;
-      }
+      const sx = s.x - this.scrollX;
+      if (sx < -16 || sx > W + 16 || s.y < -16 || s.y > H + 16 || this.solidAtWorld(s.x, s.y)) { s.active = false; continue; }
       if (this.invulnT <= 0 && this.overlap(s.x, s.y, 5, 5, this.px, this.py, 4, 4)) {
         s.active = false;
         this.hurtPlayer(s.dmg);
@@ -1068,12 +1028,9 @@ class HShooterGame implements GameInstance {
     for (const p of this.picks) {
       if (!p.active) continue;
       p.t += dt;
-      p.x -= 70 * dt; // drift left
-      p.y = p.baseY + Math.sin(p.t * 2) * 24;
-      if (p.x < -16) {
-        p.active = false;
-        continue;
-      }
+      p.x -= (70 - (this.isBoss() ? 0 : this.level.scroll)) * dt; // drift left on screen
+      p.y = this.openYAt(p.x, p.baseY + Math.sin(p.t * 2) * 20);
+      if (p.x - this.scrollX < -16) { p.active = false; continue; }
       if (!this.overlap(p.x, p.y, 12, 12, this.px, this.py, 14, 14)) continue;
       p.active = false;
       this.hud.score += this.spec.scoring.events.pickup;
@@ -1083,9 +1040,7 @@ class HShooterGame implements GameInstance {
         case 'shield': this.shieldUp = true; this.engine.sfx.play('powerup'); break;
         case 'bomb': this.hud.bombs = Math.min(MAX_BOMBS, this.hud.bombs + 1); this.engine.sfx.play('pickup'); break;
       }
-      this.engine.particles.burst(p.x, p.y, 10, {
-        color: this.spec.palette[13], speed: 60, life: 0.4, gravity: 0,
-      });
+      this.engine.particles.burst(p.x, p.y, 10, { color: this.spec.palette[13], speed: 60, life: 0.4 });
     }
   }
 
@@ -1097,9 +1052,7 @@ class HShooterGame implements GameInstance {
       this.shieldUp = false;
       this.invulnT = 0.8;
       this.engine.sfx.play('hit');
-      this.engine.particles.burst(this.px, this.py, 12, {
-        color: this.spec.palette[4], speed: 80, life: 0.4, gravity: 0,
-      });
+      this.engine.particles.burst(this.px, this.py, 12, { color: this.spec.palette[4], speed: 80, life: 0.4 });
       return;
     }
     this.hud.health -= dmg;
@@ -1113,9 +1066,7 @@ class HShooterGame implements GameInstance {
   private killPlayer(): void {
     this.hud.lives--;
     this.engine.sfx.play('die');
-    this.engine.particles.burst(this.px, this.py, 20, {
-      color: this.spec.palette[5], speed: 130, life: 0.7,
-    });
+    this.engine.particles.burst(this.px, this.py, 20, { color: this.spec.palette[5], speed: 130, life: 0.7 });
     for (const p of this.pshots) p.active = false;
     for (const s of this.eshots) s.active = false;
     this.chargeT = 0;
@@ -1127,9 +1078,7 @@ class HShooterGame implements GameInstance {
       this.engine.music.stopSong();
       this.engine.cards.show(
         this.spec.story.defeat.map((line) => ({ lines: [line], portrait: this.engine.portrait })),
-        () => {
-          this.result = { outcome: 'lost', score: this.hud.score, timeBonusSeconds: 0 };
-        },
+        () => { this.result = { outcome: 'lost', score: this.hud.score, timeBonusSeconds: 0 }; },
       );
       return;
     }
@@ -1142,9 +1091,7 @@ class HShooterGame implements GameInstance {
       for (const e of this.foes) e.active = false;
       this.clock = this.lastWaveT;
       const waves = this.level.waves;
-      for (let i = 0; i < waves.length; i++) {
-        if (waves[i]!.t >= this.lastWaveT) this.waveFired[i] = false;
-      }
+      for (let i = 0; i < waves.length; i++) if (waves[i]!.t >= this.lastWaveT) this.waveFired[i] = false;
     }
     this.spawnPlayer();
     this.invulnT = 2;
@@ -1165,10 +1112,7 @@ class HShooterGame implements GameInstance {
 
   // ---------------------------------------------------------------- helpers
 
-  private overlap(
-    ax: number, ay: number, aw: number, ah: number,
-    bx: number, by: number, bw: number, bh: number,
-  ): boolean {
+  private overlap(ax: number, ay: number, aw: number, ah: number, bx: number, by: number, bw: number, bh: number): boolean {
     return Math.abs(ax - bx) * 2 < aw + bw && Math.abs(ay - by) * 2 < ah + bh;
   }
 
@@ -1176,21 +1120,28 @@ class HShooterGame implements GameInstance {
 
   render(): void {
     const r = this.engine.renderer;
+    const cam = this.engine.camera;
     r.clear(this.spec.palette[2]);
     if (!this.backdrop) return;
 
-    // far backdrop scrolls horizontally with the stage
-    this.backdrop.draw(r.ctx, this.scrollX, 0);
+    this.backdrop.draw(r.ctx, cam.x, cam.y);
 
-    // solid terrain corridor (ceiling + floor), scrolled
-    this.drawTerrain(r);
+    // tile stage
+    const frameIx = Math.floor(this.animT * 4) % 2;
+    drawTileLayer(r, cam, this.grid.cols, this.grid.rows, TILE, (tx, ty) => {
+      const k = this.grid.kind(tx, ty);
+      if (k === 'empty') return null;
+      const frames = this.tileFrames[k];
+      if (!frames || frames.length === 0) return null;
+      return frames[frameIx % frames.length] ?? frames[0]!;
+    });
 
     // pickups
     for (const p of this.picks) {
       if (!p.active) continue;
       const sprite = this.pickupSprites[p.type];
       const img = this.engine.sprites.frame(sprite, 'idle', p.t);
-      r.draw(img, p.x - sprite.w / 2, p.y - sprite.h / 2);
+      r.draw(img, p.x - cam.x - sprite.w / 2, p.y - sprite.h / 2);
     }
 
     // player shots (rotated to travel right)
@@ -1199,15 +1150,15 @@ class HShooterGame implements GameInstance {
       if (!p.active) continue;
       const img = this.engine.sprites.frame(projSprite, 'idle', p.t);
       const s = p.pierce ? 2 : 1;
-      this.drawRight(img, p.x, p.y, projSprite.w * s, projSprite.h * s);
+      this.drawRight(img, p.x - cam.x, p.y, projSprite.w * s, projSprite.h * s);
     }
 
-    // enemies (face left; sprites drawn flipped since library art points right/up)
+    // enemies (flipped to face left)
     for (const e of this.foes) {
       if (!e.active) continue;
       const sprite = this.sprites[e.type]!;
       const img = e.flashT > 0 ? sprite.flash[0]! : this.engine.sprites.frame(sprite, 'fly', e.t, true);
-      r.draw(img, e.x - sprite.w / 2, e.y - sprite.h / 2);
+      r.draw(img, e.x - cam.x - sprite.w / 2, e.y - sprite.h / 2);
     }
 
     // boss + pods
@@ -1215,12 +1166,12 @@ class HShooterGame implements GameInstance {
     if (b && b.active) {
       const sprite = this.sprites['boss']!;
       const img = b.flashT > 0 ? sprite.flash[0]! : this.engine.sprites.frame(sprite, 'idle', this.animT, true);
-      r.draw(img, b.x - sprite.w / 2, b.y - sprite.h / 2);
+      r.draw(img, b.x - cam.x - sprite.w / 2, b.y - sprite.h / 2);
       const podSprite = this.sprites['pod']!;
       for (const pod of this.pods) {
         if (!pod.alive) continue;
         const pimg = pod.flashT > 0 ? podSprite.flash[0]! : this.engine.sprites.frame(podSprite, 'fly', this.animT, true);
-        r.draw(pimg, b.x + pod.ox - podSprite.w / 2, b.y + pod.oy - podSprite.h / 2);
+        r.draw(pimg, b.x + pod.ox - cam.x - podSprite.w / 2, b.y + pod.oy - podSprite.h / 2);
       }
     }
 
@@ -1229,26 +1180,25 @@ class HShooterGame implements GameInstance {
     for (const sh of this.eshots) {
       if (!sh.active) continue;
       const img = this.engine.sprites.frame(shotSprite, 'idle', sh.t);
-      r.draw(img, sh.x - shotSprite.w / 2, sh.y - shotSprite.h / 2);
+      r.draw(img, sh.x - cam.x - shotSprite.w / 2, sh.y - shotSprite.h / 2);
     }
 
-    // ship (invuln flicker), rotated to face right
+    // ship (rotated to face right; invuln flicker)
     if (this.invulnT <= 0 || Math.floor(this.animT * 12) % 2 === 0) {
       const hero = this.sprites['hero']!;
       const img = this.engine.sprites.frame(hero, 'idle', this.animT);
-      this.drawRight(img, this.px, this.py, hero.w, hero.h);
-      if (this.shieldUp) r.frame(this.px - 11, this.py - 11, 22, 22, this.spec.palette[4] ?? '#41a6f6');
+      const sxp = this.px - cam.x;
+      this.drawRight(img, sxp, this.py, hero.w, hero.h);
+      if (this.shieldUp) r.frame(sxp - 11, this.py - 11, 22, 22, this.spec.palette[4] ?? '#41a6f6');
       if (this.chargeT > 0.15) {
         const size = 10 + Math.min(1, this.chargeT / CHARGE_TIME) * 8;
-        const color = this.chargeReady && Math.floor(this.animT * 10) % 2 === 0
-          ? this.spec.palette[15] : this.spec.palette[7];
-        r.frame(this.px - size / 2, this.py - size / 2, size, size, color ?? '#f4f4f4');
+        const color = this.chargeReady && Math.floor(this.animT * 10) % 2 === 0 ? this.spec.palette[15] : this.spec.palette[7];
+        r.frame(sxp - size / 2, this.py - size / 2, size, size, color ?? '#f4f4f4');
       }
     }
   }
 
-  /** Draw an up-facing library sprite rotated 90° clockwise so it points RIGHT
-   *  (ship/bolt art is authored nose-up; this is a horizontal shooter). */
+  /** Draw an up-facing library sprite rotated 90° clockwise so it points RIGHT. */
   private drawRight(img: CanvasImageSource, cx: number, cy: number, w: number, h: number): void {
     const ctx = this.engine.renderer.ctx;
     ctx.save();
@@ -1256,27 +1206,5 @@ class HShooterGame implements GameInstance {
     ctx.rotate(Math.PI / 2);
     ctx.drawImage(img, -w / 2, -h / 2, w, h);
     ctx.restore();
-  }
-
-  /** Draw the scrolling ceiling/floor terrain as solid columns with a lit rim.
-   *  Dark body + bright surface edge guarantees it reads against the backdrop. */
-  private drawTerrain(r: EngineContext['renderer']): void {
-    if (!this.level.terrain || this.level.terrain.length === 0) return;
-    const body = this.spec.palette[1] ?? '#10122b';
-    const band = this.spec.palette[3] ?? '#29366f';
-    const rim = this.spec.palette[4] ?? '#41a6f6';
-    for (let x = 0; x <= W; x += TILE) {
-      const t = this.terrainAt(this.scrollX + x);
-      if (t.ceilPx > 0) {
-        r.rect(x, 0, TILE, t.ceilPx, body);
-        r.rect(x, Math.max(0, t.ceilPx - 6), TILE, 6, band);
-        r.rect(x, t.ceilPx - 2, TILE, 2, rim);
-      }
-      if (t.floorPx < H) {
-        r.rect(x, t.floorPx, TILE, H - t.floorPx, body);
-        r.rect(x, t.floorPx, TILE, 6, band);
-        r.rect(x, t.floorPx, TILE, 2, rim);
-      }
-    }
   }
 }

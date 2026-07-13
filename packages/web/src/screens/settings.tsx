@@ -370,7 +370,7 @@ export function SettingsScreen(props: {
                     <div class={`focusable device-row likeness-toggle-row ${zone === 'panel' && panelCursor === inputs.cameras.length + inputs.mics.length + 2 ? 'focused' : ''}`}>
                       <span class="device-check">{likenessStyle === 'avatar' ? <Icon name="sparkle" /> : <Icon name="camera" />}</span>
                       <span class="device-label">
-                        Style — {likenessStyle === 'avatar' ? 'Drawn avatar' : 'Your photo'}
+                        Style — {likenessStyle === 'avatar' ? 'Avatar + photo' : 'Your photo'}
                         {likenessStyle === 'avatar' && !smartFeatures ? ' (needs smart colours on)' : ''}
                       </span>
                     </div>

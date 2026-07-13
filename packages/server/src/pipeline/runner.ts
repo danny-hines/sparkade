@@ -23,7 +23,7 @@ import {
   type SparkadeConfig,
   type StageName,
 } from '@sparkade/shared';
-import { bakeLikeness } from '../likeness/likeness';
+import { bakeLikeness, type LikenessArtifacts } from '../likeness/likeness';
 import { drawAvatarLikeness } from '../likeness/avatar';
 import { buildFaceAnalysisPrompt, buildPortraitPalette, type FaceFeatures } from '../likeness/features';
 import { ProviderAuthError, ProviderHttpError, ProviderNetworkError, stageProvider } from '../providers/index';
@@ -460,13 +460,23 @@ export class GenerationRunner {
             /* vision unavailable / failed → photo bake against the game palette */
           }
         }
-        // "avatar" style DRAWS a pixel face from the detected traits (needs feat);
-        // "photo" quantizes the real photo (rich portrait palette + light dither
-        // when feat is available, else the game palette + strong dither).
-        const baked =
-          config.likeness.style === 'avatar' && feat
-            ? await drawAvatarLikeness(feat)
-            : await bakeLikeness(photo, feat ? buildPortraitPalette(feat) : spec.palette, feat ? 10 : 30);
+        // Each context uses the style that reads best at its size:
+        //  - "avatar": DRAWN pixel face for the in-game sprite heads (clean at
+        //    12/16px), + the pixel-PHOTO bake for the big story-card portrait
+        //    (a downscaled photo muds at sprite size but reads at 64px, where a
+        //    drawn avatar would look MS-Paint-ish). A hybrid, best of both.
+        //  - "photo": the real photo quantized everywhere (rich portrait palette
+        //    + light dither when feat is available, else game palette + strong).
+        let baked: LikenessArtifacts;
+        if (config.likeness.style === 'avatar' && feat) {
+          const [avatar, photoBake] = await Promise.all([
+            drawAvatarLikeness(feat),
+            bakeLikeness(photo, buildPortraitPalette(feat), 10),
+          ]);
+          baked = { head12: avatar.head12, head16: avatar.head16, portrait: photoBake.portrait };
+        } else {
+          baked = await bakeLikeness(photo, feat ? buildPortraitPalette(feat) : spec.palette, feat ? 10 : 30);
+        }
         writeFileSync(join(assetsDir, 'head12.png'), baked.head12);
         writeFileSync(join(assetsDir, 'head16.png'), baked.head16);
         writeFileSync(join(assetsDir, 'portrait.png'), baked.portrait);

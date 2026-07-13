@@ -1193,13 +1193,13 @@ class HShooterGame implements GameInstance {
       r.draw(img, p.x - sprite.w / 2, p.y - sprite.h / 2);
     }
 
-    // player shots
+    // player shots (rotated to travel right)
     const projSprite = this.sprites['projectile']!;
     for (const p of this.pshots) {
       if (!p.active) continue;
       const img = this.engine.sprites.frame(projSprite, 'idle', p.t);
-      if (p.pierce) r.drawScaled(img, p.x - projSprite.w, p.y - projSprite.h, projSprite.w * 2, projSprite.h * 2);
-      else r.draw(img, p.x - projSprite.w / 2, p.y - projSprite.h / 2);
+      const s = p.pierce ? 2 : 1;
+      this.drawRight(img, p.x, p.y, projSprite.w * s, projSprite.h * s);
     }
 
     // enemies (face left; sprites drawn flipped since library art points right/up)
@@ -1232,14 +1232,11 @@ class HShooterGame implements GameInstance {
       r.draw(img, sh.x - shotSprite.w / 2, sh.y - shotSprite.h / 2);
     }
 
-    // ship (invuln flicker); banks vertically with lean
+    // ship (invuln flicker), rotated to face right
     if (this.invulnT <= 0 || Math.floor(this.animT * 12) % 2 === 0) {
       const hero = this.sprites['hero']!;
-      const banking = Math.abs(this.pvy) > 30;
-      const img = banking
-        ? this.engine.sprites.frame(hero, 'bank', this.animT, this.pvy < 0)
-        : this.engine.sprites.frame(hero, 'idle', this.animT);
-      r.draw(img, this.px - hero.w / 2, this.py - hero.h / 2);
+      const img = this.engine.sprites.frame(hero, 'idle', this.animT);
+      this.drawRight(img, this.px, this.py, hero.w, hero.h);
       if (this.shieldUp) r.frame(this.px - 11, this.py - 11, 22, 22, this.spec.palette[4] ?? '#41a6f6');
       if (this.chargeT > 0.15) {
         const size = 10 + Math.min(1, this.chargeT / CHARGE_TIME) * 8;
@@ -1248,6 +1245,17 @@ class HShooterGame implements GameInstance {
         r.frame(this.px - size / 2, this.py - size / 2, size, size, color ?? '#f4f4f4');
       }
     }
+  }
+
+  /** Draw an up-facing library sprite rotated 90° clockwise so it points RIGHT
+   *  (ship/bolt art is authored nose-up; this is a horizontal shooter). */
+  private drawRight(img: CanvasImageSource, cx: number, cy: number, w: number, h: number): void {
+    const ctx = this.engine.renderer.ctx;
+    ctx.save();
+    ctx.translate(Math.round(cx), Math.round(cy));
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.restore();
   }
 
   /** Draw the scrolling ceiling/floor terrain as solid columns with a lit rim.

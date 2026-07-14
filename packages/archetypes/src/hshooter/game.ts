@@ -45,8 +45,8 @@ const H = INTERNAL_HEIGHT;
 const TILE = TILE_SIZE;
 const SPEED_LOW = 120;
 const SPEED_HIGH = 190;
-const PLAYER_MIN_SX = 10; // ship's screen-x band (world x = scrollX + screen x)
-const PLAYER_MAX_SX = W * 0.56;
+const PLAYER_MIN_SX = 8; // ship's screen-x band (world x = scrollX + screen x)
+const PLAYER_MAX_SX = W - 12; // can fly all the way to the front (right) edge
 const PW = 12;
 const PH = 10;
 const FIRE_RATE = 8;
@@ -125,6 +125,7 @@ interface Pick {
   type: ShooterPickupType;
   x: number;
   y: number;
+  avoidVy: number;
   baseY: number;
   t: number;
 }
@@ -214,7 +215,7 @@ class HShooterGame implements GameInstance {
     active: false, x: 0, y: 0, vx: 0, vy: 0, dmg: 1, t: 0,
   }));
   private picks: Pick[] = Array.from({ length: 8 }, () => ({
-    active: false, type: 'spread', x: 0, y: 0, baseY: 0, t: 0,
+    active: false, type: 'spread', x: 0, y: 0, avoidVy: 0, baseY: 0, t: 0,
   }));
 
   // player (WORLD center)
@@ -244,6 +245,7 @@ class HShooterGame implements GameInstance {
   private diff!: DifficultyScale;
   private pbox: AABB = { x: 0, y: 0, w: PW, h: PH };
   private ebox: AABB = { x: 0, y: 0, w: ECOLL * 2, h: ECOLL * 2 };
+  private pkbox: AABB = { x: 0, y: 0, w: 12, h: 12 };
 
   constructor(
     private engine: EngineContext,
@@ -332,6 +334,17 @@ class HShooterGame implements GameInstance {
     return this.grid.kind(Math.floor(wx / TILE), Math.floor(wy / TILE)) === 'solid';
   }
 
+  /** Do the ship's (slightly inset) box corners sit inside solid terrain? True
+   *  only when it's been forced into a wall — normal flush contact leaves a gap. */
+  private boxOverlapsSolid(cx: number, cy: number): boolean {
+    for (const ox of [-(PW / 2) + 1, PW / 2 - 1]) {
+      for (const oy of [-(PH / 2) + 1, PH / 2 - 1]) {
+        if (this.grid.kind(Math.floor((cx + ox) / TILE), Math.floor((cy + oy) / TILE)) === 'solid') return true;
+      }
+    }
+    return false;
+  }
+
   /** Nearest open world-y at a world-x, searching out from a preferred y. */
   private openYAt(wx: number, preferY: number): number {
     const tx = Math.floor(wx / TILE);
@@ -397,9 +410,13 @@ class HShooterGame implements GameInstance {
   }
 
   private buildBoss(): void {
-    // Flat open arena for the boss (empty grid so patterns aren't blocked).
-    this.buildGrid([], {});
+    // Open arena for the boss: a screen-sized grid of empty cells (NOT a 0-col
+    // grid — moveAABB treats every tx >= cols as a solid wall, which would box
+    // the ship in place).
     this.scrollX = 0;
+    const cols = Math.ceil(W / TILE) + 4;
+    const rows = Math.ceil(H / TILE);
+    this.buildGrid(Array.from({ length: rows }, () => '.'.repeat(cols)), {});
     this.backdrop = makeBackdrop(this.spec.palette, this.spec.seed + 777, this.bgVariant);
     this.clearPools();
     this.spawnPlayer();
@@ -481,16 +498,16 @@ class HShooterGame implements GameInstance {
     this.px = moved.x + PW / 2;
     this.py = clamp(moved.y + PH / 2, 6, H - 6);
 
-    // Screen-x band: can't outrun the screen; crushed if a wall holds it back.
+    // Screen-x band: the ship may fly to either viewport edge (no damage for
+    // reaching the back edge — it's just carried by the scroll).
     const sx = this.px - this.scrollX;
     if (sx > PLAYER_MAX_SX) this.px = this.scrollX + PLAYER_MAX_SX;
-    else if (sx < PLAYER_MIN_SX) {
-      if (this.invulnT <= 0) {
-        this.hurtPlayer(1);
-        if (this.phase !== 'play') return;
-      }
-      this.px = this.scrollX + PLAYER_MIN_SX;
-      this.py = this.openYAt(this.px, this.py);
+    else if (sx < PLAYER_MIN_SX) this.px = this.scrollX + PLAYER_MIN_SX;
+    // CRUSH: if that clamp (or a scrolling wall) has squeezed the ship into
+    // solid terrain — wedged between an obstacle and the screen edge — it dies.
+    if (this.invulnT <= 0 && this.boxOverlapsSolid(this.px, this.py)) {
+      this.killPlayer();
+      if (this.phase !== 'play') return;
     }
 
     // thruster
@@ -689,6 +706,7 @@ class HShooterGame implements GameInstance {
       p.baseY = this.openYAt(this.scrollX + W + 10, this.engine.rng.range(60, H - 60));
       p.y = p.baseY;
       p.x = this.scrollX + W + 10;
+      p.avoidVy = 0;
       p.t = 0;
       return;
     }
@@ -710,23 +728,25 @@ class HShooterGame implements GameInstance {
   }
 
   /** Steer vertically around a solid obstacle ahead, toward the nearer open
-   *  side; decays back to the enemy's authored path once it's clear. */
-  private avoidTerrain(e: Foe, dt: number): void {
-    const dir = e.vx <= 0 ? -1 : 1;
-    const ty = Math.floor(e.y / TILE);
-    const aheadTx = Math.floor((e.x + dir * TILE * 1.5) / TILE);
-    const hereTx = Math.floor(e.x / TILE);
-    const blocked = this.grid.kind(aheadTx, ty) === 'solid' || this.grid.kind(hereTx, ty) === 'solid';
-    if (blocked) {
+   *  side; decays back toward the authored motion once clear. Returns the new
+   *  avoidVy. Shared by enemies AND pickups so both flow around terrain. */
+  private terrainSteer(x: number, y: number, vx: number, avoidVy: number, dt: number): number {
+    const dir = vx <= 0 ? -1 : 1;
+    const ty = Math.floor(y / TILE);
+    const aheadTx = Math.floor((x + dir * TILE * 1.5) / TILE);
+    const hereTx = Math.floor(x / TILE);
+    if (this.grid.kind(aheadTx, ty) === 'solid' || this.grid.kind(hereTx, ty) === 'solid') {
       let up = 99;
       let down = 99;
       for (let d = 1; d <= 9; d++) if (this.grid.kind(aheadTx, ty - d) !== 'solid') { up = d; break; }
       for (let d = 1; d <= 9; d++) if (this.grid.kind(aheadTx, ty + d) !== 'solid') { down = d; break; }
-      const steer = up <= down ? -1 : 1;
-      e.avoidVy = clamp(e.avoidVy + steer * 260 * dt, -155, 155);
-    } else {
-      e.avoidVy *= 0.9;
+      return clamp(avoidVy + (up <= down ? -1 : 1) * 260 * dt, -155, 155);
     }
+    return avoidVy * 0.9;
+  }
+
+  private avoidTerrain(e: Foe, dt: number): void {
+    e.avoidVy = this.terrainSteer(e.x, e.y, e.vx, e.avoidVy, dt);
   }
 
   private crashFoe(e: Foe): void {
@@ -1066,11 +1086,19 @@ class HShooterGame implements GameInstance {
   // ---------------------------------------------------------------- pickups
 
   private updatePickups(dt: number): void {
+    const carry = this.isBoss() ? 0 : this.level.scroll;
     for (const p of this.picks) {
       if (!p.active) continue;
       p.t += dt;
-      p.x -= (70 - (this.isBoss() ? 0 : this.level.scroll)) * dt; // drift left on screen
-      p.y = this.openYAt(p.x, p.baseY + Math.sin(p.t * 2) * 20);
+      // smooth leftward drift + gentle bob, steering around terrain like enemies
+      const vx = -(70 - carry);
+      const bobVy = Math.cos(p.t * 2) * 34;
+      p.avoidVy = this.terrainSteer(p.x, p.y, vx, p.avoidVy, dt);
+      this.pkbox.x = p.x - 6;
+      this.pkbox.y = p.y - 6;
+      const m = moveAABB(this.tileGrid(), this.pkbox, vx * dt, (bobVy + p.avoidVy) * dt);
+      p.x = m.x + 6;
+      p.y = m.y + 6;
       if (p.x - this.scrollX < -16) { p.active = false; continue; }
       if (!this.overlap(p.x, p.y, 12, 12, this.px, this.py, 14, 14)) continue;
       p.active = false;

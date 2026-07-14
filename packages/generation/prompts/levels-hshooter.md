@@ -18,8 +18,9 @@ The design document arrives in the user message.
 
 - Rows equal-length; every non-`.` char in the legend; a continuous open lane (never seal the passage); wide enough to cover the scroll (see the formula above).
 - Waves SORTED by `t`, ending by `durationS - 4`. Keep ≤ 18 enemies alive at once and total aimed fire ≤ 14 bullets/sec in any window. Tension comes from terrain + patterns, not bullet spam.
-- Curve the difficulty: level 1 has a roomy stage and teaches enemy types solo; level 2 tightens the terrain and mixes pairs; level 3 is a pinched gauntlet of obstacles + turrets. Place turret waves where the terrain gives the ship room to dodge; put a shield/bomb before the tightest stretch.
-- 15+ waves total (floor), 4+ enemy types (floor), 2+ pickup types (floor). Total durationS across the three levels 240–330s.
+- Make it BUSY. A near-empty stage is boring — aim for roughly 18–26 waves PER LEVEL, spaced about 3–5 seconds apart, so there's almost always something on screen. Also pack the stage with obstacles (pillars, floating blocks, pinch points) every ~12–18 columns. Just stay under the budget: ≤ 18 enemies alive at once and ≤ 14 aimed bullets/sec in any 8s window (keep most fast swarms at fireRate 0 and only tanks/turrets firing).
+- Curve the difficulty: level 1 is roomier and teaches enemy types; level 2 tightens the terrain and layers formations; level 3 is a pinched gauntlet of obstacles + turrets. Place turret waves where the terrain gives the ship room to dodge; put a shield/bomb before the tightest stretch.
+- 4+ enemy types, 2+ pickup types. Total durationS across the three levels 240–330s.
 
 ## Example (condensed from a shipped game)
 

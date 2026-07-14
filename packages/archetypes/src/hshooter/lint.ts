@@ -62,9 +62,9 @@ export function lintHShooter(spec: HShooterSpec): LintError[] {
     if (!pathExists(level.tiles, level.legend)) {
       out.push(err('HSHOOT_STAGE_SEALED', `${path}/tiles`, 'no open lane from left to right — the ship cannot get through; leave a continuous non-solid path'));
     }
-    const need = level.scroll * level.durationS + INTERNAL_WIDTH * 0.6;
+    const need = level.scroll * level.durationS + INTERNAL_WIDTH + 16;
     if (cols * TILE_SIZE < need) {
-      out.push(err('HSHOOT_STAGE_SHORT', `${path}/tiles`, `stage is ${cols} tiles wide (${cols * TILE_SIZE}px) but the level scrolls ~${Math.round(need)}px; widen it to ≥ ${Math.ceil(need / TILE_SIZE)} tiles or lower scroll/durationS`));
+      out.push(err('HSHOOT_STAGE_SHORT', `${path}/tiles`, `stage is ${cols} tiles wide (${cols * TILE_SIZE}px) but the level needs ~${Math.round(need)}px to scroll (so the ship can reach the front edge without hitting the level's end); widen it to ≥ ${Math.ceil(need / TILE_SIZE)} tiles or lower scroll/durationS`));
     }
 
     for (let i = 0; i < level.waves.length; i++) {

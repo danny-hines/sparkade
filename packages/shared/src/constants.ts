@@ -221,6 +221,10 @@ export const GENERATION = {
   maxRecordingSeconds: 45,
   /** Anti-collision block includes the last N local games. */
   antiCollisionGames: 10,
+  /** How many generation jobs run at once. Generation is network-bound (waiting
+   *  on the model), so a few in parallel overlap those waits; kept small to stay
+   *  gentle on the cabinet + the API. Override with SPARKADE_GEN_CONCURRENCY. */
+  maxConcurrentJobs: 3,
 } as const;
 
 export const STAGE_NAMES = ['design', 'levels', 'entities', 'music', 'repair', 'stt'] as const;

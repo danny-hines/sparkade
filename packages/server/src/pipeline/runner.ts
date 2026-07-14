@@ -80,7 +80,11 @@ interface SpecParts {
 
 export class GenerationRunner {
   private queue: string[] = [];
-  private activeJobId: string | null = null;
+  private active = new Set<string>(); // jobs currently running (up to maxConcurrent)
+  private readonly maxConcurrent = Math.max(
+    1,
+    Number(process.env.SPARKADE_GEN_CONCURRENCY) || GENERATION.maxConcurrentJobs,
+  );
   private aborts = new Map<string, AbortController>();
   private canceled = new Set<string>();
 
@@ -97,7 +101,7 @@ export class GenerationRunner {
   }
 
   isBusy(): boolean {
-    return this.activeJobId !== null;
+    return this.active.size > 0;
   }
 
   createJob(inputs: NewJobInputs): { jobId: string; gameId: string } {
@@ -186,19 +190,26 @@ export class GenerationRunner {
 
   private enqueue(jobId: string): void {
     if (!this.queue.includes(jobId)) this.queue.push(jobId);
-    void this.pump();
+    this.pump();
   }
 
-  private async pump(): Promise<void> {
-    if (this.activeJobId) return;
-    const jobId = this.queue.shift();
-    if (!jobId) return;
-    this.activeJobId = jobId;
+  /** Start jobs until the concurrency cap is reached. Jobs run independently
+   *  (isolated staging + abort + DB rows), so several proceed in parallel and
+   *  their model-call waits overlap. */
+  private pump(): void {
+    while (this.active.size < this.maxConcurrent && this.queue.length > 0) {
+      const jobId = this.queue.shift()!;
+      this.active.add(jobId);
+      void this.runOne(jobId);
+    }
+  }
+
+  private async runOne(jobId: string): Promise<void> {
     try {
       await this.execute(jobId);
     } finally {
-      this.activeJobId = null;
-      void this.pump();
+      this.active.delete(jobId);
+      this.pump(); // fill the freed slot
     }
   }
 

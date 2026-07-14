@@ -81,6 +81,8 @@ interface Foe {
   y: number;
   vx: number; // WORLD velocity
   vy: number;
+  avoidVy: number; // terrain-avoidance steer (added on top of the pattern)
+  stuckT: number; // time wedged against a wall (crash fallback)
   baseY: number;
   t: number;
   hp: number;
@@ -201,7 +203,7 @@ class HShooterGame implements GameInstance {
   private tileFrames: Record<string, HTMLCanvasElement[]> = {};
 
   private foes: Foe[] = Array.from({ length: 24 }, () => ({
-    active: false, type: 'popcorn', path: 'dive', x: 0, y: 0, vx: 0, vy: 0, baseY: 0, t: 0,
+    active: false, type: 'popcorn', path: 'dive', x: 0, y: 0, vx: 0, vy: 0, avoidVy: 0, stuckT: 0, baseY: 0, t: 0,
     hp: 1, fireRate: 0, fireT: 0, state: ST_APPROACH, holdSX: 0, holdT: 0, holdDur: 0,
     phase: 0, speedMul: 1, flashT: 0, chargeSeq: 0,
   }));
@@ -653,6 +655,8 @@ class HShooterGame implements GameInstance {
       e.phase = rng.range(0, Math.PI * 2);
       e.flashT = 0;
       e.chargeSeq = 0;
+      e.avoidVy = 0;
+      e.stuckT = 0;
       e.speedMul = e.type === 'popcorn' ? 1.2 : e.type === 'tank' ? 0.6 : 1;
       // WORLD velocities. Turrets are mounted (vx 0) so they scroll off with the
       // terrain; others drift left in world (= faster-left on screen).
@@ -695,10 +699,39 @@ class HShooterGame implements GameInstance {
   private moveFoe(e: Foe, dt: number): void {
     this.ebox.x = e.x - ECOLL;
     this.ebox.y = e.y - ECOLL;
-    const m = moveAABB(this.tileGrid(), this.ebox, e.vx * dt, e.vy * dt);
+    const px = e.x;
+    const m = moveAABB(this.tileGrid(), this.ebox, e.vx * dt, (e.vy + e.avoidVy) * dt);
     e.x = m.x + ECOLL;
     e.y = m.y + ECOLL;
-    if (m.hitY) e.vy = 0;
+    if (m.hitY) { e.vy = 0; e.avoidVy = 0; }
+    // wedged against a wall making no horizontal headway?
+    if (m.hitX && Math.abs(e.x - px) < 0.4) e.stuckT += dt;
+    else e.stuckT = Math.max(0, e.stuckT - dt * 3);
+  }
+
+  /** Steer vertically around a solid obstacle ahead, toward the nearer open
+   *  side; decays back to the enemy's authored path once it's clear. */
+  private avoidTerrain(e: Foe, dt: number): void {
+    const dir = e.vx <= 0 ? -1 : 1;
+    const ty = Math.floor(e.y / TILE);
+    const aheadTx = Math.floor((e.x + dir * TILE * 1.5) / TILE);
+    const hereTx = Math.floor(e.x / TILE);
+    const blocked = this.grid.kind(aheadTx, ty) === 'solid' || this.grid.kind(hereTx, ty) === 'solid';
+    if (blocked) {
+      let up = 99;
+      let down = 99;
+      for (let d = 1; d <= 9; d++) if (this.grid.kind(aheadTx, ty - d) !== 'solid') { up = d; break; }
+      for (let d = 1; d <= 9; d++) if (this.grid.kind(aheadTx, ty + d) !== 'solid') { down = d; break; }
+      const steer = up <= down ? -1 : 1;
+      e.avoidVy = clamp(e.avoidVy + steer * 260 * dt, -155, 155);
+    } else {
+      e.avoidVy *= 0.9;
+    }
+  }
+
+  private crashFoe(e: Foe): void {
+    e.active = false;
+    this.engine.particles.burst(e.x, e.y, 8, { color: this.spec.palette[8], speed: 70, life: 0.4 });
   }
 
   private updateFoes(dt: number): void {
@@ -710,6 +743,9 @@ class HShooterGame implements GameInstance {
       const sx = e.x - this.scrollX; // screen x
 
       if (e.type === 'kamikaze' && e.state === ST_APPROACH && sx < KAMIKAZE_TRIGGER_SX) e.state = ST_HOMING;
+
+      // steer around terrain so a moving enemy never jams into an obstacle
+      if (e.type !== 'turret' && e.state !== ST_HOLD && sx < W + 40) this.avoidTerrain(e, dt);
 
       if (e.type === 'turret') {
         // mounted: no self-movement (scrolls off with the terrain)
@@ -741,6 +777,9 @@ class HShooterGame implements GameInstance {
         if (e.type === 'weaver') e.y += (Math.sin(e.t * 6 + e.phase) - Math.sin(prevT * 6 + e.phase)) * 14;
         if (e.state === ST_APPROACH && sx <= e.holdSX && e.holdDur > 0) { e.state = ST_HOLD; e.holdT = 0; }
       }
+
+      // last resort: if truly wedged (fully sealed pocket), crash it
+      if (e.stuckT > 0.8) { this.crashFoe(e); continue; }
 
       // fire aimed shots
       if (e.fireRate > 0) {

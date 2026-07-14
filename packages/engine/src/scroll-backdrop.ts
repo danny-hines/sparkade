@@ -61,15 +61,6 @@ function discV(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): 
   }
 }
 
-/** A smooth meandering vertical band (a river gorge). Integer wave count `k` so
- *  the sine period divides H and the band tiles vertically. */
-function windingBand(ctx: CanvasRenderingContext2D, cx: number, amp: number, k: number, width: number): void {
-  for (let y = 0; y < H; y++) {
-    const x = cx + amp * Math.sin((2 * Math.PI * k * y) / H);
-    ctx.fillRect(Math.round(x - width / 2), y, width, 1);
-  }
-}
-
 /** A fresh transparent W×H layer painted by `paint`. */
 function bakeLayer(paint: (ctx: CanvasRenderingContext2D) => void): HTMLCanvasElement {
   const c = document.createElement('canvas');
@@ -354,30 +345,46 @@ export function makeScrollBackdrop(
       break;
     }
     case 'canyon': {
-      // Rock ground + a river gorge, all on ONE plane; clouds faster on top.
+      // A vertical GORGE: two meandering rock walls (left + right) with a lit
+      // inner rim — you fly up the chasm between them. (This is the horizontal
+      // ceiling/floor corridor rotated 90°.) Clouds pass faster overhead.
+      const baseL = W * 0.15;
+      const baseR = W * 0.15;
+      const ampL = rng.int(26, 44);
+      const ampR = rng.int(26, 44);
+      const k = rng.int(2, 3);
+      const phL = rng.range(0, Math.PI * 2);
+      const phR = rng.range(0, Math.PI * 2);
+      const edgeL = (y: number): number => baseL + ampL * Math.sin((2 * Math.PI * k * y) / H + phL);
+      const edgeR = (y: number): number => W - baseR - ampR * Math.sin((2 * Math.PI * k * y) / H + phR);
       layers.push({
         canvas: bakeLayer((c) => {
+          const body = shade(mid, 0.4);
+          const band = shade(mid, 0.72);
+          const rim = shade(light, 1.25);
+          for (let y = 0; y < H; y++) {
+            const lx = Math.round(edgeL(y));
+            const rx = Math.round(edgeR(y));
+            c.fillStyle = body; c.fillRect(0, y, lx, 1);
+            c.fillStyle = band; c.fillRect(lx - 6, y, 6, 1);
+            c.fillStyle = rim; c.fillRect(lx - 2, y, 2, 1); // lit inner edge
+            c.fillStyle = body; c.fillRect(rx, y, W - rx, 1);
+            c.fillStyle = band; c.fillRect(rx, y, 6, 1);
+            c.fillStyle = rim; c.fillRect(rx, y, 2, 1);
+          }
+          // rock texture flecks inside the walls
           c.globalAlpha = 0.5;
           for (let i = 0; i < 44; i++) {
-            c.fillStyle = rng.chance(0.5) ? shade(mid, 0.6) : shade(mid, 1.2);
-            discV(c, rng.int(0, W - 1), rng.int(0, H - 1), rng.int(6, 18));
+            const y = rng.int(0, H - 1);
+            c.fillStyle = rng.chance(0.5) ? shade(mid, 0.35) : shade(mid, 0.7);
+            if (rng.chance(0.5)) fillV(c, rng.int(2, Math.max(3, Math.round(edgeL(y)) - 4)), y, 2, 2);
+            else fillV(c, rng.int(Math.min(W - 3, Math.round(edgeR(y)) + 4), W - 2), y, 2, 2);
           }
           c.globalAlpha = 1;
-          const cx = W / 2 + rng.int(-60, 60);
-          const amp = rng.int(50, 90);
-          const k = rng.int(1, 2);
-          c.fillStyle = shade(dark, 0.7); // gorge banks (shadow)
-          windingBand(c, cx, amp, k, rng.int(30, 40));
-          c.fillStyle = shade(light, 1.1); // water
-          windingBand(c, cx, amp, k, rng.int(14, 20));
-          c.fillStyle = shade(mid, 0.75); // ridges + scrub
-          for (let i = 0; i < 14; i++) fillV(c, rng.int(0, W - 1), rng.int(0, H - 1), rng.int(10, 26), rng.int(2, 4));
-          c.fillStyle = shade(leaf, 0.7);
-          for (let i = 0; i < 20; i++) fillV(c, rng.int(0, W - 1), rng.int(0, H - 1), 2, 2);
         }),
         p: 0.28,
       });
-      layers.push({ canvas: bakeClouds(11, shade(light, 1.25), 0.5, rng), p: 0.78 });
+      layers.push({ canvas: bakeClouds(8, shade(light, 1.25), 0.4, rng), p: 0.78 });
       break;
     }
     case 'swamp': {

@@ -291,6 +291,8 @@ class HShooterGame implements GameInstance {
   // ---------------------------------------------------------- tile stage
 
   private buildGrid(tiles: string[], legend: Record<string, TileKind>): void {
+    tiles = tiles ?? []; // tolerate a malformed/old spec rather than freeze
+    legend = legend ?? {};
     const rows = tiles.length;
     const cols = tiles[0]?.length ?? 0;
     const kinds: TileKind[] = new Array(cols * rows).fill('empty');

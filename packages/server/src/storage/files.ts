@@ -3,7 +3,7 @@
 // publish a partial game: everything is written to staging/<jobId>/ and
 // renamed into games/<gameId>/ in one atomic operation only after every gate
 // passes.
-import { cpSync, existsSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { LIBRARY } from '@sparkade/engine';
 import {
@@ -106,16 +106,29 @@ export function seedGoldenGames(files: GameFiles, db: Db, archetypeVersions: Rec
   for (const file of readdirSync(goldenDir)) {
     if (!file.endsWith('.json')) continue;
     const id = file.replace(/\.json$/, '');
-    if (db.getGame(id)) continue;
-    const spec = readJson<GameSpec>(join(goldenDir, file));
+    const srcPath = join(goldenDir, file);
+    const existing = db.getGame(id);
+    if (existing) {
+      // Built-in goldens must always match their source file. Skip only if the
+      // stored copy is byte-identical; otherwise fall through to RE-SEED (the
+      // golden was hand-edited, e.g. an archetype's level format changed).
+      if (!existing.golden) continue; // never touch a user game that shares the id
+      const storedPath = join(files.gameDir(id), 'game.json');
+      try {
+        if (existsSync(storedPath) && readFileSync(storedPath, 'utf8') === readFileSync(srcPath, 'utf8')) continue;
+      } catch {
+        continue;
+      }
+    }
+    const spec = readJson<GameSpec>(srcPath);
     if (!spec) continue;
     const dir = ensureDir(files.gameDir(id));
     ensureDir(join(dir, 'assets'));
-    cpSync(join(goldenDir, file), join(dir, 'game.json'));
+    cpSync(srcPath, join(dir, 'game.json'));
     const meta: GameMetaFile = {
       id,
       status: 'ready',
-      createdAt: nowIso(),
+      createdAt: existing?.createdAt ?? nowIso(),
       archetype: spec.archetype,
       seed: spec.seed,
       engineVersion: ENGINE_VERSION,

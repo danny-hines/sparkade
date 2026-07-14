@@ -39,6 +39,7 @@ export interface GameDetail {
     model: string;
     inputTokens: number;
     outputTokens: number;
+    cachedTokens: number;
     costUsd: number | null;
     failed: boolean;
     repair: boolean;

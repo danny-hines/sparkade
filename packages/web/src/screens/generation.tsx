@@ -3,12 +3,26 @@
 // job continues; a reload lands right back in the real job state.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import type { JobEvent, JobStage } from '@sparkade/shared';
-import { subscribeJob } from '../api';
+import type { JobEvent, JobStage, SystemInfo } from '@sparkade/shared';
+import { api, subscribeJob, type GameDetail } from '../api';
 import { FooterLegend, fmtElapsed, usd, useNow } from '../components';
 import { Icon, Btn } from '../icons';
 import { shellInput } from '../shell-input';
 import type { Screen } from '../app';
+
+const nfmt = (n: number): string => n.toLocaleString('en-US');
+
+/** The 16 colours the model chose, as a swatch strip. */
+function PaletteStrip(props: { colors: string[] }): ComponentChildren {
+  if (!props.colors.length) return null;
+  return (
+    <span class="gen-palette">
+      {props.colors.map((c, i) => (
+        <span key={i} class="gen-sw" style={`background:${c}`} />
+      ))}
+    </span>
+  );
+}
 
 const STAGES: { id: JobStage; label: string }[] = [
   { id: 'queued', label: 'Queued' },
@@ -40,6 +54,8 @@ export function GenerationScreen(props: {
   const [event, setEvent] = useState<JobEvent | null>(null);
   const [flavorIx, setFlavorIx] = useState(0);
   const [startClock] = useState(Date.now());
+  const [info, setInfo] = useState<SystemInfo | null>(null);
+  const [gd, setGd] = useState<GameDetail | null>(null);
   const eventRef = useRef<JobEvent | null>(null);
   eventRef.current = event;
   const baseElapsed = useRef(0);
@@ -60,6 +76,36 @@ export function GenerationScreen(props: {
       clearInterval(flavor);
     };
   }, [props.jobId]);
+
+  // Which model + provider is doing the work (for the "Meta Model API" credit).
+  useEffect(() => {
+    void api.systemInfo().then(setInfo).catch(() => {});
+  }, []);
+
+  // Poll the game detail so we can reveal the model's design (title/tagline/
+  // palette) the moment it lands, and tick the live token counter. All from
+  // existing endpoints — the SSE feed stays lean.
+  useEffect(() => {
+    let alive = true;
+    const fetchDetail = () => void api.getGame(props.gameId).then((d) => alive && setGd(d)).catch(() => {});
+    fetchDetail();
+    const t = setInterval(() => {
+      const e = eventRef.current;
+      if (e?.type === 'done' || e?.type === 'failed') return; // one more fetch happens on transition
+      fetchDetail();
+    }, 1400);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [props.gameId]);
+
+  // Final refresh once the job settles (accurate final token/cost numbers).
+  useEffect(() => {
+    if (event?.type === 'done' || event?.type === 'failed') {
+      void api.getGame(props.gameId).then(setGd).catch(() => {});
+    }
+  }, [event?.type, props.gameId]);
 
   useEffect(
     () =>
@@ -118,15 +164,43 @@ export function GenerationScreen(props: {
   const waiting = event?.type === 'progress' && event.waitingForNetwork;
   void elapsed;
 
+  // --- Muse Spark showcase (all derived from existing endpoints) ---
+  const isMock = info?.provider === 'mock' || info?.model === 'mock';
+  const modelName = info ? info.model : 'muse-spark-1.1'; // real model once loaded; 'mock' when mocked
+  const modelDisplay = isMock ? 'the mock model' : /muse-spark/i.test(modelName) ? 'Muse Spark' : modelName;
+  const providerLabel = isMock ? 'MOCK PROVIDER' : 'META MODEL API';
+  const idea = gd?.meta?.sourcePrompt ?? '';
+  const gi = gd?.item;
+  const designLanded = !!(gi && gi.tagline && gi.tagline !== 'Generating…');
+  const palette = gi?.cover?.palette ?? [];
+  const usage = gd?.usage ?? [];
+  const tokens = usage.reduce((a, u) => a + u.inputTokens + u.outputTokens, 0);
+  const cached = usage.reduce((a, u) => a + u.cachedTokens, 0);
+  const modelByline = (
+    <div class={`gen-byline${isMock ? ' mock' : ''}`}>
+      <Icon name="sparkle" /> {providerLabel}
+      <span class="gen-model">{modelName}</span>
+    </div>
+  );
+
   if (event?.type === 'done') {
     return (
       <div class="screen">
         <div class="center-col">
           <div style="font-size:56px"><Icon name="joystick" /></div>
           <h1 class="pixel" style="color:var(--ok)">GAME READY!</h1>
-          <div style="color:var(--text-dim);font-size:20px">
-            Final cost {usd(event.costUsd)} · took {fmtElapsed(event.elapsedMs)}
+          {gi && designLanded && (
+            <div class="gen-done-card">
+              <div class="reveal-title pixel">{gi.title}</div>
+              <div class="reveal-tagline">{gi.tagline}</div>
+              <PaletteStrip colors={palette} />
+            </div>
+          )}
+          <div style="color:var(--text-dim);font-size:18px">
+            {isMock ? 'The mock model' : modelDisplay} built it in {fmtElapsed(event.elapsedMs)} · {usd(event.costUsd)}
+            {tokens > 0 ? ` · ${nfmt(tokens)} tokens` : ''}
           </div>
+          {!isMock && <div class="gen-byline done"><Icon name="sparkle" /> META MODEL API<span class="gen-model">{modelName}</span></div>}
           <div class="focusable focused" style="padding:16px 44px;font-size:24px;margin-top:16px">
             <Icon name="play" /> Play now
           </div>
@@ -196,18 +270,36 @@ export function GenerationScreen(props: {
             );
           })}
         </div>
-        <div style="flex:1;display:flex;flex-direction:column;gap:18px">
-          <div style="font-size:21px">{detail || 'Warming up…'}</div>
-          <div class="flavor-line">{FLAVOR[flavorIx % FLAVOR.length]}</div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:13px">
+          {modelByline}
+          {idea && <div class="gen-idea">Your idea: “{idea}”</div>}
+          {designLanded && gi ? (
+            <div class="gen-reveal">
+              <div class="gen-reveal-label">{isMock ? 'The mock produced' : 'Muse Spark dreamed up'}</div>
+              <div class="reveal-title pixel">{gi.title}</div>
+              <div class="reveal-tagline">{gi.tagline}</div>
+              <div class="gen-reveal-meta">
+                <span class="gen-model">{gi.archetype}</span>
+                <PaletteStrip colors={palette} />
+              </div>
+            </div>
+          ) : (
+            <div class="flavor-line">{FLAVOR[flavorIx % FLAVOR.length]}</div>
+          )}
+          <div style="font-size:19px">{detail || 'Warming up…'}</div>
+          {tokens > 0 && (
+            <div class="gen-tokens">
+              <Icon name="sparkle" /> {nfmt(tokens)} tokens processed{cached > 0 ? ` · ${nfmt(cached)} cached` : ''}
+            </div>
+          )}
           {waiting && (
             <div style="color:var(--danger);font-size:19px">Waiting for network — the job will continue automatically.</div>
           )}
           {slow && !waiting && (
             <div style="color:var(--gold);font-size:18px">Taking longer than usual — still working.</div>
           )}
-          <div style="color:var(--text-dim);font-size:17px">
-            You can press <Btn>B</Btn> to browse or play — generation continues in the background and
-            survives a reboot.
+          <div style="color:var(--text-dim);font-size:16px">
+            Press <Btn>B</Btn> to browse or play — generation continues in the background.
           </div>
         </div>
       </div>

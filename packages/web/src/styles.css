@@ -781,6 +781,91 @@ h2.pixel {
   color: var(--gold);
 }
 
+/* --- Muse Spark showcase on the generation screen --- */
+.gen-byline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--cyan);
+}
+.gen-byline.mock {
+  color: var(--text-dim);
+}
+.gen-byline.done {
+  justify-content: center;
+  margin-top: 4px;
+}
+.gen-model {
+  background: rgba(65, 166, 246, 0.16);
+  color: var(--cyan);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+.gen-byline.mock .gen-model {
+  background: rgba(148, 176, 194, 0.14);
+  color: var(--text-dim);
+}
+.gen-idea {
+  font-size: 17px;
+  color: var(--text);
+}
+.gen-reveal {
+  border-left: 3px solid var(--cyan);
+  padding: 4px 0 4px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.gen-reveal-label {
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.reveal-title {
+  font-size: 22px;
+  color: var(--gold);
+}
+.reveal-tagline {
+  font-size: 16px;
+  color: var(--text-dim);
+}
+.gen-reveal-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.gen-palette {
+  display: inline-flex;
+  gap: 2px;
+}
+.gen-sw {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.gen-tokens {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 16px;
+  color: var(--cyan);
+}
+.gen-done-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+}
+
 /* ----------------------------------------------------------------- play */
 
 .play-screen {

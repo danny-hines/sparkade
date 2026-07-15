@@ -4,7 +4,7 @@
 // drop a photo to run the real vision analysis + render both styles for compare.
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { MultipartFile } from '@fastify/multipart';
-import { drawAvatarLikeness } from '../likeness/avatar';
+import { drawAvatarLikeness, drawAvatarSizes } from '../likeness/avatar';
 import { bakeLikeness, type LikenessArtifacts } from '../likeness/likeness';
 import { buildFaceAnalysisPrompt, buildPortraitPalette, type FaceFeatures } from '../likeness/features';
 import { generatePortrait } from '../likeness/portrait-gen';
@@ -13,20 +13,28 @@ import { stageProvider } from '../providers/index';
 import type { ConfigStore } from '../storage/config';
 
 const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
+// Candidate in-game head sizes for the "how big should the head be?" comparison.
+const COMPARE_SIZES = [12, 16, 20, 24, 28, 32, 48];
 
+const png = (b: Buffer): string => `data:image/png;base64,${b.toString('base64')}`;
 function toDataUris(a: LikenessArtifacts): { portrait: string; head16: string; head12: string } {
-  const png = (b: Buffer): string => `data:image/png;base64,${b.toString('base64')}`;
   return { portrait: png(a.portrait), head16: png(a.head16), head12: png(a.head12) };
+}
+async function headsUris(feat: FaceFeatures, detailAt: number): Promise<Record<number, string>> {
+  const bufs = await drawAvatarSizes(feat, COMPARE_SIZES, detailAt);
+  return Object.fromEntries(Object.entries(bufs).map(([s, b]) => [s, png(b)]));
 }
 
 export function registerDevLikenessRoutes(app: FastifyInstance, configStore: ConfigStore): void {
   // Hand-set FaceFeatures → drawn avatar. Deterministic and free; the lab calls
   // this on every control change for live iteration.
   app.post('/api/dev/likeness/render', async (req, reply) => {
-    const feat = (req.body as { features?: FaceFeatures } | null)?.features;
+    const body = req.body as { features?: FaceFeatures; detailAt?: number } | null;
+    const feat = body?.features;
     if (!feat || typeof feat !== 'object') return reply.code(400).send({ error: 'features required' });
-    const avatar = await drawAvatarLikeness(feat);
-    return { avatar: toDataUris(avatar) };
+    const detailAt = typeof body?.detailAt === 'number' ? body.detailAt : 16;
+    const [avatar, heads] = await Promise.all([drawAvatarLikeness(feat), headsUris(feat, detailAt)]);
+    return { avatar: toDataUris(avatar), heads };
   });
 
   // Photo → real vision analysis → detected features + BOTH renders (avatar +
@@ -58,14 +66,16 @@ export function registerDevLikenessRoutes(app: FastifyInstance, configStore: Con
       return reply.code(502).send({ error: `vision analysis failed: ${e instanceof Error ? e.message : String(e)}` });
     }
 
-    const [avatar, bake] = await Promise.all([
+    const [avatar, bake, heads] = await Promise.all([
       drawAvatarLikeness(features),
       bakeLikeness(photo, buildPortraitPalette(features), 10),
+      headsUris(features, 16),
     ]);
     return {
       features,
       avatar: toDataUris(avatar),
       bake: toDataUris(bake),
+      heads,
       photo: `data:image/jpeg;base64,${photo.toString('base64')}`,
     };
   });

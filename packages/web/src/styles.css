@@ -1393,6 +1393,20 @@ body.dev-gallery #root {
   border: 1px solid var(--line);
   border-radius: 6px;
 }
+.lab-compare {
+  margin: 8px 24px 32px;
+  padding: 18px 22px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #12101a;
+}
+.lab-compare-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
 .lab-empty {
   width: 220px;
   height: 220px;

@@ -113,10 +113,13 @@ function anchorsFor(faceShape: FaceShape, chin: ChinShape): number[] {
   return a;
 }
 
-/** One pixel avatar for a given size. */
-function drawAvatar(feat: FaceFeatures, size: number): Buffer {
+/** One pixel avatar for a given size. `detailAt` is the size at/above which the
+ *  fine features (brows, nose, structured facial hair) turn on — 32 by default
+ *  (they need the portrait), but the Likeness Lab lowers it to preview bigger
+ *  in-game heads. */
+function drawAvatar(feat: FaceFeatures, size: number, detailAt = 32): Buffer {
   const C = resolveColors(feat);
-  const detail = size >= 32; // brows / nose / glasses / structured facial hair need the portrait
+  const detail = size >= detailAt;
 
   const faceShape = feat.faceShape ?? 'oval';
   const chin = feat.chin ?? 'round';
@@ -321,9 +324,20 @@ function drawAvatar(feat: FaceFeatures, size: number): Buffer {
   return rim;
 }
 
+const toAvatarPng = (feat: FaceFeatures, size: number, detailAt = 32): Promise<Buffer> =>
+  sharp(drawAvatar(feat, size, detailAt), { raw: { width: size, height: size, channels: 4 } }).png().toBuffer();
+
 export async function drawAvatarLikeness(feat: FaceFeatures): Promise<LikenessArtifacts> {
-  const toPng = (size: number): Promise<Buffer> =>
-    sharp(drawAvatar(feat, size), { raw: { width: size, height: size, channels: 4 } }).png().toBuffer();
-  const [head12, head16, portrait] = await Promise.all([toPng(HEAD_SPRITE_SIZES[0]), toPng(HEAD_SPRITE_SIZES[1]), toPng(PORTRAIT_SIZE)]);
+  const [head12, head16, portrait] = await Promise.all([
+    toAvatarPng(feat, HEAD_SPRITE_SIZES[0]),
+    toAvatarPng(feat, HEAD_SPRITE_SIZES[1]),
+    toAvatarPng(feat, PORTRAIT_SIZE),
+  ]);
   return { head12, head16, portrait };
+}
+
+/** Render the avatar head at an arbitrary set of sizes (Likeness Lab size compare). */
+export async function drawAvatarSizes(feat: FaceFeatures, sizes: number[], detailAt = 32): Promise<Record<number, Buffer>> {
+  const entries = await Promise.all(sizes.map(async (s) => [s, await toAvatarPng(feat, s, detailAt)] as const));
+  return Object.fromEntries(entries);
 }

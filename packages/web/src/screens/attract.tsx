@@ -16,6 +16,43 @@ const W = 1024;
 const H = 600;
 const MAX_DREAMS = 8;
 const SPAWN_EVERY_S = 1.5;
+const COALESCE_S = 1.2; // how long the star-pixels take to rush in and assemble
+
+const easeOut = (t: number): number => 1 - (1 - t) ** 3;
+/** Smooth 0→1 ramp between edges a and b. */
+const smooth = (a: number, b: number, x: number): number => {
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/** Sample up to n opaque pixels (home position + colour) so a sprite can be
+ *  reconstituted from drifting star-pixels. Done once per pool sprite. */
+function samplePixels(img: HTMLCanvasElement, n: number): { hx: number; hy: number; color: string }[] {
+  const ctx = img.getContext('2d');
+  if (!ctx) return [];
+  const w = img.width;
+  const h = img.height;
+  let data: Uint8ClampedArray;
+  try {
+    data = ctx.getImageData(0, 0, w, h).data;
+  } catch {
+    return [];
+  }
+  const opaque: number[] = [];
+  for (let i = 0; i < w * h; i++) if ((data[i * 4 + 3] ?? 0) > 40) opaque.push(i);
+  if (!opaque.length) return [];
+  const out: { hx: number; hy: number; color: string }[] = [];
+  const step = Math.max(1, opaque.length / n);
+  for (let k = 0; out.length < n && Math.floor(k) < opaque.length; k += step) {
+    const idx = opaque[Math.floor(k)]!;
+    const o = idx * 4;
+    const r = data[o] ?? 0;
+    const gg = data[o + 1] ?? 0;
+    const bb = data[o + 2] ?? 0;
+    out.push({ hx: idx % w, hy: Math.floor(idx / w), color: `rgb(${r},${gg},${bb})` });
+  }
+  return out;
+}
 
 interface Dream {
   active: boolean;
@@ -32,6 +69,9 @@ interface Dream {
   /** Fully dissolved by this y — randomized so there's no visible cutoff line. */
   dissolveY: number;
   t: number;
+  /** Star-pixels that rush in to assemble the sprite: home (hx,hy) + colour +
+   *  scattered start offset (ox,oy) from the sprite centre. */
+  parts: { hx: number; hy: number; color: string; ox: number; oy: number }[];
 }
 
 function DreamField(props: { games: GameListItem[] }): ComponentChildren {
@@ -44,7 +84,7 @@ function DreamField(props: { games: GameListItem[] }): ComponentChildren {
 
     // Decode every cover sprite once (hero, showcase enemy, boss — per game,
     // in that game's own palette). Bosses drift as big dim shapes.
-    const pool: { img: HTMLCanvasElement; big: boolean }[] = [];
+    const pool: { img: HTMLCanvasElement; big: boolean; pixels: { hx: number; hy: number; color: string }[] }[] = [];
     for (const g of props.games) {
       const cover = g.cover;
       if (!cover) continue;
@@ -55,7 +95,8 @@ function DreamField(props: { games: GameListItem[] }): ComponentChildren {
       ] as const) {
         if (!data) continue;
         try {
-          pool.push({ img: decodeSprite(data, cover.palette), big });
+          const img = decodeSprite(data, cover.palette);
+          pool.push({ img, big, pixels: samplePixels(img, big ? 12 : 16) });
         } catch {
           /* skip malformed sprite */
         }
@@ -82,6 +123,7 @@ function DreamField(props: { games: GameListItem[] }): ComponentChildren {
       spawnY: H,
       dissolveY: 150,
       t: 0,
+      parts: [],
     }));
 
     const spawn = () => {
@@ -92,8 +134,17 @@ function DreamField(props: { games: GameListItem[] }): ComponentChildren {
       slot.img = pick.img;
       slot.scale = pick.big ? 2 : Math.random() < 0.4 ? 3 : 2;
       slot.x = 40 + Math.random() * (W - 120);
-      slot.spawnY = H + 20;
+      const sh = pick.img.height * slot.scale;
+      const halfW = (pick.img.width * slot.scale) / 2;
+      // Coalesce in the lower third — clearly on-screen — then drift up and dissolve.
+      slot.spawnY = H - 60 - Math.random() * 100 - sh / 2;
       slot.y = slot.spawnY;
+      // Scatter each pixel out from the centre; it rushes back to home as it forms.
+      slot.parts = pick.pixels.map((p) => {
+        const a = Math.random() * Math.PI * 2;
+        const dist = halfW * (0.7 + Math.random() * 1.2);
+        return { hx: p.hx, hy: p.hy, color: p.color, ox: Math.cos(a) * dist, oy: Math.sin(a) * dist };
+      });
       slot.speed = 16 + Math.random() * 18;
       slot.swayAmp = 8 + Math.random() * 14;
       slot.swayHz = 0.08 + Math.random() * 0.1;
@@ -126,25 +177,41 @@ function DreamField(props: { games: GameListItem[] }): ComponentChildren {
           d.active = false;
           continue;
         }
-        // idea → reality: fade in over the first ~130px of rise…
-        const risen = d.spawnY - d.y;
-        const fadeIn = Math.min(1, risen / 130);
-        // …then dissolve approaching this dream's own ceiling.
+        // Dissolve approaching this dream's own ceiling.
         const fadeOut = Math.max(0, Math.min(1, (d.y + h - d.dissolveY) / 110));
-        const alpha = d.peakAlpha * Math.min(fadeIn, fadeOut);
-        if (alpha <= 0.01) continue;
+        if (fadeOut <= 0.01) continue;
         const x = Math.round(d.x + Math.sin(d.t * d.swayHz * Math.PI * 2 + d.swayPhase) * d.swayAmp);
         const y = Math.round(d.y);
-        ctx.globalAlpha = alpha;
-        ctx.drawImage(d.img, x, y, d.img.width * d.scale, h);
-        // a few twinkles while materializing
-        if (fadeIn < 1) {
-          ctx.globalAlpha = (1 - fadeIn) * 0.8;
-          ctx.fillStyle = '#f4f4f4';
-          for (let i = 0; i < 3; i++) {
-            const tx = x + Math.round(((i * 53 + d.swayPhase * 37) % (d.img.width * d.scale + 16)) - 8);
-            const ty = y + Math.round((i * 31 + d.t * 60) % h);
-            ctx.fillRect(tx, ty, 2, 2);
+        const sw = d.img.width * d.scale;
+        const c = Math.min(1, d.t / COALESCE_S); // 0 = scattered star-pixels, 1 = assembled
+
+        // The finished sprite ramps in as the star-pixels land, holds at
+        // peakAlpha, then dissolves near its ceiling.
+        const spriteAlpha = d.peakAlpha * smooth(0.45, 1, c) * fadeOut;
+        if (spriteAlpha > 0.01) {
+          ctx.globalAlpha = spriteAlpha;
+          ctx.drawImage(d.img, x, y, sw, h);
+        }
+
+        // Star-pixels rush from a scattered ring into their home pixels — bright
+        // white in flight, settling into the sprite's own colours — and fade out
+        // as the assembled sprite takes over.
+        if (c < 1) {
+          const pAlpha = (1 - smooth(0.5, 1, c)) * fadeOut;
+          if (pAlpha > 0.01) {
+            const inv = 1 - easeOut(c); // 1 = scattered, 0 = home
+            const white = easeOut(c) < 0.7;
+            const cx = x + sw / 2;
+            const cy = y + h / 2;
+            const sz = Math.max(2, Math.round(d.scale));
+            ctx.globalAlpha = pAlpha;
+            if (white) ctx.fillStyle = '#ffffff';
+            for (const p of d.parts) {
+              const homeX = x + p.hx * d.scale;
+              const homeY = y + p.hy * d.scale;
+              if (!white) ctx.fillStyle = p.color;
+              ctx.fillRect(Math.round(homeX + (cx + p.ox - homeX) * inv), Math.round(homeY + (cy + p.oy - homeY) * inv), sz, sz);
+            }
           }
         }
         ctx.globalAlpha = 1;

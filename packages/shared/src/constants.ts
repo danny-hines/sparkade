@@ -329,9 +329,30 @@ export const LIB_BOSSES_CREATURE = [
   'boss_wraith',
   'boss_ooze',
   'boss_automaton',
+  'boss_cyclops',
+  'boss_toad',
+  'boss_treant',
+  'boss_beholder',
+  'boss_demon',
+  'boss_hydra',
+  'boss_pharaoh',
+  'boss_yeti',
+  'boss_scorpion',
+  'boss_gorgon',
   'boss_titan',
 ] as const;
-export const LIB_BOSSES_SHOOTER = ['boss_leviathan', 'boss_fortress', 'boss_hive', 'boss_prism'] as const;
+export const LIB_BOSSES_SHOOTER = [
+  'boss_leviathan',
+  'boss_fortress',
+  'boss_hive',
+  'boss_prism',
+  'boss_saucer',
+  'boss_core',
+  'boss_dreadnought',
+  'boss_mecha',
+  'boss_wasp',
+  'boss_bomber',
+] as const;
 export const LIB_BOSSES_PLATFORMER = LIB_BOSSES_CREATURE;
 export const LIB_BOSSES_ADVENTURE = LIB_BOSSES_CREATURE;
 

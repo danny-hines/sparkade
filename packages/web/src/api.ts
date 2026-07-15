@@ -8,6 +8,7 @@ import type {
   JobEvent,
   JobRecord,
   LogicalButton,
+  PartialSpec,
   ScoreRow,
   SystemInfo,
   WifiNetwork,
@@ -60,6 +61,8 @@ export interface SettingsPayload {
 export const api = {
   listGames: () => fetch('/api/games').then((r) => json<GameListItem[]>(r)),
   getGame: (id: string) => fetch(`/api/games/${id}`).then((r) => json<GameDetail>(r)),
+  getPartial: (id: string) =>
+    fetch(`/api/games/${id}/partial`).then((r) => json<{ partial: PartialSpec | null }>(r)),
   deleteGame: (id: string) =>
     fetch(`/api/games/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
   retryGame: (id: string) =>
@@ -110,6 +113,12 @@ export const api = {
       body: JSON.stringify(patch),
     }).then((r) => json<{ ok: boolean }>(r)),
   systemInfo: () => fetch('/api/system/info').then((r) => json<SystemInfo>(r)),
+  updateCheck: () =>
+    fetch('/api/system/update/check').then((r) =>
+      json<{ current: string; latest: string | null; available: boolean; error?: string }>(r),
+    ),
+  updateInstall: () =>
+    fetch('/api/system/update', { method: 'POST' }).then((r) => json<{ started: boolean }>(r)),
   wifiNetworks: () => fetch('/api/system/wifi/networks').then((r) => json<WifiNetwork[]>(r)),
   wifiStatus: () => fetch('/api/system/wifi/status').then((r) => json<WifiStatus>(r)),
   wifiConnect: async (

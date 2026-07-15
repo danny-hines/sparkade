@@ -54,10 +54,14 @@ export function SettingsScreen(props: {
   const [smartFeatures, setSmartFeatures] = useState(props.settings?.likeness?.smartFeatures ?? false);
   const [likenessStyle, setLikenessStyle] = useState<'photo' | 'avatar'>(props.settings?.likeness?.style ?? 'photo');
   const [portraitGen, setPortraitGen] = useState(props.settings?.likeness?.portraitGen?.enabled ?? false);
+  const [upState, setUpState] = useState<'idle' | 'checking' | 'available' | 'uptodate' | 'installing' | 'error'>('idle');
+  const [upLatest, setUpLatest] = useState<string | null>(null);
+  const [upMsg, setUpMsg] = useState('');
   const oskTarget = useRef<string>('');
   const deviceListRef = useRef<HTMLDivElement>(null);
-  const stateRef = useRef({ tab, zone, panelCursor, tabs, osk, networks, inputs });
-  stateRef.current = { tab, zone, panelCursor, tabs, osk, networks, inputs };
+  const systemRef = useRef<HTMLDivElement>(null);
+  const stateRef = useRef({ tab, zone, panelCursor, tabs, osk, networks, inputs, info, upState });
+  stateRef.current = { tab, zone, panelCursor, tabs, osk, networks, inputs, info, upState };
 
   useEffect(() => {
     void api.systemInfo().then(setInfo).catch(() => {});
@@ -90,6 +94,13 @@ export function SettingsScreen(props: {
     if (tab !== 'devices' || zone !== 'panel') return;
     deviceListRef.current?.querySelector('.focusable.focused')?.scrollIntoView({ block: 'nearest' });
   }, [tab, zone, panelCursor, inputs]);
+
+  // The System-info tab can overflow (long data dir + update section); keep the
+  // update button in view once it's focused.
+  useEffect(() => {
+    if (tab !== 'system' || zone !== 'panel') return;
+    systemRef.current?.querySelector('.menu-item')?.scrollIntoView({ block: 'nearest' });
+  }, [tab, zone, upState]);
 
   const saveAudio = (next: typeof audio) => {
     setAudio(next);
@@ -134,6 +145,50 @@ export function SettingsScreen(props: {
       return next;
     });
     shellInput.blip('select');
+  };
+
+  const runUpdateCheck = () => {
+    setUpState('checking');
+    setUpMsg('');
+    void api
+      .updateCheck()
+      .then((r) => {
+        if (r.available) {
+          setUpState('available');
+          setUpLatest(r.latest);
+          setUpMsg('');
+        } else {
+          setUpState('uptodate');
+          setUpLatest(null);
+          setUpMsg(r.error ? `Couldn't reach the update server: ${r.error}` : '');
+        }
+      })
+      .catch((e: Error) => {
+        setUpState('error');
+        setUpMsg(e.message);
+      });
+  };
+  const runUpdateInstall = () => {
+    setUpState('installing');
+    setUpMsg('');
+    void api
+      .updateInstall()
+      .then(() =>
+        setUpMsg(
+          'Updating — the cabinet will restart and reload itself when done. This can take a few minutes; leave it be.',
+        ),
+      )
+      .catch((e: Error) => {
+        setUpState('error');
+        setUpMsg(e.message);
+      });
+  };
+  // A on the System-info update button: check first, install once one is found.
+  const updateAction = (state: typeof upState) => {
+    if (state === 'checking' || state === 'installing') return;
+    shellInput.blip('select');
+    if (state === 'available') runUpdateInstall();
+    else runUpdateCheck();
   };
 
   useEffect(
@@ -271,6 +326,9 @@ export function SettingsScreen(props: {
               }
             }
           }
+        } else if (s.tab === 'system') {
+          // Only the update button is focusable, and only on the cabinet.
+          if (btn === 'A' && s.info?.isPi) updateAction(s.upState);
         }
       }),
     [audio, props.go],
@@ -444,7 +502,7 @@ export function SettingsScreen(props: {
             </div>
           )}
           {tab === 'system' && info && (
-            <div>
+            <div class="system-scroll" ref={systemRef}>
               <div class="kv"><span class="k">Version</span><span>{info.version}</span></div>
               <div class="kv"><span class="k">IP address</span><span>{info.ip}</span></div>
               <div class="kv">
@@ -460,6 +518,44 @@ export function SettingsScreen(props: {
                 <span style="color:var(--gold)">{usd(info.lifetimeSpendUsd)}</span>
               </div>
               <div class="kv"><span class="k">Hardware</span><span>{info.isPi ? (info.forcedPi ? 'Forced Pi (mock)' : 'Raspberry Pi') : 'Dev machine'}</span></div>
+              {info.isPi && (
+                <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--line,#333)">
+                  <div class="kv">
+                    <span class="k">Software update</span>
+                    <span>
+                      {upState === 'available' ? (
+                        <span style="color:var(--gold)">{upLatest} available</span>
+                      ) : upState === 'checking' ? (
+                        'Checking…'
+                      ) : upState === 'installing' ? (
+                        <span style="color:var(--gold)">Updating…</span>
+                      ) : upState === 'uptodate' ? (
+                        <span style="color:var(--ok)">Up to date</span>
+                      ) : (
+                        '—'
+                      )}
+                    </span>
+                  </div>
+                  <div class={`focusable menu-item ${zone === 'panel' ? 'focused' : ''}`} style="margin-top:8px;max-width:360px;font-size:16px">
+                    <span class="icon">
+                      <Icon
+                        name={upState === 'checking' || upState === 'installing' ? 'sparkle' : 'refresh'}
+                        class={upState === 'checking' || upState === 'installing' ? 'spin' : ''}
+                      />
+                    </span>
+                    {upState === 'available'
+                      ? `Install update (${upLatest})`
+                      : upState === 'checking'
+                        ? 'Checking…'
+                        : upState === 'installing'
+                          ? 'Updating — reloading soon'
+                          : 'Check for updates'}
+                  </div>
+                  {upMsg && (
+                    <p style="color:var(--text-dim);font-size:14px;margin-top:8px;max-width:440px;line-height:1.5">{upMsg}</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
           {tab === 'model' && (

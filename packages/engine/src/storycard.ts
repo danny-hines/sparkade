@@ -52,6 +52,18 @@ export class StoryCards {
     return true;
   }
 
+  /** Attract/demo: drop all remaining cards and fire onAllDone so play begins
+   *  immediately (no intro text to read in a library preview). */
+  skip(): void {
+    this.queue = [];
+    this.revealed = 0;
+    this.t = 0;
+    this.fullyRevealedAt = -1;
+    const cb = this.onAllDone;
+    this.onAllDone = null;
+    cb?.();
+  }
+
   private advance(): void {
     this.queue.shift();
     this.revealed = 0;

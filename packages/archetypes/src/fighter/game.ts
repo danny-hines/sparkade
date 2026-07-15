@@ -298,8 +298,10 @@ class FighterGame implements GameInstance {
     // live round
     this.timer = Math.max(0, this.timer - dt);
     this.faceOff();
-    this.control(this.p, dt, input);
-    this.aiControl(this.o, dt);
+    // In a library demo both fighters run on AI so the match plays itself.
+    if (this.engine.attract) this.aiControl(this.p, this.o, dt);
+    else this.control(this.p, dt, input);
+    this.aiControl(this.o, this.p, dt);
     this.stepActor(this.p, dt);
     this.stepActor(this.o, dt);
     this.resolveHits(this.p, this.o);
@@ -389,12 +391,11 @@ class FighterGame implements GameInstance {
 
   // --------------------------------------------------------------------- AI
 
-  private aiControl(a: Actor, dt: number): void {
+  private aiControl(a: Actor, foe: Actor, dt: number): void {
     if (a.state === 'ko') return;
     this.tickStun(a, dt);
     if (a.state === 'hitstun' || a.state === 'blockstun' || a.state === 'attack') return;
 
-    const foe = this.p;
     const dist = Math.abs(foe.x - a.x);
     const dir = foe.x >= a.x ? 1 : -1;
     const inRange = dist < 46;

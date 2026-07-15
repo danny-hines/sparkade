@@ -14,6 +14,7 @@ import type { ConfigStore } from '../storage/config';
 import type { Db } from '../storage/db';
 import type { GameFiles } from '../storage/files';
 import { connectWifi, listNetworks, wifiStatus } from '../system/wifi';
+import { checkForUpdate, startUpdate } from '../system/update';
 import { piMode, primaryIp } from '../util';
 import { registerDevAssetRoutes } from './dev-assets';
 import { registerDevLikenessRoutes } from './dev-likeness';
@@ -181,6 +182,15 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       assets,
       usage: db.usageForGame(id),
     };
+  });
+
+  // Stable pieces built so far (palette/sprites/music), surfaced live during
+  // generation. Null once published (staging is gone) or before design lands.
+  app.get('/api/games/:id/partial', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = db.getGame(id);
+    if (!row) return reply.code(404).send({ error: 'unknown game' });
+    return { partial: row.jobId ? files.readPartial(row.jobId) : null };
   });
 
   app.get('/api/games/:id/assets/:name', async (req, reply) => {
@@ -401,6 +411,14 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       const res = await connectWifi(ssid, psk);
       if (res.ok) return { ok: true, ssid: res.ssid };
       return reply.code(502).send({ ok: false, reason: res.reason, error: res.message });
+    });
+
+    // ---- self-update (cabinet only) --------------------------------------------
+    app.get('/api/system/update/check', async () => checkForUpdate(ctx.version));
+    app.post('/api/system/update', async (_req, reply) => {
+      const res = startUpdate(join(files.dir, 'update.log'));
+      if (!res.started) return reply.code(409).send({ error: res.reason ?? 'update failed to start' });
+      return { started: true };
     });
   }
 }

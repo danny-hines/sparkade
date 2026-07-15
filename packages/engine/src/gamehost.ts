@@ -50,6 +50,9 @@ export interface EngineContext {
   hud: Hud;
   portrait: CanvasImageSource | null;
   spec: GameSpec;
+  /** True when the host runs as a self-playing library demo — archetypes can
+   *  read this to drive themselves (e.g. the fighter runs both sides on AI). */
+  attract?: boolean;
   shake(ms?: number, magnitude?: number): void;
   hitStop(ms?: number): void;
 }
@@ -105,6 +108,9 @@ export class GameHost {
       likeness: LikenessAssets | null;
       volumes: { musicVol: number; sfxVol: number; uiVol: number };
       callbacks: GameHostCallbacks;
+      /** Library demo: skip the how-to card, self-play, and loop forever
+       *  instead of showing the score/initials flow. */
+      attract?: boolean;
     },
   ) {
     this.renderer = new Renderer(opts.canvas);
@@ -135,6 +141,7 @@ export class GameHost {
       hud: new Hud(opts.spec.palette),
       portrait: opts.likeness?.portrait ?? null,
       spec: opts.spec,
+      attract: !!opts.attract,
       shake: (ms = FEEL.screenShakeMs, magnitude = 3) => this.renderer.shake(ms, magnitude),
       hitStop: (ms = FEEL.hitStopMs) => {
         this.hitStopMs = Math.max(this.hitStopMs, ms);
@@ -161,6 +168,11 @@ export class GameHost {
 
   start(): void {
     this.opts.input.swallow();
+    if (this.opts.attract) {
+      // No how-to card in a library demo — jump straight into self-play.
+      this.state = 'game';
+      this.instance.start();
+    }
     this.loop.start();
   }
 
@@ -203,8 +215,12 @@ export class GameHost {
       }
       case 'game': {
         if (this.engineCtx.cards.active) {
-          this.engineCtx.cards.update(dt, input);
-          break;
+          if (this.opts.attract) {
+            this.engineCtx.cards.skip(); // demos never sit on intro text
+          } else {
+            this.engineCtx.cards.update(dt, input);
+            break;
+          }
         }
         if (input.START.pressed) {
           this.state = 'paused';
@@ -223,6 +239,10 @@ export class GameHost {
         this.weather.update(dt);
         const result = this.instance.result;
         if (result) {
+          if (this.opts.attract) {
+            this.playAgain(); // loop the demo forever; never show the score flow
+            break;
+          }
           this.music.stopSong();
           this.music.playJingle(result.outcome === 'won' ? 'victory' : 'gameover');
           this.sfx.play(result.outcome === 'won' ? 'win' : 'lose');

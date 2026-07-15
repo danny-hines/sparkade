@@ -20,6 +20,7 @@ import {
   type JobEvent,
   type JobStage,
   type LintError,
+  type PartialSpec,
   type SparkadeConfig,
   type StageName,
 } from '@sparkade/shared';
@@ -170,7 +171,12 @@ export class GenerationRunner {
       error: null,
       attempt: job.attempt + 1,
     });
-    this.db.setGameStatus(gameId, 'queued');
+    // Blank slate: clear the failed attempt's design and its leftover preview so
+    // the generation screen starts fresh (no stale title/palette/sprites/music)
+    // until the new run repopulates them. The photo lives in the same staging
+    // dir and is preserved; cost history is intentionally kept.
+    this.db.resetGameForRetry(gameId, job.promptText.slice(0, 28).trim() || 'New game');
+    this.files.clearPartial(job.id);
     this.enqueue(job.id);
     return { jobId: job.id };
   }
@@ -421,6 +427,26 @@ export class GenerationRunner {
         archetypeVersion: archetypes[archetype].version,
       });
 
+      // Surface stable pieces to the generation screen the instant each pass
+      // lands — palette/title now, sprites and music as they finish — so the
+      // wait shows the model's real output instead of a spinner. Best-effort:
+      // a failed partial write never derails generation.
+      const partial: PartialSpec = {
+        archetype,
+        title: design.title,
+        tagline: design.tagline,
+        palette: [...design.palette],
+      };
+      const pushPartial = (patch: Partial<PartialSpec>) => {
+        Object.assign(partial, patch);
+        try {
+          this.files.writePartial(jobId, partial);
+        } catch {
+          /* preview is a nicety — never fail generation over it */
+        }
+      };
+      pushPartial({});
+
       // ---- Spec passes (parallel) ----------------------------------------
       emit('writing-spec', 'Writing levels, entities and music…', { unitsDone: 0, unitsTotal: 3 });
       let unitsDone = 0;
@@ -436,10 +462,12 @@ export class GenerationRunner {
         }),
         callLlm('entities', buildEntitiesPrompt(archetype, design, !!photo, recentUse), { stage: 'writing-spec', label: 'Casting entities…' }).then((r) => {
           parts.entities = r as SpecParts['entities'];
+          pushPartial({ sprites: parts.entities?.sprites as PartialSpec['sprites'] });
           tick('Entities');
         }),
         callLlm('music', buildMusicPrompt(archetype, design), { stage: 'writing-spec', label: 'Composing music…' }).then((r) => {
           parts.music = (r as { music: unknown }).music ?? r;
+          pushPartial({ music: parts.music as PartialSpec['music'] });
           tick('Music');
         }),
       ]);

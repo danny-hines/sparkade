@@ -31,6 +31,9 @@ export class ChiptunePlayer {
   constructor(
     private audio: AudioSys,
     private music: MusicBlock,
+    /** Optional destination in place of the shared music bus — lets a caller own
+     *  a private gain node (e.g. a preview fade-in) without touching global volume. */
+    private outputBus?: GainNode,
   ) {}
 
   private ensureWaves(): void {
@@ -95,7 +98,7 @@ export class ChiptunePlayer {
     const ctx = this.audio.context();
     while (this.nextBarTime < ctx.currentTime + LOOKAHEAD_S) {
       const bar = this.song.bars[this.nextBarIndex % this.song.bars.length]!;
-      this.scheduleBar(bar, this.nextBarTime, this.song.secondsPerStep, this.audio.musicBus);
+      this.scheduleBar(bar, this.nextBarTime, this.song.secondsPerStep, this.outputBus ?? this.audio.musicBus);
       this.nextBarTime += this.song.barSeconds;
       this.nextBarIndex++;
     }

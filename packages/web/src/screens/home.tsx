@@ -10,6 +10,7 @@ import { api, type GameDetail } from '../api';
 import { FooterLegend, GameCover, HoldRing, Modal, usd } from '../components';
 import { shellInput } from '../shell-input';
 import { Icon, Btn, type IconName } from '../icons';
+import { LibraryDemo } from './library-demo';
 import type { Screen } from '../app';
 
 type Action = { key: string; label: ComponentChildren; danger?: boolean };
@@ -338,15 +339,23 @@ function DetailPanel(props: {
   const scrollable = !(scroll.atTop && scroll.atBottom);
   return (
     <div class="home-detail-inner">
-      <div class="home-detail-head">
-        <GameCover cover={item.cover} gameId={item.id} seedText={item.title} class="home-detail-cover" />
-        <div class="home-detail-meta">
-          <div class="home-detail-title">{item.title}</div>
-          {item.tagline && <div class="home-detail-tag">{item.tagline}</div>}
-          <span class={`badge ${item.golden ? 'golden' : item.status}`}>
-            {item.golden ? 'Built-in' : item.status}
-          </span>
-        </div>
+      <div class="home-detail-stage">
+        <LibraryDemo
+          key={item.id}
+          gameId={item.id}
+          ready={item.status === 'ready'}
+          archetype={item.archetype}
+          fallback={
+            <GameCover cover={item.cover} gameId={item.id} seedText={item.title} class="home-detail-cover-full" />
+          }
+        />
+      </div>
+      <div class="home-detail-meta">
+        <div class="home-detail-title">{item.title}</div>
+        {item.tagline && <div class="home-detail-tag">{item.tagline}</div>}
+        <span class={`badge ${item.golden ? 'golden' : item.status}`}>
+          {item.golden ? 'Built-in' : item.status}
+        </span>
       </div>
 
       <div class="home-synopsis" ref={props.scrollRef} onScroll={recompute}>
@@ -454,6 +463,10 @@ function DeleteModal(props: {
           const next = v + 50;
           if (next >= DELETE_HOLD_MS && !fired.current) {
             fired.current = true;
+            // A is still physically held as the modal closes — swallow it so the
+            // continuing hold can't seed the 5s remap trigger once this modal's
+            // input suppression lifts (release + re-press starts a fresh hold).
+            shellInput.swallow();
             callbacksRef.current.onConfirmed();
           }
           return next;

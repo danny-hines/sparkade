@@ -74,6 +74,8 @@ sparkade update                               # pull latest → install (only if
 sparkade backup [file] / backup restore <file>
 ```
 
+No SSH needed to update: **Settings → System info → Check for updates** runs the same `sparkade update` flow from the cabinet (detached so it survives the service restart), then the kiosk hard-reloads itself.
+
 ## Architecture
 
 ```

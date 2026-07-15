@@ -24,7 +24,7 @@ Performance budget for all: ≤24 active entities on screen, level width ≤256 
 
 ## Make it clearly different
 
-The user message lists the games already on this cabinet. Make something CLEARLY different from every one of them in title, premise, palette mood and musical key.
+The user message lists the games already on this cabinet. Make something CLEARLY different from every one of them in title, premise, palette mood, musical key AND musical genre/feel (don't let every game be a minor-key march at a slightly different tempo).
 
 ## Palette
 
@@ -47,7 +47,7 @@ Pick a palette with a strong, specific MOOD, and a hue family clearly different 
 
 ## Music brief
 
-Pick a real key (e.g. "C minor") and a bpm that fits the mood. Later the composer writes diatonically in your key with a 4-chord progression, so name the mood precisely ("wistful waltz", "driving heroic march").
+Give the composer a distinct musical IDENTITY, not just a key. In `themeMood` name a genre + feel in a few words that fit this world and differ from every other game on the cabinet — e.g. "eerie Phrygian dirge", "upbeat surf-rock", "driving synthwave march", "baroque harpsichord waltz", "tense minimalist pulse", "triumphant Mixolydian fanfare", "dreamy Lydian lullaby", "punchy pentatonic action". Then pick a real `key` (e.g. "C minor", "E Dorian") and a `bpm` that fits the energy (ballad 90-110, mid 120-150, frantic 160-190). Make `bossMood` a genuinely contrasting piece (darker mode, higher energy) — not the theme sped up. The composer honours these exactly, so the more specific and varied you are here, the less every game sounds alike.
 
 ## Story
 

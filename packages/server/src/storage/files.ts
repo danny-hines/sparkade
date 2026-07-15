@@ -11,6 +11,7 @@ import {
   type CoverData,
   type GameMetaFile,
   type GameSpec,
+  type PartialSpec,
   type SpriteData,
 } from '@sparkade/shared';
 import { atomicWriteFile, ensureDir, nowIso, readJson, repoRoot } from '../util';
@@ -43,6 +44,22 @@ export class GameFiles {
 
   writeMeta(gameId: string, meta: GameMetaFile): void {
     atomicWriteFile(join(this.gameDir(gameId), 'meta.json'), JSON.stringify(meta, null, 2));
+  }
+
+  /** Snapshot of the stable pieces built so far, surfaced to the generation
+   *  screen ahead of publish. Lives in staging and is discarded with it. */
+  writePartial(jobId: string, partial: PartialSpec): void {
+    atomicWriteFile(join(this.stagingFor(jobId), 'partial.json'), JSON.stringify(partial));
+  }
+
+  readPartial(jobId: string): PartialSpec | null {
+    return readJson<PartialSpec>(join(this.stagingDir, jobId, 'partial.json'));
+  }
+
+  /** Drop the preview snapshot without touching the rest of staging (e.g. the
+   *  photo), so a retry doesn't surface last run's sprites/music. */
+  clearPartial(jobId: string): void {
+    rmSync(join(this.stagingDir, jobId, 'partial.json'), { force: true });
   }
 
   /**

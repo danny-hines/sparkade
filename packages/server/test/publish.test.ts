@@ -170,6 +170,49 @@ describe('jobs and the immutable cost ledger', () => {
     expect(db.jobCost('j3')).toBeNull();
   });
 
+  it('retry resets the game to a blank slate but preserves the photo and cost ledger', () => {
+    // A failed attempt left a fully-populated row + a preview snapshot in staging.
+    db.upsertGame({
+      id: 'gr',
+      title: 'Danny: Neon Verge',
+      tagline: 'Run the sleeping skyline.',
+      archetype: 'platformer',
+      status: 'failed',
+      createdAt: new Date().toISOString(),
+      golden: false,
+      jobId: 'jr',
+      costUsd: 0.15,
+      cover: { palette: new Array(16).fill('#abcdef'), hero: null },
+      failure: { code: 'validation-failed', message: 'nope' },
+      engineVersion: '1.0.0',
+      archetypeVersion: '1.0.0',
+    });
+    db.insertUsage({ jobId: 'jr', gameId: 'gr', stage: 'design', model: 'm', provider: 'p', inputTokens: 500, outputTokens: 200, costUsd: 0.15, failed: false, repair: false });
+    const staging = files.stagingFor('jr');
+    writeFileSync(join(staging, 'photo.jpg'), Buffer.from([0xff, 0xd8])); // must survive retry
+    files.writePartial('jr', {
+      archetype: 'platformer',
+      title: 'Danny: Neon Verge',
+      tagline: 'Run the sleeping skyline.',
+      palette: new Array(16).fill('#abcdef'),
+    });
+    expect(files.readPartial('jr')).not.toBeNull();
+
+    // Retry's blank-slate step (what retryJob performs before re-enqueueing).
+    db.resetGameForRetry('gr', 'a fresh idea');
+    files.clearPartial('jr');
+
+    const row = db.getGame('gr')!;
+    expect(row.status).toBe('queued');
+    expect(row.title).toBe('a fresh idea');
+    expect(row.tagline).toBe('Generating…'); // designLanded=false → reveal hidden
+    expect(row.cover).toBeNull(); // no stale palette
+    expect(row.failure).toBeNull();
+    expect(files.readPartial('jr')).toBeNull(); // no stale sprites/music
+    expect(existsSync(join(staging, 'photo.jpg'))).toBe(true); // photo preserved
+    expect(db.jobCost('jr')).toBeCloseTo(0.15, 9); // cost history preserved
+  });
+
   it('scores keep a top list per game', () => {
     for (let i = 0; i < 12; i++) db.addScore('g4', 'AAA', i * 100);
     const top = db.topScores('g4');

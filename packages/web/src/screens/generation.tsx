@@ -3,14 +3,65 @@
 // job continues; a reload lands right back in the real job state.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import type { JobEvent, JobStage, SystemInfo } from '@sparkade/shared';
+import type { JobEvent, JobStage, PartialSpec, SpriteData, SpritesBlock, SystemInfo } from '@sparkade/shared';
+import { ChiptunePlayer, decodeSprite, LIBRARY } from '@sparkade/engine';
 import { api, subscribeJob, type GameDetail } from '../api';
 import { FooterLegend, fmtElapsed, usd, useNow } from '../components';
-import { Icon, Btn } from '../icons';
+import { Icon } from '../icons';
 import { shellInput } from '../shell-input';
 import type { Screen } from '../app';
 
 const nfmt = (n: number): string => n.toLocaleString('en-US');
+
+/** Resolve a `hero`/`walker`/… ref to its pixels: `custom:` art the model drew,
+ *  or a `lib:` sprite from the built-in library. */
+function resolveRef(ref: string | undefined, custom: Record<string, SpriteData>): SpriteData | null {
+  if (!ref) return null;
+  if (ref.startsWith('custom:')) return custom[ref.slice(7)] ?? null;
+  if (ref.startsWith('lib:')) return LIBRARY[ref.slice(4)]?.frames[0] ?? null;
+  return null;
+}
+
+/** The cast to preview: hero first, then the other assigned roles, deduped by
+ *  ref so the same sprite isn't shown twice. */
+function castPreview(sprites: SpritesBlock, limit = 6): { key: string; data: SpriteData }[] {
+  const out: { key: string; data: SpriteData }[] = [];
+  const seen = new Set<string>();
+  const roles = ['hero', 'boss', ...Object.keys(sprites.assign).filter((k) => k !== 'hero' && k !== 'boss')];
+  for (const role of roles) {
+    const ref = sprites.assign[role];
+    if (!ref || seen.has(ref)) continue;
+    const data = resolveRef(ref, sprites.custom);
+    if (!data) continue;
+    seen.add(ref);
+    out.push({ key: role, data });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/** One sprite, decoded from palette-indexed rows and drawn crisply at ~3–4×. */
+function SpritePreview(props: { data: SpriteData; palette: string[] }): ComponentChildren {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const cv = ref.current;
+    if (!cv) return;
+    try {
+      const src = decodeSprite(props.data, props.palette);
+      const scale = Math.max(1, Math.floor(46 / Math.max(props.data.w, props.data.h)));
+      cv.width = props.data.w * scale;
+      cv.height = props.data.h * scale;
+      const ctx = cv.getContext('2d');
+      if (!ctx) return;
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      ctx.drawImage(src, 0, 0, cv.width, cv.height);
+    } catch {
+      /* malformed sprite mid-generation — skip silently */
+    }
+  }, [props.data, props.palette]);
+  return <canvas ref={ref} class="gen-sprite" />;
+}
 
 /** The 16 colours the model chose, as a swatch strip. */
 function PaletteStrip(props: { colors: string[] }): ComponentChildren {
@@ -56,6 +107,8 @@ export function GenerationScreen(props: {
   const [startClock] = useState(Date.now());
   const [info, setInfo] = useState<SystemInfo | null>(null);
   const [gd, setGd] = useState<GameDetail | null>(null);
+  const [partial, setPartial] = useState<PartialSpec | null>(null);
+  const musicRef = useRef<{ player: ChiptunePlayer; fade: GainNode } | null>(null);
   const eventRef = useRef<JobEvent | null>(null);
   eventRef.current = event;
   const baseElapsed = useRef(0);
@@ -88,12 +141,22 @@ export function GenerationScreen(props: {
   useEffect(() => {
     let alive = true;
     const fetchDetail = () => void api.getGame(props.gameId).then((d) => alive && setGd(d)).catch(() => {});
+    // The partial holds the stable pieces the model has finished (palette, then
+    // sprites, then music). Once published, staging is gone and the endpoint
+    // returns null — keep the last good snapshot so the reveal doesn't blink out.
+    const fetchPartial = () =>
+      void api
+        .getPartial(props.gameId)
+        .then((r) => alive && setPartial((prev) => r.partial ?? prev))
+        .catch(() => {});
     fetchDetail();
+    fetchPartial();
     const t = setInterval(() => {
       const e = eventRef.current;
       if (e?.type === 'done' || e?.type === 'failed') return; // one more fetch happens on transition
       fetchDetail();
-    }, 1400);
+      fetchPartial();
+    }, 1000);
     return () => {
       alive = false;
       clearInterval(t);
@@ -106,6 +169,50 @@ export function GenerationScreen(props: {
       void api.getGame(props.gameId).then(setGd).catch(() => {});
     }
   }, [event?.type, props.gameId]);
+
+  // The moment the composer pass lands, play the theme it wrote — faded in over
+  // a few seconds through a private gain node (so it rides the user's music
+  // volume without a UI blip snapping it to full). Starts once; the shared shell
+  // AudioSys is already unlocked from the wizard's button presses.
+  useEffect(() => {
+    const music = partial?.music;
+    if (!music || musicRef.current) return;
+    try {
+      const audio = shellInput.audio;
+      audio.resume();
+      const ctx = audio.context();
+      const song = music.songs?.theme ? 'theme' : Object.keys(music.songs ?? {})[0];
+      if (!song) return;
+      const fade = ctx.createGain();
+      fade.gain.value = 0.0001;
+      fade.connect(audio.musicBus);
+      const player = new ChiptunePlayer(audio, music, fade);
+      player.playSong(song);
+      fade.gain.setValueAtTime(0.0001, ctx.currentTime);
+      fade.gain.exponentialRampToValueAtTime(1, ctx.currentTime + 3);
+      musicRef.current = { player, fade };
+    } catch {
+      /* no audio available — the preview just stays silent */
+    }
+  }, [partial?.music]);
+
+  // Stop the preview music on the way out so it never double-tracks with the
+  // game's own player (which shares this same music bus).
+  useEffect(
+    () => () => {
+      const m = musicRef.current;
+      if (m) {
+        try {
+          m.player.stopSong();
+          m.fade.disconnect();
+        } catch {
+          /* already torn down */
+        }
+        musicRef.current = null;
+      }
+    },
+    [],
+  );
 
   useEffect(
     () =>
@@ -172,7 +279,11 @@ export function GenerationScreen(props: {
   const idea = gd?.meta?.sourcePrompt ?? '';
   const gi = gd?.item;
   const designLanded = !!(gi && gi.tagline && gi.tagline !== 'Generating…');
-  const palette = gi?.cover?.palette ?? [];
+  // Prefer the live design palette (available from the design pass) over the
+  // cover palette (null until publish) so the swatches show mid-generation.
+  const palette = partial?.palette?.length ? partial.palette : (gi?.cover?.palette ?? []);
+  const cast = partial?.sprites ? castPreview(partial.sprites) : [];
+  const musicReady = !!partial?.music;
   const usage = gd?.usage ?? [];
   const tokens = usage.reduce((a, u) => a + u.inputTokens + u.outputTokens, 0);
   const cached = usage.reduce((a, u) => a + u.cachedTokens, 0);
@@ -193,6 +304,13 @@ export function GenerationScreen(props: {
             <div class="gen-done-card">
               <div class="reveal-title pixel">{gi.title}</div>
               <div class="reveal-tagline">{gi.tagline}</div>
+              {cast.length > 0 && (
+                <div class="gen-sprites">
+                  {cast.map((c) => (
+                    <SpritePreview key={c.key} data={c.data} palette={palette} />
+                  ))}
+                </div>
+              )}
               <PaletteStrip colors={palette} />
             </div>
           )}
@@ -286,6 +404,21 @@ export function GenerationScreen(props: {
           ) : (
             <div class="flavor-line">{FLAVOR[flavorIx % FLAVOR.length]}</div>
           )}
+          {cast.length > 0 && (
+            <div class="gen-built">
+              <div class="gen-reveal-label">{isMock ? 'Sprites (mock)' : 'Sprites it just drew'}</div>
+              <div class="gen-sprites">
+                {cast.map((c) => (
+                  <SpritePreview key={c.key} data={c.data} palette={palette} />
+                ))}
+              </div>
+            </div>
+          )}
+          {musicReady && (
+            <div class="gen-nowplaying">
+              <Icon name="play" /> Now playing — the theme it composed
+            </div>
+          )}
           <div style="font-size:19px">{detail || 'Warming up…'}</div>
           {tokens > 0 && (
             <div class="gen-tokens">
@@ -298,9 +431,6 @@ export function GenerationScreen(props: {
           {slow && !waiting && (
             <div style="color:var(--gold);font-size:18px">Taking longer than usual — still working.</div>
           )}
-          <div style="color:var(--text-dim);font-size:16px">
-            Press <Btn>B</Btn> to browse or play — generation continues in the background.
-          </div>
         </div>
       </div>
       <FooterLegend items={[['B', 'Back (keeps generating)']]} />

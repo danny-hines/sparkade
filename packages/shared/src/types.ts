@@ -43,6 +43,19 @@ export interface SpritesBlock {
   assign: Record<string, SpriteRef>;
 }
 
+/** Stable pieces surfaced to the generation screen as they finish, ahead of the
+ *  atomic publish: the palette/title land at design time, sprites when the
+ *  entities pass returns, music when the composer pass returns. Everything after
+ *  `palette` is optional — the client shows whatever is present. */
+export interface PartialSpec {
+  archetype: string;
+  title: string;
+  tagline: string;
+  palette: string[];
+  sprites?: SpritesBlock;
+  music?: MusicBlock;
+}
+
 // ---------------------------------------------------------------------------
 // Story / meta / scoring
 // ---------------------------------------------------------------------------

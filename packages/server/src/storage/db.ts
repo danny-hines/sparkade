@@ -144,6 +144,18 @@ export class Db {
     this.db.prepare(`UPDATE games SET cost_usd=? WHERE id=?`).run(costUsd, id);
   }
 
+  /** Retry → blank slate: drop the failed attempt's design (title/tagline/cover)
+   *  and clear the failure so the generation screen starts clean instead of
+   *  flashing last run's reveal before the new run repopulates it. Cost history
+   *  (usage rows) is intentionally preserved. */
+  resetGameForRetry(id: string, title: string): void {
+    this.db
+      .prepare(
+        `UPDATE games SET status='queued', title=?, tagline='Generating…', cover_json=NULL, failure_json=NULL WHERE id=?`,
+      )
+      .run(title, id);
+  }
+
   getGame(id: string): GameRow | null {
     const r = this.db.prepare(`SELECT * FROM games WHERE id=?`).get(id) as Record<string, unknown> | undefined;
     return r ? toGameRow(r) : null;

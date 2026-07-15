@@ -325,6 +325,10 @@ export const LIB_BOSSES_CREATURE = [
   'boss_lich',
   'boss_warden',
   'boss_spider',
+  'boss_kraken',
+  'boss_wraith',
+  'boss_ooze',
+  'boss_automaton',
   'boss_titan',
 ] as const;
 export const LIB_BOSSES_SHOOTER = ['boss_leviathan', 'boss_fortress', 'boss_hive', 'boss_prism'] as const;

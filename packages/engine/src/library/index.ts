@@ -13,6 +13,7 @@ import { BOSSES } from './bosses';
 import { BOSSES_PLATFORMER } from './bosses-platformer';
 import { BOSSES_SHOOTER } from './bosses-shooter';
 import { BOSSES_ADVENTURE } from './bosses-adventure';
+import { BOSSES_EXTRA } from './bosses-extra';
 import { OBJECTS } from './objects';
 import { NPCS } from './npcs';
 import { TILES } from './tiles';
@@ -39,6 +40,7 @@ export const LIBRARY: Record<string, LibraryEntry> = {
   ...BOSSES_PLATFORMER,
   ...BOSSES_SHOOTER,
   ...BOSSES_ADVENTURE,
+  ...BOSSES_EXTRA,
   ...OBJECTS,
   ...NPCS,
   ...TILES,

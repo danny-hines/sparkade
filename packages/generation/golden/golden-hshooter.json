@@ -60,7 +60,10 @@
       "spread": "lib:pickup_spread",
       "rapid": "lib:pickup_rapid",
       "shield": "lib:pickup_shield",
-      "bomb": "lib:pickup_bomb"
+      "bomb": "lib:pickup_bomb",
+      "tile_solid": "lib:alien_solid",
+      "tile_hazard": "lib:alien_hazard",
+      "tile_deco": "lib:alien_deco"
     }
   },
   "levels": [

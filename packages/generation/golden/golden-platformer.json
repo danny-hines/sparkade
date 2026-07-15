@@ -125,7 +125,13 @@
       "heart": "lib:pickup_heart",
       "powerup": "lib:pickup_power",
       "spring": "lib:obj_spring",
-      "projectile": "lib:proj_orb"
+      "projectile": "lib:proj_orb",
+      "tile_solid": "lib:clockwork_solid",
+      "tile_platform": "lib:clockwork_platform",
+      "tile_hazard": "lib:clockwork_hazard",
+      "tile_checkpoint": "lib:clockwork_checkpoint",
+      "tile_exit": "lib:clockwork_exit",
+      "tile_deco": "lib:clockwork_deco"
     }
   },
   "levels": [

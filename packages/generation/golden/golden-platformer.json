@@ -116,7 +116,7 @@
     },
     "assign": {
       "hero": "custom:wick",
-      "boss": "lib:boss_warden",
+      "boss": "lib:boss_drake",
       "walker": "lib:enemy_walker",
       "flyer": "custom:cog_drone",
       "shooter": "lib:enemy_shooter",

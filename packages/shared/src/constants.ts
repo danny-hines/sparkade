@@ -311,17 +311,27 @@ export const LIB_FOES_SHOOTER = [
   'foe_orbiter',
 ] as const;
 
-// Bosses are orientation-specific (platformer: side view · shooter: top-down,
-// head DOWN · adventure: top-down, facing DOWN), so menus offer them per archetype.
-export const LIB_BOSSES_PLATFORMER = ['boss_titan', 'boss_drake', 'boss_knight', 'boss_thorn'] as const;
+// Bosses split by SILHOUETTE, not just orientation. The 8 creature/humanoid
+// bosses read as front-facing figures, so they work both side-view (platformer)
+// and top-down 3/4 (adventure) — both archetypes draw from the same pool, which
+// doubles boss variety from existing art. The 4 vehicle bosses are top-down
+// craft for the shmups. (boss_titan is intentionally LAST — it was the reflexive
+// default pick that made every platformer boss look the same.)
+export const LIB_BOSSES_CREATURE = [
+  'boss_knight',
+  'boss_drake',
+  'boss_minotaur',
+  'boss_thorn',
+  'boss_lich',
+  'boss_warden',
+  'boss_spider',
+  'boss_titan',
+] as const;
 export const LIB_BOSSES_SHOOTER = ['boss_leviathan', 'boss_fortress', 'boss_hive', 'boss_prism'] as const;
-export const LIB_BOSSES_ADVENTURE = ['boss_warden', 'boss_minotaur', 'boss_lich', 'boss_spider'] as const;
+export const LIB_BOSSES_PLATFORMER = LIB_BOSSES_CREATURE;
+export const LIB_BOSSES_ADVENTURE = LIB_BOSSES_CREATURE;
 
-export const LIB_BOSSES: readonly string[] = [
-  ...LIB_BOSSES_PLATFORMER,
-  ...LIB_BOSSES_SHOOTER,
-  ...LIB_BOSSES_ADVENTURE,
-];
+export const LIB_BOSSES: readonly string[] = [...LIB_BOSSES_CREATURE, ...LIB_BOSSES_SHOOTER];
 
 export const LIB_PROJECTILES = [
   'proj_pellet',

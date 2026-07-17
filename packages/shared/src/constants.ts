@@ -388,6 +388,7 @@ export const LIB_OBJECTS = ['obj_spring', 'obj_platform'] as const;
 
 export const LIB_TILE_KINDS = [
   'solid',
+  'solid_inner',
   'platform',
   'hazard',
   'checkpoint',

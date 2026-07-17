@@ -121,6 +121,59 @@ describe('custom sprite checks + silent fallback', () => {
     expect(fixed.sprites.custom['anim']!.frames).toEqual([alt]);
     expect(fixed.sprites.assign['walker']).toBe('custom:anim');
   });
+
+  it('drops malformed or incompatible inner terrain so the cap family can be inferred', () => {
+    const malformed = golden('platformer');
+    malformed.sprites.assign['tile_solid'] = 'lib:ice_solid';
+    malformed.sprites.custom['broken_inner'] = {
+      w: 16,
+      h: 16,
+      rows: new Array(16).fill('1..............1'),
+    };
+    malformed.sprites.assign['tile_solid_inner'] = 'custom:broken_inner';
+    const malformedResult = applySpriteFallbacks(malformed);
+    expect(malformedResult.spec.sprites.custom['broken_inner']).toBeUndefined();
+    expect(malformedResult.spec.sprites.assign['tile_solid_inner']).toBeUndefined();
+
+    const wrongLibrary = golden('platformer');
+    wrongLibrary.sprites.assign['tile_solid'] = 'lib:ice_solid';
+    wrongLibrary.sprites.assign['tile_solid_inner'] = 'lib:hero_squire';
+    const wrongLibraryResult = applySpriteFallbacks(wrongLibrary);
+    expect(wrongLibraryResult.spec.sprites.assign['tile_solid_inner']).toBeUndefined();
+    expect(wrongLibraryResult.downgraded).toContain(
+      'assign.tile_solid_inner pointed at incompatible "lib:hero_squire"',
+    );
+  });
+
+  it('requires custom solid cap/body tiles to be fully opaque', () => {
+    const spec = golden('platformer');
+    spec.sprites.custom['holey_solid'] = {
+      w: 16,
+      h: 16,
+      rows: ['.111111111111111', ...new Array(15).fill('1111111111111111')],
+    };
+    spec.sprites.assign['tile_solid'] = 'custom:holey_solid';
+    const { spec: fixed, downgraded } = applySpriteFallbacks(spec);
+    expect(fixed.sprites.custom['holey_solid']).toBeUndefined();
+    expect(fixed.sprites.assign['tile_solid']).toBe('lib:tile_solid');
+    expect(downgraded.some((message) => message.includes('solid terrain must be 100%'))).toBe(true);
+  });
+
+  it('drops transparent animation frames from custom solid terrain', () => {
+    const spec = golden('platformer');
+    const opaque = new Array(16).fill('1111111111111111');
+    spec.sprites.custom['animated_solid'] = {
+      w: 16,
+      h: 16,
+      rows: opaque,
+      frames: [['.111111111111111', ...opaque.slice(1)]],
+    };
+    spec.sprites.assign['tile_solid'] = 'custom:animated_solid';
+    const { spec: fixed } = applySpriteFallbacks(spec);
+    expect(fixed.sprites.custom['animated_solid']).toBeDefined();
+    expect(fixed.sprites.custom['animated_solid']!.frames).toBeUndefined();
+    expect(fixed.sprites.assign['tile_solid']).toBe('custom:animated_solid');
+  });
 });
 
 describe('title similarity (anti-duplicate)', () => {

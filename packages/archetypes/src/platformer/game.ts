@@ -5,6 +5,7 @@ import {
   aabbOverlap,
   cellsUnder,
   drawTileLayer,
+  LIBRARY,
   makeBackdrop,
   moveAABB,
   type Backdrop,
@@ -30,6 +31,12 @@ import {
   type PlatformerSpec,
 } from '@sparkade/shared';
 import { surfaceDecorations } from './decor';
+import {
+  isSolidInnerLibraryId,
+  PlatformerSolidAutotiles,
+  resolveSolidInnerRef,
+  solidNeighborMask,
+} from './autotile';
 import {
   MOVING_PLATFORM_BODY,
   platformerDoorRect,
@@ -113,6 +120,7 @@ class PlatformerGame implements GameInstance {
   private level!: PlatformerLevel;
   private grid!: { cols: number; rows: number; kind(x: number, y: number): TileKind };
   private tileCanvases = new Map<string, HTMLCanvasElement[]>();
+  private solidAutotiles: PlatformerSolidAutotiles | null = null;
   private decorations: Coord[] = [];
   private backdrop!: Backdrop;
   private ents: Ent[] = [];
@@ -343,9 +351,10 @@ class PlatformerGame implements GameInstance {
       rows,
       kind: (x, y) => (x < 0 || y < 0 || x >= cols || y >= rows ? 'empty' : kinds[y * cols + x]!),
     };
-    // Pre-resolve tile art per kind.
+    // Pre-resolve tile art per kind. Solid terrain additionally has a visual
+    // cap/body split selected from its neighbours; collision remains one
+    // square `solid` kind regardless of the selected canvas.
     const art: Record<string, string> = {
-      solid: 'lib:tile_solid',
       platform: 'lib:tile_platform',
       hazard: 'lib:tile_hazard',
       checkpoint: 'lib:tile_checkpoint',
@@ -358,6 +367,58 @@ class PlatformerGame implements GameInstance {
       // "lib:ice_solid" or a custom 16x16). bob:false keeps tiles still.
       this.tileCanvases.set(kind, this.engine.sprites.byRole(ref.slice(4), ref, { bob: false }).frames);
     }
+
+    const capRef = this.spec.sprites.assign['tile_solid'] ?? 'lib:tile_solid';
+    const cap = this.engine.sprites.byRole('tile_solid', 'lib:tile_solid', { bob: false });
+    const refExists = (ref: string): boolean => {
+      const [kind, id] = ref.split(':', 2);
+      if (!id) return false;
+      if (kind === 'lib') {
+        const entry = LIBRARY[id];
+        return (
+          isSolidInnerLibraryId(id) &&
+          entry !== undefined &&
+          entry.frames.every((frame) => frame.w === TILE_SIZE && frame.h === TILE_SIZE)
+        );
+      }
+      if (kind === 'custom') {
+        const sprite = this.spec.sprites.custom[id];
+        const rowsAreOpaque = (rows: readonly string[]): boolean =>
+          rows.length === TILE_SIZE &&
+          rows.every((row) => row.length === TILE_SIZE && !/[.0]/.test(row));
+        return (
+          sprite?.w === TILE_SIZE &&
+          sprite.h === TILE_SIZE &&
+          rowsAreOpaque(sprite.rows) &&
+          (sprite.frames?.every(rowsAreOpaque) ?? true)
+        );
+      }
+      return false;
+    };
+    const innerRef = resolveSolidInnerRef(
+      capRef,
+      this.spec.sprites.assign['tile_solid_inner'],
+      refExists,
+    );
+    const inner = innerRef ? this.engine.sprites.byRef(innerRef, false, { bob: false }) : cap;
+    this.solidAutotiles = new PlatformerSolidAutotiles(
+      cap.frames,
+      inner.frames,
+      this.spec.palette[1] ?? '#111111',
+    );
+  }
+
+  /** One visual lookup shared by the main terrain and foreground mask passes. */
+  private tileCanvasAt(tx: number, ty: number, frameIx: number): HTMLCanvasElement | null {
+    const kind = this.grid.kind(tx, ty);
+    if (kind === 'empty') return null;
+    if (kind === 'solid') {
+      const mask = solidNeighborMask((x, y) => this.grid.kind(x, y) === 'solid', tx, ty);
+      return this.solidAutotiles?.frame(mask, frameIx) ?? null;
+    }
+    const frames = this.tileCanvases.get(kind);
+    if (!frames?.length) return null;
+    return frames[frameIx % frames.length] ?? frames[0] ?? null;
   }
 
   /**
@@ -979,11 +1040,7 @@ class PlatformerGame implements GameInstance {
 
     const frameIx = Math.floor(this.animT * 4) % 2;
     drawTileLayer(r, cam, this.grid.cols, this.grid.rows, TILE_SIZE, (tx, ty) => {
-      const k = this.grid.kind(tx, ty);
-      if (k === 'empty') return null;
-      const frames = this.tileCanvases.get(k);
-      if (!frames || frames.length === 0) return null;
-      return frames[frameIx % frames.length] ?? frames[0]!;
+      return this.tileCanvasAt(tx, ty, frameIx);
     });
 
     const decorationFrames = this.tileCanvases.get('decoration');
@@ -1089,13 +1146,9 @@ class PlatformerGame implements GameInstance {
           for (let tx = minTx; tx <= maxTx; tx++) {
             const solidity = this.solidity(tx, ty);
             if (solidity !== 'solid' && solidity !== 'platform') continue;
-            const frames = this.tileCanvases.get(this.grid.kind(tx, ty));
-            if (!frames?.length) continue;
-            r.draw(
-              frames[frameIx % frames.length] ?? frames[0]!,
-              tx * TILE_SIZE - cam.x,
-              ty * TILE_SIZE - cam.y,
-            );
+            const tile = this.tileCanvasAt(tx, ty, frameIx);
+            if (!tile) continue;
+            r.draw(tile, tx * TILE_SIZE - cam.x, ty * TILE_SIZE - cam.y);
           }
         }
       }

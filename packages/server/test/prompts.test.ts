@@ -38,4 +38,15 @@ describe('entities prompt likeness casting', () => {
     };
     expect(entitySchema.$defs.boss!.properties!.colorSlot?.const).toBe(11);
   });
+
+  it('teaches platformer art generation the engine-selected solid cap and inner pair', () => {
+    const system = buildEntitiesPrompt('platformer', design, false).system;
+
+    expect(system).toContain('tile_solid, tile_solid_inner');
+    expect(system).toContain('`tile_solid` is the exposed cap');
+    expect(system).toContain('`tile_solid_inner` is the buried fill');
+    expect(system).toContain('Each custom cap and inner sprite must be EXACTLY 16×16');
+    expect(system).toContain('Level generation still authors only semantic `solid` cells');
+    expect(system).toContain('the engine selects the cap');
+  });
 });

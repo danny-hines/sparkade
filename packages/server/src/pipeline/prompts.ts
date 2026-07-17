@@ -243,7 +243,15 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
     ].join('\n'),
   };
   const tileRoles: Record<ArchetypeId, string[]> = {
-    platformer: ['tile_solid', 'tile_platform', 'tile_hazard', 'tile_checkpoint', 'tile_exit', 'tile_deco'],
+    platformer: [
+      'tile_solid',
+      'tile_solid_inner',
+      'tile_platform',
+      'tile_hazard',
+      'tile_checkpoint',
+      'tile_exit',
+      'tile_deco',
+    ],
     shooter: [],
     adventure: [
       'tile_wall',
@@ -273,12 +281,22 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       'Nothing to reskin — fighters, arena and effects are all drawn by the engine from your palette. The player and ladder roster are authored by the levels pass. Here, make the boss unmistakable with a distinct build + outfit + colorSlot.',
   };
   const roles = tileRoles[archetype];
+  const platformerSolidNote =
+    archetype === 'platformer'
+      ? `
+PLATFORMER SOLID PAIR: \`tile_solid\` is the exposed cap and \`tile_solid_inner\` is the buried fill. Assign both from the SAME family (for example \`"tile_solid": "lib:ice_solid"\` plus \`"tile_solid_inner": "lib:ice_solid_inner"\`) or draw a matching custom pair. Each custom cap and inner sprite must be EXACTLY 16×16 and fully opaque. The cap must tile seamlessly left-to-right; the inner must tile seamlessly on both axes, and the cap's bottom edge must join the inner's top edge. Level generation still authors only semantic \`solid\` cells; the engine selects the cap when no solid is directly above and the inner sprite when another solid is above. Never invent separate cap/inner level characters or legend values.
+`
+      : '';
+  const familyKinds =
+    archetype === 'platformer'
+      ? 'solid/solid_inner/platform/hazard/checkpoint/exit/deco/wall/floor/block/pit/switch/door_locked/door_boss/door_open'
+      : 'solid/platform/hazard/checkpoint/exit/deco/wall/floor/block/pit/switch/door_locked/door_boss/door_open';
   const reskinNotes =
     (roles.length
       ? `TERRAIN RESKIN — the strongest identity lever after the palette. ALWAYS reskin the terrain — assigning every tile slot is expected, not optional. The example just shows one family for format; pick the family that fits THIS game's world and never leave the tiles on the plain default. Each tile slot (${roles.join(', ')}) can be re-assigned:
-- to a THEMED library family: castle_*, cave_*, wasteland_*, alien_*, ice_*, desert_*, clockwork_* (brass machinery), candy_* (confectionery), coral_* (undersea reef), garden_* (overgrown greenery) — e.g. "tile_solid": "lib:ice_solid". Every family has every kind (solid/platform/hazard/checkpoint/exit/deco/wall/floor/block/pit/switch/door_locked/door_boss/door_open). Families are SHAPE languages — your palette supplies all color, so pick the family whose shapes fit the premise and stay within ONE family for coherence.
+- to a THEMED library family: castle_*, cave_*, wasteland_*, alien_*, ice_*, desert_*, clockwork_* (brass machinery), candy_* (confectionery), coral_* (undersea reef), garden_* (overgrown greenery) — e.g. "tile_solid": "lib:ice_solid". Every family has every kind (${familyKinds}). Families are SHAPE languages — your palette supplies all color, so pick the family whose shapes fit the premise and stay within ONE family for coherence.
 - or to a custom 16×16 sprite you draw (must be EXACTLY 16×16; solid/wall/floor tiles should be fully opaque and tile seamlessly edge-to-edge). When unsure, use a themed family — it always looks professional.
-`
+${platformerSolidNote}`
       : 'This archetype has no terrain tiles; its look comes from palette, backdrop, ship/foe sprites and wave choreography.\n') +
     extraRoles[archetype] +
     '\n\n' +

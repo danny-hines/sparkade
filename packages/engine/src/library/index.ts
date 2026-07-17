@@ -27,6 +27,7 @@ import { TILES_CLOCKWORK } from './tiles-clockwork';
 import { TILES_CANDY } from './tiles-candy';
 import { TILES_CORAL } from './tiles-coral';
 import { TILES_GARDEN } from './tiles-garden';
+import { TILES_SOLID_INNER } from './tiles-solid-inner';
 
 export const LIBRARY: Record<string, LibraryEntry> = {
   ...HEROES,
@@ -54,6 +55,7 @@ export const LIBRARY: Record<string, LibraryEntry> = {
   ...TILES_CANDY,
   ...TILES_CORAL,
   ...TILES_GARDEN,
+  ...TILES_SOLID_INNER,
 };
 
 /** Ids present in constants but missing from the library (must be empty; unit-tested). */

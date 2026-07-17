@@ -128,6 +128,7 @@
       "spring": "lib:obj_spring",
       "projectile": "lib:proj_orb",
       "tile_solid": "lib:clockwork_solid",
+      "tile_solid_inner": "lib:clockwork_solid_inner",
       "tile_platform": "lib:clockwork_platform",
       "tile_hazard": "lib:clockwork_hazard",
       "tile_checkpoint": "lib:clockwork_checkpoint",

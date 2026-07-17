@@ -223,7 +223,10 @@ const GENERIC_FALLBACK: Record<ArchetypeId, string> = {
   fighter: 'lib:enemy_walker',
 };
 
-export function spriteProblem(s: SpriteData, opts: { isTile?: boolean } = {}): string | null {
+export function spriteProblem(
+  s: SpriteData,
+  opts: { isTile?: boolean; requireOpaque?: boolean } = {},
+): string | null {
   if (s.rows.length !== s.h) return `rows.length ${s.rows.length} != h ${s.h}`;
   for (const [i, row] of s.rows.entries()) {
     if (row.length !== s.w) return `row ${i} length ${row.length} != w ${s.w}`;
@@ -233,6 +236,9 @@ export function spriteProblem(s: SpriteData, opts: { isTile?: boolean } = {}): s
   for (const row of s.rows) for (const ch of row) if (ch !== '.' && ch !== '0') opaque++;
   const coverage = opaque / (s.w * s.h);
   if (coverage < 0.15) return `only ${(coverage * 100).toFixed(0)}% opaque (minimum 15%)`;
+  if (opts.requireOpaque && coverage < 1) {
+    return `${(coverage * 100).toFixed(0)}% opaque (solid terrain must be 100%)`;
+  }
   // The anti-blob ceiling is for characters; terrain tiles are legitimately
   // solid (a fully-opaque wall tile is correct, not a defect).
   if (!opts.isTile && coverage > 0.85) return `${(coverage * 100).toFixed(0)}% opaque (maximum 85%)`;
@@ -261,8 +267,19 @@ export function applySpriteFallbacks(spec: GameSpec): { spec: GameSpec; downgrad
       .filter(([role, ref]) => role.startsWith('tile_') && ref.startsWith('custom:'))
       .map(([, ref]) => ref.slice(7)),
   );
+  const opaqueTileCustomIds = new Set(
+    Object.entries(out.sprites.assign)
+      .filter(
+        ([role, ref]) =>
+          (role === 'tile_solid' || role === 'tile_solid_inner') && ref.startsWith('custom:'),
+      )
+      .map(([, ref]) => ref.slice(7)),
+  );
   for (const [id, sprite] of Object.entries(out.sprites.custom)) {
-    const problem = spriteProblem(sprite, { isTile: tileCustomIds.has(id) });
+    const problem = spriteProblem(sprite, {
+      isTile: tileCustomIds.has(id),
+      requireOpaque: opaqueTileCustomIds.has(id),
+    });
     if (problem) {
       bad.add(id);
       downgraded.push(`custom sprite "${id}" (${problem})`);
@@ -270,7 +287,12 @@ export function applySpriteFallbacks(spec: GameSpec): { spec: GameSpec; downgrad
     } else if (sprite.frames) {
       // Keep only well-formed animation frames; a malformed extra frame is
       // dropped rather than costing the whole sprite.
-      const good = sprite.frames.filter((rows) => framesDimsOk(rows, sprite.w, sprite.h));
+      const requireOpaque = opaqueTileCustomIds.has(id);
+      const good = sprite.frames.filter(
+        (rows) =>
+          framesDimsOk(rows, sprite.w, sprite.h) &&
+          (!requireOpaque || rows.every((row) => !/[.0]/.test(row))),
+      );
       if (good.length) sprite.frames = good;
       else delete sprite.frames;
     }
@@ -280,7 +302,23 @@ export function applySpriteFallbacks(spec: GameSpec): { spec: GameSpec; downgrad
     const m = SPRITE_REF_RE.exec(ref);
     const isBadCustom = m && m[1] === 'custom' && (bad.has(m[2]!) || !out.sprites.custom[m[2]!]);
     const isUnknownLib = m && m[1] === 'lib' && !LIB_SPRITE_IDS.includes(m[2]!);
-    if (!m || isBadCustom || isUnknownLib) {
+    const isWrongInnerLib =
+      role === 'tile_solid_inner' &&
+      m?.[1] === 'lib' &&
+      !/^[a-z][a-z0-9_]*_solid_inner$/.test(m[2]!);
+    if (!m || isBadCustom || isUnknownLib || isWrongInnerLib) {
+      // An invalid optional body assignment must be absent, not replaced with
+      // the default body's family. The runtime can then infer the matching
+      // companion from a themed cap, or reuse a custom cap unchanged.
+      if (role === 'tile_solid_inner') {
+        delete out.sprites.assign[role];
+        if (isWrongInnerLib) {
+          downgraded.push(`assign.${role} pointed at incompatible "${ref}"`);
+        } else if (m && !isBadCustom && isUnknownLib) {
+          downgraded.push(`assign.${role} pointed at unknown "${ref}"`);
+        }
+        continue;
+      }
       // Self-named roles (tile_solid, obj_spring, proj_arrow, pickup_spread, …)
       // fall back to their same-named library sprite — a bad custom wall must
       // become the default wall, never a character sprite.

@@ -78,5 +78,17 @@ describe('prompt templates', () => {
     expect(prompt).toContain('LOWER/FOOT cell');
     expect(prompt).toContain('Do NOT author `decoration` or `exit` cells');
     expect(prompt).toContain('one-tile-high tunnels');
+    expect(prompt).toContain('single semantic `solid` value');
+    expect(prompt).toContain('never add separate cap/inner characters');
+    expect(prompt).toContain('engine selects exposed cap art versus buried inner art');
+  });
+
+  it('teaches platformer entity generation to pair themed cap and inner art', () => {
+    const excerpt = JSON.parse(goldenExcerpt('platformer', 'entities')) as {
+      sprites: { assign: Record<string, string> };
+    };
+
+    expect(excerpt.sprites.assign.tile_solid).toBe('lib:clockwork_solid');
+    expect(excerpt.sprites.assign.tile_solid_inner).toBe('lib:clockwork_solid_inner');
   });
 });

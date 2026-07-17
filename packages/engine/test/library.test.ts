@@ -12,6 +12,7 @@ import {
   LIB_HEROES_ADVENTURE,
   LIB_HEROES_PLATFORMER,
   LIB_SHIPS,
+  LIB_TILE_THEMES,
   LIB_THEMED_TILES,
   LIB_TILES,
 } from '@sparkade/shared';
@@ -162,9 +163,37 @@ describe('built-in sprite library', () => {
     }
   });
 
+  it('provides a distinct seamless inner body for every solid cap family', () => {
+    const families = ['tile', ...LIB_TILE_THEMES];
+    for (const family of families) {
+      const capId = `${family}_solid`;
+      const innerId = `${family}_solid_inner`;
+      const wallId = `${family}_wall`;
+      const cap = LIBRARY[capId];
+      const inner = LIBRARY[innerId];
+      const wall = LIBRARY[wallId];
+
+      expect(inner, innerId).toBeDefined();
+      expect(inner, `${innerId} intentionally aliases ${wallId}`).toBe(wall);
+      expect(inner, `${innerId} must not reuse its surface cap`).not.toBe(cap);
+
+      const frame = inner!.frames[0]!;
+      expect(frame.w, innerId).toBe(16);
+      expect(frame.h, innerId).toBe(16);
+      const opaque = frame.rows.reduce(
+        (sum, row) => sum + [...row].filter((ch) => ch !== '.' && ch !== '0').length,
+        0,
+      );
+      expect(opaque / (frame.w * frame.h), innerId).toBeGreaterThanOrEqual(0.95);
+      expect(frame.rows, `${innerId} must read differently from ${capId}`).not.toEqual(
+        cap!.frames[0]!.rows,
+      );
+    }
+  });
+
   it('structural tiles are near-fully opaque in every family', () => {
     for (const id of [...LIB_TILES, ...LIB_THEMED_TILES]) {
-      if (!/(_solid|_wall|_floor|_block)$/.test(id)) continue;
+      if (!/(_solid(?:_inner)?|_wall|_floor|_block)$/.test(id)) continue;
       const f = LIBRARY[id]!.frames[0]!;
       let opaque = 0;
       for (const row of f.rows) for (const ch of row) if (ch !== '.') opaque++;

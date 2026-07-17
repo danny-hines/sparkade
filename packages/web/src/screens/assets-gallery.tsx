@@ -5,6 +5,7 @@
 // builds via the import.meta.env.DEV gate in app.tsx.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
+import { PlatformerSolidAutotiles } from '@sparkade/archetypes';
 import {
   BACKDROP_VARIANTS,
   decodeSprite,
@@ -22,6 +23,7 @@ import {
 import { LIB_TILE_THEMES, PALETTE_MOODS } from '@sparkade/shared';
 import type { GameListItem, PaletteMood } from '@sparkade/shared';
 import { api } from '../api';
+import { buildSolidPreviewPlan } from './assets-gallery-tiles';
 
 /** Same preview palette the contact-sheet checker uses (Sweetie-16-derived). */
 const PREVIEW_PALETTE = [
@@ -74,20 +76,57 @@ function SpriteCell(props: {
     const canvas = ref.current;
     if (!canvas) return;
     const frames = props.entry.frames.map((f) => decodeSprite(f, props.palette));
+    const solidPlan = buildSolidPreviewPlan(
+      props.id,
+      props.tiled,
+      (candidateId) => LIBRARY[candidateId] !== undefined,
+    );
+    const innerEntry = solidPlan ? (LIBRARY[solidPlan.innerId] ?? props.entry) : props.entry;
+    const innerFrames =
+      solidPlan?.innerId === props.id
+        ? frames
+        : innerEntry.frames.map((f) => decodeSprite(f, props.palette));
+    const solidAutotiles = solidPlan
+      ? new PlatformerSolidAutotiles(frames, innerFrames, props.palette[1] ?? '#111111')
+      : null;
+    const previewFrameCount = solidPlan
+      ? Math.max(props.entry.frames.length, innerEntry.frames.length)
+      : props.entry.frames.length;
     let fi = 0;
     const draw = () => {
-      const f = props.entry.frames[fi]!;
-      const img = frames[fi]!;
+      const capFrameIx = fi % props.entry.frames.length;
+      const f = props.entry.frames[capFrameIx]!;
+      const img = frames[capFrameIx]!;
       const reps = props.tiled && isTileId(props.id) ? 3 : 1;
       canvas.width = f.w * props.zoom * reps;
       canvas.height = f.h * props.zoom * reps;
       const ctx = canvas.getContext('2d')!;
       ctx.imageSmoothingEnabled = false;
-      for (let ry = 0; ry < reps; ry++)
-        for (let rx = 0; rx < reps; rx++)
-          ctx.drawImage(img, rx * f.w * props.zoom, ry * f.h * props.zoom, f.w * props.zoom, f.h * props.zoom);
+      if (solidPlan && solidAutotiles) {
+        for (const cell of solidPlan.cells) {
+          const tile = solidAutotiles.frame(cell.mask, fi);
+          if (!tile) continue;
+          ctx.drawImage(
+            tile,
+            cell.tx * f.w * props.zoom,
+            cell.ty * f.h * props.zoom,
+            f.w * props.zoom,
+            f.h * props.zoom,
+          );
+        }
+      } else {
+        for (let ry = 0; ry < reps; ry++)
+          for (let rx = 0; rx < reps; rx++)
+            ctx.drawImage(
+              img,
+              rx * f.w * props.zoom,
+              ry * f.h * props.zoom,
+              f.w * props.zoom,
+              f.h * props.zoom,
+            );
+      }
       if (props.headSlots && props.entry.headSlots) {
-        const hs = props.entry.headSlots[fi] ?? props.entry.headSlots[0]!;
+        const hs = props.entry.headSlots[capFrameIx] ?? props.entry.headSlots[0]!;
         ctx.strokeStyle = '#ff9a2a';
         ctx.strokeRect(
           hs.x * props.zoom + 0.5,
@@ -98,9 +137,9 @@ function SpriteCell(props: {
       }
     };
     draw();
-    if (!props.animate || props.entry.frames.length < 2) return;
+    if (!props.animate || previewFrameCount < 2) return;
     const t = setInterval(() => {
-      fi = (fi + 1) % props.entry.frames.length;
+      fi = (fi + 1) % previewFrameCount;
       draw();
     }, 400);
     return () => clearInterval(t);

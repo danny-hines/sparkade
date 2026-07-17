@@ -2,10 +2,12 @@
 // ring, modal frame, on-screen keyboard.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import { decodeSprite, LIBRARY } from '@sparkade/engine';
-import type { GameListItem, LogicalButton } from '@sparkade/shared';
+import { decodeSprite, LIBRARY, makeTallHumanoidEntry } from '@sparkade/engine';
+import { LIB_HEROES_PLATFORMER, type GameListItem, type LogicalButton } from '@sparkade/shared';
 import { shellInput } from './shell-input';
 import { Icon } from './icons';
+
+const TALL_COVER_HERO_IDS = new Set<string>(LIB_HEROES_PLATFORMER);
 
 export function FooterLegend(props: {
   items: [string, string][];
@@ -32,6 +34,7 @@ export function FooterLegend(props: {
  */
 export function GameCover(props: {
   cover: GameListItem['cover'];
+  archetype: GameListItem['archetype'];
   gameId?: string;
   seedText: string;
   class?: string;
@@ -49,7 +52,18 @@ export function GameCover(props: {
     // dropping their head — so fall back to the custom sprite's slot.
     const cov = props.cover;
     const heroLibId = cov?.heroRef?.startsWith('lib:') ? cov.heroRef.slice(4) : null;
-    const headSlot = heroLibId ? LIBRARY[heroLibId]?.headSlots?.[0] : cov?.hero?.headSlot;
+    const nativeHeadSlot = heroLibId ? LIBRARY[heroLibId]?.headSlots?.[0] : cov?.hero?.headSlot;
+    const sourceHeroEntry = heroLibId ? LIBRARY[heroLibId] : undefined;
+    const canUseTallHero =
+      props.archetype === 'platformer' &&
+      cov?.hasLikeness &&
+      heroLibId !== null &&
+      TALL_COVER_HERO_IDS.has(heroLibId) &&
+      sourceHeroEntry;
+    const candidateTallEntry = canUseTallHero ? makeTallHumanoidEntry(sourceHeroEntry) : undefined;
+    const tallHeroEntry =
+      candidateTallEntry && candidateTallEntry !== sourceHeroEntry ? candidateTallEntry : undefined;
+    const likenessHeadSlot = tallHeroEntry?.headSlots?.[0] ?? nativeHeadSlot;
 
     const draw = (head: HTMLImageElement | null) => {
       if (disposed) return;
@@ -130,10 +144,11 @@ export function GameCover(props: {
       }
 
       // Hero: front-left, with the baked likeness head when this game has one.
-      if (cover.hero) {
+      const heroData = head && tallHeroEntry ? tallHeroEntry.frames[0] : cover.hero;
+      if (heroData) {
         try {
-          let heroCanvas = decodeSprite(cover.hero, cover.palette);
-          const slot = headSlot;
+          let heroCanvas = decodeSprite(heroData, cover.palette);
+          const slot = head && tallHeroEntry ? tallHeroEntry.headSlots?.[0] : nativeHeadSlot;
           if (head && slot) {
             const composed = document.createElement('canvas');
             composed.width = heroCanvas.width;
@@ -143,12 +158,14 @@ export function GameCover(props: {
             cctx.drawImage(heroCanvas, 0, 0);
             cctx.clearRect(slot.x, slot.y, slot.size, slot.size);
             cctx.drawImage(head, slot.x, slot.y, slot.size, slot.size);
+            const overlay = tallHeroEntry?.likenessOverlays?.[0];
+            if (overlay) cctx.drawImage(decodeSprite(overlay, cover.palette), 0, 0);
             heroCanvas = composed;
           }
-          const scale = 3;
+          const scale = Math.max(1, Math.min(3, Math.floor((baseline - 4) / heroCanvas.height)));
           ctx.drawImage(
             heroCanvas,
-            16,
+            Math.round(40 - (heroCanvas.width * scale) / 2),
             Math.round(baseline - heroCanvas.height * scale),
             heroCanvas.width * scale,
             heroCanvas.height * scale,
@@ -163,12 +180,12 @@ export function GameCover(props: {
     if (props.cover?.hasLikeness && props.gameId) {
       const img = new Image();
       img.onload = () => draw(img);
-      img.src = `/api/games/${props.gameId}/assets/head${headSlot?.size ?? 12}.png`;
+      img.src = `/api/games/${props.gameId}/assets/head${likenessHeadSlot?.size ?? 12}.png`;
     }
     return () => {
       disposed = true;
     };
-  }, [props.cover, props.gameId, props.seedText, props.pending]);
+  }, [props.cover, props.archetype, props.gameId, props.seedText, props.pending]);
   return <canvas ref={ref} class={props.class} />;
 }
 
@@ -288,12 +305,12 @@ export function oskHandle(
 
 export function OnScreenKeyboard(props: { state: OskState; label: string }): ComponentChildren {
   const rows = props.state.shift ? OSK_ROWS_UPPER : OSK_ROWS_LOWER;
-  const display = props.state.masked
-    ? '•'.repeat(props.state.value.length)
-    : props.state.value;
+  const display = props.state.masked ? '•'.repeat(props.state.value.length) : props.state.value;
   return (
     <div class="osk">
-      <div class="osk-display">{display || <span style="color:var(--text-dim)">{props.label}</span>}</div>
+      <div class="osk-display">
+        {display || <span style="color:var(--text-dim)">{props.label}</span>}
+      </div>
       {rows.map((row, r) => (
         <div class="osk-row" key={r}>
           {[...row].map((ch, c) => (

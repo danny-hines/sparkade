@@ -4,13 +4,23 @@ import { launch, superviseAll } from './proc.mjs';
 
 const root = new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 
-const server = launch('npx', ['tsx', 'watch', 'packages/server/src/index.ts'], {
-  cwd: root,
-  env: {
-    SPARKADE_DEV: '1',
-    SPARKADE_DATA: process.env.SPARKADE_DATA ?? 'data',
+const server = launch(
+  'npx',
+  [
+    'tsx',
+    'watch',
+    '--exclude',
+    'packages/archetypes/src/fighter/outfits.json',
+    'packages/server/src/index.ts',
+  ],
+  {
+    cwd: root,
+    env: {
+      SPARKADE_DEV: '1',
+      SPARKADE_DATA: process.env.SPARKADE_DATA ?? 'data',
+    },
   },
-});
+);
 
 const web = launch('npx', ['vite', 'dev'], {
   cwd: `${root}/packages/web`,

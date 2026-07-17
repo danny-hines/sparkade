@@ -257,7 +257,13 @@ export function AttractScreen(props: { go: (s: Screen) => void }): ComponentChil
         <div style="color:var(--text-dim);font-size:21px">The arcade that dreams up its own games</div>
         {featured && (
           <div style="display:flex;flex-direction:column;align-items:center;gap:10px;margin-top:6px">
-            <GameCover cover={featured.cover} gameId={featured.id} seedText={featured.title} class="marquee" />
+            <GameCover
+              cover={featured.cover}
+              archetype={featured.archetype}
+              gameId={featured.id}
+              seedText={featured.title}
+              class="marquee"
+            />
             <div style="color:var(--cyan);font-size:18px">{featured.title}</div>
           </div>
         )}

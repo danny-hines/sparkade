@@ -370,6 +370,10 @@
       "required": ["events", "timeBonusPerSecond"],
       "additionalProperties": false
     },
+    "fighterOutfit": {
+      "description": "Purely visual clothing silhouette; it never changes hitboxes, moves, frame data, or stats.",
+      "enum": ["gi", "boxer", "wrestler", "street", "robe", "armor"]
+    },
     "fighter": {
       "description": "A fighter: a build + a palette body color + round HP + optional light stat leans. The move set and frame data are the same for everyone (the engine owns balance) — only look and small leans vary.",
       "type": "object",
@@ -379,6 +383,7 @@
           "description": "Body silhouette: nimble (small/quick), balanced, heavy (big/slow).",
           "enum": ["nimble", "balanced", "heavy"]
         },
+        "outfit": { "$ref": "#/$defs/fighterOutfit" },
         "colorSlot": {
           "description": "Palette slot (5-10) that colors this fighter's body. The player and every opponent MUST use different slots so they read apart.",
           "type": "integer",
@@ -418,6 +423,7 @@
       "properties": {
         "name": { "$ref": "#/$defs/shortName" },
         "build": { "enum": ["nimble", "balanced", "heavy"] },
+        "outfit": { "$ref": "#/$defs/fighterOutfit" },
         "colorSlot": { "type": "integer", "minimum": 5, "maximum": 11 },
         "hp": { "type": "integer", "minimum": 100, "maximum": 200 },
         "speedScale": { "type": "number", "minimum": 0.85, "maximum": 1.15 },

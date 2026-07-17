@@ -2,7 +2,7 @@
 // Palette slots: 1 outline · 5 hero-primary · 6 hero-secondary · 7 hero-accent/skin
 // · c warm (wood/leather) · d gold · e light steel · f near-white.
 // Adventure heroes are top-down 3/4: frames 0-1 down (face), 2-3 up (back gear),
-// 4-5 side (facing right). headSlots mark where a baked 12x12 likeness head goes.
+// 4-5 side (facing right). headSlots also select front/back/side likeness views.
 import type { LibraryEntry } from '../types';
 
 export const HEROES_ADVENTURE: Record<string, LibraryEntry> = {
@@ -145,12 +145,12 @@ export const HEROES_ADVENTURE: Record<string, LibraryEntry> = {
     ],
     anims: { idle: [0], down: [0, 1], up: [2, 3], side: [4, 5] },
     headSlots: [
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
+      { x: 2, y: 0, size: 12, view: 'front' },
+      { x: 2, y: 0, size: 12, view: 'front' },
+      { x: 2, y: 0, size: 12, view: 'back' },
+      { x: 2, y: 0, size: 12, view: 'back' },
+      { x: 2, y: 0, size: 12, view: 'side' },
+      { x: 2, y: 0, size: 12, view: 'side' },
     ],
   },
 
@@ -293,12 +293,12 @@ export const HEROES_ADVENTURE: Record<string, LibraryEntry> = {
     ],
     anims: { idle: [0], down: [0, 1], up: [2, 3], side: [4, 5] },
     headSlots: [
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
+      { x: 2, y: 0, size: 12, view: 'front' },
+      { x: 2, y: 0, size: 12, view: 'front' },
+      { x: 2, y: 0, size: 12, view: 'back' },
+      { x: 2, y: 0, size: 12, view: 'back' },
+      { x: 2, y: 0, size: 12, view: 'side' },
+      { x: 2, y: 0, size: 12, view: 'side' },
     ],
   },
 
@@ -441,12 +441,12 @@ export const HEROES_ADVENTURE: Record<string, LibraryEntry> = {
     ],
     anims: { idle: [0], down: [0, 1], up: [2, 3], side: [4, 5] },
     headSlots: [
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
+      { x: 2, y: 0, size: 12, view: 'front' },
+      { x: 2, y: 0, size: 12, view: 'front' },
+      { x: 2, y: 0, size: 12, view: 'back' },
+      { x: 2, y: 0, size: 12, view: 'back' },
+      { x: 2, y: 0, size: 12, view: 'side' },
+      { x: 2, y: 0, size: 12, view: 'side' },
     ],
   },
 };

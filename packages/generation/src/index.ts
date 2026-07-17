@@ -114,6 +114,17 @@ export function goldenExcerpt(archetype: ArchetypeId, stage: SpecStage | 'design
           1,
         );
       }
+      if (g.archetype === 'fighter') {
+        return JSON.stringify(
+          {
+            player: g.player,
+            levels: [g.levels[0]],
+            NOTE: 'plus two more ladder bouts in the real spec',
+          },
+          null,
+          1,
+        );
+      }
       const level = g.levels[0]!;
       const trimmed =
         'tiles' in level

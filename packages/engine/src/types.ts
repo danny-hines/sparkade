@@ -2,15 +2,30 @@
 import type { LogicalButton, SpriteData } from '@sparkade/shared';
 
 /** A library sprite entry: 1+ frames of palette-indexed art plus named animations. */
+export type HeadView = 'front' | 'side' | 'back';
+
+export interface HeadSlot {
+  x: number;
+  y: number;
+  size: 12 | 16;
+  /** Direction the authored body frame faces. Omitted entries use the front view. */
+  view?: HeadView;
+}
+
 export interface LibraryEntry {
   frames: SpriteData[];
   /** Named frame-index lists, e.g. { idle: [0], walk: [0, 1] }. Every entry has at least `idle`. */
   anims: Record<string, number[]>;
   /**
    * Heroes only: where a baked likeness head lands, per frame (parallel to `frames`).
-   * `size` selects the 12×12 or 16×16 baked head sprite.
+   * `size` selects the 12×12 or 16×16 sprite; `view` selects its orientation.
    */
-  headSlots?: { x: number; y: number; size: 12 | 16 }[];
+  headSlots?: HeadSlot[];
+  /**
+   * Optional per-frame art redrawn after a likeness head (held props, scarf
+   * tips, etc.). Parallel to `frames`; used by presentation transforms.
+   */
+  likenessOverlays?: SpriteData[];
 }
 
 /** Edge-detected view of one logical control. */
@@ -26,6 +41,10 @@ export type InputSnapshot = Record<LogicalButton, ButtonState>;
 export interface LikenessAssets {
   head12: CanvasImageSource | null;
   head16: CanvasImageSource | null;
+  head12Side?: CanvasImageSource | null;
+  head12Back?: CanvasImageSource | null;
+  head16Side?: CanvasImageSource | null;
+  head16Back?: CanvasImageSource | null;
   portrait: CanvasImageSource | null;
 }
 

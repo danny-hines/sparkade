@@ -24,11 +24,21 @@ import {
   type SparkadeConfig,
   type StageName,
 } from '@sparkade/shared';
-import { bakeLikeness, type LikenessArtifacts } from '../likeness/likeness';
+import { bakeLikeness, likenessAssetBuffers, type LikenessArtifacts } from '../likeness/likeness';
 import { drawAvatarLikeness } from '../likeness/avatar';
 import { generatePortrait } from '../likeness/portrait-gen';
-import { buildFaceAnalysisPrompt, buildPortraitPalette, type FaceFeatures } from '../likeness/features';
-import { ProviderAuthError, ProviderHttpError, ProviderNetworkError, stageProvider } from '../providers/index';
+import {
+  buildFaceAnalysisPrompt,
+  buildPortraitPalette,
+  normalizeFaceFeatures,
+  type FaceFeatures,
+} from '../likeness/features';
+import {
+  ProviderAuthError,
+  ProviderHttpError,
+  ProviderNetworkError,
+  stageProvider,
+} from '../providers/index';
 import type { ConfigStore } from '../storage/config';
 import type { Db } from '../storage/db';
 import type { GameFiles } from '../storage/files';
@@ -47,6 +57,7 @@ import {
 import type { SseHub } from './sse';
 import {
   applySpriteFallbacks,
+  ensureLikenessHeroBody,
   normalizeTileGrids,
   securityScan,
   tooSimilar,
@@ -69,13 +80,33 @@ export interface NewJobInputs {
   promptText: string;
   sourceKind: 'voice' | 'preset' | 'surprise';
   presetId?: string;
+  /** Explicit genre chosen by Surprise; authoritative over model classification. */
+  requestedArchetype?: ArchetypeId;
   photo?: Buffer;
   idempotencyKey: string;
 }
 
+/** Surprise's structured genre is authoritative; the design model still gets
+ * the instruction, but cannot silently relabel the job by returning another id. */
+export function enforceRequestedArchetype(
+  design: DesignDoc,
+  requestedArchetype?: ArchetypeId,
+): DesignDoc {
+  return requestedArchetype ? { ...design, archetype: requestedArchetype } : design;
+}
+
 interface SpecParts {
+  player?: unknown;
   levels?: unknown;
-  entities?: { sprites: unknown; boss: unknown; sfx?: unknown; backdrop?: unknown; weather?: unknown; lighting?: unknown; juice?: unknown };
+  entities?: {
+    sprites: unknown;
+    boss: unknown;
+    sfx?: unknown;
+    backdrop?: unknown;
+    weather?: unknown;
+    lighting?: unknown;
+    juice?: unknown;
+  };
   music?: unknown;
 }
 
@@ -109,7 +140,9 @@ export class GenerationRunner {
     const existing = this.db.getJobByIdempotencyKey(inputs.idempotencyKey);
     if (existing) return { jobId: existing.id, gameId: existing.gameId };
 
-    const gameId = `g-${nanoid(10).toLowerCase().replace(/[^a-z0-9]/g, 'x')}`;
+    const gameId = `g-${nanoid(10)
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, 'x')}`;
     const jobId = `j-${nanoid(12)}`;
     const seed = randomInt(0, 2147483647);
     const config = this.configStore.get();
@@ -131,6 +164,9 @@ export class GenerationRunner {
         promptText: inputs.promptText,
         sourceKind: inputs.sourceKind,
         ...(inputs.presetId ? { presetId: inputs.presetId } : {}),
+        ...(inputs.requestedArchetype
+          ? { requestedArchetype: inputs.requestedArchetype }
+          : {}),
         seed,
         idempotencyKey: inputs.idempotencyKey,
         hasPhoto: !!inputs.photo,
@@ -144,7 +180,7 @@ export class GenerationRunner {
       id: gameId,
       title,
       tagline: 'Generating…',
-      archetype: 'platformer',
+      archetype: inputs.requestedArchetype ?? 'platformer',
       status: 'queued',
       createdAt: nowIso(),
       golden: false,
@@ -240,7 +276,11 @@ export class GenerationRunner {
     }, GENERATION.softBudgetMs);
     const hardTimer = setTimeout(() => abort.abort(), GENERATION.hardBudgetMs);
 
-    const emit = (stage: JobStage, detail: string, extra: Partial<Extract<JobEvent, { type: 'progress' }>> = {}) => {
+    const emit = (
+      stage: JobStage,
+      detail: string,
+      extra: Partial<Extract<JobEvent, { type: 'progress' }>> = {},
+    ) => {
       this.db.updateJob(jobId, { stage, detail });
       this.hub.emit({
         type: 'progress',
@@ -257,12 +297,22 @@ export class GenerationRunner {
     const callLlm = async (
       stageName: StageName,
       prompt: BuiltPrompt,
-      opts: { temperature?: number; repair?: boolean; image?: Buffer; label: string; stage: JobStage },
+      opts: {
+        temperature?: number;
+        repair?: boolean;
+        image?: Buffer;
+        label: string;
+        stage: JobStage;
+      },
     ): Promise<unknown> => {
       const { provider, providerName, model } = stageProvider(config, stageName);
+      if (opts.image && !provider.capabilities.imageIn) {
+        throw new Error(`provider "${providerName}" does not support image input`);
+      }
       let attempt = 0;
       for (;;) {
-        if (abort.signal.aborted) throw new PipelineError('timeout', 'generation hit the 8 minute limit', opts.stage);
+        if (abort.signal.aborted)
+          throw new PipelineError('timeout', 'generation hit the 8 minute limit', opts.stage);
         try {
           const stageCfg = config.stages[stageName];
           const res = await provider.complete(
@@ -294,7 +344,8 @@ export class GenerationRunner {
           emit(opts.stage, opts.label, {});
           return parseModelJson(res.text);
         } catch (e) {
-          if (abort.signal.aborted) throw new PipelineError('timeout', 'generation hit the 8 minute limit', opts.stage);
+          if (abort.signal.aborted)
+            throw new PipelineError('timeout', 'generation hit the 8 minute limit', opts.stage);
           if (e instanceof ProviderAuthError) {
             throw new PipelineError('auth', e.message, opts.stage);
           }
@@ -324,8 +375,10 @@ export class GenerationRunner {
           });
           if ((transient || parseIssue) && attempt < GENERATION.maxTransientRetriesPerCall) {
             attempt++;
-            const retryAfter = e instanceof ProviderHttpError && e.retryAfterS ? e.retryAfterS * 1000 : 0;
-            const backoff = Math.max(retryAfter, 1000 * Math.pow(3, attempt - 1)) + Math.random() * 500;
+            const retryAfter =
+              e instanceof ProviderHttpError && e.retryAfterS ? e.retryAfterS * 1000 : 0;
+            const backoff =
+              Math.max(retryAfter, 1000 * Math.pow(3, attempt - 1)) + Math.random() * 500;
             emit(opts.stage, `Retrying (${attempt}/${GENERATION.maxTransientRetriesPerCall})…`);
             await sleep(backoff, abort.signal).catch(() => {
               throw new PipelineError('timeout', 'generation hit the 8 minute limit', opts.stage);
@@ -360,7 +413,11 @@ export class GenerationRunner {
 
       // Body-level anti-collision for the entities stage: premise variety comes
       // from titles/taglines above; cast + palette variety needs the actual picks.
-      const recentUse = { heroes: [] as string[], bosses: [] as string[], backdrops: [] as string[] };
+      const recentUse = {
+        heroes: [] as string[],
+        bosses: [] as string[],
+        backdrops: [] as string[],
+      };
       const recentMoods: string[] = [];
       for (const g of recentGames) {
         const s = this.files.readSpec(g.id);
@@ -369,8 +426,13 @@ export class GenerationRunner {
         if (assign['hero']?.startsWith('lib:')) recentUse.heroes.push(assign['hero']);
         if (assign['boss']?.startsWith('lib:')) recentUse.bosses.push(assign['boss']);
         if (s.backdrop) recentUse.backdrops.push(s.backdrop);
-        if (Array.isArray(s.palette) && s.palette.length === 16) recentMoods.push(nearestMood(s.palette).name);
+        if (Array.isArray(s.palette) && s.palette.length === 16)
+          recentMoods.push(nearestMood(s.palette).name);
       }
+
+      const requiredArchetypeNote = job.requestedArchetype
+        ? `REQUIRED ARCHETYPE: ${job.requestedArchetype}. Design every level, character, control implication, and story beat for ${job.requestedArchetype}; do not choose a different archetype.`
+        : undefined;
 
       let design = await this.designPass(callLlm, {
         promptText: job.promptText,
@@ -379,10 +441,15 @@ export class GenerationRunner {
         antiCollision: existingGames,
         recentMoods,
         photo: describeInStory ? photo : undefined,
+        extraNote: requiredArchetypeNote,
       });
+      design = enforceRequestedArchetype(design, job.requestedArchetype);
 
       // Similarity gate: too close to an existing game → regenerate the design once.
-      const collision = tooSimilar(design.title, existingGames.map((g) => g.title));
+      const collision = tooSimilar(
+        design.title,
+        existingGames.map((g) => g.title),
+      );
       if (collision) {
         emit('designing', 'Too similar to an existing game — redesigning…');
         design = await this.designPass(callLlm, {
@@ -392,9 +459,20 @@ export class GenerationRunner {
           antiCollision: existingGames,
           recentMoods,
           photo: describeInStory ? photo : undefined,
-          extraNote: `Your previous title "${design.title}" was too similar to "${collision}". Choose a clearly different title and premise.`,
+          extraNote: [
+            requiredArchetypeNote,
+            `Your previous title "${design.title}" was too similar to "${collision}". Choose a clearly different title and premise.`,
+          ]
+            .filter(Boolean)
+            .join(' '),
         });
-        if (tooSimilar(design.title, existingGames.map((g) => g.title))) {
+        design = enforceRequestedArchetype(design, job.requestedArchetype);
+        if (
+          tooSimilar(
+            design.title,
+            existingGames.map((g) => g.title),
+          )
+        ) {
           design.title = `${design.title.slice(0, 29)} II`;
         }
       }
@@ -456,16 +534,27 @@ export class GenerationRunner {
       };
       const parts: SpecParts = {};
       const results = await Promise.allSettled([
-        callLlm('levels', buildLevelsPrompt(archetype, design), { stage: 'writing-spec', label: 'Building levels…' }).then((r) => {
-          parts.levels = (r as { levels: unknown }).levels ?? r;
+        callLlm('levels', buildLevelsPrompt(archetype, design), {
+          stage: 'writing-spec',
+          label: 'Building levels…',
+        }).then((r) => {
+          const roster = r as { player?: unknown; levels?: unknown };
+          parts.levels = roster.levels ?? r;
+          if (archetype === 'fighter') parts.player = roster.player;
           tick('Levels');
         }),
-        callLlm('entities', buildEntitiesPrompt(archetype, design, !!photo, recentUse), { stage: 'writing-spec', label: 'Casting entities…' }).then((r) => {
+        callLlm('entities', buildEntitiesPrompt(archetype, design, !!photo, recentUse), {
+          stage: 'writing-spec',
+          label: 'Casting entities…',
+        }).then((r) => {
           parts.entities = r as SpecParts['entities'];
           pushPartial({ sprites: parts.entities?.sprites as PartialSpec['sprites'] });
           tick('Entities');
         }),
-        callLlm('music', buildMusicPrompt(archetype, design), { stage: 'writing-spec', label: 'Composing music…' }).then((r) => {
+        callLlm('music', buildMusicPrompt(archetype, design), {
+          stage: 'writing-spec',
+          label: 'Composing music…',
+        }).then((r) => {
           parts.music = (r as { music: unknown }).music ?? r;
           pushPartial({ music: parts.music as PartialSpec['music'] });
           tick('Music');
@@ -475,9 +564,18 @@ export class GenerationRunner {
       if (firstFailure) throw firstFailure.reason;
 
       // ---- Assemble + validate + repair ----------------------------------
-      let spec = this.assemble(job.seed, archetype, design, parts);
+      let spec = ensureLikenessHeroBody(this.assemble(job.seed, archetype, design, parts), !!photo);
       emit('validating', 'Checking every rule…');
-      spec = await this.validateAndRepair(spec, archetype, design, callLlm, emit, !!photo, recentUse);
+      spec = await this.validateAndRepair(
+        spec,
+        archetype,
+        design,
+        callLlm,
+        emit,
+        !!photo,
+        recentUse,
+      );
+      spec = ensureLikenessHeroBody(spec, !!photo);
 
       // ---- Build assets + atomic publish ----------------------------------
       emit('building-assets', 'Baking sprites and saving…');
@@ -491,11 +589,14 @@ export class GenerationRunner {
         if (config.likeness.smartFeatures) {
           try {
             emit('building-assets', 'Reading your photo…');
-            feat = (await callLlm('design', buildFaceAnalysisPrompt(), {
-              image: photo,
-              label: 'Read likeness',
-              stage: 'building-assets',
-            })) as FaceFeatures;
+            feat = normalizeFaceFeatures(
+              await callLlm('design', buildFaceAnalysisPrompt(), {
+                image: photo,
+                temperature: 0,
+                label: 'Read likeness',
+                stage: 'building-assets',
+              }),
+            );
           } catch {
             /* vision unavailable / failed → photo bake against the game palette */
           }
@@ -525,13 +626,19 @@ export class GenerationRunner {
               /* image model unavailable / failed → keep the pixel-photo portrait */
             }
           }
-          baked = { head12: avatar.head12, head16: avatar.head16, portrait };
+          // Keep every generated head view while substituting the photo-based
+          // story portrait. Older renderers simply omit the optional views.
+          baked = { ...avatar, portrait };
         } else {
-          baked = await bakeLikeness(photo, feat ? buildPortraitPalette(feat) : spec.palette, feat ? 10 : 30);
+          baked = await bakeLikeness(
+            photo,
+            feat ? buildPortraitPalette(feat) : spec.palette,
+            feat ? 10 : 30,
+          );
         }
-        writeFileSync(join(assetsDir, 'head12.png'), baked.head12);
-        writeFileSync(join(assetsDir, 'head16.png'), baked.head16);
-        writeFileSync(join(assetsDir, 'portrait.png'), baked.portrait);
+        for (const [filename, buffer] of likenessAssetBuffers(baked)) {
+          writeFileSync(join(assetsDir, filename), buffer);
+        }
       }
       writeFileSync(join(staging, 'game.json'), JSON.stringify(spec, null, 1));
       const stageCfg = config.stages.design;
@@ -549,6 +656,9 @@ export class GenerationRunner {
         sourcePrompt: job.promptText,
         sourceKind: job.sourceKind,
         ...(job.presetId ? { presetId: job.presetId } : {}),
+        ...(job.requestedArchetype
+          ? { requestedArchetype: job.requestedArchetype }
+          : {}),
         hadPhoto: !!photo,
         model: stageCfg.model,
         provider: process.env.SPARKADE_PROVIDER ?? stageCfg.provider,
@@ -576,7 +686,12 @@ export class GenerationRunner {
         engineVersion: ENGINE_VERSION,
         archetypeVersion: archetypes[archetype].version,
       });
-      this.db.updateJob(jobId, { status: 'done', stage: 'done', detail: 'Ready to play', finishedAt: nowIso() });
+      this.db.updateJob(jobId, {
+        status: 'done',
+        stage: 'done',
+        detail: 'Ready to play',
+        finishedAt: nowIso(),
+      });
       this.hub.emit({
         type: 'done',
         jobId,
@@ -598,7 +713,12 @@ export class GenerationRunner {
         message: err.message.slice(0, 500),
         stage: err.stage,
       };
-      this.db.updateJob(jobId, { status: 'failed', stage: 'failed', error: friendly, finishedAt: nowIso() });
+      this.db.updateJob(jobId, {
+        status: 'failed',
+        stage: 'failed',
+        error: friendly,
+        finishedAt: nowIso(),
+      });
       this.db.setGameStatus(gameId, 'failed', { code: friendly.code, message: friendly.message });
       this.db.setGameCost(gameId, this.db.gameCost(gameId));
       this.hub.emit({
@@ -619,7 +739,17 @@ export class GenerationRunner {
   }
 
   private async designPass(
-    callLlm: (stage: StageName, prompt: BuiltPrompt, opts: { temperature?: number; repair?: boolean; image?: Buffer; label: string; stage: JobStage }) => Promise<unknown>,
+    callLlm: (
+      stage: StageName,
+      prompt: BuiltPrompt,
+      opts: {
+        temperature?: number;
+        repair?: boolean;
+        image?: Buffer;
+        label: string;
+        stage: JobStage;
+      },
+    ) => Promise<unknown>,
     opts: {
       promptText: string;
       hasPhoto: boolean;
@@ -640,10 +770,15 @@ export class GenerationRunner {
     if (errors.length) {
       const retryPrompt = buildDesignPrompt({
         ...opts,
-        extraNote: `Your previous output failed validation: ${errors
-          .slice(0, 8)
-          .map((e) => `${e.path}: ${e.message}`)
-          .join('; ')}. Fix these and follow the schema exactly.`,
+        extraNote: [
+          opts.extraNote,
+          `Your previous output failed validation: ${errors
+            .slice(0, 8)
+            .map((e) => `${e.path}: ${e.message}`)
+            .join('; ')}. Fix these and follow the schema exactly.`,
+        ]
+          .filter(Boolean)
+          .join(' '),
       });
       raw = await callLlm('design', retryPrompt, {
         label: 'Design redrafted',
@@ -662,7 +797,12 @@ export class GenerationRunner {
     return raw as DesignDoc;
   }
 
-  private assemble(seed: number, archetype: ArchetypeId, design: DesignDoc, parts: SpecParts): GameSpec {
+  private assemble(
+    seed: number,
+    archetype: ArchetypeId,
+    design: DesignDoc,
+    parts: SpecParts,
+  ): GameSpec {
     return {
       specVersion: 1,
       archetype,
@@ -671,14 +811,23 @@ export class GenerationRunner {
       palette: design.palette,
       story: design.story,
       sprites: (parts.entities?.sprites ?? { custom: {}, assign: {} }) as GameSpec['sprites'],
+      ...(archetype === 'fighter' && parts.player ? { player: parts.player } : {}),
       levels: (parts.levels ?? []) as never,
       boss: (parts.entities?.boss ?? {}) as never,
       music: (parts.music ?? {}) as never,
       ...(parts.entities?.sfx ? { sfx: parts.entities.sfx as GameSpec['sfx'] } : {}),
-      ...(parts.entities?.backdrop ? { backdrop: parts.entities.backdrop as GameSpec['backdrop'] } : {}),
-      ...(parts.entities?.weather ? { weather: parts.entities.weather as GameSpec['weather'] } : {}),
-      ...(parts.entities?.lighting ? { lighting: parts.entities.lighting as GameSpec['lighting'] } : {}),
-      ...(parts.entities?.juice !== undefined ? { juice: parts.entities.juice as GameSpec['juice'] } : {}),
+      ...(parts.entities?.backdrop
+        ? { backdrop: parts.entities.backdrop as GameSpec['backdrop'] }
+        : {}),
+      ...(parts.entities?.weather
+        ? { weather: parts.entities.weather as GameSpec['weather'] }
+        : {}),
+      ...(parts.entities?.lighting
+        ? { lighting: parts.entities.lighting as GameSpec['lighting'] }
+        : {}),
+      ...(parts.entities?.juice !== undefined
+        ? { juice: parts.entities.juice as GameSpec['juice'] }
+        : {}),
       ...(design.difficulty ? { difficulty: design.difficulty } : {}),
       ...(archetype === 'platformer' && design.feel ? { feel: design.feel } : {}),
       scoring: design.scoring,
@@ -698,7 +847,11 @@ export class GenerationRunner {
     input: GameSpec,
     archetype: ArchetypeId,
     design: DesignDoc,
-    callLlm: (stage: StageName, prompt: BuiltPrompt, opts: { temperature?: number; repair?: boolean; label: string; stage: JobStage }) => Promise<unknown>,
+    callLlm: (
+      stage: StageName,
+      prompt: BuiltPrompt,
+      opts: { temperature?: number; repair?: boolean; label: string; stage: JobStage },
+    ) => Promise<unknown>,
     emit: (stage: JobStage, detail: string) => void,
     hasPhoto: boolean,
     recentUse?: RecentUse,
@@ -711,7 +864,10 @@ export class GenerationRunner {
     const tryRepairs = async (budget: number): Promise<boolean> => {
       for (let i = 0; i < budget && diagnostics.length; i++) {
         repairsUsed++;
-        emit('repairing', `Repair attempt ${repairsUsed}/2 — fixing ${diagnostics.length} issue(s)…`);
+        emit(
+          'repairing',
+          `Repair attempt ${repairsUsed}/2 — fixing ${diagnostics.length} issue(s)…`,
+        );
         const prompt = buildRepairPrompt(archetype, spec, diagnostics);
         try {
           const patch = (await callLlm('repair', prompt, {
@@ -738,21 +894,51 @@ export class GenerationRunner {
     // One full regeneration of the stages that own the remaining errors.
     const owners = new Set<'levels' | 'entities' | 'music'>();
     for (const d of diagnostics) {
-      if (d.path.startsWith('/levels')) owners.add('levels');
+      if (d.path.startsWith('/levels') || d.path.startsWith('/player')) owners.add('levels');
       else if (d.path.startsWith('/music')) owners.add('music');
-      else if (d.path.startsWith('/sprites') || d.path.startsWith('/boss') || d.path.startsWith('/sfx') || d.path.startsWith('/backdrop') || d.path.startsWith('/weather')) owners.add('entities');
+      else if (
+        d.path.startsWith('/sprites') ||
+        d.path.startsWith('/boss') ||
+        d.path.startsWith('/sfx') ||
+        d.path.startsWith('/backdrop') ||
+        d.path.startsWith('/weather')
+      )
+        owners.add('entities');
       else owners.add('levels'); // duration/floors and cross-cutting issues are level-shaped
     }
     emit('writing-spec', `Regenerating ${[...owners].join(' + ')}…`);
     for (const owner of owners) {
       if (owner === 'levels') {
-        const r = (await callLlm('levels', buildLevelsPrompt(archetype, design), { label: 'Levels rebuilt', stage: 'writing-spec' })) as { levels: unknown };
-        spec = { ...spec, levels: (r.levels ?? r) as never };
+        const r = (await callLlm('levels', buildLevelsPrompt(archetype, design), {
+          label: 'Levels rebuilt',
+          stage: 'writing-spec',
+        })) as { player?: unknown; levels?: unknown };
+        spec = {
+          ...spec,
+          ...(archetype === 'fighter' && r.player ? { player: r.player as never } : {}),
+          levels: (r.levels ?? r) as never,
+        };
       } else if (owner === 'entities') {
-        const r = (await callLlm('entities', buildEntitiesPrompt(archetype, design, hasPhoto, recentUse), { label: 'Entities recast', stage: 'writing-spec' })) as SpecParts['entities'];
-        spec = { ...spec, sprites: r!.sprites as GameSpec['sprites'], boss: r!.boss as never, ...(r!.sfx ? { sfx: r!.sfx as GameSpec['sfx'] } : {}), ...(r!.backdrop ? { backdrop: r!.backdrop as never } : {}), ...(r!.weather ? { weather: r!.weather as GameSpec['weather'] } : {}), ...(r!.lighting ? { lighting: r!.lighting as GameSpec['lighting'] } : {}), ...(r!.juice !== undefined ? { juice: r!.juice as GameSpec['juice'] } : {}) };
+        const r = (await callLlm(
+          'entities',
+          buildEntitiesPrompt(archetype, design, hasPhoto, recentUse),
+          { label: 'Entities recast', stage: 'writing-spec' },
+        )) as SpecParts['entities'];
+        spec = {
+          ...spec,
+          sprites: r!.sprites as GameSpec['sprites'],
+          boss: r!.boss as never,
+          ...(r!.sfx ? { sfx: r!.sfx as GameSpec['sfx'] } : {}),
+          ...(r!.backdrop ? { backdrop: r!.backdrop as never } : {}),
+          ...(r!.weather ? { weather: r!.weather as GameSpec['weather'] } : {}),
+          ...(r!.lighting ? { lighting: r!.lighting as GameSpec['lighting'] } : {}),
+          ...(r!.juice !== undefined ? { juice: r!.juice as GameSpec['juice'] } : {}),
+        };
       } else {
-        const r = (await callLlm('music', buildMusicPrompt(archetype, design), { label: 'Music recomposed', stage: 'writing-spec' })) as { music: unknown };
+        const r = (await callLlm('music', buildMusicPrompt(archetype, design), {
+          label: 'Music recomposed',
+          stage: 'writing-spec',
+        })) as { music: unknown };
         spec = { ...spec, music: (r.music ?? r) as never };
       }
     }
@@ -767,6 +953,10 @@ export class GenerationRunner {
       .slice(0, 5)
       .map((d) => `[${d.code}] ${d.path}: ${d.message}`)
       .join('; ');
-    throw new PipelineError('validation-failed', `the generated game kept failing validation: ${summary}`, 'validating');
+    throw new PipelineError(
+      'validation-failed',
+      `the generated game kept failing validation: ${summary}`,
+      'validating',
+    );
   }
 }

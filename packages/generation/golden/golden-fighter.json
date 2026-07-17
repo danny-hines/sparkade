@@ -56,6 +56,7 @@
   "player": {
     "name": "RONIN",
     "build": "balanced",
+    "outfit": "gi",
     "colorSlot": 5,
     "hp": 100
   },
@@ -63,22 +64,23 @@
     {
       "name": "The Tile Gate",
       "musicSong": "theme",
-      "opponent": { "name": "TILE", "build": "nimble", "colorSlot": 8, "hp": 85 }
+      "opponent": { "name": "TILE", "build": "nimble", "outfit": "street", "colorSlot": 8, "hp": 85 }
     },
     {
       "name": "The Long Balcony",
       "musicSong": "theme",
-      "opponent": { "name": "BRASS", "build": "heavy", "colorSlot": 6, "hp": 120, "powerScale": 1.12 }
+      "opponent": { "name": "BRASS", "build": "heavy", "outfit": "wrestler", "colorSlot": 6, "hp": 120, "powerScale": 1.12 }
     },
     {
       "name": "Lantern Row",
       "musicSong": "theme",
-      "opponent": { "name": "VESPER", "build": "balanced", "colorSlot": 9, "hp": 105, "speedScale": 1.12 }
+      "opponent": { "name": "VESPER", "build": "balanced", "outfit": "robe", "colorSlot": 9, "hp": 105, "speedScale": 1.12 }
     }
   ],
   "boss": {
     "name": "The Moth King",
     "build": "heavy",
+    "outfit": "armor",
     "colorSlot": 11,
     "hp": 150,
     "powerScale": 1.1,

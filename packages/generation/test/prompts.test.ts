@@ -10,6 +10,8 @@ describe('prompt templates', () => {
       'levels-platformer': { GOLDEN_EXCERPT: '{}', SCHEMA: '{}' },
       'levels-shooter': { GOLDEN_EXCERPT: '{}', SCHEMA: '{}' },
       'levels-adventure': { GOLDEN_EXCERPT: '{}', SCHEMA: '{}' },
+      'levels-hshooter': { GOLDEN_EXCERPT: '{}', SCHEMA: '{}' },
+      'levels-fighter': { GOLDEN_EXCERPT: '{}', SCHEMA: '{}' },
       entities: {
         ARCHETYPE: 'platformer',
         LIB_SPRITES: 'hero_squire',
@@ -42,7 +44,7 @@ describe('prompt templates', () => {
   });
 
   it('golden excerpts are valid JSON slices of the goldens', () => {
-    for (const archetype of ['platformer', 'shooter', 'adventure'] as const) {
+    for (const archetype of ['platformer', 'shooter', 'adventure', 'hshooter', 'fighter'] as const) {
       const golden = loadGolden(archetype);
       expect(golden.meta.title.length).toBeGreaterThan(0);
       for (const stage of ['design', 'levels', 'entities', 'music'] as const) {
@@ -50,5 +52,16 @@ describe('prompt templates', () => {
         expect(() => JSON.parse(excerpt), `${archetype}/${stage}`).not.toThrow();
       }
     }
+  });
+
+  it('teaches the fighter levels stage to author the player and outfit', () => {
+    const excerpt = JSON.parse(goldenExcerpt('fighter', 'levels')) as {
+      player?: { outfit?: string };
+    };
+    expect(excerpt.player?.outfit).toBe('gi');
+    const prompt = loadTemplate('levels-fighter');
+    expect(prompt).toContain('one `player`');
+    expect(prompt).toContain('`wrestler`');
+    expect(prompt).toContain('REQUIRED `outfit`');
   });
 });

@@ -100,6 +100,37 @@ describe('archetype schemas', () => {
     }
   });
 
+  it('requires a complete authored roster for new fighter stages without breaking old specs', () => {
+    const full = ARCHETYPE_SCHEMAS.fighter as {
+      required: string[];
+      $defs: Record<string, { required?: string[] }>;
+    };
+    // Persisted pre-roster/pre-outfit specs keep their engine fallbacks.
+    expect(full.required).not.toContain('player');
+    expect(full.$defs.fighter!.required).not.toContain('outfit');
+    expect(full.$defs.boss!.required).not.toContain('outfit');
+
+    const levels = stageSchema('fighter', 'levels') as {
+      properties: Record<string, unknown>;
+      required: string[];
+      $defs: Record<string, { required?: string[] }>;
+    };
+    expect(Object.keys(levels.properties)).toEqual(['player', 'levels']);
+    expect(levels.required).toEqual(['player', 'levels']);
+    expect(levels.$defs.fighter!.required).toContain('outfit');
+
+    const entities = stageSchema('fighter', 'entities') as {
+      $defs: Record<
+        string,
+        { required?: string[]; properties?: Record<string, { const?: number }> }
+      >;
+    };
+    expect(entities.$defs.boss!.required).toContain('outfit');
+    expect(entities.$defs.boss!.properties!.colorSlot).toEqual(
+      expect.objectContaining({ const: 11 }),
+    );
+  });
+
   it('design schema exists and demands the full doc', () => {
     const s = DESIGN_SCHEMA as { required: string[] };
     for (const key of ['title', 'archetype', 'palette', 'story', 'levelPlan', 'cast', 'musicBrief', 'scoring', 'difficulty']) {

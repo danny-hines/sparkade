@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameSpec } from '@sparkade/shared';
 import {
   applySpriteFallbacks,
+  ensureLikenessHeroBody,
   securityScan,
   spriteProblem,
   titleSimilarity,
@@ -57,6 +58,20 @@ describe('security scan', () => {
 });
 
 describe('custom sprite checks + silent fallback', () => {
+  it('guarantees a compatible tall-likeness body only for photo platformers', () => {
+    const spec = golden('platformer');
+    spec.sprites.assign['hero'] = 'custom:signature_hero';
+    const fixed = ensureLikenessHeroBody(spec, true);
+    expect(fixed).not.toBe(spec);
+    expect(fixed.sprites.assign['hero']).toMatch(/^lib:hero_/);
+    expect(spec.sprites.assign['hero']).toBe('custom:signature_hero');
+    expect(ensureLikenessHeroBody(fixed, true)).toBe(fixed);
+    expect(ensureLikenessHeroBody(spec, false)).toBe(spec);
+
+    const adventure = golden('adventure');
+    expect(ensureLikenessHeroBody(adventure, true)).toBe(adventure);
+  });
+
   it('flags dimension, charset and coverage problems', () => {
     expect(spriteProblem({ w: 8, h: 8, rows: new Array(7).fill('11111111') })).toMatch(/rows.length/);
     expect(spriteProblem({ w: 8, h: 2, rows: ['1111111', '11111111'] })).toMatch(/row 0 length/);

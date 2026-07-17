@@ -6,6 +6,7 @@ import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020.js';
 import {
   ARCHETYPE_SCHEMAS,
   DESIGN_SCHEMA,
+  LIB_HEROES_PLATFORMER,
   LIB_SPRITE_IDS,
   type ArchetypeId,
   type GameSpec,
@@ -66,6 +67,32 @@ const BAD_PATTERNS: { name: string; re: RegExp }[] = [
 ];
 
 const SPRITE_REF_RE = /^(lib|custom):([a-z][a-z0-9_]{0,31})$/;
+const LIKENESS_HERO_REFS = new Set<string>(
+  LIB_HEROES_PLATFORMER.map((id) => `lib:${id}`),
+);
+
+/**
+ * A photo platformer needs one of the bodies that can carry the 16px head.
+ * The prompt asks for this; this deterministic guard makes it a guarantee if
+ * a provider still chooses a custom or cross-archetype hero.
+ */
+export function ensureLikenessHeroBody(spec: GameSpec, hasPhoto: boolean): GameSpec {
+  if (
+    !hasPhoto ||
+    spec.archetype !== 'platformer' ||
+    LIKENESS_HERO_REFS.has(spec.sprites.assign['hero'] ?? '')
+  ) {
+    return spec;
+  }
+  const id = LIB_HEROES_PLATFORMER[(spec.seed >>> 0) % LIB_HEROES_PLATFORMER.length]!;
+  return {
+    ...spec,
+    sprites: {
+      ...spec.sprites,
+      assign: { ...spec.sprites.assign, hero: `lib:${id}` },
+    },
+  };
+}
 
 /**
  * Walks every string in the object graph. Sprite-ref-shaped strings are checked

@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { AdventureSpec, GameSpec, PlatformerSpec, ShooterSpec } from '@sparkade/shared';
+import type { AdventureSpec, FighterSpec, GameSpec, PlatformerSpec, ShooterSpec } from '@sparkade/shared';
 import { MIN_DURATION_S } from '@sparkade/shared';
 import { archetypes } from '@sparkade/archetypes';
 import { checkKeyTopology, buildGraph, reconcileDoors } from '../src/adventure/lint';
@@ -199,6 +199,40 @@ describe('shooter lints', () => {
     spec.boss.pods = 4;
     spec.boss.podHp = 40;
     expect(codes(archetypes.shooter.lint(spec))).toContain('SHOOT_BOSS_TOO_LONG');
+  });
+});
+
+describe('fighter roster lints', () => {
+  it('the personalized golden roster passes', () => {
+    const spec = golden<FighterSpec>('fighter');
+    expect(archetypes.fighter.lint(spec)).toEqual([]);
+  });
+
+  it('rejects repeated ladder colors and build/outfit silhouettes', () => {
+    const spec = golden<FighterSpec>('fighter');
+    spec.levels[1]!.opponent.colorSlot = spec.levels[0]!.opponent.colorSlot;
+    spec.levels[1]!.opponent.build = spec.levels[0]!.opponent.build;
+    spec.levels[1]!.opponent.outfit = spec.levels[0]!.opponent.outfit;
+    const errs = codes(archetypes.fighter.lint(spec));
+    expect(errs).toContain('FIGHT_COLOR_CLASH');
+    expect(errs).toContain('FIGHT_STYLE_CLASH');
+  });
+
+  it('requires at least three authored outfit silhouettes across player + ladder', () => {
+    const spec = golden<FighterSpec>('fighter');
+    spec.player!.outfit = 'gi';
+    spec.levels[0]!.opponent.outfit = 'gi';
+    spec.levels[1]!.opponent.outfit = 'boxer';
+    spec.levels[2]!.opponent.outfit = 'boxer';
+    expect(codes(archetypes.fighter.lint(spec))).toContain('FIGHT_OUTFIT_VARIETY');
+  });
+
+  it('keeps legacy outfit-less fighter saves valid', () => {
+    const spec = golden<FighterSpec>('fighter');
+    delete spec.player!.outfit;
+    for (const level of spec.levels) delete level.opponent.outfit;
+    delete spec.boss.outfit;
+    expect(codes(archetypes.fighter.lint(spec))).not.toContain('FIGHT_OUTFIT_VARIETY');
   });
 });
 

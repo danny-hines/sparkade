@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { FONT_GLYPHS, LIBRARY, missingLibraryIds } from '@sparkade/engine';
+import {
+  FONT_GLYPHS,
+  LIBRARY,
+  makeTallHumanoidEntry,
+  missingLibraryIds,
+  resolveLikenessHead,
+  SpriteStore,
+} from '@sparkade/engine';
 import {
   LIB_HEROES_ADVENTURE,
   LIB_HEROES_PLATFORMER,
@@ -38,6 +45,97 @@ describe('built-in sprite library', () => {
       const entry = LIBRARY[id]!;
       expect(entry.headSlots, id).toBeDefined();
       expect(entry.headSlots!.length, id).toBe(entry.frames.length);
+    }
+  });
+
+  it('assigns directional head views to movement frames', () => {
+    for (const id of LIB_HEROES_PLATFORMER) {
+      const views = LIBRARY[id]!.headSlots?.map((slot) => slot.view);
+      expect(views?.every((view) => view === 'side'), id).toBe(true);
+    }
+
+    for (const id of LIB_HEROES_ADVENTURE) {
+      expect(
+        LIBRARY[id]!.headSlots?.map((slot) => slot.view),
+        id,
+      ).toEqual(['front', 'front', 'back', 'back', 'side', 'side']);
+    }
+  });
+
+  it('selects directional likeness assets with front-view fallback', () => {
+    const front12 = {} as CanvasImageSource;
+    const side12 = {} as CanvasImageSource;
+    const back12 = {} as CanvasImageSource;
+    const front16 = {} as CanvasImageSource;
+    const side16 = {} as CanvasImageSource;
+    const likeness = {
+      head12: front12,
+      head16: front16,
+      head12Side: side12,
+      head12Back: back12,
+      head16Side: side16,
+    };
+
+    expect(resolveLikenessHead(likeness, { x: 0, y: 0, size: 12 })).toBe(front12);
+    expect(resolveLikenessHead(likeness, { x: 0, y: 0, size: 12, view: 'front' })).toBe(
+      front12,
+    );
+    expect(resolveLikenessHead(likeness, { x: 0, y: 0, size: 12, view: 'side' })).toBe(
+      side12,
+    );
+    expect(resolveLikenessHead(likeness, { x: 0, y: 0, size: 12, view: 'back' })).toBe(
+      back12,
+    );
+    expect(resolveLikenessHead(likeness, { x: 0, y: 0, size: 16, view: 'side' })).toBe(
+      side16,
+    );
+    expect(resolveLikenessHead(likeness, { x: 0, y: 0, size: 16, view: 'back' })).toBe(
+      front16,
+    );
+
+    const store = new SpriteStore({} as never, likeness);
+    expect(store.likenessHead(12, 'side')).toBe(side12);
+    expect(store.likenessHead(16, 'side')).toBe(side16);
+    expect(store.likenessHead(16, 'back')).toBe(front16);
+    expect(new SpriteStore({} as never, null).likenessHead(16, 'side')).toBeNull();
+  });
+
+  it('builds a 16x32 humanoid presentation with a real 16px head budget', () => {
+    const source = LIBRARY['hero_squire']!;
+    const tall = makeTallHumanoidEntry(source);
+    expect(tall).not.toBe(source);
+    expect(tall.frames).toHaveLength(source.frames.length);
+    for (const [i, frame] of tall.frames.entries()) {
+      expect(frame.w, `frame ${i}`).toBe(16);
+      expect(frame.h, `frame ${i}`).toBe(32);
+      expect(frame.rows).toHaveLength(32);
+      expect(frame.rows.slice(0, 16).every((row) => /^\.+$/.test(row))).toBe(true);
+      expect(frame.rows.slice(16).some((row) => /[1-9a-f]/.test(row))).toBe(true);
+      expect(tall.headSlots?.[i]).toEqual({ x: 0, y: 0, size: 16, view: 'side' });
+      expect(tall.likenessOverlays?.[i]?.h).toBe(32);
+    }
+    // Presentation transforms must never mutate the shared library entry.
+    expect(source.frames[0]!.h).toBe(16);
+    expect(source.headSlots?.[0]?.size).toBe(12);
+
+    const ineligible = { frames: source.frames, anims: source.anims };
+    expect(makeTallHumanoidEntry(ineligible)).toBe(ineligible);
+
+    // Props that lived outside the old 12px face replacement survive the
+    // larger compositor instead of becoming a broken pick/sword/scarf.
+    const miner = makeTallHumanoidEntry(LIBRARY['hero_miner']!);
+    expect(
+      miner.likenessOverlays?.[0]?.rows.slice(0, 16).some((row) => /[1-9a-f]/.test(row)),
+    ).toBe(true);
+  });
+
+  it('supports every platformer hero body promised to the likeness renderer', () => {
+    for (const id of LIB_HEROES_PLATFORMER) {
+      const tall = makeTallHumanoidEntry(LIBRARY[id]!);
+      expect(tall.frames.length, id).toBe(LIBRARY[id]!.frames.length);
+      expect(tall.frames.every((frame) => frame.w === 16 && frame.h === 32), id).toBe(true);
+      expect(tall.headSlots?.every((slot) => slot.size === 16), id).toBe(true);
+      expect(tall.likenessOverlays?.length, id).toBe(tall.frames.length);
     }
   });
 

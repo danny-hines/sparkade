@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   detail TEXT NOT NULL DEFAULT '',
   prompt_text TEXT NOT NULL,
   source_kind TEXT NOT NULL,
+  requested_archetype TEXT,
   preset_id TEXT,
   seed INTEGER NOT NULL,
   idempotency_key TEXT NOT NULL UNIQUE,
@@ -107,6 +108,12 @@ export class Db {
     const usageCols = this.db.prepare(`PRAGMA table_info(usage_events)`).all() as { name: string }[];
     if (!usageCols.some((c) => c.name === 'cached_tokens')) {
       this.db.exec(`ALTER TABLE usage_events ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0`);
+    }
+    // Migration: Surprise Me genre is now structured instead of living only
+    // in prompt prose. Nullable keeps all existing voice/preset jobs valid.
+    const jobCols = this.db.prepare(`PRAGMA table_info(jobs)`).all() as { name: string }[];
+    if (!jobCols.some((c) => c.name === 'requested_archetype')) {
+      this.db.exec(`ALTER TABLE jobs ADD COLUMN requested_archetype TEXT`);
     }
   }
 
@@ -198,8 +205,8 @@ export class Db {
   insertJob(job: JobRecord, priceSnapshot: Record<string, unknown>): void {
     this.db
       .prepare(
-        `INSERT INTO jobs (id, game_id, status, stage, detail, prompt_text, source_kind, preset_id, seed, idempotency_key, has_photo, created_at, started_at, finished_at, error_json, attempt, price_snapshot_json)
-         VALUES (@id, @gameId, @status, @stage, @detail, @promptText, @sourceKind, @presetId, @seed, @idempotencyKey, @hasPhoto, @createdAt, @startedAt, @finishedAt, @error, @attempt, @priceSnapshot)`,
+        `INSERT INTO jobs (id, game_id, status, stage, detail, prompt_text, source_kind, requested_archetype, preset_id, seed, idempotency_key, has_photo, created_at, started_at, finished_at, error_json, attempt, price_snapshot_json)
+         VALUES (@id, @gameId, @status, @stage, @detail, @promptText, @sourceKind, @requestedArchetype, @presetId, @seed, @idempotencyKey, @hasPhoto, @createdAt, @startedAt, @finishedAt, @error, @attempt, @priceSnapshot)`,
       )
       .run({
         id: job.id,
@@ -209,6 +216,7 @@ export class Db {
         detail: job.detail,
         promptText: job.promptText,
         sourceKind: job.sourceKind,
+        requestedArchetype: job.requestedArchetype ?? null,
         presetId: job.presetId ?? null,
         seed: job.seed,
         idempotencyKey: job.idempotencyKey,
@@ -495,6 +503,9 @@ function toJobRecord(r: Record<string, unknown>, costSoFarUsd: number | null): J
     detail: String(r.detail ?? ''),
     promptText: String(r.prompt_text),
     sourceKind: String(r.source_kind) as JobRecord['sourceKind'],
+    ...(r.requested_archetype
+      ? { requestedArchetype: String(r.requested_archetype) as ArchetypeId }
+      : {}),
     ...(r.preset_id ? { presetId: String(r.preset_id) } : {}),
     seed: Number(r.seed),
     idempotencyKey: String(r.idempotency_key),

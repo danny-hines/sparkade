@@ -67,6 +67,8 @@ After reboot the cabinet boots straight to the attract screen. Useful commands:
 
 ```bash
 sparkade status | logs -f | doctor | restart
+sparkade debug                                      # secure SSH tunnel instructions for Chromium DevTools
+sparkade lan on | off | status                      # temporarily expose the web kiosk to the local network
 sparkade config set-key META_API_KEY <key>            # stored in /etc/sparkade/env (0600)
 sparkade config set-provider anthropic [model]        # repoint generation (meta|anthropic|compat)
 sparkade provider test                                # one tiny paid call per provider

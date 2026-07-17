@@ -3,22 +3,14 @@
 // it back on quit.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import { GameHost, type LikenessAssets } from '@sparkade/engine';
+import { GameHost } from '@sparkade/engine';
 import { archetypes } from '@sparkade/archetypes';
 import type { GameSpec } from '@sparkade/shared';
 import { api, type SettingsPayload } from '../api';
 import { shellInput } from '../shell-input';
 import { Btn } from '../icons';
 import type { Screen } from '../app';
-
-function loadImage(url: string): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = url;
-  });
-}
+import { loadLikenessAssets } from '../likeness-assets';
 
 export function PlayScreen(props: {
   go: (s: Screen) => void;
@@ -42,13 +34,7 @@ export function PlayScreen(props: {
           return;
         }
         const scores = await api.getScores(props.id).catch(() => []);
-        const likeness: LikenessAssets | null = detail.assets.portrait
-          ? {
-              head12: await loadImage(api.assetUrl(props.id, 'head12.png')),
-              head16: await loadImage(api.assetUrl(props.id, 'head16.png')),
-              portrait: await loadImage(api.assetUrl(props.id, 'portrait.png')),
-            }
-          : null;
+        const likeness = await loadLikenessAssets(props.id, detail.assets);
         if (disposed || !canvasRef.current) return;
 
         // Hand raw input over to the engine for the duration of play.
@@ -102,7 +88,9 @@ export function PlayScreen(props: {
       {error ? (
         <div class="center-col">
           <div style="color:var(--danger);font-size:22px">{error}</div>
-          <div style="color:var(--text-dim)"><Btn>A</Btn> Back</div>
+          <div style="color:var(--text-dim)">
+            <Btn>A</Btn> Back
+          </div>
         </div>
       ) : (
         <canvas ref={canvasRef} width={1024} height={600} />

@@ -352,7 +352,8 @@ export function SpriteEditorScreen(): ComponentChildren {
       <div class="sed-header">
         <h1>Sprite Editor</h1>
         <span class="sed-sub">dev · edit pixels, frames &amp; anims → save to source</span>
-        <a href="/?dev=assets" class="sed-link">→ asset gallery</a>
+        <a href="/?dev=fighter-editor" class="sed-link">→ fighter workshop</a>
+        <a href="/?dev=assets" class="fed-sed-link">→ asset gallery</a>
       </div>
 
       <div class="sed-body">

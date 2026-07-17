@@ -5,7 +5,14 @@ import { existsSync, statfsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { MultipartFile } from '@fastify/multipart';
-import { GENERATION, type JobEvent, type LogicalButton, type SystemInfo } from '@sparkade/shared';
+import {
+  ARCHETYPE_IDS,
+  GENERATION,
+  type ArchetypeId,
+  type JobEvent,
+  type LogicalButton,
+  type SystemInfo,
+} from '@sparkade/shared';
 import { costOf, estimateGenerationCost } from '../pipeline/cost';
 import { stageProvider } from '../providers/index';
 import type { GenerationRunner } from '../pipeline/runner';
@@ -16,9 +23,13 @@ import type { GameFiles } from '../storage/files';
 import { connectWifi, listNetworks, wifiStatus } from '../system/wifi';
 import { checkForUpdate, startUpdate } from '../system/update';
 import { piMode, primaryIp } from '../util';
+import { LIKENESS_ASSET_FILES } from '../likeness/likeness';
 import { registerDevAssetRoutes } from './dev-assets';
 import { registerDevLikenessRoutes } from './dev-likeness';
 import { registerDevSpriteRoutes } from './dev-sprite';
+import { registerDevFighterRoutes } from './dev-fighter';
+import { registerDevFighterOutfitRoutes } from './dev-fighter-outfits';
+import { isSameHttpOrigin } from './origin';
 
 export interface ApiContext {
   db: Db;
@@ -33,6 +44,9 @@ export interface ApiContext {
 
 const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
+const LIKENESS_ASSET_NAMES = new Set<string>(Object.values(LIKENESS_ASSET_FILES));
+const isArchetypeId = (value: string): value is ArchetypeId =>
+  (ARCHETYPE_IDS as readonly string[]).includes(value);
 
 export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
   const { db, files, configStore, runner, hub } = ctx;
@@ -42,6 +56,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     registerDevAssetRoutes(app);
     registerDevLikenessRoutes(app, configStore);
     registerDevSpriteRoutes(app);
+    registerDevFighterRoutes(app, files, db);
+    registerDevFighterOutfitRoutes(app);
   }
 
   // ---- same-origin gate on mutating requests ------------------------------
@@ -53,11 +69,18 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
   // In dev, any localhost origin is fine (Vite may land on 5173, 5174, … and the
   // asset gallery / likeness lab are localhost-only tooling). Prod stays strict.
   const devLocalhost = /^http:\/\/(localhost|127\.0\.0\.1):\d+$/;
-  const originAllowed = (origin: string | undefined): boolean =>
-    !origin || allowedOrigins.has(origin) || (isDev && devLocalhost.test(origin));
+  const originAllowed = (origin: string | undefined, host?: string): boolean =>
+    !origin ||
+    allowedOrigins.has(origin) ||
+    // When SPARKADE_BIND exposes the kiosk on the LAN, a browser loaded from
+    // http://<pi-ip>:<port> is still same-origin with its API. Compare against
+    // the actual Host header so DHCP changes and .local names both work without
+    // weakening the protection against a different LAN page driving Sparkade.
+    isSameHttpOrigin(origin, host) ||
+    (isDev && devLocalhost.test(origin));
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
     if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return;
-    if (!originAllowed(req.headers.origin)) {
+    if (!originAllowed(req.headers.origin, req.headers.host)) {
       await reply.code(403).send({ error: 'cross-origin requests are not allowed' });
     }
   });
@@ -65,14 +88,14 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     // CORS for the Vite dev origin (any localhost port; prod is same-origin).
     app.addHook('onSend', async (req, reply) => {
       const origin = req.headers.origin;
-      if (origin && originAllowed(origin)) {
+      if (origin && originAllowed(origin, req.headers.host)) {
         reply.header('access-control-allow-origin', origin);
         reply.header('vary', 'origin');
       }
     });
     app.options('/api/*', async (req, reply) => {
       const origin = req.headers.origin;
-      if (origin && originAllowed(origin)) {
+      if (origin && originAllowed(origin, req.headers.host)) {
         reply.header('access-control-allow-origin', origin);
         reply.header('access-control-allow-methods', 'GET,POST,PUT,DELETE');
         reply.header('access-control-allow-headers', 'content-type');
@@ -83,7 +106,9 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
 
   // ---- transcription (before any job — the review screen confirms it) -----
   app.post('/api/transcribe', async (req, reply) => {
-    const file = await (req as FastifyRequest & { file: () => Promise<MultipartFile | undefined> }).file();
+    const file = await (
+      req as FastifyRequest & { file: () => Promise<MultipartFile | undefined> }
+    ).file();
     if (!file) return reply.code(400).send({ error: 'no audio uploaded' });
     const audio = await file.toBuffer();
     if (audio.length > MAX_AUDIO_BYTES) return reply.code(413).send({ error: 'audio too large' });
@@ -109,7 +134,10 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
         failed: false,
         repair: false,
       });
-      if (!res.text) return reply.code(422).send({ error: 'could not hear anything — try again closer to the mic' });
+      if (!res.text)
+        return reply
+          .code(422)
+          .send({ error: 'could not hear anything — try again closer to the mic' });
       return { text: res.text };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -123,6 +151,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     let promptText = '';
     let idempotencyKey = '';
     let sourceKind: 'voice' | 'preset' | 'surprise' = 'voice';
+    let requestedArchetype: string | undefined;
     let presetId: string | undefined;
     let photo: Buffer | undefined;
     if (req.isMultipart()) {
@@ -135,6 +164,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
           if (part.fieldname === 'promptText') promptText = v;
           else if (part.fieldname === 'idempotencyKey') idempotencyKey = v;
           else if (part.fieldname === 'sourceKind') sourceKind = v as typeof sourceKind;
+          else if (part.fieldname === 'requestedArchetype') requestedArchetype = v;
           else if (part.fieldname === 'presetId') presetId = v;
         }
       }
@@ -143,14 +173,25 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       promptText = body?.promptText ?? '';
       idempotencyKey = body?.idempotencyKey ?? '';
       sourceKind = (body?.sourceKind as typeof sourceKind) ?? 'voice';
+      requestedArchetype = body?.requestedArchetype;
       presetId = body?.presetId;
     }
     if (!promptText.trim()) return reply.code(400).send({ error: 'promptText is required' });
     if (!idempotencyKey) return reply.code(400).send({ error: 'idempotencyKey is required' });
-    if (photo && photo.length > MAX_PHOTO_BYTES) return reply.code(413).send({ error: 'photo too large' });
+    if (requestedArchetype !== undefined && !isArchetypeId(requestedArchetype)) {
+      return reply.code(400).send({ error: 'requestedArchetype is invalid' });
+    }
+    if (requestedArchetype !== undefined && String(sourceKind) !== 'surprise') {
+      return reply
+        .code(400)
+        .send({ error: 'requestedArchetype is only valid for Surprise Me' });
+    }
+    if (photo && photo.length > MAX_PHOTO_BYTES)
+      return reply.code(413).send({ error: 'photo too large' });
     const res = runner.createJob({
       promptText: promptText.slice(0, 1200),
       sourceKind,
+      ...(requestedArchetype ? { requestedArchetype } : {}),
       ...(presetId ? { presetId } : {}),
       ...(photo ? { photo } : {}),
       idempotencyKey,
@@ -169,10 +210,17 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     const spec = files.readSpec(id);
     const meta = files.readMeta(id);
     const job = row.jobId ? db.getJob(row.jobId) : null;
+    const assetsDir = join(files.gameDir(id), 'assets');
+    const hasAsset = (name: keyof typeof LIKENESS_ASSET_FILES): boolean =>
+      existsSync(join(assetsDir, LIKENESS_ASSET_FILES[name]));
     const assets = {
-      head12: existsSync(join(files.gameDir(id), 'assets', 'head12.png')),
-      head16: existsSync(join(files.gameDir(id), 'assets', 'head16.png')),
-      portrait: existsSync(join(files.gameDir(id), 'assets', 'portrait.png')),
+      head12: hasAsset('head12'),
+      head12Side: hasAsset('head12Side'),
+      head12Back: hasAsset('head12Back'),
+      head16: hasAsset('head16'),
+      head16Side: hasAsset('head16Side'),
+      head16Back: hasAsset('head16Back'),
+      portrait: hasAsset('portrait'),
     };
     return {
       item: db.listItem(row),
@@ -195,12 +243,14 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
 
   app.get('/api/games/:id/assets/:name', async (req, reply) => {
     const { id, name } = req.params as { id: string; name: string };
-    if (!['head12.png', 'head16.png', 'portrait.png'].includes(name)) {
+    if (!LIKENESS_ASSET_NAMES.has(name)) {
       return reply.code(404).send({ error: 'unknown asset' });
     }
     const path = join(files.gameDir(id), 'assets', name);
     if (!existsSync(path)) return reply.code(404).send({ error: 'asset not found' });
-    return reply.type('image/png').send(await import('node:fs').then((fs) => fs.createReadStream(path)));
+    return reply
+      .type('image/png')
+      .send(await import('node:fs').then((fs) => fs.createReadStream(path)));
   });
 
   app.delete('/api/games/:id', async (req, reply) => {
@@ -241,7 +291,13 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     };
     // Synthesize current state so reloads instantly reflect reality.
     if (job.status === 'done') {
-      send({ type: 'done', jobId, gameId: job.gameId, elapsedMs: 0, costUsd: db.gameCost(job.gameId) });
+      send({
+        type: 'done',
+        jobId,
+        gameId: job.gameId,
+        elapsedMs: 0,
+        costUsd: db.gameCost(job.gameId),
+      });
     } else if (job.status === 'failed' || job.status === 'canceled') {
       send({
         type: 'failed',
@@ -284,7 +340,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     const body = req.body as { initials?: string; score?: number } | null;
     const initials = String(body?.initials ?? '').toUpperCase();
     const score = Number(body?.score);
-    if (!/^[A-Z0-9.]{3}$/.test(initials)) return reply.code(400).send({ error: 'initials must be 3 characters' });
+    if (!/^[A-Z0-9.]{3}$/.test(initials))
+      return reply.code(400).send({ error: 'initials must be 3 characters' });
     if (!Number.isFinite(score) || score < 0 || score > 99_999_999) {
       return reply.code(400).send({ error: 'invalid score' });
     }
@@ -309,7 +366,12 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     const body = req.body as {
       audio?: { musicVol: number; sfxVol: number; uiVol: number };
       input?: { gamepad?: Record<string, LogicalButton>; keyboard?: Record<string, LogicalButton> };
-      likeness?: { describeInStory?: boolean; smartFeatures?: boolean; style?: 'photo' | 'avatar'; portraitGen?: { enabled?: boolean } };
+      likeness?: {
+        describeInStory?: boolean;
+        smartFeatures?: boolean;
+        style?: 'photo' | 'avatar';
+        portraitGen?: { enabled?: boolean };
+      };
       devices?: { cameraId?: string; cameraLabel?: string; micId?: string; micLabel?: string };
     } | null;
     if (!body) return reply.code(400).send({ error: 'empty body' });
@@ -323,17 +385,27 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       }
       if (body.input) {
         if (body.input.gamepad) c.input.gamepad = body.input.gamepad;
-        if (body.input.keyboard && Object.keys(body.input.keyboard).length > 0) c.input.keyboard = body.input.keyboard;
+        if (body.input.keyboard && Object.keys(body.input.keyboard).length > 0)
+          c.input.keyboard = body.input.keyboard;
       }
       if (body.likeness) {
         c.likeness = {
           ...c.likeness,
-          ...(body.likeness.describeInStory !== undefined ? { describeInStory: !!body.likeness.describeInStory } : {}),
-          ...(body.likeness.smartFeatures !== undefined ? { smartFeatures: !!body.likeness.smartFeatures } : {}),
-          ...(body.likeness.style ? { style: body.likeness.style === 'avatar' ? 'avatar' : 'photo' } : {}),
+          ...(body.likeness.describeInStory !== undefined
+            ? { describeInStory: !!body.likeness.describeInStory }
+            : {}),
+          ...(body.likeness.smartFeatures !== undefined
+            ? { smartFeatures: !!body.likeness.smartFeatures }
+            : {}),
+          ...(body.likeness.style
+            ? { style: body.likeness.style === 'avatar' ? 'avatar' : 'photo' }
+            : {}),
         };
         if (body.likeness.portraitGen?.enabled !== undefined && c.likeness.portraitGen) {
-          c.likeness.portraitGen = { ...c.likeness.portraitGen, enabled: !!body.likeness.portraitGen.enabled };
+          c.likeness.portraitGen = {
+            ...c.likeness.portraitGen,
+            enabled: !!body.likeness.portraitGen.enabled,
+          };
         }
       }
       if (body.devices) {
@@ -417,7 +489,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     app.get('/api/system/update/check', async () => checkForUpdate(ctx.version));
     app.post('/api/system/update', async (_req, reply) => {
       const res = startUpdate(join(files.dir, 'update.log'));
-      if (!res.started) return reply.code(409).send({ error: res.reason ?? 'update failed to start' });
+      if (!res.started)
+        return reply.code(409).send({ error: res.reason ?? 'update failed to start' });
       return { started: true };
     });
   }

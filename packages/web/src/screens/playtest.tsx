@@ -1,7 +1,8 @@
 // Dev-only playtest harness (http://localhost:5173/?dev=playtest&arch=hshooter):
 // boots a golden game straight into the real GameHost with a keyboard
 // InputBroker — no pipeline, no menu. Lets you exercise/screenshot an
-// archetype's gameplay in isolation. DEV-gated in app.tsx (stripped from prod).
+// archetype's gameplay in isolation. Add `&auto=1` to skip cards and run the
+// attract AI for a hands-free visual check. DEV-gated in app.tsx (stripped from prod).
 import { useEffect, useRef } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { GameHost, InputBroker } from '@sparkade/engine';
@@ -17,7 +18,8 @@ export function PlaytestScreen(): ComponentChildren {
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    const arch = new URLSearchParams(location.search).get('arch') ?? 'hshooter';
+    const params = new URLSearchParams(location.search);
+    const arch = params.get('arch') ?? 'hshooter';
     const spec = GOLDENS[arch] as GameSpec | undefined;
     if (!spec) return;
     const input = new InputBroker();
@@ -28,6 +30,7 @@ export function PlaytestScreen(): ComponentChildren {
       archetype: archetypes[spec.archetype],
       input,
       likeness: null,
+      attract: params.get('auto') === '1',
       volumes: { musicVol: 0, sfxVol: 0, uiVol: 0 },
       callbacks: {
         onQuit: () => {},
@@ -43,7 +46,7 @@ export function PlaytestScreen(): ComponentChildren {
     };
   }, []);
   return (
-    <div style="display:flex;justify-content:center;align-items:center;height:100vh;background:#000">
+    <div style="display:flex;justify-content:center;align-items:center;height:600px;background:#000">
       <canvas ref={ref} style="image-rendering:pixelated;width:1024px;height:600px" tabIndex={0} />
     </div>
   );

@@ -9,6 +9,7 @@ import { FooterLegend, Modal } from '../components';
 import { Icon, Btn } from '../icons';
 import { getUserMediaForDevice } from '../media';
 import { shellInput } from '../shell-input';
+import { pickSurpriseArchetype } from '../surprise';
 import type { Screen } from '../app';
 
 type PhotoMode = 'choice' | 'camera' | 'preview' | 'error';
@@ -40,6 +41,7 @@ export function WizardScreen(props: {
   const [countdown, setCountdown] = useState(0);
   const [transcript, setTranscript] = useState('');
   const [sourceKind, setSourceKind] = useState<'voice' | 'preset' | 'surprise'>('voice');
+  const [requestedArchetype, setRequestedArchetype] = useState<ArchetypeId | undefined>();
   const [presetId, setPresetId] = useState<string | undefined>();
   const [recordSecs, setRecordSecs] = useState(0);
   const [level, setLevel] = useState(0);
@@ -219,6 +221,7 @@ export function WizardScreen(props: {
           .then((text) => {
             setTranscript((prev) => (appending && prev ? `${prev} ${text}` : text));
             setSourceKind('voice');
+            setRequestedArchetype(undefined);
             setPresetId(undefined);
             setAppending(false);
             setStep('review');
@@ -268,13 +271,13 @@ export function WizardScreen(props: {
 
   // ----- surprise -------------------------------------------------------------
   const surpriseMe = () => {
-    const archetypesList: ArchetypeId[] = ['platformer', 'shooter', 'adventure', 'hshooter', 'fighter'];
-    const arche = archetypesList[Math.floor(Math.random() * archetypesList.length)]!;
+    const arche = pickSurpriseArchetype();
     const spark = SURPRISE_SPARKS[Math.floor(Math.random() * SURPRISE_SPARKS.length)]!;
     setTranscript(
       `Surprise me! Invent a completely original ${arche} — perhaps something like ${spark}, or better. Pick a bold premise nobody has seen.`,
     );
     setSourceKind('surprise');
+    setRequestedArchetype(arche);
     setPresetId(undefined);
     setStep('review');
     setCursor(0);
@@ -288,6 +291,7 @@ export function WizardScreen(props: {
       .createGame({
         promptText: transcript.trim(),
         sourceKind,
+        ...(sourceKind === 'surprise' && requestedArchetype ? { requestedArchetype } : {}),
         ...(presetId ? { presetId } : {}),
         ...(photoBlob ? { photo: photoBlob } : {}),
         idempotencyKey: idempotencyKey.current,
@@ -404,6 +408,7 @@ export function WizardScreen(props: {
                 // dev-only canned transcript
                 setTranscript('A brave little robot climbs a clockwork tower to wake the sun');
                 setSourceKind('voice');
+                setRequestedArchetype(undefined);
                 setStep('review');
                 setCursor(0);
               }
@@ -440,6 +445,7 @@ export function WizardScreen(props: {
               if (preset) {
                 setTranscript(`${preset.title}: ${preset.premise} (${preset.tone})`);
                 setSourceKind('preset');
+                setRequestedArchetype(undefined);
                 setPresetId(preset.id);
                 setStep('review');
                 setCursor(0);
@@ -488,7 +494,7 @@ export function WizardScreen(props: {
           props.go({ name: 'settings', tab: 'wifi' });
         }
       }),
-    [countdown, online, isPi, presets, sourceKind, submitting, transcript, props.go],
+    [countdown, online, isPi, presets, requestedArchetype, sourceKind, submitting, transcript, props.go],
   );
 
   // ------------------------------------------------------------------ render

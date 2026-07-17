@@ -1,0 +1,209 @@
+{
+  "version": 1,
+  "outfits": {
+    "gi": {
+      "torso": {
+        "widthAdd": 0,
+        "shoulderAdd": 0,
+        "hemDrop": 0,
+        "detail": "gi",
+        "detailWeight": 1
+      },
+      "arms": {
+        "widthAdd": 0,
+        "baseColor": "skin",
+        "sleeveColor": "limb",
+        "sleeveLength": 1,
+        "sleeveWidthAdd": 0
+      },
+      "legs": {
+        "widthAdd": 0,
+        "color": "limb",
+        "accent": "none"
+      },
+      "hands": {
+        "shape": "round",
+        "radius": 2.4,
+        "color": "trim",
+        "cuffLength": 0
+      },
+      "feet": {
+        "shape": "bare",
+        "lengthAdd": 0.5,
+        "height": 1.75,
+        "color": "skin",
+        "bootLength": 0
+      }
+    },
+    "boxer": {
+      "torso": {
+        "widthAdd": 0,
+        "shoulderAdd": 2.5,
+        "hemDrop": 5.5,
+        "detail": "boxer",
+        "detailWeight": 1
+      },
+      "arms": {
+        "widthAdd": 0,
+        "baseColor": "skin",
+        "sleeveColor": "body",
+        "sleeveLength": 0,
+        "sleeveWidthAdd": 0
+      },
+      "legs": {
+        "widthAdd": 0,
+        "color": "limb",
+        "accent": "none"
+      },
+      "hands": {
+        "shape": "round",
+        "radius": 3.5,
+        "color": "trim",
+        "cuffLength": 1
+      },
+      "feet": {
+        "shape": "shoe",
+        "lengthAdd": 1,
+        "height": 2,
+        "color": "trim",
+        "bootLength": 0
+      }
+    },
+    "wrestler": {
+      "torso": {
+        "widthAdd": 0,
+        "shoulderAdd": 0,
+        "hemDrop": 3,
+        "detail": "wrestler",
+        "detailWeight": 1
+      },
+      "arms": {
+        "widthAdd": 0,
+        "baseColor": "skin",
+        "sleeveColor": "body",
+        "sleeveLength": 0,
+        "sleeveWidthAdd": 0
+      },
+      "legs": {
+        "widthAdd": 0,
+        "color": "limb",
+        "accent": "kneePads"
+      },
+      "hands": {
+        "shape": "round",
+        "radius": 2.4,
+        "color": "trim",
+        "cuffLength": 0
+      },
+      "feet": {
+        "shape": "boot",
+        "lengthAdd": 1.5,
+        "height": 2.5,
+        "color": "limb",
+        "bootLength": 0.225
+      }
+    },
+    "street": {
+      "torso": {
+        "widthAdd": 1.5,
+        "shoulderAdd": 2.5,
+        "hemDrop": 0,
+        "detail": "street",
+        "detailWeight": 1
+      },
+      "arms": {
+        "widthAdd": 1,
+        "baseColor": "skin",
+        "sleeveColor": "limb",
+        "sleeveLength": 1,
+        "sleeveWidthAdd": 0
+      },
+      "legs": {
+        "widthAdd": 0,
+        "color": "limb",
+        "accent": "none"
+      },
+      "hands": {
+        "shape": "round",
+        "radius": 2.4,
+        "color": "trim",
+        "cuffLength": 2
+      },
+      "feet": {
+        "shape": "shoe",
+        "lengthAdd": 1,
+        "height": 2,
+        "color": "trim",
+        "bootLength": 0
+      }
+    },
+    "robe": {
+      "torso": {
+        "widthAdd": 1,
+        "shoulderAdd": 0,
+        "hemDrop": 12,
+        "detail": "robe",
+        "detailWeight": 1
+      },
+      "arms": {
+        "widthAdd": 2.2,
+        "baseColor": "skin",
+        "sleeveColor": "body",
+        "sleeveLength": 1,
+        "sleeveWidthAdd": 0
+      },
+      "legs": {
+        "widthAdd": 0,
+        "color": "limb",
+        "accent": "none"
+      },
+      "hands": {
+        "shape": "round",
+        "radius": 2.4,
+        "color": "trim",
+        "cuffLength": 0
+      },
+      "feet": {
+        "shape": "boot",
+        "lengthAdd": 1.25,
+        "height": 2.25,
+        "color": "body",
+        "bootLength": 0.1
+      }
+    },
+    "armor": {
+      "torso": {
+        "widthAdd": 2,
+        "shoulderAdd": 2.5,
+        "hemDrop": 0,
+        "detail": "armor",
+        "detailWeight": 1
+      },
+      "arms": {
+        "widthAdd": 1.8,
+        "baseColor": "skin",
+        "sleeveColor": "limb",
+        "sleeveLength": 1,
+        "sleeveWidthAdd": 0
+      },
+      "legs": {
+        "widthAdd": 1.2,
+        "color": "limb",
+        "accent": "none"
+      },
+      "hands": {
+        "shape": "round",
+        "radius": 3,
+        "color": "trim",
+        "cuffLength": 2
+      },
+      "feet": {
+        "shape": "boot",
+        "lengthAdd": 1.5,
+        "height": 2.5,
+        "color": "limb",
+        "bootLength": 0.225
+      }
+    }
+  }
+}

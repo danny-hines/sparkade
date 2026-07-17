@@ -155,7 +155,11 @@ class PlatformerGame implements GameInstance {
     this.walk = WALK * feel.speed;
     this.accel = ACCEL * feel.speed;
     for (const role of Object.keys(ROLE_FALLBACK)) {
-      this.sprites[role] = engine.sprites.byRole(role, ROLE_FALLBACK[role]!);
+      this.sprites[role] = engine.sprites.byRole(
+        role,
+        ROLE_FALLBACK[role]!,
+        role === 'hero' ? { presentation: 'tall-humanoid' } : {},
+      );
     }
   }
 
@@ -959,9 +963,53 @@ class PlatformerGame implements GameInstance {
       if (this.spinning && !this.onGround) {
         img = this.engine.sprites.frame(hero, 'jump', this.animT, Math.floor(this.animT * 12) % 2 === 0);
       }
-      r.draw(img, this.px - cam.x - (hero.w - 10) / 2, this.py - cam.y - (hero.h - 14));
+      const heroWorldX = this.px - (hero.w - 10) / 2;
+      const heroWorldY = this.py - (hero.h - 14);
+      const heroX = heroWorldX - cam.x;
+      const heroY = heroWorldY - cam.y;
+      r.draw(img, heroX, heroY);
       if (this.power.shield) {
-        r.frame(this.px - cam.x - 4, this.py - cam.y - 4, 18, 22, this.spec.palette[4] ?? '#41a6f6');
+        if (hero.appliedPresentation === 'tall-humanoid') {
+          r.frame(
+            heroX - 1,
+            heroY - 1,
+            hero.w + 2,
+            hero.h + 2,
+            this.spec.palette[4] ?? '#41a6f6',
+          );
+        } else {
+          r.frame(
+            this.px - cam.x - 4,
+            this.py - cam.y - 4,
+            18,
+            22,
+            this.spec.palette[4] ?? '#41a6f6',
+          );
+        }
+      }
+
+      // The legacy 10x14 collider remains authoritative. If the taller visual
+      // reaches into a wall or low ceiling, repaint that geometry in front of
+      // it instead of letting the likeness draw over a solid tile. Existing
+      // one-tile passages therefore keep their physics and read correctly.
+      if (hero.appliedPresentation === 'tall-humanoid') {
+        const minTx = Math.floor(heroWorldX / TILE_SIZE);
+        const maxTx = Math.ceil((heroWorldX + hero.w) / TILE_SIZE) - 1;
+        const minTy = Math.floor(heroWorldY / TILE_SIZE);
+        const maxTy = Math.ceil((heroWorldY + hero.h) / TILE_SIZE) - 1;
+        for (let ty = minTy; ty <= maxTy; ty++) {
+          for (let tx = minTx; tx <= maxTx; tx++) {
+            const solidity = this.solidity(tx, ty);
+            if (solidity !== 'solid' && solidity !== 'platform') continue;
+            const frames = this.tileCanvases.get(this.grid.kind(tx, ty));
+            if (!frames?.length) continue;
+            r.draw(
+              frames[frameIx % frames.length] ?? frames[0]!,
+              tx * TILE_SIZE - cam.x,
+              ty * TILE_SIZE - cam.y,
+            );
+          }
+        }
       }
     }
 

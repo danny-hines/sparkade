@@ -123,7 +123,16 @@ export class GameHost {
     this.sfx.bake();
     const sprites = new SpriteStore(
       opts.spec,
-      opts.likeness ? { head12: opts.likeness.head12, head16: opts.likeness.head16 } : null,
+      opts.likeness
+        ? {
+            head12: opts.likeness.head12,
+            head16: opts.likeness.head16,
+            head12Side: opts.likeness.head12Side,
+            head12Back: opts.likeness.head12Back,
+            head16Side: opts.likeness.head16Side,
+            head16Back: opts.likeness.head16Back,
+          }
+        : null,
     );
     this.scores = [...opts.callbacks.initialScores];
 

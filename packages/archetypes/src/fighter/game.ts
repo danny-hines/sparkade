@@ -24,10 +24,21 @@ import {
   type DifficultyScale,
   type FighterBuild,
   type FighterCharacter,
+  type FighterOutfit,
   type FighterSpec,
 } from '@sparkade/shared';
-import { drawFighter, type FighterColors, type FighterPose } from './figure';
+import {
+  drawFighter,
+  fighterIdentitySeed,
+  fighterColorsForPalette,
+  fighterScaleForBuild,
+  resolveFighterAvatarHead,
+  type FighterAvatarHead,
+  type FighterColors,
+  type FighterPose,
+} from './figure';
 import { estimateFighterDurationS } from './lint';
+import { FIGHTER_OUTFIT_IDS } from './outfits';
 
 const W = INTERNAL_WIDTH;
 const H = INTERNAL_HEIGHT;
@@ -87,7 +98,11 @@ interface Actor {
   stunT: number;
   flashT: number;
   scale: number;
+  build: FighterBuild;
+  outfit: FighterOutfit;
   colors: FighterColors;
+  identitySeed: number;
+  avatarHead: FighterAvatarHead;
   speedScale: number;
   powerScale: number;
   // AI
@@ -97,8 +112,20 @@ interface Actor {
   aggression: number;
 }
 
-function buildScale(b: FighterBuild): number {
-  return b === 'nimble' ? 0.94 : b === 'heavy' ? 1.16 : 1.05;
+/** Stable visual fallback for pre-outfit games; never consumes gameplay RNG. */
+export function fallbackFighterOutfit(
+  seed: number,
+  name: string,
+  build: FighterBuild,
+  colorSlot: number,
+): FighterOutfit {
+  let hash = (seed ^ Math.imul(colorSlot + 1, 0x9e3779b1)) >>> 0;
+  const key = `${name}:${build}`;
+  for (let i = 0; i < key.length; i++) {
+    hash ^= key.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return FIGHTER_OUTFIT_IDS[hash % FIGHTER_OUTFIT_IDS.length]!;
 }
 
 export function createFighterGame(engine: EngineContext, spec: FighterSpec): GameInstance {
@@ -122,6 +149,7 @@ class FighterGame implements GameInstance {
 
   private p!: Actor;
   private o!: Actor;
+  private playerLikenessHead: CanvasImageSource | null;
   private backdrop: Backdrop;
   private bgVariant: BackdropVariant;
 
@@ -130,29 +158,31 @@ class FighterGame implements GameInstance {
     private spec: FighterSpec,
   ) {
     this.diff = difficultyScale(this.spec.difficulty);
+    this.playerLikenessHead = this.engine.sprites.likenessHead(16, 'side');
     this.bgVariant = pickVariant(this.spec.palette, this.spec.seed, this.spec.backdrop);
     this.backdrop = makeBackdrop(this.spec.palette, this.spec.seed, this.bgVariant);
     // Init both actors so render() is safe during the pre-fight story cards.
-    this.p = this.makeActor(this.playerChar(), false, 0);
-    this.o = this.makeActor(this.opponentChar(), true, 0);
+    this.p = this.makeActor(this.playerChar(), false, 0, 0);
+    this.o = this.makeActor(this.opponentChar(), true, 0, this.opponentIdentitySlot());
   }
 
   // ------------------------------------------------------------------- setup
 
   private colorsFor(slot: number): FighterColors {
-    const pal = this.spec.palette;
-    const at = (i: number): string => pal[Math.max(1, Math.min(15, i))] ?? '#ffffff';
-    return {
-      body: at(slot),
-      limb: at(slot - 1),
-      skin: at(slot >= 8 ? 10 : 7),
-      trim: at(14),
-      outline: at(1),
-    };
+    return fighterColorsForPalette(this.spec.palette, slot);
   }
 
-  private makeActor(c: FighterCharacter | undefined, ai: boolean, aggression: number): Actor {
+  private makeActor(
+    c: FighterCharacter | undefined,
+    ai: boolean,
+    aggression: number,
+    identitySlot: number,
+  ): Actor {
     const build = c?.build ?? 'balanced';
+    const colorSlot = c?.colorSlot ?? (ai ? 8 : 5);
+    const name = c?.name ?? (ai ? 'RIVAL' : 'HERO');
+    const outfit = c?.outfit ?? fallbackFighterOutfit(this.spec.seed, name, build, colorSlot);
+    const identitySeed = fighterIdentitySeed(this.spec.seed, identitySlot, name);
     return {
       x: ai ? STAGE_MAX - 80 : STAGE_MIN + 80,
       y: FLOOR_Y,
@@ -170,8 +200,12 @@ class FighterGame implements GameInstance {
       block: false,
       stunT: 0,
       flashT: 0,
-      scale: buildScale(build),
-      colors: this.colorsFor(c?.colorSlot ?? (ai ? 8 : 5)),
+      scale: fighterScaleForBuild(build),
+      build,
+      outfit,
+      colors: this.colorsFor(colorSlot),
+      identitySeed,
+      avatarHead: resolveFighterAvatarHead(identitySeed),
       speedScale: Math.max(0.85, Math.min(1.15, c?.speedScale ?? 1)),
       powerScale: Math.max(0.85, Math.min(1.15, c?.powerScale ?? 1)),
       ai,
@@ -187,12 +221,26 @@ class FighterGame implements GameInstance {
 
   private opponentChar(): FighterCharacter {
     const boss = this.spec.boss;
-    if (this.isBoss()) return { name: boss.name, build: boss.build, colorSlot: boss.colorSlot, hp: boss.hp, speedScale: boss.speedScale, powerScale: boss.powerScale };
+    if (this.isBoss()) {
+      return {
+        name: boss.name,
+        build: boss.build,
+        colorSlot: boss.colorSlot,
+        hp: boss.hp,
+        outfit: boss.outfit,
+        speedScale: boss.speedScale,
+        powerScale: boss.powerScale,
+      };
+    }
     return this.spec.levels[this.bout]!.opponent;
   }
 
   private isBoss(): boolean {
     return this.bout >= this.spec.levels.length;
+  }
+
+  private opponentIdentitySlot(): number {
+    return this.isBoss() ? this.spec.levels.length + 1 : this.bout + 1;
   }
 
   private opponentAggression(): number {
@@ -241,8 +289,13 @@ class FighterGame implements GameInstance {
 
   private startRound(fresh: boolean): void {
     if (fresh) {
-      this.p = this.makeActor(this.playerChar(), false, 0);
-      this.o = this.makeActor(this.opponentChar(), true, this.opponentAggression());
+      this.p = this.makeActor(this.playerChar(), false, 0, 0);
+      this.o = this.makeActor(
+        this.opponentChar(),
+        true,
+        this.opponentAggression(),
+        this.opponentIdentitySlot(),
+      );
     } else {
       this.resetActor(this.p, false);
       this.resetActor(this.o, true);
@@ -707,7 +760,11 @@ class FighterGame implements GameInstance {
         t: a.moveT,
         anim: this.phaseT,
         scale: a.scale,
+        build: a.build,
+        outfit: a.outfit,
         colors: a.colors,
+        avatarHead: a.avatarHead,
+        likenessHead: a === this.p ? this.playerLikenessHead : null,
         flash: a.flashT > 0 || flick,
       });
     }

@@ -3,12 +3,30 @@
 import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
 import { HEAD_SPRITE_SIZES, PORTRAIT_SIZE } from '@sparkade/shared';
-import { bakeLikeness } from '../src/likeness/likeness';
+import {
+  bakeLikeness,
+  likenessAssetBuffers,
+  type LikenessArtifacts,
+} from '../src/likeness/likeness';
 import { buildPortraitPalette, type FaceFeatures } from '../src/likeness/features';
 
 const PALETTE = [
-  '#000000', '#1a1c2c', '#29366f', '#3b5dc9', '#41a6f6', '#38b764', '#a7f070', '#ffcd75',
-  '#b13e53', '#ef7d57', '#5d275d', '#e04040', '#ffa300', '#ffd75e', '#94b0c2', '#f4f4f4',
+  '#000000',
+  '#1a1c2c',
+  '#29366f',
+  '#3b5dc9',
+  '#41a6f6',
+  '#38b764',
+  '#a7f070',
+  '#ffcd75',
+  '#b13e53',
+  '#ef7d57',
+  '#5d275d',
+  '#e04040',
+  '#ffa300',
+  '#ffd75e',
+  '#94b0c2',
+  '#f4f4f4',
 ];
 
 async function testFace(): Promise<Buffer> {
@@ -23,6 +41,33 @@ async function testFace(): Promise<Buffer> {
 }
 
 describe('likeness bake', () => {
+  it('publishes optional directional heads under stable names without requiring them for legacy artifacts', () => {
+    const png = Buffer.from('png');
+    const legacy: LikenessArtifacts = { head12: png, head16: png, portrait: png };
+    expect(likenessAssetBuffers(legacy).map(([name]) => name)).toEqual([
+      'head12.png',
+      'head16.png',
+      'portrait.png',
+    ]);
+
+    const directional: LikenessArtifacts = {
+      ...legacy,
+      head12Side: png,
+      head12Back: png,
+      head16Side: png,
+      head16Back: png,
+    };
+    expect(likenessAssetBuffers(directional).map(([name]) => name)).toEqual([
+      'head12.png',
+      'head12-side.png',
+      'head12-back.png',
+      'head16.png',
+      'head16-side.png',
+      'head16-back.png',
+      'portrait.png',
+    ]);
+  });
+
   it('produces correctly sized PNGs with an oval mask and outline', async () => {
     const baked = await bakeLikeness(await testFace(), PALETTE);
     for (const [buf, size] of [

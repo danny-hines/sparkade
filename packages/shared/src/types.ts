@@ -297,9 +297,15 @@ export interface HShooterLevel {
  *  the engine (identical for all fighters) — only look + light stat leans vary. */
 export type FighterBuild = 'nimble' | 'balanced' | 'heavy';
 
+/** Purely visual clothing silhouette. It never changes hitboxes, frame data,
+ * move properties, or stats. Optional so pre-outfit saved games remain valid. */
+export type FighterOutfit = 'gi' | 'boxer' | 'wrestler' | 'street' | 'robe' | 'armor';
+
 export interface FighterCharacter {
   name: string;
   build: FighterBuild;
+  /** Procedural clothing silhouette; omitted -> a deterministic engine default. */
+  outfit?: FighterOutfit;
   /** Palette slot (5-a) for the body's main color; trims derive from it. */
   colorSlot: number;
   hp: number;
@@ -323,6 +329,8 @@ export interface FighterPhase {
 export interface FighterBoss {
   name: string;
   build: FighterBuild;
+  /** Procedural clothing silhouette; omitted -> a deterministic engine default. */
+  outfit?: FighterOutfit;
   colorSlot: number;
   hp: number;
   speedScale?: number;
@@ -553,6 +561,8 @@ export interface GameMetaFile {
   /** The confirmed prompt text the player approved (or preset/surprise text). */
   sourcePrompt: string;
   sourceKind: 'voice' | 'preset' | 'surprise';
+  /** Structured genre selected by Surprise Me; absent for voice and presets. */
+  requestedArchetype?: ArchetypeId;
   presetId?: string;
   hadPhoto: boolean;
   model: string;
@@ -578,6 +588,8 @@ export interface JobRecord {
   detail: string;
   promptText: string;
   sourceKind: 'voice' | 'preset' | 'surprise';
+  /** Structured genre selected by Surprise Me; survives retries. */
+  requestedArchetype?: ArchetypeId;
   presetId?: string;
   seed: number;
   idempotencyKey: string;

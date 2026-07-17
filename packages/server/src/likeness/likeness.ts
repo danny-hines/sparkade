@@ -63,7 +63,12 @@ const BAYER4 = [
  * downscale, quantize (dithered at portrait size), oval mask, outline.
  * Returns a PNG buffer.
  */
-async function bakeSize(photo: Buffer, palette: Rgb[], size: number, portraitDither: number): Promise<Buffer> {
+async function bakeSize(
+  photo: Buffer,
+  palette: Rgb[],
+  size: number,
+  portraitDither: number,
+): Promise<Buffer> {
   const img = sharp(photo).rotate(); // honor EXIF orientation defensively
   const meta = await img.metadata();
   const w = meta.width ?? 512;
@@ -76,8 +81,14 @@ async function bakeSize(photo: Buffer, palette: Rgb[], size: number, portraitDit
   // Crop exactly what the on-screen guide framed (its bounding box).
   const cropW = Math.floor(2 * LIKENESS_OVAL.rx * sq);
   const cropH = Math.floor(2 * LIKENESS_OVAL.ry * sq);
-  const left = Math.max(0, Math.min(w - cropW, sqLeft + Math.floor(LIKENESS_OVAL.cx * sq - cropW / 2)));
-  const top = Math.max(0, Math.min(h - cropH, sqTop + Math.floor(LIKENESS_OVAL.cy * sq - cropH / 2)));
+  const left = Math.max(
+    0,
+    Math.min(w - cropW, sqLeft + Math.floor(LIKENESS_OVAL.cx * sq - cropW / 2)),
+  );
+  const top = Math.max(
+    0,
+    Math.min(h - cropH, sqTop + Math.floor(LIKENESS_OVAL.cy * sq - cropH / 2)),
+  );
 
   let chain = sharp(photo)
     .rotate()
@@ -179,8 +190,42 @@ async function bakeSize(photo: Buffer, palette: Rgb[], size: number, portraitDit
 
 export interface LikenessArtifacts {
   head12: Buffer;
+  /** Right-facing view; the engine mirrors it for left-facing frames. */
+  head12Side?: Buffer;
+  /** Rear view for movement away from the camera. */
+  head12Back?: Buffer;
   head16: Buffer;
+  /** Right-facing view; the engine mirrors it for left-facing frames. */
+  head16Side?: Buffer;
+  /** Rear view for movement away from the camera. */
+  head16Back?: Buffer;
   portrait: Buffer;
+}
+
+/** Stable on-disk/API names. Legacy `head12`/`head16` remain the front view. */
+export const LIKENESS_ASSET_FILES = {
+  head12: 'head12.png',
+  head12Side: 'head12-side.png',
+  head12Back: 'head12-back.png',
+  head16: 'head16.png',
+  head16Side: 'head16-side.png',
+  head16Back: 'head16-back.png',
+  portrait: 'portrait.png',
+} as const satisfies Record<keyof LikenessArtifacts, string>;
+
+export type LikenessAssetFilename =
+  (typeof LIKENESS_ASSET_FILES)[keyof typeof LIKENESS_ASSET_FILES];
+
+/** Enumerate only artifacts that were actually generated (directional views are optional). */
+export function likenessAssetBuffers(
+  artifacts: LikenessArtifacts,
+): Array<readonly [LikenessAssetFilename, Buffer]> {
+  const result: Array<readonly [LikenessAssetFilename, Buffer]> = [];
+  for (const key of Object.keys(LIKENESS_ASSET_FILES) as Array<keyof LikenessArtifacts>) {
+    const buffer = artifacts[key];
+    if (buffer) result.push([LIKENESS_ASSET_FILES[key], buffer]);
+  }
+  return result;
 }
 
 /**

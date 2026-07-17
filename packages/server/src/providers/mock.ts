@@ -15,6 +15,7 @@ import type {
   ProviderCapabilities,
   ProviderUsage,
 } from '@sparkade/shared';
+import type { FaceFeatures } from '../likeness/features';
 import { repoRoot, readJson, sleep } from '../util';
 
 const VARIANTS = ['Turbo', 'Neon', 'Super', 'Hyper', 'Mega', 'Cosmic', 'Ultra', 'Prisma'];
@@ -24,6 +25,47 @@ const CANNED_TRANSCRIPTS = [
   'I want to be a space gardener defending my greenhouse from asteroid weeds',
   'A knight made of jelly explores a candy dungeon looking for the lost spoon',
   'Fly a paper plane through a thunderstorm and unplug the storm king',
+];
+
+const CANNED_FACES: FaceFeatures[] = [
+  {
+    skinTone: '#c98f6b',
+    hairColor: '#2a2320',
+    hairStyle: 'parted',
+    facialHairColor: '#2a2320',
+    headwearColor: 'none',
+    glasses: false,
+    headwear: false,
+    headwearType: 'none',
+    facialHair: 'mustache',
+    faceShape: 'oval',
+    chin: 'round',
+    noseSize: 'medium',
+    eyeSpacing: 'average',
+    eyeShape: 'almond',
+    eyebrows: 'medium',
+    eyebrowShape: 'straight',
+    ears: 'average',
+  },
+  {
+    skinTone: '#8d5a34',
+    hairColor: '#171210',
+    hairStyle: 'curly',
+    facialHairColor: 'none',
+    headwearColor: 'none',
+    glasses: true,
+    headwear: false,
+    headwearType: 'none',
+    facialHair: 'none',
+    faceShape: 'round',
+    chin: 'wide',
+    noseSize: 'small',
+    eyeSpacing: 'wide',
+    eyeShape: 'round',
+    eyebrows: 'thick',
+    eyebrowShape: 'arched',
+    ears: 'small',
+  },
 ];
 
 export class MockProvider implements Provider {
@@ -76,6 +118,20 @@ export class MockProvider implements Provider {
 
     let payload: unknown;
     switch (stage) {
+      case 'likeness': {
+        // The mock cannot inspect a face, but it must still exercise the exact
+        // structured likeness path. Pick deterministically from the image bytes
+        // so repeat runs of the same fixture stay stable.
+        let discriminator = 0;
+        if (req.image) {
+          const step = Math.max(1, Math.floor(req.image.length / 128));
+          for (let i = 0; i < req.image.length; i += step) {
+            discriminator = (Math.imul(discriminator, 33) ^ req.image[i]!) >>> 0;
+          }
+        }
+        payload = structuredClone(CANNED_FACES[discriminator % CANNED_FACES.length]!);
+        break;
+      }
       case 'design': {
         const variant = VARIANTS[(this.counter + req.user.length) % VARIANTS.length]!;
         const design: DesignDoc = {
@@ -110,7 +166,12 @@ export class MockProvider implements Provider {
         break;
       }
       case 'levels':
-        payload = { levels: structuredClone(golden.levels) };
+        payload = {
+          ...(golden.archetype === 'fighter' && golden.player
+            ? { player: structuredClone(golden.player) }
+            : {}),
+          levels: structuredClone(golden.levels),
+        };
         break;
       case 'entities':
         payload = {
@@ -148,12 +209,13 @@ export class MockProvider implements Provider {
   }
 }
 
-type MockStage = 'design' | 'levels' | 'entities' | 'music' | 'repair';
+type MockStage = 'likeness' | 'design' | 'levels' | 'entities' | 'music' | 'repair';
 
 /** Stage detection from schema titles / prompt markers the templates always include. */
 function detectStage(req: CompleteRequest): MockStage {
   const title = String((req.jsonSchema as { title?: string } | undefined)?.title ?? '');
   const hay = `${title}\n${req.system.slice(0, 400)}`;
+  if (/face likeness analysis|portrait artist analyzing one face photo/i.test(hay)) return 'likeness';
   if (/design pass/i.test(hay)) return 'design';
   if (/levels stage/i.test(hay)) return 'levels';
   if (/entities stage/i.test(hay)) return 'entities';

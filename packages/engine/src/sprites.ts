@@ -1,8 +1,14 @@
 // Sprite decoding + the SpriteStore. All pixel work happens at load time
 // (ImageData -> offscreen canvas); runtime drawing is drawImage only.
-import type { GameSpec, SpriteData } from '@sparkade/shared';
+import {
+  LIB_HEROES_PLATFORMER,
+  type GameSpec,
+  type SpriteData,
+} from '@sparkade/shared';
 import { LIBRARY } from './library/index';
-import type { LibraryEntry } from './types';
+import type { HeadSlot, HeadView, LibraryEntry } from './types';
+
+const TALL_HUMANOID_IDS = new Set<string>(LIB_HEROES_PLATFORMER);
 
 /** Decode palette-indexed rows into an offscreen canvas. Index 0 and '.' are transparent. */
 export function decodeSprite(data: SpriteData, palette: string[]): HTMLCanvasElement {
@@ -94,6 +100,8 @@ export function flashCanvas(src: HTMLCanvasElement): HTMLCanvasElement {
 export interface ResolvedSprite {
   w: number;
   h: number;
+  /** The presentation that survived eligibility checks and was actually built. */
+  appliedPresentation: SpritePresentation;
   frames: HTMLCanvasElement[];
   flipped: HTMLCanvasElement[];
   flash: HTMLCanvasElement[];
@@ -103,6 +111,104 @@ export interface ResolvedSprite {
 export interface LikenessImages {
   head12: CanvasImageSource | null;
   head16: CanvasImageSource | null;
+  head12Side?: CanvasImageSource | null;
+  head12Back?: CanvasImageSource | null;
+  head16Side?: CanvasImageSource | null;
+  head16Back?: CanvasImageSource | null;
+}
+
+/** Pick a directional likeness image, falling back to the legacy front view. */
+export function resolveLikenessHead(
+  likeness: LikenessImages,
+  slot: HeadSlot,
+): CanvasImageSource | null {
+  const front = slot.size === 16 ? likeness.head16 : likeness.head12;
+  if (slot.view === 'side') {
+    return (slot.size === 16 ? likeness.head16Side : likeness.head12Side) ?? front;
+  }
+  if (slot.view === 'back') {
+    return (slot.size === 16 ? likeness.head16Back : likeness.head12Back) ?? front;
+  }
+  return front;
+}
+
+export type SpritePresentation = 'native' | 'tall-humanoid';
+
+export interface SpriteResolveOptions {
+  bob?: boolean;
+  /** Load-time visual treatment only; gameplay hitboxes remain archetype-owned. */
+  presentation?: SpritePresentation;
+}
+
+/**
+ * Turn a legacy 16x16 humanoid into a 16x32 likeness carrier. The authored
+ * lower band already contains the torso, gear, arms, and leg poses, so stretch
+ * only that band and leave a clean 16x16 slot for the higher-detail head.
+ */
+export function makeTallHumanoidEntry(entry: LibraryEntry): LibraryEntry {
+  const slots = entry.headSlots;
+  if (
+    !slots ||
+    slots.length !== entry.frames.length ||
+    entry.frames.some((frame, i) => frame.w !== 16 || frame.h !== 16 || slots[i]?.size !== 12)
+  ) {
+    return entry;
+  }
+
+  const blank = '.'.repeat(16);
+  const likenessOverlays: SpriteData[] = [];
+  const frames = entry.frames.map((frame, i): SpriteData => {
+    const slot = slots[i]!;
+    // Authored humanoids transition from face to costume around row 9.
+    const bodyStart = Math.max(0, Math.min(frame.h - 1, slot.y + 9));
+    const overlayRows = Array.from({ length: 32 }, () => Array<string>(16).fill('.'));
+    // Preserve only pixels the native 12px likeness compositor would have
+    // left outside its head slot (pick blades, sword hilts, scarf tips). Scale
+    // their vertical spacing into the new 16px head region, then redraw them
+    // after the larger head is pasted.
+    for (let sy = 0; sy < bodyStart; sy++) {
+      const row = frame.rows[sy] ?? blank;
+      const dy = bodyStart <= 1 ? 0 : Math.round((sy * 15) / (bodyStart - 1));
+      for (let x = 0; x < 16; x++) {
+        const outsideOldSlot =
+          sy < slot.y ||
+          sy >= slot.y + slot.size ||
+          x < slot.x ||
+          x >= slot.x + slot.size;
+        const ch = row[x] ?? '.';
+        if (outsideOldSlot && ch !== '.' && ch !== '0') overlayRows[dy]![x] = ch;
+      }
+    }
+    likenessOverlays.push({
+      w: 16,
+      h: 32,
+      rows: overlayRows.map((row) => row.join('')),
+    });
+    const source = frame.rows.slice(bodyStart);
+    const body = Array.from({ length: 16 }, (_, y) => {
+      // Keep the shoulder line at one pixel so tiny one-pixel accessories do
+      // not become long vertical streaks. Spend the added height on the torso
+      // and legs, where repeated rows read as volume instead.
+      const sy = Math.min(
+        source.length - 1,
+        Math.ceil((y * Math.max(0, source.length - 1)) / 15),
+      );
+      return source[sy] ?? blank;
+    });
+    return { w: 16, h: 32, rows: [...Array<string>(16).fill(blank), ...body] };
+  });
+
+  return {
+    frames,
+    anims: entry.anims,
+    headSlots: slots.map((slot) => ({
+      x: 0,
+      y: 0,
+      size: 16 as const,
+      ...(slot.view ? { view: slot.view } : {}),
+    })),
+    likenessOverlays,
+  };
 }
 
 /**
@@ -118,27 +224,44 @@ export class SpriteStore {
   ) {}
 
   /**
+   * Return one of the player's already-loaded likeness heads for procedural
+   * renderers that do not resolve a library sprite (the fighter archetype is
+   * the first such consumer). Directional fallback stays centralized here so
+   * legacy games with only a front head still render a likeness.
+   */
+  likenessHead(size: 12 | 16, view: HeadView = 'front'): CanvasImageSource | null {
+    if (!this.likeness) return null;
+    return resolveLikenessHead(this.likeness, { x: 0, y: 0, size, view });
+  }
+
+  /**
    * Resolve an assignment role (e.g. "hero", "walker", "tile_solid"), with a
    * library fallback ref. Pass bob:false for tile/terrain roles — the
    * synthesized walk-bob frame makes repeated tiles jitter.
    */
-  byRole(role: string, fallbackRef: string, opts: { bob?: boolean } = {}): ResolvedSprite {
+  byRole(role: string, fallbackRef: string, opts: SpriteResolveOptions = {}): ResolvedSprite {
     const ref = this.spec.sprites.assign[role] ?? fallbackRef;
     return this.byRef(ref, role === 'hero', opts);
   }
 
   /** Resolve a direct sprite ref. */
-  byRef(ref: string, applyLikeness = false, opts: { bob?: boolean } = {}): ResolvedSprite {
+  byRef(ref: string, applyLikeness = false, opts: SpriteResolveOptions = {}): ResolvedSprite {
     const bob = opts.bob ?? true;
-    const key = `${ref}|${applyLikeness ? 'L' : '-'}|${bob ? 'b' : '-'}`;
+    const presentation = opts.presentation ?? 'native';
+    const key = `${ref}|${applyLikeness ? 'L' : '-'}|${bob ? 'b' : '-'}|${presentation}`;
     const hit = this.cache.get(key);
     if (hit) return hit;
-    const resolved = this.build(ref, applyLikeness, bob);
+    const resolved = this.build(ref, applyLikeness, bob, presentation);
     this.cache.set(key, resolved);
     return resolved;
   }
 
-  private build(ref: string, applyLikeness: boolean, bob: boolean): ResolvedSprite {
+  private build(
+    ref: string,
+    applyLikeness: boolean,
+    bob: boolean,
+    presentation: SpritePresentation,
+  ): ResolvedSprite {
     const [kind, id] = ref.split(':', 2) as [string, string];
     let entry: LibraryEntry | null = null;
     if (kind === 'lib') {
@@ -176,22 +299,48 @@ export class SpriteStore {
         anims: { idle: [0] },
       };
     }
+
+    // A 16px likeness needs its own pixel budget. Only opt into the tall visual
+    // when head16 actually loaded; otherwise retain the complete native sprite
+    // instead of producing a headless body. Physics never reads these dimensions.
+    let appliedPresentation: SpritePresentation = 'native';
+    if (
+      presentation === 'tall-humanoid' &&
+      applyLikeness &&
+      this.likeness?.head16 &&
+      kind === 'lib' &&
+      TALL_HUMANOID_IDS.has(id) &&
+      entry.headSlots
+    ) {
+      const tall = makeTallHumanoidEntry(entry);
+      if (tall !== entry) {
+        entry = tall;
+        appliedPresentation = 'tall-humanoid';
+      }
+    }
+
     const frames = entry.frames.map((f) => decodeSprite(f, this.spec.palette));
+    const likenessOverlays = entry.likenessOverlays?.map((f) =>
+      decodeSprite(f, this.spec.palette),
+    );
     if (applyLikeness && this.likeness && entry.headSlots) {
       entry.headSlots.forEach((slot, i) => {
-        const head = slot.size === 16 ? this.likeness!.head16 : this.likeness!.head12;
+        const head = resolveLikenessHead(this.likeness!, slot);
         const canvas = frames[i];
         if (head && canvas) {
           const ctx = canvas.getContext('2d')!;
           // Clear the drawn default head area, then paste the baked photo head.
           ctx.clearRect(slot.x, slot.y, slot.size, slot.size);
           ctx.drawImage(head, slot.x, slot.y, slot.size, slot.size);
+          const overlay = likenessOverlays?.[i];
+          if (overlay) ctx.drawImage(overlay, 0, 0);
         }
       });
     }
     return {
       w: entry.frames[0]?.w ?? 8,
       h: entry.frames[0]?.h ?? 8,
+      appliedPresentation,
       frames,
       flipped: frames.map(flipCanvas),
       flash: frames.map(flashCanvas),

@@ -1,9 +1,10 @@
 // `sparkade` CLI — status, logs, update, restart, config, provider test,
-// backup/restore, doctor, kiosk enable/disable.
+// backup/restore, doctor, remote Chromium debugging, kiosk enable/disable.
 // Secrets go to the env file with 0600 perms and are never echoed in full.
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -11,7 +12,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, userInfo } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 
 const REPO = process.env.SPARKADE_REPO_DIR ?? '/opt/sparkade';
@@ -71,6 +72,22 @@ function readConfig(): Record<string, unknown> {
 
 function writeConfig(cfg: Record<string, unknown>): void {
   writeFileSync(join(dataDir(), 'config.json'), JSON.stringify(cfg, null, 2));
+}
+
+function readEnvVar(name: string): string | undefined {
+  if (!existsSync(ENV_FILE)) return undefined;
+  const match = new RegExp(`^${name}=(.*)$`, 'm').exec(readFileSync(ENV_FILE, 'utf8'));
+  return match?.[1];
+}
+
+function writeEnvVar(name: string, value: string): void {
+  mkdirSync(resolve(ENV_FILE, '..'), { recursive: true });
+  let lines: string[] = [];
+  if (existsSync(ENV_FILE)) lines = readFileSync(ENV_FILE, 'utf8').split('\n').filter(Boolean);
+  lines = lines.filter((line) => !line.startsWith(`${name}=`));
+  lines.push(`${name}=${value}`);
+  writeFileSync(ENV_FILE, lines.join('\n') + '\n');
+  chmodSync(ENV_FILE, 0o600);
 }
 
 function getPath(obj: unknown, path: string): unknown {
@@ -194,6 +211,19 @@ function cmdUpdate(): void {
   }
   console.log('build …');
   sh('npm', ['run', 'build'], { cwd: dir });
+  // The kiosk launcher is installed outside the checkout. Keep it in sync so
+  // source updates (including Chromium flags) do not require rerunning the full
+  // OS installer. A running startx session still needs one reboot to load a new
+  // launcher; `sparkade debug` detects that case and says so.
+  if (process.platform === 'linux') {
+    const launcherSrc = join(dir, 'install', 'kiosk', 'launch.sh');
+    const launcherDst = join(homedir(), '.sparkade-kiosk-launch.sh');
+    if (existsSync(launcherSrc) && existsSync(launcherDst)) {
+      copyFileSync(launcherSrc, launcherDst);
+      chmodSync(launcherDst, 0o755);
+      console.log('kiosk launcher updated (reboot once if its Chromium flags changed)');
+    }
+  }
   console.log('restarting service (the kiosk reloads itself via version poll) …');
   tryRun('sudo', ['-n', 'systemctl', 'restart', SERVICE]);
   console.log('update complete. The data dir was not touched.');
@@ -261,13 +291,7 @@ function cmdConfig(args: string[]): void {
       console.error('usage: sparkade config set-key <ENV_NAME> <value>');
       process.exit(1);
     }
-    mkdirSync(resolve(ENV_FILE, '..'), { recursive: true });
-    let lines: string[] = [];
-    if (existsSync(ENV_FILE)) lines = readFileSync(ENV_FILE, 'utf8').split('\n').filter(Boolean);
-    lines = lines.filter((l) => !l.startsWith(`${path}=`));
-    lines.push(`${path}=${value}`);
-    writeFileSync(ENV_FILE, lines.join('\n') + '\n');
-    chmodSync(ENV_FILE, 0o600);
+    writeEnvVar(path, value);
     console.log(`${path} saved to ${ENV_FILE} (${maskKey(value)})`);
   } else {
     console.log(
@@ -454,6 +478,91 @@ function cmdDoctor(): void {
   console.log('provider ping: run `sparkade provider test` (makes one tiny paid call)');
 }
 
+function cmdLan(action: string | undefined): void {
+  if (process.platform !== 'linux') {
+    console.error('LAN mode is Pi-only. Run `sparkade lan on|off|status` on the cabinet.');
+    process.exitCode = 1;
+    return;
+  }
+  if (action && !['on', 'off', 'status'].includes(action)) {
+    console.error('usage: sparkade lan on|off|status');
+    process.exitCode = 1;
+    return;
+  }
+
+  const configuredBind = readEnvVar('SPARKADE_BIND') ?? '127.0.0.1';
+  const currentlyEnabled = configuredBind !== '127.0.0.1' && configuredBind !== 'localhost';
+  const info = serverGet<{ ip: string }>('/api/system/info');
+  const hostname = tryRun('hostname', ['-I']);
+  const ip =
+    (info?.ip && info.ip !== '127.0.0.1' ? info.ip : undefined) ??
+    (hostname.ok ? hostname.out.split(/\s+/).find(Boolean) : undefined) ??
+    '<pi-ip>';
+
+  if (!action || action === 'status') {
+    console.log(`LAN access  ${currentlyEnabled ? 'ON' : 'OFF'} (${configuredBind}:8080)`);
+    console.log(currentlyEnabled ? `Kiosk URL  http://${ip}:8080` : 'Kiosk is reachable only from the Pi.');
+    return;
+  }
+
+  const enabled = action === 'on';
+  writeEnvVar('SPARKADE_BIND', enabled ? '0.0.0.0' : '127.0.0.1');
+  const restarted = tryRun('sudo', ['-n', 'systemctl', 'restart', SERVICE]);
+  if (!restarted.ok) {
+    console.error(`Saved the setting, but the service restart failed: ${restarted.out}`);
+    console.error('Apply it manually with: sparkade restart');
+    process.exitCode = 1;
+    return;
+  }
+
+  if (enabled) {
+    console.log(`LAN access enabled: http://${ip}:8080`);
+    console.log('Anyone on this local network can use the full kiosk and API until you run `sparkade lan off`.');
+  } else {
+    console.log('LAN access disabled. Sparkade is localhost-only again.');
+  }
+}
+
+function cmdDebug(): void {
+  if (process.platform !== 'linux') {
+    console.error('Run `sparkade debug` on the Raspberry Pi, then use the printed command on this computer.');
+    process.exitCode = 1;
+    return;
+  }
+
+  const endpoint = tryRun('curl', [
+    '-fsS',
+    '--max-time',
+    '2',
+    'http://127.0.0.1:9222/json/version',
+  ]);
+  const info = serverGet<{ ip: string }>('/api/system/info');
+  let ip = info?.ip;
+  if (!ip || ip === '127.0.0.1') {
+    const hostname = tryRun('hostname', ['-I']);
+    ip = hostname.ok ? hostname.out.split(/\s+/).find(Boolean) : undefined;
+  }
+  const user = process.env.SUDO_USER || userInfo().username;
+  const host = ip || '<pi-ip>';
+
+  console.log(`Chromium DevTools  ${endpoint.ok ? 'ready' : 'not active'} (127.0.0.1:9222 only)`);
+  if (!endpoint.ok) {
+    console.log('The installed kiosk launcher does not appear to be running with debugging enabled.');
+    console.log('After updating Sparkade, reboot the Pi once, then run this command again:');
+    console.log('  sudo reboot');
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log('\nOn your computer, keep this tunnel running:');
+  console.log(`  ssh -N -L 9222:127.0.0.1:9222 ${user}@${host}`);
+  console.log('\nThen in Chrome:');
+  console.log('  1. Open chrome://inspect/#devices');
+  console.log('  2. Configure target discovery: localhost:9222');
+  console.log('  3. Click "inspect" under the Sparkade tab');
+  console.log('\nCtrl+C closes the tunnel. DevTools is not exposed directly to the network.');
+}
+
 function cmdKiosk(enable: boolean): void {
   if (process.platform !== 'linux') {
     console.log('kiosk mode is Pi-only');
@@ -497,6 +606,12 @@ switch (cmd) {
   case 'doctor':
     cmdDoctor();
     break;
+  case 'lan':
+    cmdLan(args[0]);
+    break;
+  case 'debug':
+    cmdDebug();
+    break;
   case 'kiosk':
     cmdKiosk(args[0] === 'enable');
     break;
@@ -518,5 +633,7 @@ usage:
   sparkade backup [file]              tar.gz the data dir
   sparkade backup restore <file>      restore it (asks for confirmation)
   sparkade doctor                     node/service/port/chromium/gamepad/camera/mic/key checks
+  sparkade lan on|off|status          toggle direct access to the web kiosk from the LAN
+  sparkade debug                      print a secure SSH tunnel for Chromium DevTools
   sparkade kiosk enable|disable       toggle kiosk autostart`);
 }

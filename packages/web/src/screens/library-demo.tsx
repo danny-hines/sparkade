@@ -5,20 +5,12 @@
 // while dwelling/loading or for games that aren't ready.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import { GameHost, type LikenessAssets } from '@sparkade/engine';
+import { GameHost } from '@sparkade/engine';
 import { archetypes } from '@sparkade/archetypes';
 import type { ArchetypeId } from '@sparkade/shared';
 import { api } from '../api';
 import { PilotBroker } from '../demo-pilot';
-
-function loadImage(url: string): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = url;
-  });
-}
+import { loadLikenessAssets } from '../likeness-assets';
 
 const DWELL_MS = 550; // settle time before a highlighted game starts playing
 const DEMO_VOLUMES = { musicVol: 0.3, sfxVol: 0, uiVol: 0 }; // soft theme, no SFX
@@ -58,13 +50,7 @@ export function LibraryDemo(props: {
           // Load the baked likeness so the demo hero wears the SAME face as the
           // real game (photo games composite it onto the hero head — without it
           // the demo would show a different, faceless sprite).
-          const likeness: LikenessAssets | null = detail.assets.portrait
-            ? {
-                head12: await loadImage(api.assetUrl(props.gameId, 'head12.png')),
-                head16: await loadImage(api.assetUrl(props.gameId, 'head16.png')),
-                portrait: await loadImage(api.assetUrl(props.gameId, 'portrait.png')),
-              }
-            : null;
+          const likeness = await loadLikenessAssets(props.gameId, detail.assets);
           if (disposed || !canvasRef.current) return;
           host = new GameHost({
             canvas: canvasRef.current,

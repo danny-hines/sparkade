@@ -218,6 +218,7 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
             >
               <GameCover
                 cover={g.cover}
+                archetype={g.archetype}
                 gameId={g.id}
                 seedText={g.title}
                 pending={g.status === 'queued' || g.status === 'generating'}
@@ -346,7 +347,13 @@ function DetailPanel(props: {
           ready={item.status === 'ready'}
           archetype={item.archetype}
           fallback={
-            <GameCover cover={item.cover} gameId={item.id} seedText={item.title} class="home-detail-cover-full" />
+            <GameCover
+              cover={item.cover}
+              archetype={item.archetype}
+              gameId={item.id}
+              seedText={item.title}
+              class="home-detail-cover-full"
+            />
           }
         />
       </div>

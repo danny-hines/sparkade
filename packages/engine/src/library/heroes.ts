@@ -2,7 +2,7 @@
 // Palette slots: 1 outline · 5 hero-primary · 6 hero-secondary · 7 hero-accent/skin
 // · d gold · e light · f near-white · c warm (leather/engine glow only).
 // Platformer heroes face RIGHT; adventure heroes are top-down 3/4; ships point UP.
-// headSlots mark where a baked 12x12 likeness head is pasted (chibi: head = top ~9 rows).
+// headSlots mark both placement and directional view for each 12x12 likeness head.
 import type { LibraryEntry } from '../types';
 
 export const HEROES: Record<string, LibraryEntry> = {
@@ -101,10 +101,10 @@ export const HEROES: Record<string, LibraryEntry> = {
     ],
     anims: { idle: [0], walk: [1, 2], jump: [3] },
     headSlots: [
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 1, size: 12 },
-      { x: 2, y: 0, size: 12 },
+      { x: 2, y: 0, size: 12, view: 'side' },
+      { x: 2, y: 0, size: 12, view: 'side' },
+      { x: 2, y: 1, size: 12, view: 'side' },
+      { x: 2, y: 0, size: 12, view: 'side' },
     ],
   },
 
@@ -202,10 +202,10 @@ export const HEROES: Record<string, LibraryEntry> = {
     ],
     anims: { idle: [0], walk: [1, 2], jump: [3] },
     headSlots: [
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 1, size: 12 },
-      { x: 2, y: 0, size: 12 },
+      { x: 2, y: 0, size: 12, view: 'side' },
+      { x: 2, y: 0, size: 12, view: 'side' },
+      { x: 2, y: 1, size: 12, view: 'side' },
+      { x: 2, y: 0, size: 12, view: 'side' },
     ],
   },
 
@@ -303,10 +303,10 @@ export const HEROES: Record<string, LibraryEntry> = {
     ],
     anims: { idle: [0], walk: [1, 2], jump: [3] },
     headSlots: [
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 1, size: 12 },
-      { x: 2, y: 0, size: 12 },
+      { x: 2, y: 0, size: 12, view: 'side' },
+      { x: 2, y: 0, size: 12, view: 'side' },
+      { x: 2, y: 1, size: 12, view: 'side' },
+      { x: 2, y: 0, size: 12, view: 'side' },
     ],
   },
 
@@ -449,12 +449,12 @@ export const HEROES: Record<string, LibraryEntry> = {
     ],
     anims: { idle: [0], down: [0, 1], up: [2, 3], side: [4, 5] },
     headSlots: [
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
+      { x: 2, y: 0, size: 12, view: 'front' },
+      { x: 2, y: 0, size: 12, view: 'front' },
+      { x: 2, y: 0, size: 12, view: 'back' },
+      { x: 2, y: 0, size: 12, view: 'back' },
+      { x: 2, y: 0, size: 12, view: 'side' },
+      { x: 2, y: 0, size: 12, view: 'side' },
     ],
   },
 
@@ -596,12 +596,12 @@ export const HEROES: Record<string, LibraryEntry> = {
     ],
     anims: { idle: [0], down: [0, 1], up: [2, 3], side: [4, 5] },
     headSlots: [
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
+      { x: 2, y: 0, size: 12, view: 'front' },
+      { x: 2, y: 0, size: 12, view: 'front' },
+      { x: 2, y: 0, size: 12, view: 'back' },
+      { x: 2, y: 0, size: 12, view: 'back' },
+      { x: 2, y: 0, size: 12, view: 'side' },
+      { x: 2, y: 0, size: 12, view: 'side' },
     ],
   },
 
@@ -743,12 +743,12 @@ export const HEROES: Record<string, LibraryEntry> = {
     ],
     anims: { idle: [0], down: [0, 1], up: [2, 3], side: [4, 5] },
     headSlots: [
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
-      { x: 2, y: 0, size: 12 },
+      { x: 2, y: 0, size: 12, view: 'front' },
+      { x: 2, y: 0, size: 12, view: 'front' },
+      { x: 2, y: 0, size: 12, view: 'back' },
+      { x: 2, y: 0, size: 12, view: 'back' },
+      { x: 2, y: 0, size: 12, view: 'side' },
+      { x: 2, y: 0, size: 12, view: 'side' },
     ],
   },
 

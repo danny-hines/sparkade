@@ -21,11 +21,18 @@ while true; do
   #   defaults to the PipeWire/portal backend, which isn't running in this bare
   #   startx session — so it enumerates zero cameras and getUserMedia hangs. This
   #   forces the direct V4L2 path (/dev/video0). Harmless on older Chromium.
+  # DevTools listens only on loopback. `sparkade debug` prints the SSH tunnel
+  # needed to reach it, so the debugging protocol is never exposed to the LAN.
+  # Chromium 136+ requires a non-default user-data-dir for remote debugging.
   "$CHROMIUM" --kiosk --window-size=1024,600 --window-position=0,0 \
     --noerrdialogs --disable-infobars --disable-session-crashed-bubble \
+    --no-first-run --no-default-browser-check \
     --autoplay-policy=no-user-gesture-required \
     --use-fake-ui-for-media-stream \
     --disable-features=WebRtcPipeWireCamera \
+    --remote-debugging-address=127.0.0.1 \
+    --remote-debugging-port=9222 \
+    --user-data-dir="$HOME/.config/chromium-sparkade" \
     --check-for-update-interval=31536000 http://127.0.0.1:8080
   sleep 2
 done

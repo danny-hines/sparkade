@@ -38,6 +38,14 @@ export class GameFiles {
     return readJson<GameSpec>(join(this.gameDir(gameId), 'game.json'));
   }
 
+  /** Replace a published game spec without exposing a partially-written JSON file. */
+  writeSpec(gameId: string, spec: GameSpec): void {
+    atomicWriteFile(
+      join(this.gameDir(gameId), 'game.json'),
+      `${JSON.stringify(spec, null, 2)}\n`,
+    );
+  }
+
   readMeta(gameId: string): GameMetaFile | null {
     return readJson<GameMetaFile>(join(this.gameDir(gameId), 'meta.json'));
   }

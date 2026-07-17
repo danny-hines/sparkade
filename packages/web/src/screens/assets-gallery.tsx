@@ -426,7 +426,8 @@ export function AssetsGalleryScreen(): ComponentChildren {
         <h1>
           Sparkade asset gallery <span class="gal-dim">(dev only — colors come from the selected palette)</span>{' '}
           <a href="/?dev=likeness" style="color:var(--cyan);text-decoration:none;font-size:14px">→ likeness lab</a>{' '}
-          <a href="/?dev=sprite-editor" style="color:var(--cyan);text-decoration:none;font-size:14px">→ sprite editor</a>
+          <a href="/?dev=sprite-editor" style="color:var(--cyan);text-decoration:none;font-size:14px">→ sprite editor</a>{' '}
+          <a href="/?dev=fighter-editor" style="color:var(--cyan);text-decoration:none;font-size:14px">→ fighter workshop</a>
         </h1>
         <div class="gal-controls">
           <label>

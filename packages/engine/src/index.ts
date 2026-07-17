@@ -11,7 +11,11 @@ export {
   outlineCanvas,
   flashCanvas,
   SpriteStore,
+  makeTallHumanoidEntry,
+  resolveLikenessHead,
   type ResolvedSprite,
+  type SpritePresentation,
+  type SpriteResolveOptions,
 } from './sprites';
 export { Renderer, Camera, drawTileLayer, drawObstacleShadows, drawObstacleTile } from './renderer';
 export {

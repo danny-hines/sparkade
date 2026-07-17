@@ -1,6 +1,7 @@
 // Typed API client. The browser never sees an API key; everything talks to the
 // local server (Vite proxies /api in dev).
 import type {
+  ArchetypeId,
   CostEstimate,
   GameListItem,
   GameMetaFile,
@@ -34,7 +35,15 @@ export interface GameDetail {
   spec: GameSpec | null;
   meta: GameMetaFile | null;
   job: JobRecord | null;
-  assets: { head12: boolean; head16: boolean; portrait: boolean };
+  assets: {
+    head12: boolean;
+    head12Side: boolean;
+    head12Back: boolean;
+    head16: boolean;
+    head16Side: boolean;
+    head16Back: boolean;
+    portrait: boolean;
+  };
   usage: {
     stage: string;
     model: string;
@@ -51,7 +60,12 @@ export interface GameDetail {
 export interface SettingsPayload {
   audio: { musicVol: number; sfxVol: number; uiVol: number };
   input: { gamepad: Record<string, LogicalButton>; keyboard: Record<string, LogicalButton> };
-  likeness: { describeInStory: boolean; smartFeatures?: boolean; style?: 'photo' | 'avatar'; portraitGen?: { enabled: boolean } };
+  likeness: {
+    describeInStory: boolean;
+    smartFeatures?: boolean;
+    style?: 'photo' | 'avatar';
+    portraitGen?: { enabled: boolean };
+  };
   devices: { cameraId?: string; cameraLabel?: string; micId?: string; micLabel?: string };
   presets: { id: string; title: string; archetype: string; premise: string; tone: string }[];
   stages: Record<string, { provider: string; model: string }>;
@@ -83,6 +97,7 @@ export const api = {
   createGame: async (opts: {
     promptText: string;
     sourceKind: 'voice' | 'preset' | 'surprise';
+    requestedArchetype?: ArchetypeId;
     presetId?: string;
     photo?: Blob;
     idempotencyKey: string;
@@ -91,6 +106,9 @@ export const api = {
     form.append('promptText', opts.promptText);
     form.append('sourceKind', opts.sourceKind);
     form.append('idempotencyKey', opts.idempotencyKey);
+    if (opts.sourceKind === 'surprise' && opts.requestedArchetype) {
+      form.append('requestedArchetype', opts.requestedArchetype);
+    }
     if (opts.presetId) form.append('presetId', opts.presetId);
     if (opts.photo) form.append('photo', opts.photo, 'photo.jpg');
     const res = await fetch('/api/games', { method: 'POST', body: form });
@@ -104,7 +122,12 @@ export const api = {
   saveSettings: (patch: {
     audio?: { musicVol: number; sfxVol: number; uiVol: number };
     input?: { gamepad?: Record<string, LogicalButton>; keyboard?: Record<string, LogicalButton> };
-    likeness?: { describeInStory?: boolean; smartFeatures?: boolean; style?: 'photo' | 'avatar'; portraitGen?: { enabled?: boolean } };
+    likeness?: {
+      describeInStory?: boolean;
+      smartFeatures?: boolean;
+      style?: 'photo' | 'avatar';
+      portraitGen?: { enabled?: boolean };
+    };
     devices?: { cameraId?: string; cameraLabel?: string; micId?: string; micLabel?: string };
   }) =>
     fetch('/api/settings', {
@@ -137,8 +160,17 @@ export const api = {
       return { ok: false, reason: 'error', error: `HTTP ${res.status}` };
     }
   },
-  assetUrl: (gameId: string, name: 'head12.png' | 'head16.png' | 'portrait.png') =>
-    `/api/games/${gameId}/assets/${name}`,
+  assetUrl: (
+    gameId: string,
+    name:
+      | 'head12.png'
+      | 'head12-side.png'
+      | 'head12-back.png'
+      | 'head16.png'
+      | 'head16-side.png'
+      | 'head16-back.png'
+      | 'portrait.png',
+  ) => `/api/games/${gameId}/assets/${name}`,
 };
 
 /** Subscribe to a job's SSE stream. Returns an unsubscribe function. */

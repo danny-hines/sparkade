@@ -239,7 +239,7 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       `SMALL ART (self-describing): ${small}`,
     ].join('\n'),
     fighter: [
-      '\nFIGHTERS ARE DRAWN PROCEDURALLY — there are NO body sprites to pick. Set sprites.assign.hero and sprites.assign.boss to any library sprite (both are unused placeholders), e.g. "hero": "lib:hero_squire", "boss": "lib:boss_titan". A fighter\'s look comes from its build (nimble/balanced/heavy) and palette colorSlot, authored in the roster (player / levels[].opponent / boss).',
+      '\nFIGHTERS ARE DRAWN PROCEDURALLY — there are NO body sprites to pick. Set sprites.assign.hero and sprites.assign.boss to any library sprite (both are unused placeholders), e.g. "hero": "lib:hero_squire", "boss": "lib:boss_titan". A fighter\'s look comes from its build (nimble/balanced/heavy), outfit silhouette (gi/boxer/wrestler/street/robe/armor), and palette colorSlot. Opponent and boss faces are deterministic pixel avatars derived from the game seed, roster slot, and name; do not add unsupported face fields. When a photo exists, the player automatically receives the baked directional likeness head; never try to encode their face as a custom sprite.',
     ].join('\n'),
   };
   const tileRoles: Record<ArchetypeId, string[]> = {
@@ -270,7 +270,7 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
     hshooter:
       'Also reskinnable via assign: projectile (your ship\'s shot), enemyShot, pod (boss side-turrets), pickup_spread, pickup_rapid, pickup_shield, pickup_bomb.',
     fighter:
-      'Nothing to reskin — fighters, arena and effects are all drawn by the engine from your palette. Make the roster read apart by giving each fighter a distinct build + colorSlot.',
+      'Nothing to reskin — fighters, arena and effects are all drawn by the engine from your palette. The player and ladder roster are authored by the levels pass. Here, make the boss unmistakable with a distinct build + outfit + colorSlot.',
   };
   const roles = tileRoles[archetype];
   const reskinNotes =
@@ -310,7 +310,7 @@ export function buildEntitiesPrompt(
     hshooter:
       'Bullet patterns: fan, spiral, walls (a vertical bullet column with a gap), aimed. The boss flies in from the right of an open arena. pods are destructible turrets. bulletSpeed multiplies base speed.',
     fighter:
-      'The boss is the final ladder fighter: give it a distinct build + colorSlot from the player and the ladder opponents, more HP (100-200), and 2-3 rage phases (aggression 0.8-2, rising as its HP drops).',
+      'The boss is the final ladder fighter: use colorSlot 11 (the roster pass reserves it), author its build and outfit, give it more HP (100-200), and add 2-3 rage phases (aggression 0.8-2, rising as its HP drops). Prefer the armor outfit so its padded silhouette dominates the ladder; do not invent face details or moves.',
   };
   const menu = spriteMenu(archetype);
   const system = renderTemplate(loadTemplate('entities'), {
@@ -331,9 +331,13 @@ export function buildEntitiesPrompt(
   const recentNote = recentBits.length
     ? `\n\nRECENTLY USED ON THIS CABINET (prefer different bodies/scenes when the premise allows — back-to-back games should not share a cast): ${recentBits.join('; ')}.`
     : '';
+  const likenessBodyNote =
+    hasPhoto && archetype === 'platformer'
+      ? '\n\nLIKENESS BODY REQUIREMENT: Set sprites.assign.hero to one of the built-in lib:hero_* bodies listed above. The 16x32 likeness presentation needs that body and its 16px face slot. Put bespoke signature art on the boss, an enemy, or an object instead of the hero.'
+      : '';
   return {
     system,
-    user: `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}\n\nPhoto for likeness: ${hasPhoto ? 'yes' : 'no'}.${recentNote}\n\nWrite the entities JSON now.`,
+    user: `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}\n\nPhoto for likeness: ${hasPhoto ? 'yes' : 'no'}.${likenessBodyNote}${recentNote}\n\nWrite the entities JSON now.`,
     jsonSchema: schema,
     maxTokens: 9000,
   };

@@ -40,12 +40,46 @@ export function stageSchema(archetype: ArchetypeId, stage: SpecStage): Record<st
     properties: Record<string, unknown>;
     $defs: Record<string, unknown>;
   };
-  const { required, optional } = STAGE_PROPERTIES[stage];
+  const base = STAGE_PROPERTIES[stage];
+  // The fighter levels pass is its roster pass, so it owns the player's
+  // fighter alongside the three ladder opponents. `player` remains optional
+  // in the persisted schema so older games continue to validate.
+  const required = [
+    ...(archetype === 'fighter' && stage === 'levels' ? ['player'] : []),
+    ...base.required,
+  ];
+  const optional = [...base.optional];
   const properties: Record<string, unknown> = {};
   for (const key of [...required, ...optional]) {
     const prop = full.properties[key];
     if (prop === undefined) throw new Error(`schema for ${archetype} is missing property ${key}`);
     properties[key] = prop;
+  }
+  const defs = structuredClone(full.$defs) as Record<
+    string,
+    { required?: string[]; properties?: Record<string, unknown> } | undefined
+  >;
+  // New fighter-stage output always carries an authored outfit, while the full
+  // schema keeps it optional for backwards compatibility.
+  if (archetype === 'fighter' && stage === 'levels') {
+    const fighter = defs['fighter'];
+    if (fighter?.required && !fighter.required.includes('outfit')) {
+      fighter.required.push('outfit');
+    }
+  }
+  if (archetype === 'fighter' && stage === 'entities') {
+    const boss = defs['boss'];
+    if (boss?.required && !boss.required.includes('outfit')) {
+      boss.required.push('outfit');
+    }
+    if (boss?.properties) {
+      // Levels and entities are generated in parallel. Reserving slot 11 for
+      // the separately-authored boss makes color separation deterministic.
+      boss.properties['colorSlot'] = {
+        const: 11,
+        description: 'Reserved boss-primary palette slot for newly generated fighter games.',
+      };
+    }
   }
   return {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -54,7 +88,7 @@ export function stageSchema(archetype: ArchetypeId, stage: SpecStage): Record<st
     properties,
     required,
     additionalProperties: false,
-    $defs: structuredClone(full.$defs),
+    $defs: defs,
   };
 }
 

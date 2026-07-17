@@ -51,6 +51,11 @@ const WALK = 78;
 const BODY_HALF = 12; // torso half-width for body collision + range
 const ROUND_TIME = 60;
 const ROUNDS_TO_WIN = 2;
+// Cabinet controls are deliberately forgiving: a counter pressed just before
+// stun ends is remembered, and every AI contact leaves a real punish window.
+const PLAYER_ATTACK_BUFFER_S = 0.14;
+const AI_COUNTER_WINDOW_S = 0.2;
+const AI_WHIFF_OPENING_S = 0.16;
 
 type MoveId = 'punchHigh' | 'punchLow' | 'kickHigh' | 'kickLow' | 'airKick';
 type Height = 'high' | 'low' | 'overhead';
@@ -71,7 +76,7 @@ interface Move {
 }
 
 const MOVES: Record<MoveId, Move> = {
-  punchLow: { pose: 'punchLow', startup: 0.05, active: 0.04, recovery: 0.12, dmg: 5, reach: 24, hitY: -22, height: 'high', knockback: 24, hitstun: 0.24, blockstun: 0.14 },
+  punchLow: { pose: 'punchLow', startup: 0.05, active: 0.04, recovery: 0.12, dmg: 5, reach: 24, hitY: -22, height: 'low', knockback: 24, hitstun: 0.24, blockstun: 0.14 },
   punchHigh: { pose: 'punchHigh', startup: 0.07, active: 0.05, recovery: 0.16, dmg: 8, reach: 28, hitY: -30, height: 'high', knockback: 34, hitstun: 0.3, blockstun: 0.18 },
   kickLow: { pose: 'kickLow', startup: 0.09, active: 0.06, recovery: 0.24, dmg: 9, reach: 30, hitY: -6, height: 'low', knockback: 48, hitstun: 0.32, blockstun: 0.2, knockdown: true },
   kickHigh: { pose: 'kickHigh', startup: 0.11, active: 0.06, recovery: 0.22, dmg: 12, reach: 32, hitY: -24, height: 'high', knockback: 66, hitstun: 0.36, blockstun: 0.22 },
@@ -91,12 +96,15 @@ interface Actor {
   state: State;
   move: MoveId | null;
   moveT: number;
+  moveSerial: number;
   airMove: boolean; // used its one air attack this jump
   hitDone: boolean;
   crouch: boolean;
   block: boolean;
   stunT: number;
   flashT: number;
+  bufferedMove: MoveId | null;
+  bufferT: number;
   scale: number;
   build: FighterBuild;
   outfit: FighterOutfit;
@@ -110,6 +118,9 @@ interface Actor {
   aiT: number;
   aiIntent: 'approach' | 'retreat' | 'attack' | 'block' | 'jump' | 'wait';
   aggression: number;
+  aiRecoveryT: number;
+  aiSeenFoeMove: number;
+  aiGuardingFoeMove: number;
 }
 
 /** Stable visual fallback for pre-outfit games; never consumes gameplay RNG. */
@@ -194,12 +205,15 @@ class FighterGame implements GameInstance {
       state: 'idle',
       move: null,
       moveT: 0,
+      moveSerial: 0,
       airMove: false,
       hitDone: false,
       crouch: false,
       block: false,
       stunT: 0,
       flashT: 0,
+      bufferedMove: null,
+      bufferT: 0,
       scale: fighterScaleForBuild(build),
       build,
       outfit,
@@ -212,6 +226,9 @@ class FighterGame implements GameInstance {
       aiT: 0,
       aiIntent: 'wait',
       aggression,
+      aiRecoveryT: 0,
+      aiSeenFoeMove: -1,
+      aiGuardingFoeMove: -1,
     };
   }
 
@@ -316,10 +333,20 @@ class FighterGame implements GameInstance {
     a.hp = a.maxHp;
     a.state = 'idle';
     a.move = null;
+    a.moveT = 0;
+    a.hitDone = false;
     a.stunT = 0;
+    a.flashT = 0;
     a.crouch = false;
     a.block = false;
     a.airMove = false;
+    a.bufferedMove = null;
+    a.bufferT = 0;
+    a.aiT = 0;
+    a.aiIntent = 'wait';
+    a.aiRecoveryT = 0;
+    a.aiSeenFoeMove = -1;
+    a.aiGuardingFoeMove = -1;
     if (ai) a.aggression = this.opponentAggression();
   }
 
@@ -378,8 +405,25 @@ class FighterGame implements GameInstance {
     return a.state === 'idle' || a.state === 'walk' || a.state === 'crouch' || a.state === 'block';
   }
 
+  private requestedMove(input: InputSnapshot, crouching: boolean): MoveId | null {
+    if (input.Y.pressed) return crouching ? 'punchLow' : 'punchHigh';
+    if (input.B.pressed) return 'punchLow';
+    if (input.X.pressed) return crouching ? 'kickLow' : 'kickHigh';
+    if (input.A.pressed) return 'kickLow';
+    return null;
+  }
+
   private control(a: Actor, dt: number, input: InputSnapshot): void {
     if (a.state === 'ko') return;
+    if (a.bufferT > 0) {
+      a.bufferT = Math.max(0, a.bufferT - dt);
+      if (a.bufferT === 0) a.bufferedMove = null;
+    }
+    const requestedMove = this.requestedMove(input, input.DOWN.held);
+    if ((a.state === 'hitstun' || a.state === 'blockstun') && requestedMove) {
+      a.bufferedMove = requestedMove;
+      a.bufferT = PLAYER_ATTACK_BUFFER_S;
+    }
     this.tickStun(a, dt);
     if (a.state === 'hitstun' || a.state === 'blockstun') return;
 
@@ -417,12 +461,12 @@ class FighterGame implements GameInstance {
       }
       // attacks (ground)
       if (this.canAct(a) || a.state === 'walk' || a.state === 'crouch') {
-        const mid = a.crouch ? { hi: 'kickLow' as MoveId, lo: 'punchLow' as MoveId } : { hi: 'kickHigh' as MoveId, lo: 'punchLow' as MoveId };
-        if (input.Y.pressed) this.startMove(a, a.crouch ? 'punchLow' : 'punchHigh');
-        else if (input.B.pressed) this.startMove(a, 'punchLow');
-        else if (input.X.pressed) this.startMove(a, mid.hi);
-        else if (input.A.pressed) this.startMove(a, 'kickLow');
-        void mid.lo;
+        const move = a.bufferedMove ?? requestedMove;
+        if (move) {
+          a.bufferedMove = null;
+          a.bufferT = 0;
+          this.startMove(a, move);
+        }
       }
     } else {
       // air: one attack per jump
@@ -437,8 +481,15 @@ class FighterGame implements GameInstance {
   private startMove(a: Actor, id: MoveId): void {
     a.move = id;
     a.moveT = 0;
+    a.moveSerial += 1;
     a.hitDone = false;
     a.state = 'attack';
+    // Ground attacks commit in place. Carrying approach velocity through the
+    // whole strike let the AI erase knockback and slide-lock players at a wall.
+    if (a.y >= FLOOR_Y - 0.5) a.vx = 0;
+    // An attack intent authorizes exactly one move. The old cached intent was
+    // reused every recovery frame while aiT was frozen, producing long locks.
+    if (a.ai) a.aiIntent = 'wait';
     this.engine.sfx.play('shoot');
   }
 
@@ -446,6 +497,7 @@ class FighterGame implements GameInstance {
 
   private aiControl(a: Actor, foe: Actor, dt: number): void {
     if (a.state === 'ko') return;
+    if (a.aiRecoveryT > 0) a.aiRecoveryT = Math.max(0, a.aiRecoveryT - dt);
     this.tickStun(a, dt);
     if (a.state === 'hitstun' || a.state === 'blockstun' || a.state === 'attack') return;
 
@@ -457,21 +509,33 @@ class FighterGame implements GameInstance {
     a.block = false;
     a.crouch = false;
 
-    // Reactive block: if the foe has an active/starting strike in range, guard
-    // (probability scales with aggression — a tougher AI blocks more reliably).
-    if (foeAttacking && dist < 52) {
+    // Contact recovery is a genuine opening: no instant guard or anti-air read
+    // is allowed until the player's stun plus counter window has elapsed.
+    if (a.aiRecoveryT > 0) {
+      a.state = 'idle';
+      a.vx = 0;
+      return;
+    }
+
+    // Roll reactive guard once per enemy move and then hold that decision. The
+    // previous per-frame reroll made even a nominal 70% guard virtually certain.
+    if (!foeAttacking) a.aiGuardingFoeMove = -1;
+    if (foeAttacking && dist < 52 && a.aiSeenFoeMove !== foe.moveSerial) {
+      a.aiSeenFoeMove = foe.moveSerial;
+      const guard = Math.min(0.72, 0.28 + a.aggression * 0.16);
+      if (this.engine.rng.chance(guard)) a.aiGuardingFoeMove = foe.moveSerial;
+    }
+    if (foeAttacking && a.aiGuardingFoeMove === foe.moveSerial) {
       const mv = MOVES[foe.move!];
-      const guard = 0.55 + a.aggression * 0.2;
-      if (this.engine.rng.chance(Math.min(0.95, guard))) {
-        a.state = 'block';
-        a.block = true;
-        a.crouch = mv.height === 'low';
-        a.vx = 0;
-        return;
-      }
+      a.state = 'block';
+      a.block = true;
+      a.crouch = mv.height === 'low';
+      a.vx = 0;
+      return;
     }
     // Anti-air: foe jumping in close → poke up.
-    if (foeAirborne && dist < 60 && this.engine.rng.chance(0.5 + a.aggression * 0.2)) {
+    const antiAirChance = Math.min(0.82, 0.42 + a.aggression * 0.18);
+    if (foeAirborne && dist < 60 && this.engine.rng.chance(antiAirChance)) {
       a.facing = dir;
       this.startMove(a, 'kickHigh');
       return;
@@ -479,9 +543,10 @@ class FighterGame implements GameInstance {
 
     a.aiT -= dt;
     if (a.aiT <= 0) {
-      a.aiT = this.engine.rng.range(0.18, 0.5) / Math.max(0.6, a.aggression);
+      a.aiT = Math.max(0.14, this.engine.rng.range(0.18, 0.5) / Math.max(0.6, a.aggression));
       if (inRange) {
-        a.aiIntent = this.engine.rng.chance(0.15 + a.aggression * 0.4) ? 'attack' : this.engine.rng.chance(0.3) ? 'retreat' : 'block';
+        const attackChance = Math.min(0.82, 0.15 + a.aggression * 0.4);
+        a.aiIntent = this.engine.rng.chance(attackChance) ? 'attack' : this.engine.rng.chance(0.3) ? 'retreat' : 'block';
       } else if (dist < 120) {
         a.aiIntent = this.engine.rng.chance(0.8) ? 'approach' : 'jump';
       } else {
@@ -548,6 +613,12 @@ class FighterGame implements GameInstance {
       if (a.moveT >= m.startup + m.active + m.recovery) {
         a.move = null;
         a.state = a.y < FLOOR_Y - 0.5 ? 'jump' : 'idle';
+        if (a.ai) {
+          a.aiRecoveryT = Math.max(a.aiRecoveryT, AI_WHIFF_OPENING_S);
+          a.aiIntent = 'wait';
+          a.aiT = 0;
+          if (a.y >= FLOOR_Y - 0.5) a.vx = 0;
+        }
       }
     }
     this.stepPhysics(a, dt);
@@ -600,9 +671,17 @@ class FighterGame implements GameInstance {
     att.hitDone = true;
     const blockingRight =
       def.block &&
-      ((m.height === 'low' && def.crouch) || (m.height !== 'low' && !def.crouch));
+      // The cabinet presents one Block button, so human guard is universal.
+      // AI still has to choose the correct standing/crouching defense.
+      (!def.ai || (m.height === 'low' && def.crouch) || (m.height !== 'low' && !def.crouch));
     const dmg = m.dmg * att.powerScale;
     const kbDir = att.facing;
+    if (att.ai) {
+      const defenderStun = blockingRight ? m.blockstun : m.hitstun;
+      // This timer runs in parallel with defender stun; what remains afterward
+      // is therefore a guaranteed human-scale counter opportunity.
+      att.aiRecoveryT = Math.max(att.aiRecoveryT, defenderStun + AI_COUNTER_WINDOW_S);
+    }
     if (blockingRight) {
       def.hp -= Math.max(1, dmg * 0.12);
       def.state = 'blockstun';

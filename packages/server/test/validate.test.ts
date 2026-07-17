@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { GameSpec } from '@sparkade/shared';
+import type { GameSpec, PlatformerSpec } from '@sparkade/shared';
 import {
   applySpriteFallbacks,
   ensureLikenessHeroBody,
@@ -54,6 +54,20 @@ describe('security scan', () => {
     for (const a of ['platformer', 'shooter', 'adventure']) {
       expect(securityScan(golden(a))).toEqual([]);
     }
+  });
+});
+
+describe('platformer geometry schema migration', () => {
+  it('accepts both new two-tile specs and legacy specs without the marker', () => {
+    const current = golden('platformer') as PlatformerSpec;
+    expect(validateGameSchema('platformer', current)).toEqual([]);
+
+    const legacy = structuredClone(current);
+    delete legacy.playerHeightTiles;
+    expect(validateGameSchema('platformer', legacy)).toEqual([]);
+
+    const invalid = { ...current, playerHeightTiles: 1 } as unknown as PlatformerSpec;
+    expect(validateGameSchema('platformer', invalid)).not.toEqual([]);
   });
 });
 

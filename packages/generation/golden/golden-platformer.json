@@ -2,6 +2,7 @@
   "specVersion": 1,
   "archetype": "platformer",
   "seed": 20260710,
+  "playerHeightTiles": 2,
   "meta": {
     "title": "Emberwick Ascent",
     "tagline": "Climb the clockwork lighthouse and relight the night."

@@ -64,4 +64,19 @@ describe('prompt templates', () => {
     expect(prompt).toContain('`wrestler`');
     expect(prompt).toContain('REQUIRED `outfit`');
   });
+
+  it('teaches platformer generation the two-tile body and omits engine-owned grid art', () => {
+    const excerpt = JSON.parse(goldenExcerpt('platformer', 'levels')) as {
+      levels: Array<{ tiles: string[]; legend: Record<string, string> }>;
+    };
+    const example = excerpt.levels[0]!;
+    expect(Object.values(example.legend)).not.toContain('decoration');
+    expect(Object.values(example.legend)).not.toContain('exit');
+
+    const prompt = loadTemplate('levels-platformer');
+    expect(prompt).toContain('1 tile wide and 2 tiles tall');
+    expect(prompt).toContain('LOWER/FOOT cell');
+    expect(prompt).toContain('Do NOT author `decoration` or `exit` cells');
+    expect(prompt).toContain('one-tile-high tunnels');
+  });
 });

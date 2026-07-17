@@ -125,6 +125,28 @@ export function goldenExcerpt(archetype: ArchetypeId, stage: SpecStage | 'design
           1,
         );
       }
+      if (g.archetype === 'platformer') {
+        const level = g.levels[0]!;
+        const engineOwnedChars = new Set(
+          Object.entries(level.legend)
+            .filter(([, kind]) => kind === 'decoration' || kind === 'exit')
+            .map(([ch]) => ch),
+        );
+        const tiles = level.tiles.map((row) =>
+          [...row].map((ch) => (engineOwnedChars.has(ch) ? '.' : ch)).join(''),
+        );
+        const legend = Object.fromEntries(
+          Object.entries(level.legend).filter(([, kind]) => kind !== 'decoration' && kind !== 'exit'),
+        );
+        return JSON.stringify(
+          {
+            levels: [{ ...level, tiles, legend }],
+            NOTE: 'plus two more levels in the real spec; decoration and the exit door are engine-placed',
+          },
+          null,
+          1,
+        );
+      }
       const level = g.levels[0]!;
       const trimmed =
         'tiles' in level

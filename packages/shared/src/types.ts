@@ -446,6 +446,8 @@ export interface GameSpecBase {
 
 export interface PlatformerSpec extends GameSpecBase {
   archetype: 'platformer';
+  /** Collision/layout version for the 16x32 likeness hero; omitted means legacy 10x14 physics. */
+  playerHeightTiles?: 2;
   /** Horizontal side-scroll scene; omitted → seed-varied pick. */
   backdrop?: BackdropVariantId;
   levels: PlatformerLevel[];

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   FONT_GLYPHS,
   LIBRARY,
+  anchorSpriteOpaqueTop,
   makeTallHumanoidEntry,
   missingLibraryIds,
   resolveLikenessHead,
@@ -16,6 +17,21 @@ import {
 } from '@sparkade/shared';
 
 describe('built-in sprite library', () => {
+  it('can remove accidental transparent padding above a surface sprite', () => {
+    const source = {
+      w: 5,
+      h: 4,
+      rows: ['.....', '00000', '.111.', '.....'],
+    };
+
+    const anchored = anchorSpriteOpaqueTop(source);
+    expect(anchored.rows).toEqual(['.111.', '.....', '.....', '.....']);
+    expect(anchored.w).toBe(source.w);
+    expect(anchored.h).toBe(source.h);
+    expect(source.rows).toEqual(['.....', '00000', '.111.', '.....']);
+    expect(anchorSpriteOpaqueTop(anchored)).toBe(anchored);
+  });
+
   it('implements every id the schemas/prompts promise', () => {
     expect(missingLibraryIds()).toEqual([]);
   });

@@ -21,7 +21,7 @@ const FALL_DX = 5;
 
 type CellKind = 'empty' | 'solid' | 'platform' | 'hazard' | 'checkpoint' | 'exit' | 'decoration';
 
-export function parseLevelGrid(level: PlatformerLevel): {
+export function parseLevelGrid(level: PlatformerLevel, playerHeightTiles: 1 | 2 = 2): {
   w: number;
   h: number;
   kind(x: number, y: number): CellKind;
@@ -36,10 +36,12 @@ export function parseLevelGrid(level: PlatformerLevel): {
     return (level.legend[ch] as CellKind | undefined) ?? 'empty';
   };
   const solidLike = (k: CellKind) => k === 'solid' || k === 'platform';
+  const bodyOpen = (k: CellKind) => k !== 'solid' && k !== 'platform' && k !== 'hazard';
   const standable = (x: number, y: number): boolean => {
+    if (x < 0 || x >= w || y < playerHeightTiles - 1 || y + 1 >= h) return false;
     const here = kind(x, y);
-    if (here === 'solid' || here === 'platform' || here === 'hazard') return false;
-    if (y + 1 >= h) return false;
+    if (!bodyOpen(here)) return false;
+    if (playerHeightTiles === 2 && !bodyOpen(kind(x, y - 1))) return false;
     return solidLike(kind(x, y + 1));
   };
   return { w, h, kind, standable };
@@ -52,15 +54,35 @@ export function parseLevelGrid(level: PlatformerLevel): {
  * below (|dx| ≤ 5, any depth). Springs boost the rise to 7. Intentionally
  * coarse — it catches impossible gaps, not pixel-perfect jumps.
  */
-export function reachableCells(level: PlatformerLevel): Set<string> {
-  const grid = parseLevelGrid(level);
+export function reachableCells(level: PlatformerLevel, playerHeightTiles: 1 | 2 = 2): Set<string> {
+  const grid = parseLevelGrid(level, playerHeightTiles);
   const springs = new Set(
     level.entities.filter((e) => e.type === 'spring').map((e) => `${e.x},${e.y}`),
   );
   const key = (x: number, y: number) => `${x},${y}`;
+  const transitOpen = (x: number, y: number): boolean => {
+    const kind = grid.kind(x, y);
+    return kind !== 'solid' && kind !== 'hazard';
+  };
+  const sweptBodyClear = (
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    maxRise: number,
+  ): boolean => {
+    const steps = Math.max(Math.abs(to.x - from.x), Math.abs(to.y - from.y)) * 2;
+    const arc = Math.min(maxRise, Math.max(1, Math.abs(to.x - from.x) * 0.5));
+    for (let step = 1; step < steps; step++) {
+      const t = step / steps;
+      const x = Math.round(from.x + (to.x - from.x) * t);
+      const linearY = from.y + (to.y - from.y) * t;
+      const footY = Math.round(linearY - arc * 4 * t * (1 - t));
+      if (!transitOpen(x, footY)) return false;
+      if (playerHeightTiles === 2 && !transitOpen(x, footY - 1)) return false;
+    }
+    return true;
+  };
   const start = { x: level.playerSpawn.x, y: level.playerSpawn.y };
-  // Drop the spawn to its standing row.
-  while (start.y + 1 < grid.h && !grid.standable(start.x, start.y)) start.y++;
+  if (!grid.standable(start.x, start.y)) return new Set<string>();
   const seen = new Set<string>([key(start.x, start.y)]);
   const queue = [start];
   while (queue.length) {
@@ -76,6 +98,7 @@ export function reachableCells(level: PlatformerLevel): Set<string> {
         if (!up && dy <= 1 && Math.abs(dx) > JUMP_DX) continue;
         if (!up && dy > 1 && Math.abs(dx) > FALL_DX) continue;
         if (!grid.standable(nx, ny)) continue;
+        if (!sweptBodyClear(cur, { x: nx, y: ny }, rise)) continue;
         const k = key(nx, ny);
         if (seen.has(k)) continue;
         seen.add(k);
@@ -84,14 +107,6 @@ export function reachableCells(level: PlatformerLevel): Set<string> {
     }
   }
   return seen;
-}
-
-function nearestStanding(level: PlatformerLevel, x: number, y: number): string | null {
-  const grid = parseLevelGrid(level);
-  for (let dy = 0; dy <= 3; dy++) {
-    if (grid.standable(x, y + dy)) return `${x},${y + dy}`;
-  }
-  return null;
 }
 
 export function lintPlatformer(spec: PlatformerSpec): LintError[] {
@@ -111,7 +126,11 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
     out.push(...lintLegendCoverage(level.tiles, level.legend, path, 'PLAT_LEGEND_UNKNOWN_CHAR'));
     out.push(...lintSongRef(level.musicSong, `${path}/musicSong`, spec));
 
-    const grid = parseLevelGrid(level);
+    const playerHeightTiles = spec.playerHeightTiles === 2 ? 2 : 1;
+    const grid = parseLevelGrid(level, playerHeightTiles);
+    const inBounds = (x: number, y: number) => x >= 0 && x < grid.w && y >= 0 && y < grid.h;
+    const solidLike = (kind: CellKind) => kind === 'solid' || kind === 'platform';
+    const bodyOpen = (kind: CellKind) => kind !== 'solid' && kind !== 'platform' && kind !== 'hazard';
     if (grid.w > BUDGET.maxLevelWidthTiles) {
       out.push(err('PLAT_TOO_WIDE', `${path}/tiles`, `level is ${grid.w} tiles wide; max ${BUDGET.maxLevelWidthTiles}`));
     }
@@ -121,18 +140,22 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
     // correct spec must not rely on it — a spawn in solid starts the player
     // stuck; an exit in solid can't be touched.)
     const spawn = level.playerSpawn;
-    const spawnCell = nearestStanding(level, spawn.x, spawn.y);
-    if (spawn.x < grid.w && spawn.y < grid.h && grid.kind(spawn.x, spawn.y) === 'solid') {
+    const spawnCell = grid.standable(spawn.x, spawn.y) ? `${spawn.x},${spawn.y}` : null;
+    if (inBounds(spawn.x, spawn.y) && solidLike(grid.kind(spawn.x, spawn.y))) {
       out.push(err('PLAT_SPAWN_IN_SOLID', `${path}/playerSpawn`, `playerSpawn (${spawn.x},${spawn.y}) is inside a solid tile — the player would spawn stuck; place it in an open cell on or just above the ground`));
-    } else if (spawn.x >= grid.w || spawn.y >= grid.h || !spawnCell) {
+    } else if (!inBounds(spawn.x, spawn.y) || !solidLike(grid.kind(spawn.x, spawn.y + 1))) {
       out.push(err('PLAT_SPAWN_NOT_GROUNDED', `${path}/playerSpawn`, 'playerSpawn must sit on or just above solid ground'));
+    } else if (playerHeightTiles === 2 && !bodyOpen(grid.kind(spawn.x, spawn.y - 1))) {
+      out.push(err('PLAT_SPAWN_NO_HEADROOM', `${path}/playerSpawn`, 'playerSpawn needs an open tile directly above its foot cell for the two-tile-tall player'));
     }
     const exit = level.exit;
-    const exitCell = nearestStanding(level, exit.x, exit.y);
-    if (exit.x < grid.w && exit.y < grid.h && grid.kind(exit.x, exit.y) === 'solid') {
+    const exitCell = grid.standable(exit.x, exit.y) ? `${exit.x},${exit.y}` : null;
+    if (inBounds(exit.x, exit.y) && solidLike(grid.kind(exit.x, exit.y))) {
       out.push(err('PLAT_EXIT_IN_SOLID', `${path}/exit`, `exit (${exit.x},${exit.y}) is inside a solid tile and can't be reached; place it in an open cell on or just above the ground`));
-    } else if (exit.x >= grid.w || exit.y >= grid.h || !exitCell) {
+    } else if (!inBounds(exit.x, exit.y) || !solidLike(grid.kind(exit.x, exit.y + 1))) {
       out.push(err('PLAT_EXIT_NOT_GROUNDED', `${path}/exit`, 'exit must sit on or just above solid ground'));
+    } else if (playerHeightTiles === 2 && !bodyOpen(grid.kind(exit.x, exit.y - 1))) {
+      out.push(err('PLAT_EXIT_NO_HEADROOM', `${path}/exit`, 'the two-tile door and player need an open tile directly above exit'));
     }
 
     // Checkpoints: exist mid-level, grounded.
@@ -145,6 +168,8 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
           const below = grid.kind(x, y + 1);
           if (below !== 'solid' && below !== 'platform') {
             out.push(err('PLAT_CHECKPOINT_FLOATING', `${path}/tiles/${y}`, `checkpoint at (${x},${y}) is not on solid ground`));
+          } else if (playerHeightTiles === 2 && !bodyOpen(grid.kind(x, y - 1))) {
+            out.push(err('PLAT_CHECKPOINT_NO_HEADROOM', `${path}/tiles/${y}`, `checkpoint at (${x},${y}) needs an open tile above it for the two-tile-tall player`));
           }
         }
       }
@@ -155,7 +180,7 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
 
     // Reachability: exit must be reachable from spawn with the jump kernel.
     if (spawnCell && exitCell) {
-      const reach = reachableCells(level);
+      const reach = reachableCells(level, playerHeightTiles);
       if (!reach.has(exitCell)) {
         out.push(
           err('PLAT_EXIT_UNREACHABLE', `${path}/exit`, 'exit is not reachable from spawn (a gap or wall exceeds the max jump: 4 tiles across, 3 up) — reshape terrain along the main route'),
@@ -180,6 +205,26 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
       if ((ENEMY_TYPES as readonly string[]).includes(e.type)) enemyTypesUsed.add(e.type);
       if (e.type === 'coin' || e.type === 'heart' || e.type === 'powerup') pickupCount++;
       if (e.type === 'powerup') powerupCount++;
+      if (playerHeightTiles === 2 && e.type === 'movingPlatform') {
+        const dx = e.props?.dx ?? 0;
+        const dy = e.props?.dy ?? 0;
+        const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))));
+        let clear = true;
+        for (let step = 0; step <= steps && clear; step++) {
+          const t = step / steps;
+          const platformX = Math.round(e.x + dx * t);
+          const platformY = Math.round(e.y + dy * t);
+          for (const x of [platformX, platformX + 1]) {
+            if (!bodyOpen(grid.kind(x, platformY - 1)) || !bodyOpen(grid.kind(x, platformY - 2))) {
+              clear = false;
+              break;
+            }
+          }
+        }
+        if (!clear) {
+          out.push(err('PLAT_MOVING_PLATFORM_NO_CLEARANCE', `${path}/entities`, `movingPlatform at (${e.x},${e.y}) needs two clear player rows along its entire travel path`));
+        }
+      }
       if (e.x >= grid.w || e.y >= grid.h) {
         out.push(err('PLAT_ENTITY_OOB', `${path}/entities`, `${e.type} at (${e.x},${e.y}) is outside the ${grid.w}x${grid.h} level`));
       } else if (grid.kind(e.x, e.y) === 'solid') {
@@ -208,6 +253,18 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
       let floorOk = h >= 2;
       for (let x = 1; x < w - 1; x++) if (kindAt(x, h - 1) !== 'solid' || kindAt(x, h - 2) !== 'solid') floorOk = false;
       if (!floorOk) out.push(err('PLAT_ARENA_NO_FLOOR', ap, 'boss arena needs a solid floor across the bottom two rows'));
+      if (spec.playerHeightTiles === 2 && h >= 4) {
+        let headroomOk = true;
+        for (let x = 1; x < w - 1; x++) {
+          for (const y of [h - 4, h - 3]) {
+            const kind = kindAt(x, y);
+            if (kind === 'solid' || kind === 'platform' || kind === 'hazard') headroomOk = false;
+          }
+        }
+        if (!headroomOk) {
+          out.push(err('PLAT_ARENA_NO_HEADROOM', ap, 'boss arena needs two clear player rows across the floor for the 16x32 hero'));
+        }
+      }
       let filled = 0;
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (kindAt(x, y) === 'solid' || kindAt(x, y) === 'platform') filled++;
       if (w * h > 0 && filled / (w * h) > 0.7) out.push(err('PLAT_ARENA_TOO_DENSE', ap, 'boss arena is too filled-in; leave open space to fight'));

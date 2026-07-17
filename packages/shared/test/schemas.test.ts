@@ -74,6 +74,15 @@ describe('archetype schemas', () => {
     expect(def.maxItems).toBe(16);
   });
 
+  it('keeps the two-tile platformer layout marker optional for saved-game compatibility', () => {
+    const schema = ARCHETYPE_SCHEMAS.platformer as {
+      properties: Record<string, { const?: number }>;
+      required: string[];
+    };
+    expect(schema.properties['playerHeightTiles']?.const).toBe(2);
+    expect(schema.required).not.toContain('playerHeightTiles');
+  });
+
   it('music channels are exactly 16 steps with the documented syntax', () => {
     const defs = (ARCHETYPE_SCHEMAS.shooter as { $defs: Record<string, { minItems?: number; maxItems?: number; pattern?: string } > }).$defs;
     expect(defs.noteChannel!.minItems).toBe(16);

@@ -136,8 +136,28 @@ export type SpritePresentation = 'native' | 'tall-humanoid';
 
 export interface SpriteResolveOptions {
   bob?: boolean;
-  /** Load-time visual treatment only; gameplay hitboxes remain archetype-owned. */
+  /** Load-time visual treatment; archetypes still own collision and may match the applied result. */
   presentation?: SpritePresentation;
+  /**
+   * Shift leading transparent rows to the bottom of each frame. Surface-bound
+   * sprites (moving platforms) can then put canvas row 0 exactly on their
+   * collision surface, even when generated art included accidental padding.
+   */
+  anchorOpaqueTop?: boolean;
+}
+
+/**
+ * Preserve a sprite's canvas size while moving its first visible row to y=0.
+ * Index 0 and `.` are transparent, matching decodeSprite().
+ */
+export function anchorSpriteOpaqueTop(data: SpriteData): SpriteData {
+  const firstOpaque = data.rows.findIndex((row) => /[1-9a-f]/i.test(row));
+  if (firstOpaque <= 0) return data;
+  const blank = '.'.repeat(data.w);
+  return {
+    ...data,
+    rows: [...data.rows.slice(firstOpaque), ...Array<string>(firstOpaque).fill(blank)],
+  };
 }
 
 /**
@@ -248,10 +268,11 @@ export class SpriteStore {
   byRef(ref: string, applyLikeness = false, opts: SpriteResolveOptions = {}): ResolvedSprite {
     const bob = opts.bob ?? true;
     const presentation = opts.presentation ?? 'native';
-    const key = `${ref}|${applyLikeness ? 'L' : '-'}|${bob ? 'b' : '-'}|${presentation}`;
+    const anchorOpaqueTop = opts.anchorOpaqueTop ?? false;
+    const key = `${ref}|${applyLikeness ? 'L' : '-'}|${bob ? 'b' : '-'}|${presentation}|${anchorOpaqueTop ? 'top' : '-'}`;
     const hit = this.cache.get(key);
     if (hit) return hit;
-    const resolved = this.build(ref, applyLikeness, bob, presentation);
+    const resolved = this.build(ref, applyLikeness, bob, presentation, anchorOpaqueTop);
     this.cache.set(key, resolved);
     return resolved;
   }
@@ -261,6 +282,7 @@ export class SpriteStore {
     applyLikeness: boolean,
     bob: boolean,
     presentation: SpritePresentation,
+    anchorOpaqueTop: boolean,
   ): ResolvedSprite {
     const [kind, id] = ref.split(':', 2) as [string, string];
     let entry: LibraryEntry | null = null;
@@ -302,7 +324,8 @@ export class SpriteStore {
 
     // A 16px likeness needs its own pixel budget. Only opt into the tall visual
     // when head16 actually loaded; otherwise retain the complete native sprite
-    // instead of producing a headless body. Physics never reads these dimensions.
+    // instead of producing a headless body. The platformer reads the resulting
+    // presentation flag when selecting its matching, archetype-owned hitbox.
     let appliedPresentation: SpritePresentation = 'native';
     if (
       presentation === 'tall-humanoid' &&
@@ -317,6 +340,10 @@ export class SpriteStore {
         entry = tall;
         appliedPresentation = 'tall-humanoid';
       }
+    }
+
+    if (anchorOpaqueTop) {
+      entry = { ...entry, frames: entry.frames.map(anchorSpriteOpaqueTop) };
     }
 
     const frames = entry.frames.map((f) => decodeSprite(f, this.spec.palette));

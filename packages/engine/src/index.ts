@@ -11,6 +11,7 @@ export {
   outlineCanvas,
   flashCanvas,
   SpriteStore,
+  anchorSpriteOpaqueTop,
   makeTallHumanoidEntry,
   resolveLikenessHead,
   type ResolvedSprite,

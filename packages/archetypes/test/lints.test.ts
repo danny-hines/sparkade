@@ -21,6 +21,16 @@ function firstSolid(level: PlatformerSpec['levels'][number]): { x: number; y: nu
   throw new Error('golden level has no solid tile');
 }
 
+function setLevelCell(
+  level: PlatformerSpec['levels'][number],
+  x: number,
+  y: number,
+  ch: string,
+): void {
+  const row = level.tiles[y]!;
+  level.tiles[y] = row.slice(0, x) + ch + row.slice(x + 1);
+}
+
 function golden<T extends GameSpec>(archetype: string): T {
   const path = join(__dirname, '..', '..', 'generation', 'golden', `golden-${archetype}.json`);
   return JSON.parse(readFileSync(path, 'utf8')) as T;
@@ -73,6 +83,44 @@ describe('platformer lints', () => {
     const spec = golden<PlatformerSpec>('platformer');
     spec.levels[0]!.exit = firstSolid(spec.levels[0]!);
     expect(codes(archetypes.platformer.lint(spec))).toContain('PLAT_EXIT_IN_SOLID');
+  });
+
+  it('requires two-tile headroom at spawn, exit, and checkpoints in new games', () => {
+    const spawnSpec = golden<PlatformerSpec>('platformer');
+    const spawn = spawnSpec.levels[0]!.playerSpawn;
+    setLevelCell(spawnSpec.levels[0]!, spawn.x, spawn.y - 1, '#');
+    expect(codes(archetypes.platformer.lint(spawnSpec))).toContain('PLAT_SPAWN_NO_HEADROOM');
+
+    const exitSpec = golden<PlatformerSpec>('platformer');
+    const exit = exitSpec.levels[0]!.exit;
+    setLevelCell(exitSpec.levels[0]!, exit.x, exit.y - 1, '#');
+    expect(codes(archetypes.platformer.lint(exitSpec))).toContain('PLAT_EXIT_NO_HEADROOM');
+
+    const checkpointSpec = golden<PlatformerSpec>('platformer');
+    const level = checkpointSpec.levels[0]!;
+    const checkpointChar = Object.entries(level.legend).find(([, kind]) => kind === 'checkpoint')![0];
+    const checkpointY = level.tiles.findIndex((row) => row.includes(checkpointChar));
+    const checkpointX = level.tiles[checkpointY]!.indexOf(checkpointChar);
+    setLevelCell(level, checkpointX, checkpointY - 1, '#');
+    expect(codes(archetypes.platformer.lint(checkpointSpec))).toContain('PLAT_CHECKPOINT_NO_HEADROOM');
+  });
+
+  it('keeps low-ceiling saved games on legacy lint geometry when the marker is absent', () => {
+    const spec = golden<PlatformerSpec>('platformer');
+    delete spec.playerHeightTiles;
+    const spawn = spec.levels[0]!.playerSpawn;
+    setLevelCell(spec.levels[0]!, spawn.x, spawn.y - 1, '#');
+    expect(codes(archetypes.platformer.lint(spec))).not.toContain('PLAT_SPAWN_NO_HEADROOM');
+  });
+
+  it('requires full-height clearance along moving-platform travel', () => {
+    const spec = golden<PlatformerSpec>('platformer');
+    const level = spec.levels.flatMap((candidate) =>
+      candidate.entities.some((entity) => entity.type === 'movingPlatform') ? [candidate] : [],
+    )[0]!;
+    const platform = level.entities.find((entity) => entity.type === 'movingPlatform')!;
+    setLevelCell(level, platform.x, platform.y - 1, '#');
+    expect(codes(archetypes.platformer.lint(spec))).toContain('PLAT_MOVING_PLATFORM_NO_CLEARANCE');
   });
 
   it('collectible embedded in a solid tile → PLAT_ENTITY_IN_SOLID', () => {
@@ -154,6 +202,13 @@ describe('platformer lints', () => {
     const ok = golden<PlatformerSpec>('platformer');
     ok.boss.arena = arena(true);
     expect(codes(archetypes.platformer.lint(ok)).filter((c) => c.startsWith('PLAT_ARENA'))).toEqual([]);
+
+    const cramped = golden<PlatformerSpec>('platformer');
+    cramped.boss.arena = arena(true);
+    const headRow = cramped.boss.arena.tiles.length - 4;
+    const row = cramped.boss.arena.tiles[headRow]!;
+    cramped.boss.arena.tiles[headRow] = row.slice(0, 4) + '#' + row.slice(5);
+    expect(codes(archetypes.platformer.lint(cramped))).toContain('PLAT_ARENA_NO_HEADROOM');
 
     const bad = golden<PlatformerSpec>('platformer');
     bad.boss.arena = arena(false);

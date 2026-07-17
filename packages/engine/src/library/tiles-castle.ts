@@ -35,6 +35,37 @@ export const TILES_CASTLE: Record<string, LibraryEntry> = {
     anims: { idle: [0] },
   },
 
+  // Buried ashlar: continues the cap's running-bond courses without repeating
+  // its lit top course. Mortar stays in slot 2 so exposed slot-1 edges read as
+  // the connected landmass silhouette rather than another masonry seam.
+  castle_solid_inner: {
+    frames: [
+      {
+        w: 16,
+        h: 16,
+        rows: [
+          '3333333233333332',
+          '3333333233333332',
+          '3333333233333332',
+          '2222222222222222',
+          '3332333333323333',
+          '3332333333323333',
+          '3332333333323333',
+          '2222222222222222',
+          '3333333233333332',
+          '3333333233333332',
+          '3333333233333332',
+          '2222222222222222',
+          '3332333333323333',
+          '3332333333323333',
+          '3332333333323333',
+          '2222222222222222',
+        ],
+      },
+    ],
+    anims: { idle: [0] },
+  },
+
   // One-way stone ledge: jointed slab on two corbel brackets, rest transparent.
   castle_platform: {
     frames: [
@@ -237,9 +268,9 @@ export const TILES_CASTLE: Record<string, LibraryEntry> = {
           '.....144441.....',
           '......1441......',
           '.......11.......',
-          '................',
-          '................',
-          '................',
+          '.......22.......',
+          '......2332......',
+          '.....222222.....',
         ],
       },
     ],

@@ -36,6 +36,37 @@ export const TILES_ALIEN: Record<string, LibraryEntry> = {
     anims: { idle: [0] },
   },
 
+  // Buried growth: the cap's two membrane-cell courses continue in reversed
+  // order, so stacked terrain stays organic without exposing a 16px repeat.
+  // Irregular 2-veins replace the dungeon wall's black framed courses.
+  alien_solid_inner: {
+    frames: [
+      {
+        w: 16,
+        h: 16,
+        rows: [
+          '4433323444333234',
+          '4333233343332333',
+          '3333233333332333',
+          '3332333333323333',
+          '3333233333332333',
+          '3333223333332233',
+          '3332223333322233',
+          '2223332212233322',
+          '2334443323344433',
+          '3234443332344433',
+          '2333433323334333',
+          '3233333332333333',
+          '2333333323333333',
+          '2233333322333333',
+          '3222223332223333',
+          '2333332123332322',
+        ],
+      },
+    ],
+    anims: { idle: [0] },
+  },
+
   // One-way fungal shelf: lit cap, gill stripes, dark rim, two hanging tips.
   alien_platform: {
     frames: [
@@ -65,7 +96,8 @@ export const TILES_ALIEN: Record<string, LibraryEntry> = {
     anims: { idle: [0] },
   },
 
-  // Tooth-like barbs of uneven height on a gum base; glint hops between fangs.
+  // Pale organic fangs of uneven height rise from a hazard-colored gum bed;
+  // the glint hops between teeth without turning the whole silhouette red.
   alien_hazard: {
     frames: [
       {
@@ -75,19 +107,19 @@ export const TILES_ALIEN: Record<string, LibraryEntry> = {
           '................',
           '................',
           '..1.............',
-          '.1e1............',
+          '.1f1............',
           '.1e1.........1..',
-          '.1bb1.......1b1.',
-          '.1bb1.......1b1.',
-          '.1bb1..1...1bb1.',
-          '1bbbb11b1..1bb1.',
-          '1bbbb11b1..1bb1.',
-          '1bbbb11bb11bbb1.',
-          '1bbbb11bb11bbb1.',
-          '1bbbb11bb11bbb1.',
-          '1bbbb11bb11bbb1.',
+          '.1ee1.......1e1.',
+          '1eeee1......1e1.',
+          '1eeee1..1...1ee1',
+          '.1eee1.1f1..1ee1',
+          '.1eee1.1e1.1eee1',
+          '.1eee1.1e1.1eee1',
+          'b1eee1b1e1b1eee1',
+          'bb1e1bbb1bbb1e1b',
+          'bbbbbbbbbbbbbbbb',
+          '3333333333333333',
           '2222222222222222',
-          '1111111111111111',
         ],
       },
       {
@@ -97,19 +129,19 @@ export const TILES_ALIEN: Record<string, LibraryEntry> = {
           '................',
           '................',
           '..1.............',
-          '.1b1............',
-          '.1b1.........1..',
-          '.1bb1.......1e1.',
-          '.1bb1.......1e1.',
-          '.1bb1..1...1bb1.',
-          '1bbbb11b1..1bb1.',
-          '1bbbb11b1..1bb1.',
-          '1bbbb11bb11bbb1.',
-          '1bbbb11bb11bbb1.',
-          '1bbbb11bb11bbb1.',
-          '1bbbb11bb11bbb1.',
+          '.1e1............',
+          '.1e1.........1..',
+          '.1ee1.......1e1.',
+          '1eeee1......1e1.',
+          '1eeee1..1...1ee1',
+          '.1eee1.1e1..1ee1',
+          '.1eee1.1e1.1efe1',
+          '.1eee1.1e1.1eee1',
+          'b1eee1b1e1b1eee1',
+          'bb1e1bbb1bbb1e1b',
+          'bbbbbbbbbbbbbbbb',
+          '3333333333333333',
           '2222222222222222',
-          '1111111111111111',
         ],
       },
     ],

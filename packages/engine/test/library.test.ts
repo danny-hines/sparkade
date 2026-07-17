@@ -174,21 +174,37 @@ describe('built-in sprite library', () => {
       const wall = LIBRARY[wallId];
 
       expect(inner, innerId).toBeDefined();
-      expect(inner, `${innerId} intentionally aliases ${wallId}`).toBe(wall);
+      expect(inner, `${innerId} must be a dedicated entry, not ${wallId}`).not.toBe(wall);
       expect(inner, `${innerId} must not reuse its surface cap`).not.toBe(cap);
 
-      const frame = inner!.frames[0]!;
-      expect(frame.w, innerId).toBe(16);
-      expect(frame.h, innerId).toBe(16);
-      const opaque = frame.rows.reduce(
-        (sum, row) => sum + [...row].filter((ch) => ch !== '.' && ch !== '0').length,
-        0,
+      for (const [frameIx, frame] of inner!.frames.entries()) {
+        const label = `${innerId}#${frameIx}`;
+        expect(frame.w, label).toBe(16);
+        expect(frame.h, label).toBe(16);
+        expect(frame.rows, label).toHaveLength(16);
+        for (const row of frame.rows) {
+          expect(row, label).toHaveLength(16);
+          expect(row, `${label} must use only opaque palette slots`).toMatch(/^[1-9a-f]{16}$/);
+        }
+      }
+      expect(
+        inner!.frames.map((frame) => frame.rows),
+        `${innerId} must read differently from ${capId}`,
+      ).not.toEqual(
+        cap!.frames.map((frame) => frame.rows),
       );
-      expect(opaque / (frame.w * frame.h), innerId).toBeGreaterThanOrEqual(0.95);
-      expect(frame.rows, `${innerId} must read differently from ${capId}`).not.toEqual(
-        cap!.frames[0]!.rows,
+      expect(
+        inner!.frames.map((frame) => frame.rows),
+        `${innerId} must not copy dungeon-wall art from ${wallId}`,
+      ).not.toEqual(
+        wall!.frames.map((frame) => frame.rows),
       );
     }
+  });
+
+  it('keeps surface-anchored tile art touching its collision or placement baseline', () => {
+    expect(LIBRARY['wasteland_platform']!.frames[0]!.rows[0]).not.toContain('.');
+    expect(LIBRARY['castle_deco']!.frames[0]!.rows[15]).toMatch(/[2-9a-f]/);
   });
 
   it('structural tiles are near-fully opaque in every family', () => {

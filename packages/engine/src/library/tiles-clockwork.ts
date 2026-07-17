@@ -6,8 +6,8 @@
 import type { LibraryEntry } from '../types';
 
 export const TILES_CLOCKWORK: Record<string, LibraryEntry> = {
-  // Riveted deck plate: lit top edge, gold rivets in the corners, two vent
-  // slats punched into the middle of the panel.
+  // Connected metal deck: a lit surface edge over staggered vents and subtle
+  // rivets. Features stop short of tile edges so a run reads as one machine.
   clockwork_solid: {
     frames: [
       {
@@ -15,21 +15,51 @@ export const TILES_CLOCKWORK: Record<string, LibraryEntry> = {
         h: 16,
         rows: [
           '4444444444444444',
-          '4333333333333332',
-          '43d3333333333d32',
-          '4333333333333332',
-          '4333333333333332',
-          '4333333333333332',
-          '4333322222233332',
-          '4333333333333332',
-          '4333322222233332',
-          '4333333333333332',
-          '4333333333333332',
-          '4333333333333332',
-          '43d3333333333d32',
-          '4333333333333332',
-          '4333333333333332',
-          '2222222222222222',
+          '3333d3333333d333',
+          '3333333333333333',
+          '3333322222233333',
+          '3333333333333333',
+          '3333333333333333',
+          '3333333333333433',
+          '3333333333333333',
+          '3333333332222233',
+          '3333333333333333',
+          '3433333333333333',
+          '3333333333333333',
+          '3333322223333333',
+          '3333333333333333',
+          '3333333333333343',
+          '3333333333333333',
+        ],
+      },
+    ],
+    anims: { idle: [0] },
+  },
+
+  // Buried deck: asymmetric vents and low-contrast rivets continue through a
+  // connected metal mass without right/bottom panel seams or a 16px frame.
+  clockwork_solid_inner: {
+    frames: [
+      {
+        w: 16,
+        h: 16,
+        rows: [
+          '3333333333333333',
+          '3333333333333333',
+          '3343333333333333',
+          '3333333333333333',
+          '3332222233333333',
+          '3333333333333333',
+          '3333333333333433',
+          '3333333333333333',
+          '3333333332222233',
+          '3333333333333333',
+          '3433333333333333',
+          '3333333333333333',
+          '3333322223333333',
+          '3333333333333333',
+          '3333333333333343',
+          '3333333333333333',
         ],
       },
     ],
@@ -334,7 +364,7 @@ export const TILES_CLOCKWORK: Record<string, LibraryEntry> = {
     anims: { idle: [0] },
   },
 
-  // Machine shaft: broken plate rim over a black drop with a faint idle gear.
+  // Machine shaft: broken plate rim over a black drop with a visible idle gear.
   clockwork_pit: {
     frames: [
       {
@@ -348,14 +378,14 @@ export const TILES_CLOCKWORK: Record<string, LibraryEntry> = {
           '1111111111111111',
           '1111111111111111',
           '1111111111111111',
-          '1111111122111111',
-          '1111112222221111',
-          '1111121111112111',
-          '1111121122112111',
-          '1111121122112111',
-          '1111121111112111',
-          '1111112222221111',
-          '1111111122111111',
+          '1111111133111111',
+          '1111113333331111',
+          '1111131111113111',
+          '11111311dd113111',
+          '11111311dd113111',
+          '1111131111113111',
+          '1111113333331111',
+          '1111111133111111',
           '1111111111111111',
         ],
       },

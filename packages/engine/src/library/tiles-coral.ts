@@ -36,6 +36,37 @@ export const TILES_CORAL: Record<string, LibraryEntry> = {
     anims: { idle: [0] },
   },
 
+  // Buried porous reef rock: the cap's coral body continues below without
+  // turning into the separate shelf-coral wall material. Staggered two-row
+  // pores avoid a hard course line at tile boundaries.
+  coral_solid_inner: {
+    frames: [
+      {
+        w: 16,
+        h: 16,
+        rows: [
+          '3333333333333333',
+          '3333223333332233',
+          '3333213333332133',
+          '3333333333333333',
+          '3233333332333333',
+          '2233333322333333',
+          '2133333321333333',
+          '3333333333333333',
+          '3333332233333322',
+          '3333332133333321',
+          '3333333333333333',
+          '3332333333323333',
+          '3332233333223333',
+          '3332133333123333',
+          '3333333333333333',
+          '3333333333333333',
+        ],
+      },
+    ],
+    anims: { idle: [0] },
+  },
+
   // One-way shelf: shell slab with paired ribs, scalloped fan edge below lip.
   coral_platform: {
     frames: [
@@ -341,17 +372,17 @@ export const TILES_CORAL: Record<string, LibraryEntry> = {
         w: 16,
         h: 16,
         rows: [
-          '2222222222222222',
-          '2222222222222222',
+          '3333333333333333',
+          '3332333333323333',
           '1122112211221122',
           '1111111111111111',
           '1111111111111111',
           '1111111111111111',
           '1111111111111111',
           '1111111111111111',
-          '1111212222111111',
-          '1111222222221111',
-          '1111212222111111',
+          '1111313333111111',
+          '1111333333331111',
+          '1111313333111111',
           '1111111111111111',
           '1111111111111111',
           '1111111111111111',

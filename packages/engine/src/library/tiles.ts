@@ -35,6 +35,37 @@ export const TILES: Record<string, LibraryEntry> = {
     anims: { idle: [0] },
   },
 
+  // Buried platformer ground: continues the cap's staggered brick phase
+  // without repeating its lit surface band. Uses slot 2 for mortar so the
+  // runtime's slot-1 exposed-edge pass remains the strongest silhouette.
+  tile_solid_inner: {
+    frames: [
+      {
+        w: 16,
+        h: 16,
+        rows: [
+          '2333333323333333',
+          '2222222222222222',
+          '3333233333332333',
+          '3333233333332333',
+          '3333233333332333',
+          '2222222222222222',
+          '2333333323333333',
+          '2333333323333333',
+          '2333333323333333',
+          '2222222222222222',
+          '3333233333332333',
+          '3333233333332333',
+          '3333233333332333',
+          '2222222222222222',
+          '2333333323333333',
+          '2333333323333333',
+        ],
+      },
+    ],
+    anims: { idle: [0] },
+  },
+
   // One-way platform: plank slab across the top ~5 rows, rest transparent.
   tile_platform: {
     frames: [

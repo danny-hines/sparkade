@@ -35,6 +35,37 @@ export const TILES_CANDY: Record<string, LibraryEntry> = {
     anims: { idle: [0] },
   },
 
+  // Buried wafer body: continues the nougat strata without repeating the
+  // bright icing cap. Quiet first/last rows keep vertically stacked tiles
+  // connected while the staggered crumbs break up the 16px grid.
+  candy_solid_inner: {
+    frames: [
+      {
+        w: 16,
+        h: 16,
+        rows: [
+          '3333e33333333e33',
+          '33333333e3333333',
+          '3333333333333333',
+          '2222222222222222',
+          '3333333333333333',
+          '333e33333333e333',
+          '3333333e33333333',
+          '3333333333333333',
+          '2222222222222222',
+          '3344443333444433',
+          '3333333333333333',
+          '333333e333333333',
+          '3333333333333333',
+          '2222222222222222',
+          '3333333333333333',
+          '3333333333333333',
+        ],
+      },
+    ],
+    anims: { idle: [0] },
+  },
+
   // One-way biscuit ledge: sugar-flecked shortbread slab, icing drips below.
   candy_platform: {
     frames: [
@@ -342,8 +373,8 @@ export const TILES_CANDY: Record<string, LibraryEntry> = {
         w: 16,
         h: 16,
         rows: [
-          '2222222222222222',
-          '2233222222332222',
+          '3333333333333333',
+          '3344333333443333',
           '2222222222222222',
           '1221112111221121',
           '1221111111211111',

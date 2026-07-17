@@ -37,6 +37,37 @@ export const TILES_CAVE: Record<string, LibraryEntry> = {
     anims: { idle: [0] },
   },
 
+  // Buried cave rock: carries the cap's large, irregular stone topology into
+  // the ground while removing its repeating bright surface crust. Sparse
+  // internal slot-4 catches remain mineral highlights, never full-width seams.
+  cave_solid_inner: {
+    frames: [
+      {
+        w: 16,
+        h: 16,
+        rows: [
+          '3333333333333333',
+          '3333333333333333',
+          '3333333333333333',
+          '2222223333322222',
+          '4433322222222333',
+          '3333324433332333',
+          '3333323333332333',
+          '3333323333332333',
+          '3333323333332333',
+          '2222222233332332',
+          '4423333222222222',
+          '3323333344233333',
+          '3323333333233333',
+          '3323333333233333',
+          '3323333333233333',
+          '3323333333233333',
+        ],
+      },
+    ],
+    anims: { idle: [0] },
+  },
+
   // One-way rock shelf: lit top, fissured body, craggy chipped underside.
   cave_platform: {
     frames: [

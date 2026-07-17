@@ -7,8 +7,8 @@
 import type { LibraryEntry } from '../types';
 
 export const TILES_DESERT: Record<string, LibraryEntry> = {
-  // Platformer ground: layered sandstone strata — lit caps, dark seams,
-  // hairline crack dashes. Tiles both axes (bottom light row wraps into cap).
+  // Platformer ground: layered sandstone strata — one lit surface cap, dark
+  // seams, and hairline crack dashes. The buried companion continues below.
   desert_solid: {
     frames: [
       {
@@ -22,15 +22,45 @@ export const TILES_DESERT: Record<string, LibraryEntry> = {
           '3333333223333333',
           '3333333333333333',
           '2222222222222222',
-          '4444444444444444',
-          '4444444444444444',
+          '3334443333444333',
+          '3333333333333333',
           '2222222222222222',
           '3333333333333333',
           '3322333333333333',
           '3333333333333333',
           '3333333333322333',
           '2222222222222222',
-          '4444444444444444',
+          '3333333333333333',
+        ],
+      },
+    ],
+    anims: { idle: [0] },
+  },
+
+  // Buried sandstone: irregularly spaced strata with small offset crack
+  // dashes. Slot 2 carries sediment seams without a framed wall grid.
+  desert_solid_inner: {
+    frames: [
+      {
+        w: 16,
+        h: 16,
+        rows: [
+          '3333333333333333',
+          '3333333223333333',
+          '3333333333333333',
+          '2222222222222222',
+          '3333333333333333',
+          '3332233333333333',
+          '3333333333333333',
+          '3333333333322333',
+          '2222222222222222',
+          '3333333333333333',
+          '3333332333333333',
+          '3333333333333333',
+          '3333333333223333',
+          '3333333333333333',
+          '3333333333333333',
+          '2222222222222222',
         ],
       },
     ],
@@ -311,7 +341,7 @@ export const TILES_DESERT: Record<string, LibraryEntry> = {
     anims: { idle: [0] },
   },
 
-  // Pushable sandstone cube: beveled edges with a carved sun-seal ring.
+  // Pushable sandstone cube: beveled edges with a gold-inlaid sun-seal ring.
   desert_block: {
     frames: [
       {
@@ -325,8 +355,8 @@ export const TILES_DESERT: Record<string, LibraryEntry> = {
           '4333322222233332',
           '4333233333323332',
           '4333233333323332',
-          '4333233223323332',
-          '4333233223323332',
+          '4333233dd3323332',
+          '4333233dd3323332',
           '4333233333323332',
           '4333233333323332',
           '4333322222233332',
@@ -348,8 +378,8 @@ export const TILES_DESERT: Record<string, LibraryEntry> = {
         w: 16,
         h: 16,
         rows: [
-          '2222222222222222',
-          '2222222222222222',
+          '2222332222233222',
+          '2233222333222332',
           '2212221222122212',
           '2111211121112111',
           '1111111111111111',

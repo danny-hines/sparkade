@@ -36,6 +36,37 @@ export const TILES_WASTELAND: Record<string, LibraryEntry> = {
     anims: { idle: [0] },
   },
 
+  // Buried dry earth: preserves the cap's wrapping fissure network but replaces
+  // the sunlit crust with mid-tone earth. Its first and last rows share the
+  // same crack phase, so stacked inner tiles do not expose a 16px boundary.
+  wasteland_solid_inner: {
+    frames: [
+      {
+        w: 16,
+        h: 16,
+        rows: [
+          '3333323333323333',
+          '3333323333323333',
+          '3333323333332333',
+          '3323332333332333',
+          '3323332333332333',
+          '2222332333332322',
+          '3332222333332223',
+          '3333332211122333',
+          '3333333233332333',
+          '3332333233323333',
+          '3233333233323333',
+          '3323332333323333',
+          '3323332333332333',
+          '3332323332332333',
+          '3333323333323333',
+          '3333323333323333',
+        ],
+      },
+    ],
+    anims: { idle: [0] },
+  },
+
   // Bent girder ledge: lit top flange with a dented dip, riveted web, dark
   // bottom flange. Only the top 5 rows are solid.
   wasteland_platform: {
@@ -44,7 +75,7 @@ export const TILES_WASTELAND: Record<string, LibraryEntry> = {
         w: 16,
         h: 16,
         rows: [
-          '444444....444444',
+          '4444443333444444',
           '3333334444333333',
           '3133313331333133',
           '2222222222222222',

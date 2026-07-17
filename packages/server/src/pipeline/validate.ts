@@ -6,6 +6,7 @@ import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020.js';
 import {
   ARCHETYPE_SCHEMAS,
   DESIGN_SCHEMA,
+  LIB_BOSSES_PLATFORMER,
   LIB_HEROES_PLATFORMER,
   LIB_SPRITE_IDS,
   type ArchetypeId,
@@ -156,13 +157,14 @@ function escapePointer(key: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Custom-sprite checks with silent library fallback (a downgrade, not an error)
+// Custom-sprite checks with library fallback (a downgrade, not an error)
 // ---------------------------------------------------------------------------
 
 const ROLE_LIB_FALLBACK: Record<ArchetypeId, Record<string, string>> = {
   platformer: {
     hero: 'lib:hero_squire',
-    boss: 'lib:boss_titan',
+    // applySpriteFallbacks selects the actual fallback from the full pool.
+    boss: 'lib:boss_knight',
     walker: 'lib:enemy_walker',
     flyer: 'lib:enemy_flyer',
     shooter: 'lib:enemy_shooter',
@@ -246,6 +248,50 @@ export function spriteProblem(
   return null;
 }
 
+export interface SpriteFallbackOptions {
+  /** Newest-first library boss refs used by recent games. */
+  recentBosses?: readonly string[];
+}
+
+/**
+ * Pick a stable platformer boss for a given seed, preferring one that has not
+ * appeared in the recent-game window. This is used only when authored boss art
+ * is unavailable or remains malformed after repair.
+ */
+export function platformerBossFallback(seed: number, recentBosses: readonly string[] = []): string {
+  const recentIds = new Set(
+    recentBosses.map((ref) => (ref.startsWith('lib:') ? ref.slice(4) : ref)),
+  );
+  const unused = LIB_BOSSES_PLATFORMER.filter((id) => !recentIds.has(id));
+  const candidates = unused.length ? unused : LIB_BOSSES_PLATFORMER;
+  const id = candidates[(seed >>> 0) % candidates.length]!;
+  return `lib:${id}`;
+}
+
+/**
+ * Pixel-shape diagnostics intentionally target only an authored platformer
+ * boss. Other malformed custom sprites retain the cheap silent-downgrade
+ * behavior; a bespoke boss is important enough to spend the repair budget on.
+ */
+export function customBossSpriteDiagnostics(spec: GameSpec): LintError[] {
+  if (spec.archetype !== 'platformer') return [];
+  const ref = spec.sprites.assign['boss'];
+  if (!ref?.startsWith('custom:')) return [];
+  const id = ref.slice(7);
+  const sprite = spec.sprites.custom[id];
+  if (!sprite) return [];
+  const problem = spriteProblem(sprite);
+  return problem
+    ? [
+        {
+          code: 'SPRITE_INVALID',
+          path: `/sprites/custom/${escapePointer(id)}`,
+          message: `authored boss sprite "${id}" is malformed: ${problem}`,
+        },
+      ]
+    : [];
+}
+
 /** True if an animation frame's rows match the sprite's w×h and charset. */
 function framesDimsOk(rows: string[], w: number, h: number): boolean {
   return rows.length === h && rows.every((r) => r.length === w && /^[0-9a-f.]+$/.test(r));
@@ -256,7 +302,10 @@ function framesDimsOk(rows: string[], w: number, h: number): boolean {
  * them silently falls back to the assigned library sprite for that role.
  * Mutates a copy; returns the sanitized spec + a human-readable downgrade list.
  */
-export function applySpriteFallbacks(spec: GameSpec): { spec: GameSpec; downgraded: string[] } {
+export function applySpriteFallbacks(
+  spec: GameSpec,
+  options: SpriteFallbackOptions = {},
+): { spec: GameSpec; downgraded: string[] } {
   const out = structuredClone(spec);
   const downgraded: string[] = [];
   const bad = new Set<string>();
@@ -323,11 +372,39 @@ export function applySpriteFallbacks(spec: GameSpec): { spec: GameSpec; downgrad
       // fall back to their same-named library sprite — a bad custom wall must
       // become the default wall, never a character sprite.
       const selfNamed = LIB_SPRITE_IDS.includes(role) ? `lib:${role}` : undefined;
-      out.sprites.assign[role] = fallbacks[role] ?? selfNamed ?? GENERIC_FALLBACK[out.archetype];
-      if (m && !isBadCustom && isUnknownLib) downgraded.push(`assign.${role} pointed at unknown "${ref}"`);
+      const replacement =
+        out.archetype === 'platformer' && role === 'boss'
+          ? platformerBossFallback(out.seed, options.recentBosses)
+          : (fallbacks[role] ?? selfNamed ?? GENERIC_FALLBACK[out.archetype]);
+      out.sprites.assign[role] = replacement;
+      if (ref !== replacement) {
+        downgraded.push(`assign.${role} fell back from "${ref}" to "${replacement}"`);
+      }
+      if (m && !isBadCustom && isUnknownLib)
+        downgraded.push(`assign.${role} pointed at unknown "${ref}"`);
     }
   }
   return { spec: out, downgraded };
+}
+
+/**
+ * Sanitize normally, then restore only a malformed, defined custom platformer
+ * boss so the repair model can see and patch it. If that sprite was shared by
+ * another role, the other role stays safely downgraded.
+ */
+export function applySpriteFallbacksForRepair(
+  spec: GameSpec,
+  options: SpriteFallbackOptions = {},
+): GameSpec {
+  const bossRef = spec.archetype === 'platformer' ? spec.sprites.assign['boss'] : undefined;
+  const bossId = bossRef?.startsWith('custom:') ? bossRef.slice(7) : undefined;
+  const bossSprite = bossId ? spec.sprites.custom[bossId] : undefined;
+  const shouldRestore = !!bossSprite && !!spriteProblem(bossSprite);
+  const sanitized = applySpriteFallbacks(spec, options).spec;
+  if (!shouldRestore || !bossId || !bossRef || !bossSprite) return sanitized;
+  sanitized.sprites.custom[bossId] = structuredClone(bossSprite);
+  sanitized.sprites.assign['boss'] = bossRef;
+  return sanitized;
 }
 
 // ---------------------------------------------------------------------------

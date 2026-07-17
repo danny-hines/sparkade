@@ -21,6 +21,7 @@ import {
   FEEL,
   INTERNAL_HEIGHT,
   INTERNAL_WIDTH,
+  LIB_BOSSES_PLATFORMER,
   TILE_SIZE,
   difficultyScale,
   resolveHeroFeel,
@@ -98,7 +99,7 @@ const ROLE_FALLBACK: Record<string, string> = {
   flyer: 'lib:enemy_flyer',
   shooter: 'lib:enemy_shooter',
   chaser: 'lib:enemy_chaser',
-  boss: 'lib:boss_titan',
+  boss: 'lib:boss_knight',
   coin: 'lib:pickup_coin',
   heart: 'lib:pickup_heart',
   powerup: 'lib:pickup_power',
@@ -173,10 +174,13 @@ class PlatformerGame implements GameInstance {
     this.run = RUN * feel.speed;
     this.walk = WALK * feel.speed;
     this.accel = ACCEL * feel.speed;
+    const bossFallback = `lib:${
+      LIB_BOSSES_PLATFORMER[(this.spec.seed >>> 0) % LIB_BOSSES_PLATFORMER.length]!
+    }`;
     for (const role of Object.keys(ROLE_FALLBACK)) {
       this.sprites[role] = engine.sprites.byRole(
         role,
-        ROLE_FALLBACK[role]!,
+        role === 'boss' ? bossFallback : ROLE_FALLBACK[role]!,
         role === 'hero'
           ? { presentation: 'tall-humanoid' }
           : role === 'obj_platform'

@@ -1,10 +1,22 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { GameSpec, PlatformerSpec } from '@sparkade/shared';
+import {
+  LIB_BOSSES_PLATFORMER,
+  type DesignDoc,
+  type GameSpec,
+  type JobStage,
+  type PlatformerSpec,
+  type StageName,
+} from '@sparkade/shared';
+import { GenerationRunner } from '../src/pipeline/runner';
+import type { BuiltPrompt, RecentUse } from '../src/pipeline/prompts';
 import {
   applySpriteFallbacks,
+  applySpriteFallbacksForRepair,
+  customBossSpriteDiagnostics,
   ensureLikenessHeroBody,
+  platformerBossFallback,
   securityScan,
   spriteProblem,
   titleSimilarity,
@@ -16,6 +28,47 @@ import { repoRoot } from '../src/util';
 function golden(archetype: string): GameSpec {
   return JSON.parse(
     readFileSync(join(repoRoot(), 'packages/generation/golden', `golden-${archetype}.json`), 'utf8'),
+  );
+}
+
+type RepairCall = (
+  stage: StageName,
+  prompt: BuiltPrompt,
+  opts: {
+    temperature?: number;
+    repair?: boolean;
+    label: string;
+    stage: JobStage;
+  },
+) => Promise<unknown>;
+
+async function validateAndRepairForTest(
+  spec: GameSpec,
+  callLlm: RepairCall,
+  recentUse?: RecentUse,
+): Promise<GameSpec> {
+  const runner = Object.create(GenerationRunner.prototype) as GenerationRunner;
+  const validateAndRepair = (
+    runner as unknown as {
+      validateAndRepair(
+        input: GameSpec,
+        archetype: 'platformer',
+        design: DesignDoc,
+        call: RepairCall,
+        emit: (stage: JobStage, detail: string) => void,
+        hasPhoto: boolean,
+        recent?: RecentUse,
+      ): Promise<GameSpec>;
+    }
+  ).validateAndRepair.bind(runner);
+  return validateAndRepair(
+    spec,
+    'platformer',
+    spec as unknown as DesignDoc,
+    callLlm,
+    () => undefined,
+    false,
+    recentUse,
   );
 }
 
@@ -71,7 +124,7 @@ describe('platformer geometry schema migration', () => {
   });
 });
 
-describe('custom sprite checks + silent fallback', () => {
+describe('custom sprite checks + repair-aware fallback', () => {
   it('guarantees a compatible tall-likeness body only for photo platformers', () => {
     const spec = golden('platformer');
     spec.sprites.assign['hero'] = 'custom:signature_hero';
@@ -107,6 +160,129 @@ describe('custom sprite checks + silent fallback', () => {
     expect(fixed.sprites.assign['hero']).toBe('lib:hero_squire');
     // the sanitized spec still passes schema
     expect(validateGameSchema('platformer', fixed)).toEqual([]);
+  });
+
+  it('preserves a malformed authored platformer boss for repair, but sanitizes shared roles', () => {
+    const spec = golden('platformer');
+    spec.sprites.custom['broken_boss'] = {
+      w: 8,
+      h: 8,
+      rows: ['11111111'],
+    };
+    spec.sprites.assign['boss'] = 'custom:broken_boss';
+    spec.sprites.assign['walker'] = 'custom:broken_boss';
+
+    const repairable = applySpriteFallbacksForRepair(spec);
+    expect(repairable.sprites.assign['boss']).toBe('custom:broken_boss');
+    expect(repairable.sprites.custom['broken_boss']).toEqual(spec.sprites.custom['broken_boss']);
+    expect(repairable.sprites.assign['walker']).toBe('lib:enemy_walker');
+    expect(customBossSpriteDiagnostics(repairable)).toEqual([
+      expect.objectContaining({
+        code: 'SPRITE_INVALID',
+        path: '/sprites/custom/broken_boss',
+      }),
+    ]);
+
+    const ordinary = applySpriteFallbacks(spec);
+    expect(ordinary.spec.sprites.custom['broken_boss']).toBeUndefined();
+    expect(ordinary.spec.sprites.assign['boss']).toMatch(/^lib:boss_/);
+  });
+
+  it('does not spend boss repair on valid, missing, or non-platformer custom sprites', () => {
+    const valid = golden('platformer');
+    valid.sprites.custom['good_boss'] = {
+      w: 4,
+      h: 4,
+      rows: ['.11.', '1111', '1111', '.11.'],
+    };
+    valid.sprites.assign['boss'] = 'custom:good_boss';
+    const kept = applySpriteFallbacksForRepair(valid);
+    expect(kept.sprites.assign['boss']).toBe('custom:good_boss');
+    expect(customBossSpriteDiagnostics(kept)).toEqual([]);
+
+    const missing = golden('platformer');
+    missing.sprites.assign['boss'] = 'custom:missing_boss';
+    expect(applySpriteFallbacksForRepair(missing).sprites.assign['boss']).toMatch(/^lib:boss_/);
+
+    const adventure = golden('adventure');
+    adventure.sprites.custom['broken_boss'] = { w: 8, h: 8, rows: ['11111111'] };
+    adventure.sprites.assign['boss'] = 'custom:broken_boss';
+    const sanitizedAdventure = applySpriteFallbacksForRepair(adventure);
+    expect(sanitizedAdventure.sprites.custom['broken_boss']).toBeUndefined();
+    expect(sanitizedAdventure.sprites.assign['boss']).toBe('lib:boss_warden');
+    expect(customBossSpriteDiagnostics(sanitizedAdventure)).toEqual([]);
+  });
+
+  it('uses a deterministic, varied, recent-aware fallback for malformed platformer bosses', () => {
+    const choices = LIB_BOSSES_PLATFORMER.map((_, seed) => platformerBossFallback(seed));
+    expect(new Set(choices).size).toBe(LIB_BOSSES_PLATFORMER.length);
+    expect(platformerBossFallback(7)).toBe(platformerBossFallback(7));
+
+    const onlyUnused = LIB_BOSSES_PLATFORMER[3]!;
+    const recent = LIB_BOSSES_PLATFORMER.filter((id) => id !== onlyUnused).map((id) => `lib:${id}`);
+    expect(platformerBossFallback(999, recent)).toBe(`lib:${onlyUnused}`);
+
+    const allRecent = LIB_BOSSES_PLATFORMER.map((id) => `lib:${id}`);
+    expect(platformerBossFallback(5, allRecent)).toBe(platformerBossFallback(5));
+
+    const spec = golden('platformer');
+    spec.seed = 4;
+    spec.sprites.custom['broken_boss'] = { w: 8, h: 8, rows: ['11111111'] };
+    spec.sprites.assign['boss'] = 'custom:broken_boss';
+    const result = applySpriteFallbacks(spec, { recentBosses: recent });
+    expect(result.spec.sprites.assign['boss']).toBe(`lib:${onlyUnused}`);
+    expect(result.downgraded).toContain(
+      `assign.boss fell back from "custom:broken_boss" to "lib:${onlyUnused}"`,
+    );
+  });
+
+  it('repairs malformed boss pixels before considering a library fallback', async () => {
+    const spec = golden('platformer');
+    spec.sprites.custom['repair_me'] = { w: 8, h: 8, rows: ['..1111..'] };
+    spec.sprites.assign['boss'] = 'custom:repair_me';
+    const stages: StageName[] = [];
+    const fixed = await validateAndRepairForTest(spec, async (stage) => {
+      stages.push(stage);
+      return [
+        {
+          op: 'replace',
+          path: '/sprites/custom/repair_me/rows',
+          value: new Array(8).fill('..1111..'),
+        },
+      ];
+    });
+
+    expect(stages).toEqual(['repair']);
+    expect(fixed.sprites.assign['boss']).toBe('custom:repair_me');
+    expect(fixed.sprites.custom['repair_me']?.rows).toHaveLength(8);
+    expect(customBossSpriteDiagnostics(fixed)).toEqual([]);
+  });
+
+  it('falls back after the repair budget without needlessly regenerating entities', async () => {
+    const spec = golden('platformer');
+    spec.seed = 2;
+    spec.sprites.custom['unrepairable'] = { w: 8, h: 8, rows: ['..1111..'] };
+    spec.sprites.assign['boss'] = 'custom:unrepairable';
+    const stages: StageName[] = [];
+    const recentUse: RecentUse = {
+      heroes: [],
+      bosses: ['lib:boss_knight', 'lib:boss_drake'],
+      backdrops: [],
+    };
+    const fixed = await validateAndRepairForTest(
+      spec,
+      async (stage) => {
+        stages.push(stage);
+        return [];
+      },
+      recentUse,
+    );
+
+    expect(stages).toEqual(['repair', 'repair']);
+    expect(fixed.sprites.assign['boss']).toBe(platformerBossFallback(spec.seed, recentUse.bosses));
+    expect(fixed.sprites.assign['boss']).not.toBe('lib:boss_knight');
+    expect(fixed.sprites.assign['boss']).not.toBe('lib:boss_drake');
+    expect(fixed.sprites.custom['unrepairable']).toBeUndefined();
   });
 
   it('keeps well-formed animation frames and drops malformed ones', () => {

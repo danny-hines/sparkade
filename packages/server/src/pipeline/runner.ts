@@ -57,6 +57,8 @@ import {
 import type { SseHub } from './sse';
 import {
   applySpriteFallbacks,
+  applySpriteFallbacksForRepair,
+  customBossSpriteDiagnostics,
   ensureLikenessHeroBody,
   normalizeTileGrids,
   securityScan,
@@ -840,6 +842,8 @@ export class GenerationRunner {
     if (schemaErrors.length) return schemaErrors;
     const scan = securityScan(spec);
     if (scan.length) return scan;
+    const bossSpriteErrors = customBossSpriteDiagnostics(spec);
+    if (bossSpriteErrors.length) return bossSpriteErrors;
     return archetypes[archetype].lint(spec);
   }
 
@@ -857,7 +861,10 @@ export class GenerationRunner {
     hasPhoto: boolean,
     recentUse?: RecentUse,
   ): Promise<GameSpec> {
-    let { spec } = applySpriteFallbacks(normalizeTileGrids(input));
+    const fallbackOptions = { recentBosses: recentUse?.bosses };
+    const prepareForRepair = (candidate: GameSpec): GameSpec =>
+      applySpriteFallbacksForRepair(normalizeTileGrids(candidate), fallbackOptions);
+    let spec = prepareForRepair(input);
     let diagnostics = this.collectDiagnostics(spec, archetype);
     if (!diagnostics.length) return spec;
 
@@ -877,7 +884,7 @@ export class GenerationRunner {
             label: 'Patch applied',
             stage: 'repairing',
           })) as JsonPatchOp[];
-          spec = applySpriteFallbacks(normalizeTileGrids(applyPatch(spec, patch))).spec;
+          spec = prepareForRepair(applyPatch(spec, patch));
           diagnostics = this.collectDiagnostics(spec, archetype);
         } catch (e) {
           if (e instanceof PatchError) {
@@ -891,6 +898,19 @@ export class GenerationRunner {
     };
 
     if (await tryRepairs(GENERATION.maxRepairAttemptsPerStage)) return spec;
+
+    // The authored boss has had its repair budget. Deliberately downgrade it
+    // now rather than silently deleting it before repair (the old behavior).
+    // Other outstanding diagnostics can still trigger their owning stage's
+    // regeneration below.
+    let fallbackResult = applySpriteFallbacks(normalizeTileGrids(spec), fallbackOptions);
+    spec = fallbackResult.spec;
+    diagnostics = this.collectDiagnostics(spec, archetype);
+    const bossDowngrade = fallbackResult.downgraded.find((message) =>
+      message.startsWith('assign.boss fell back'),
+    );
+    if (bossDowngrade) emit('validating', `Authored boss could not be repaired; ${bossDowngrade}.`);
+    if (!diagnostics.length) return spec;
 
     // One full regeneration of the stages that own the remaining errors.
     const owners = new Set<'levels' | 'entities' | 'music'>();
@@ -943,12 +963,23 @@ export class GenerationRunner {
         spec = { ...spec, music: (r.music ?? r) as never };
       }
     }
-    spec = applySpriteFallbacks(normalizeTileGrids(spec)).spec;
+    spec = prepareForRepair(spec);
     diagnostics = this.collectDiagnostics(spec, archetype);
     if (!diagnostics.length) return spec;
 
     repairsUsed = 0;
     if (await tryRepairs(GENERATION.maxRepairAttemptsPerStage)) return spec;
+
+    fallbackResult = applySpriteFallbacks(normalizeTileGrids(spec), fallbackOptions);
+    spec = fallbackResult.spec;
+    diagnostics = this.collectDiagnostics(spec, archetype);
+    const regeneratedBossDowngrade = fallbackResult.downgraded.find((message) =>
+      message.startsWith('assign.boss fell back'),
+    );
+    if (regeneratedBossDowngrade) {
+      emit('validating', `Authored boss could not be repaired; ${regeneratedBossDowngrade}.`);
+    }
+    if (!diagnostics.length) return spec;
 
     const summary = diagnostics
       .slice(0, 5)

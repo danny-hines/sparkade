@@ -101,7 +101,7 @@ export const HEROES: Record<string, LibraryEntry> = {
     ],
     anims: { idle: [0], walk: [1, 2], jump: [3] },
     headSlots: [
-      { x: 2, y: 0, size: 12, view: 'side' },
+      { x: 2, y: 0, size: 12, view: 'front' },
       { x: 2, y: 0, size: 12, view: 'side' },
       { x: 2, y: 1, size: 12, view: 'side' },
       { x: 2, y: 0, size: 12, view: 'side' },
@@ -202,7 +202,7 @@ export const HEROES: Record<string, LibraryEntry> = {
     ],
     anims: { idle: [0], walk: [1, 2], jump: [3] },
     headSlots: [
-      { x: 2, y: 0, size: 12, view: 'side' },
+      { x: 2, y: 0, size: 12, view: 'front' },
       { x: 2, y: 0, size: 12, view: 'side' },
       { x: 2, y: 1, size: 12, view: 'side' },
       { x: 2, y: 0, size: 12, view: 'side' },
@@ -303,7 +303,7 @@ export const HEROES: Record<string, LibraryEntry> = {
     ],
     anims: { idle: [0], walk: [1, 2], jump: [3] },
     headSlots: [
-      { x: 2, y: 0, size: 12, view: 'side' },
+      { x: 2, y: 0, size: 12, view: 'front' },
       { x: 2, y: 0, size: 12, view: 'side' },
       { x: 2, y: 1, size: 12, view: 'side' },
       { x: 2, y: 0, size: 12, view: 'side' },

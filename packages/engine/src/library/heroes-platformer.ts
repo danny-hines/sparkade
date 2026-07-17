@@ -1,9 +1,9 @@
 // Hand-authored platformer hero sprites (SNES-style, palette-indexed).
 // Palette slots: 1 outline · 5 hero-primary · 6 hero-secondary · 7 hero-accent/skin
 // · d gold · e light · f near-white · c warm (leather/wood/glow only).
-// All face RIGHT. Frames: 0 idle · 1 walk-A · 2 walk-B (art shifted down 1 row)
-// · 3 jump (bottom row clear). headSlots mark the pasted right-facing 12x12
-// likeness head; the engine mirrors the composed sprite for leftward movement.
+// Bodies face RIGHT. Frames: 0 idle · 1 walk-A · 2 walk-B (art shifted down 1
+// row) · 3 jump (bottom row clear). Idle turns the likeness toward the camera;
+// movement frames use its side view and the engine mirrors the whole sprite.
 import type { LibraryEntry } from '../types';
 
 export const HEROES_PLATFORMER: Record<string, LibraryEntry> = {
@@ -102,7 +102,7 @@ export const HEROES_PLATFORMER: Record<string, LibraryEntry> = {
     ],
     anims: { idle: [0], walk: [1, 2], jump: [3] },
     headSlots: [
-      { x: 2, y: 0, size: 12, view: 'side' },
+      { x: 2, y: 0, size: 12, view: 'front' },
       { x: 2, y: 0, size: 12, view: 'side' },
       { x: 2, y: 1, size: 12, view: 'side' },
       { x: 2, y: 0, size: 12, view: 'side' },
@@ -204,7 +204,7 @@ export const HEROES_PLATFORMER: Record<string, LibraryEntry> = {
     ],
     anims: { idle: [0], walk: [1, 2], jump: [3] },
     headSlots: [
-      { x: 2, y: 0, size: 12, view: 'side' },
+      { x: 2, y: 0, size: 12, view: 'front' },
       { x: 2, y: 0, size: 12, view: 'side' },
       { x: 2, y: 1, size: 12, view: 'side' },
       { x: 2, y: 0, size: 12, view: 'side' },
@@ -306,7 +306,7 @@ export const HEROES_PLATFORMER: Record<string, LibraryEntry> = {
     ],
     anims: { idle: [0], walk: [1, 2], jump: [3] },
     headSlots: [
-      { x: 2, y: 0, size: 12, view: 'side' },
+      { x: 2, y: 0, size: 12, view: 'front' },
       { x: 2, y: 0, size: 12, view: 'side' },
       { x: 2, y: 1, size: 12, view: 'side' },
       { x: 2, y: 0, size: 12, view: 'side' },

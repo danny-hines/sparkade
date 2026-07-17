@@ -68,7 +68,7 @@ describe('built-in sprite library', () => {
   it('assigns directional head views to movement frames', () => {
     for (const id of LIB_HEROES_PLATFORMER) {
       const views = LIBRARY[id]!.headSlots?.map((slot) => slot.view);
-      expect(views?.every((view) => view === 'side'), id).toBe(true);
+      expect(views, id).toEqual(['front', 'side', 'side', 'side']);
     }
 
     for (const id of LIB_HEROES_ADVENTURE) {
@@ -128,7 +128,12 @@ describe('built-in sprite library', () => {
       expect(frame.rows).toHaveLength(32);
       expect(frame.rows.slice(0, 16).every((row) => /^\.+$/.test(row))).toBe(true);
       expect(frame.rows.slice(16).some((row) => /[1-9a-f]/.test(row))).toBe(true);
-      expect(tall.headSlots?.[i]).toEqual({ x: 0, y: 0, size: 16, view: 'side' });
+      expect(tall.headSlots?.[i]).toEqual({
+        x: 0,
+        y: 0,
+        size: 16,
+        view: i === 0 ? 'front' : 'side',
+      });
       expect(tall.likenessOverlays?.[i]?.h).toBe(32);
     }
     // Presentation transforms must never mutate the shared library entry.

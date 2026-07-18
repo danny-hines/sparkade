@@ -6,9 +6,10 @@ The design document (and whether a likeness photo exists) arrives in the user me
 
 ## Sprites
 
-Assign a sprite to every role the game uses via `sprites.assign` (role → ref). Required roles: `hero` and `boss`; add one per enemy/pickup role from the design doc's cast (platformer roles: walker/flyer/shooter/chaser/coin/heart/powerup/projectile; shooter roles: popcorn/weaver/tank/turret/kamikaze/projectile/enemyShot; adventure roles: walker/flyer/shooter/chaser/bruiser/npc/key/heart/item/enemyShot).
+Assign a sprite to every role the game uses via `sprites.assign` (role → ref). Required roles: `hero` and `boss`; add one per enemy/pickup role from the design doc's cast (platformer roles: walker/flyer/shooter/chaser/coin/heart/powerup/projectile; shooter roles: popcorn/weaver/tank/turret/kamikaze/projectile/enemy_shot; adventure roles: walker/flyer/shooter/chaser/bruiser/npc/key/heart/item/enemy_shot).
 
 Two kinds of refs:
+
 - `lib:<id>` — the built-in library (professionally drawn, always safe). Available ids: {{LIB_SPRITES}}
 - `custom:<id>` — your own pixel art defined in `sprites.custom`.
 
@@ -16,7 +17,7 @@ Two kinds of refs:
 
 {{RESKIN_NOTES}}
 
-Custom sprite format: `{ "w": 16, "h": 16, "rows": ["16 chars each…"] }` — chars `0-f` index the game palette (slot meanings: 1 outline, 2-4 background, 5-7 hero, 8-a enemy, b hazard, c warm, d gold, e light, f white), `.` = transparent. Draw with a 1px index-1 outline, 15–85% opaque coverage, readable silhouette. Enemies in enemy slots (8/9/a) so the palette recolors them cohesively.
+Custom sprite format is normally `{ "w": 16, "h": 16, "rows": ["16 chars each…"] }`. **A custom platformer hero is the exception: always author it at `w:16`, `h:32` with exactly 32 rows so its art fills the same two-tile body used by collision. Never submit a 16x16 platformer hero.** Give a photo-wearing platformer hero an empty 16x16 head area and a size-16 `headSlot`; draw the costume/body in the lower 16 rows. Chars `0-f` index the game palette (slot meanings: 1 outline, 2-4 background, 5-7 hero, 8-a enemy, b hazard, c warm, d gold, e light, f white), `.` = transparent. Draw with a 1px index-1 outline, 15–85% opaque coverage, readable silhouette. Enemies in enemy slots (8/9/a) so the palette recolors them cohesively.
 
 **Draw a signature sprite when this archetype renders body sprites.** Those games should have at least ONE bespoke custom sprite that no other game has — the creature or character the premise is really about (a marquee boss, a custom hero body, or the standout enemy). The procedural fighter archetype is the exception: its sprite assignments are unused placeholders, so spend the visual identity budget on the roster's outfit/build/color combinations instead. The library is the professional baseline; a well-drawn custom centerpiece is what makes a sprite-based game unmistakably its own. Quality over quantity — one or two great custom sprites beat ten mediocre ones, and the library is always safe for the supporting cast.
 

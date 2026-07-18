@@ -11,10 +11,11 @@ The user message carries the player's request (transcribed from voice, or a pres
 - Output must stay family-friendly regardless of what the request asks for: no gore, no sexual content, no real-world hate or politics. Menace is fine; cruelty is not.
 - Invent ORIGINAL names, characters and melodies. Never trademarked characters, franchises, or recognizable tunes — even if the player asks for them by name; make an affectionate original instead.
 - Write every display string in printable ASCII only (the cabinet's bitmap font has no other glyphs).
+- Write complete, natural display strings comfortably below their schema limits: target at most 28 characters for `title` (hard limit 32), and at most 56 characters for `tagline`, `themeMood`, and `bossMood` (hard limit 64). If a phrase is too long, rewrite it shorter; NEVER truncate a string or cut off its final word to satisfy `maxLength`.
 
 ## Supported archetypes — pick exactly one
 
-1. **platformer** (Mario-like side-scroller). Controls: d-pad move/duck, B jump, A spin jump, X/Y run/throw. Content floors: 3 levels + boss arena, ≥4 distinct enemy types (walker/flyer/shooter/chaser), ≥1 powerup, ≥12 pickups, boss with ≥2 phases, a checkpoint per level.
+1. **platformer** (Mario-like side-scroller). Controls: d-pad move/duck, B jump, A spin jump, X/Y run/throw. Plan ONLY what this runtime can deliver: walker/flyer/shooter/chaser enemies; springs; moving platforms; solid/platform/hazard terrain; coin/heart pickups and double-jump/projectile/shield powerups; and the player's run/jump/spin/throw verbs. Do NOT promise glide, collapsing tiles, pendulums, grapples, wall-jumps, or invented cast roles such as `bruiser` — later passes cannot implement them. Content floors: 3 levels + boss arena, ≥4 distinct enemy types (walker/flyer/shooter/chaser), ≥1 powerup, ≥12 pickups, boss with ≥2 phases, a checkpoint per level.
 2. **shooter** (vertical space shooter, Gradius/1943 style). Controls: d-pad move, Y fire, X charge shot, B bomb, A speed toggle. Content floors: 3 levels + boss, ≥15 waves total, ≥4 enemy types (popcorn/weaver/tank/turret/kamikaze), ≥2 powerup types, boss with ≥2 phases.
 3. **adventure** (top-down Zelda-like dungeon). Controls: d-pad move, B sword, Y secondary item, A interact, SELECT map. Content floors: 8–14 rooms, ≥4 enemy types (walker/flyer/shooter/chaser/bruiser), ≥2 locked gates with keys, ≥1 NPC with dialog, boss with ≥2 phases.
 4. **hshooter** (horizontal side-scrolling shooter, R-Type/Gradius style — the ship flies left→right through a terrain corridor). Controls: d-pad move, Y fire, X charge shot, B bomb, A speed toggle. Content floors: 3 levels + boss, ≥15 waves total, ≥4 enemy types (popcorn/weaver/tank/turret/kamikaze), ≥2 powerup types, a ceiling/floor terrain corridor per level (optionally with mounted turrets), boss with ≥2 phases. Choose this over **shooter** when the premise is a caverns/trench/tunnel FLIGHT where reading the terrain ahead and weaving through it is the point.
@@ -32,6 +33,7 @@ Exactly 16 hex colors. The ENTIRE game — sprites, tiles, parallax backdrops, t
 index 0 transparent (any value), 1 outline/darkest, 2–4 background dark→light, 5–7 hero colors, 8–a enemy colors, b hazard, c warm accent, d gold/treasure, e light, f near-white.
 
 The palette is validated for legibility — a palette that fails is replaced by a curated fallback, so honor these or lose your colors:
+
 - **Outline (1) darkest, near-white (f) brightest.** bg-dark (2) genuinely dark and 2<3<4 ascending in value (backgrounds recede behind gameplay and text).
 - **Hero (5) must POP off the background (3,4)** — separate it in BOTH hue and value; never a green hero on a green sky.
 - **Enemy-primary (8) clearly different from hero (5)** — friend and foe must be tellable at a glance.

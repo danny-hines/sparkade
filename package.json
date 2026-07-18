@@ -24,6 +24,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
+    "analyze:repairs": "tsx scripts/analyze-repairs.mts",
     "verify": "node scripts/verify.mjs",
     "test:e2e": "playwright test"
   },

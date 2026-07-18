@@ -1,3 +1,4 @@
+import type { SpritePresentation } from '@sparkade/engine';
 import { TILE_SIZE, type Coord } from '@sparkade/shared';
 
 export interface PlatformerPlayerBody {
@@ -27,18 +28,23 @@ export const MOVING_PLATFORM_BODY: Readonly<PlatformerPlayerBody> = {
 };
 
 /**
- * New likeness platformers use the full 16x32 visual as their collision body.
- * The explicit spec marker keeps existing saved games with one-tile passages
- * on their legacy 10x14 physics, and the presentation check avoids an
- * invisible tall collider when a sprite could not be upgraded at runtime.
+ * Marked platformers use the full 16x32 visual as their collision body. Sprite
+ * resolution guarantees the matching 16x32 presentation; the explicit marker
+ * keeps existing saved games with one-tile passages on legacy 10x14 physics.
  */
 export function platformerPlayerBody(
   playerHeightTiles: 2 | undefined,
-  tallPresentationApplied: boolean,
 ): Readonly<PlatformerPlayerBody> {
-  return playerHeightTiles === 2 && tallPresentationApplied
+  return playerHeightTiles === 2
     ? TALL_PLATFORMER_PLAYER_BODY
     : LEGACY_PLATFORMER_PLAYER_BODY;
+}
+
+/** Legacy specs retain their authored sprite dimensions; only marked games opt in. */
+export function platformerHeroPresentation(
+  playerHeightTiles: 2 | undefined,
+): SpritePresentation {
+  return playerHeightTiles === 2 ? 'tall-humanoid' : 'native';
 }
 
 /** Exit coordinates are the lower (feet) tile of a two-tile-tall door. */

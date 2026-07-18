@@ -13,6 +13,8 @@ export {
   SpriteStore,
   anchorSpriteOpaqueTop,
   makeTallHumanoidEntry,
+  makeTallHeroEntry,
+  makeTallSpriteEntry,
   resolveLikenessHead,
   type ResolvedSprite,
   type SpritePresentation,

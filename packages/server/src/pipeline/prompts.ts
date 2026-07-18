@@ -22,8 +22,9 @@ import {
   type ArchetypeId,
   type DesignDoc,
 } from '@sparkade/shared';
-import { goldenExcerpt, loadTemplate, renderTemplate } from '@sparkade/generation';
+import { goldenExcerpt, loadGolden, loadTemplate, renderTemplate } from '@sparkade/generation';
 import type { LintError } from '@sparkade/shared';
+import { compactLevelsStageSchema } from './tile-runs';
 
 export interface BuiltPrompt {
   system: string;
@@ -33,6 +34,8 @@ export interface BuiltPrompt {
   /** Per-call timeout override (ms) for stages measured to run long. */
   timeoutMs?: number;
 }
+
+export type RepairOwner = 'levels' | 'entities' | 'music' | 'document';
 
 // NOTE ON STRUCTURE: every builder keeps the SYSTEM prompt byte-identical
 // across calls and games (rules + schema + golden excerpt) and puts all
@@ -81,17 +84,40 @@ export function buildDesignPrompt(opts: {
   return { system, user, jsonSchema: DESIGN_SCHEMA, maxTokens: 4000 };
 }
 
-export function buildLevelsPrompt(archetype: ArchetypeId, design: DesignDoc): BuiltPrompt {
-  const schema = stageSchema(archetype, 'levels');
-  const system = renderTemplate(loadTemplate(`levels-${archetype}`), {
-    GOLDEN_EXCERPT: safeExcerpt(archetype, 'levels'),
+export function buildLevelsPrompt(
+  archetype: ArchetypeId,
+  design: DesignDoc,
+  diagnostics: readonly LintError[] = [],
+): BuiltPrompt {
+  const compact = archetype === 'platformer' || archetype === 'hshooter';
+  const schema = compact ? compactLevelsStageSchema(archetype) : stageSchema(archetype, 'levels');
+  const renderedSystem = renderTemplate(loadTemplate(`levels-${archetype}`), {
+    GOLDEN_EXCERPT: compact
+      ? safeCompactLevelsExcerpt(archetype)
+      : safeExcerpt(archetype, 'levels'),
     SCHEMA: JSON.stringify(schema, null, 1),
   });
+  const system = compact
+    ? `${renderedSystem}\n\n## Compact tile rows\n\nThe output schema deliberately replaces each level's literal \`tiles\` strings with \`tileRuns\`. For every visual row, emit a left-to-right array of two-item \`[tile,count]\` tuples, for example \`[[".",72],["#",8]]\`. Adjacent tuples reconstruct the row; all expanded rows in a level must have the same total width. This compact form is compiled to ordinary tile strings by the engine.`
+    : renderedSystem;
   return {
     system,
-    user: `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}\n\nWrite the levels JSON now.`,
+    user: [
+      `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}`,
+      diagnostics.length
+        ? `THE PREVIOUS LEVEL OUTPUT FAILED THESE CHECKS. Build a fresh set that specifically avoids them:\n${formatDiagnostics(diagnostics)}`
+        : '',
+      'Write the levels JSON now.',
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
     jsonSchema: schema,
-    maxTokens: 14000,
+    // Live Muse runs showed compact platformer levels completing at 8,839
+    // tokens after two replies hit the previous 9,000-token wire ceiling
+    // (7,500 output + 1,500 minimal-reasoning headroom). Give this stage a
+    // measured margin so a healthy three-level document does not pay for a
+    // full retry; Meta adds its reasoning headroom in the provider adapter.
+    maxTokens: archetype === 'hshooter' ? 9000 : archetype === 'platformer' ? 9000 : 14000,
     // Levels are the heaviest artifact (measured live: muse-spark-1.1 regularly
     // needs >90s for platformer tile grids). 150s here deviates from the 90s
     // default deliberately — without it, platformer generation cannot complete.
@@ -193,6 +219,8 @@ LIGHTING (optional) — set the top-level "lighting" field to wash the scene in 
 
 JUICE (optional) — set the top-level "juice" number (0–1.5) to scale screen-shake intensity: ~0.5 for a calm or cozy game, 1 (default) for most, up to ~1.4 for a punchy action game. Omit for the default feel.`;
 
+const SHOOTER_BACKDROP_NOTE = `BACKDROP — this vertical shooter flies over the scene, so use ONLY one of: deepspace (star sea + planets), nebula (glowing gas clouds), asteroids (drifting rock field), ocean (open sea under clouds), metropolis (night rooftops), canyon (rocky gorge), swamp (toxic bog), tundra (cracked ice). Do not use the side-view backdrop names starfield, circuit, city, hills, or factory. Pick the scene that matches the premise; omit only if none fit.${BACKDROP_NOTE.slice(BACKDROP_NOTE.indexOf('\n\nWEATHER'))}`;
+
 /** Per-archetype library menus (annotated, grouped) + reskinnable-slot documentation. */
 function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: string } {
   const small = [...LIB_PROJECTILES, ...LIB_PICKUPS].join(', ');
@@ -270,13 +298,13 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
   };
   const extraRoles: Record<ArchetypeId, string> = {
     platformer:
-      'Also reskinnable via assign: projectile (your hero\'s shot), enemy_projectile, obj_spring, obj_platform.',
+      "Also reskinnable via assign: projectile (your hero's shot), enemy_projectile, obj_spring, obj_platform.",
     shooter:
-      'Also reskinnable via assign: projectile (your ship\'s shot), enemyShot, pod (boss side-turrets), pickup_spread, pickup_rapid, pickup_shield, pickup_bomb.',
+      "Also reskinnable via assign: projectile (your ship's shot), enemy_shot, pod (boss side-turrets), pickup_spread, pickup_rapid, pickup_shield, pickup_bomb.",
     adventure:
-      'Also reskinnable via assign: proj_arrow, proj_wave (sword slash), item_boomerang, proj_bomb, enemyShot.',
+      'Also reskinnable via assign: proj_arrow, proj_wave (sword slash), item_boomerang, proj_bomb, enemy_shot.',
     hshooter:
-      'Also reskinnable via assign: projectile (your ship\'s shot), enemyShot, pod (boss side-turrets), pickup_spread, pickup_rapid, pickup_shield, pickup_bomb.',
+      "Also reskinnable via assign: projectile (your ship's shot), enemy_shot, pod (boss side-turrets), pickup_spread, pickup_rapid, pickup_shield, pickup_bomb.",
     fighter:
       'Nothing to reskin — fighters, arena and effects are all drawn by the engine from your palette. The player and ladder roster are authored by the levels pass. Here, make the boss unmistakable with a distinct build + outfit + colorSlot.',
   };
@@ -300,7 +328,7 @@ ${platformerSolidNote}`
       : 'This archetype has no terrain tiles; its look comes from palette, backdrop, ship/foe sprites and wave choreography.\n') +
     extraRoles[archetype] +
     '\n\n' +
-    BACKDROP_NOTE;
+    (archetype === 'shooter' ? SHOOTER_BACKDROP_NOTE : BACKDROP_NOTE);
   return { libList: byArchetype[archetype], reskinNotes };
 }
 
@@ -316,6 +344,7 @@ export function buildEntitiesPrompt(
   design: DesignDoc,
   hasPhoto: boolean,
   recentUse?: RecentUse,
+  diagnostics: readonly LintError[] = [],
 ): BuiltPrompt {
   const schema = stageSchema(archetype, 'entities');
   const bossNotes: Record<ArchetypeId, string> = {
@@ -355,13 +384,29 @@ export function buildEntitiesPrompt(
       : '';
   return {
     system,
-    user: `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}\n\nPhoto for likeness: ${hasPhoto ? 'yes' : 'no'}.${likenessBodyNote}${recentNote}\n\nWrite the entities JSON now.`,
+    user: [
+      `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}`,
+      `Photo for likeness: ${hasPhoto ? 'yes' : 'no'}.${likenessBodyNote}${recentNote}`,
+      diagnostics.length
+        ? `THE PREVIOUS ENTITY OUTPUT FAILED THESE CHECKS. Recast it while specifically avoiding them:\n${formatDiagnostics(diagnostics)}`
+        : '',
+      'Write the entities JSON now.',
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
     jsonSchema: schema,
     maxTokens: 9000,
+    // Custom pixel-art casts are the slowest entity responses in live Muse runs.
+    // Give them enough time to finish instead of paying for an identical retry.
+    timeoutMs: 120_000,
   };
 }
 
-export function buildMusicPrompt(archetype: ArchetypeId, design: DesignDoc): BuiltPrompt {
+export function buildMusicPrompt(
+  archetype: ArchetypeId,
+  design: DesignDoc,
+  diagnostics: readonly LintError[] = [],
+): BuiltPrompt {
   const schema = stageSchema(archetype, 'music');
   const system = renderTemplate(loadTemplate('music'), {
     GOLDEN_EXCERPT: safeExcerpt(archetype, 'music'),
@@ -370,7 +415,15 @@ export function buildMusicPrompt(archetype: ArchetypeId, design: DesignDoc): Bui
   const brief = { title: design.title, tagline: design.tagline, musicBrief: design.musicBrief };
   return {
     system,
-    user: `MUSICAL BRIEF:\n${JSON.stringify(brief, null, 1)}\n\nWrite the music JSON now.`,
+    user: [
+      `MUSICAL BRIEF:\n${JSON.stringify(brief, null, 1)}`,
+      diagnostics.length
+        ? `THE PREVIOUS MUSIC OUTPUT FAILED THESE CHECKS. Recompose it while specifically avoiding them:\n${formatDiagnostics(diagnostics)}`
+        : '',
+      'Write the music JSON now.',
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
     jsonSchema: schema,
     maxTokens: 10000,
   };
@@ -380,11 +433,11 @@ const PATCH_SCHEMA: Record<string, unknown> = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   title: 'RFC 6902 JSON Patch (repair output)',
   type: 'array',
-  maxItems: 200,
+  maxItems: 60,
   items: {
     type: 'object',
     properties: {
-      op: { enum: ['add', 'remove', 'replace', 'move', 'copy', 'test'] },
+      op: { enum: ['add', 'remove', 'replace'] },
       path: { type: 'string' },
       value: {},
       from: { type: 'string' },
@@ -397,26 +450,267 @@ const PATCH_SCHEMA: Record<string, unknown> = {
 export function buildRepairPrompt(
   archetype: ArchetypeId,
   invalidJson: unknown,
-  diagnostics: LintError[],
+  diagnostics: readonly LintError[],
+  owner: RepairOwner = 'document',
 ): BuiltPrompt {
+  const ownerSchema =
+    owner === 'document'
+      ? schemaForDocumentDiagnostics(archetype, diagnostics)
+      : pruneUnusedDefs(stageSchema(archetype, owner));
   const system = renderTemplate(loadTemplate('repair'), {
-    SCHEMA: JSON.stringify(ARCHETYPE_SCHEMAS[archetype], null, 1),
+    SCHEMA: JSON.stringify(ownerSchema, null, 1),
   });
+  const context = repairContext(invalidJson, diagnostics, owner);
   const user = [
-    'VALIDATION DIAGNOSTICS (fix every one):',
-    diagnostics
-      .slice(0, 30)
-      .map((d) => `- [${d.code}] at ${d.path}: ${d.message}`)
-      .join('\n'),
-    'THE CURRENT (INVALID) DOCUMENT:',
-    JSON.stringify(invalidJson),
+    `REPAIR OWNER: ${owner}. Every patch path is absolute in the original game document. Do not touch another owner.`,
+    'VALIDATION DIAGNOSTICS (fix every one shown):',
+    formatDiagnostics(diagnostics),
+    'RELEVANT PROJECTION OF THE CURRENT DOCUMENT:',
+    JSON.stringify(context),
     'Produce the JSON Patch array now.',
   ].join('\n\n');
-  return { system, user, jsonSchema: PATCH_SCHEMA, maxTokens: 8000 };
+  const topologyHeavy = diagnostics.some((d) =>
+    /(GRID|ROW|TILE|PATH|REACH|GROUND|LANE|DOOR|ARENA)/i.test(`${d.code} ${d.message}`),
+  );
+  return { system, user, jsonSchema: PATCH_SCHEMA, maxTokens: topologyHeavy ? 4000 : 2200 };
+}
+
+/** Regenerate one bad level without paying to rewrite the healthy siblings. */
+export function buildLevelRegenerationPrompt(
+  archetype: ArchetypeId,
+  design: DesignDoc,
+  levelIndex: number,
+  currentLevels: readonly unknown[],
+  diagnostics: readonly LintError[],
+): BuiltPrompt {
+  const compact = archetype === 'platformer' || archetype === 'hshooter';
+  const fullSchema = (
+    compact ? compactLevelsStageSchema(archetype) : stageSchema(archetype, 'levels')
+  ) as {
+    properties: Record<string, unknown>;
+    $defs?: Record<string, unknown>;
+  };
+  const levelsProperty = fullSchema.properties['levels'] as { items?: unknown } | undefined;
+  if (!levelsProperty?.items) throw new Error(`levels schema for ${archetype} has no item schema`);
+  const schema = pruneUnusedDefs({
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    title: `Sparkade ${archetype} single-level replacement`,
+    type: 'object',
+    properties: { level: structuredClone(levelsProperty.items) },
+    required: ['level'],
+    additionalProperties: false,
+    $defs: structuredClone(fullSchema.$defs ?? {}),
+  });
+  const baseSystem = renderTemplate(loadTemplate(`levels-${archetype}`), {
+    GOLDEN_EXCERPT: compact
+      ? safeCompactLevelsExcerpt(archetype)
+      : safeExcerpt(archetype, 'levels'),
+    SCHEMA: JSON.stringify(schema, null, 1),
+  });
+  const system = `${baseSystem}\n\n## Single-level regeneration override\n\nThis call replaces ONLY zero-based level ${levelIndex}. Ignore any earlier instruction to emit all levels. Return exactly one object shaped as {"level": ...}, matching the final schema below. Preserve the premise and progression role of this level, but rebuild the invalid geometry/content from scratch. Do not copy the invalid tile rows verbatim.${compact ? ' The replacement schema uses compact tileRuns rather than literal tiles; emit [tile,count] tuples whose counts expand to equal-width rows.' : ''}`;
+  const siblingSummary = currentLevels.map((level, index) => ({
+    index,
+    ...(level && typeof level === 'object'
+      ? summarizeLevel(level as Record<string, unknown>, false)
+      : { value: level }),
+  }));
+  return {
+    system,
+    user: [
+      `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}`,
+      `LEVEL SET SUMMARY (the entry at index ${levelIndex} is the one being replaced):\n${JSON.stringify(siblingSummary)}`,
+      `FAILURES TO AVOID:\n${formatDiagnostics(diagnostics)}`,
+      `Write only {"level": <replacement for index ${levelIndex}>} now.`,
+    ].join('\n\n'),
+    jsonSchema: schema,
+    maxTokens: archetype === 'hshooter' ? 8000 : archetype === 'platformer' ? 6000 : 5000,
+    timeoutMs: 150_000,
+  };
+}
+
+function formatDiagnostics(diagnostics: readonly LintError[]): string {
+  return diagnostics
+    .slice(0, 30)
+    .map((d) => `- [${d.code}] at ${d.path}: ${d.message}`)
+    .join('\n');
+}
+
+function safeCompactLevelsExcerpt(
+  archetype: Extract<ArchetypeId, 'platformer' | 'hshooter'>,
+): string {
+  try {
+    const golden = loadGolden(archetype);
+    const level = structuredClone(golden.levels[0]) as unknown as Record<string, unknown>;
+    let rows = Array.isArray(level['tiles']) ? (level['tiles'] as string[]) : [];
+    if (archetype === 'platformer' && level['legend'] && typeof level['legend'] === 'object') {
+      const legend = level['legend'] as Record<string, string>;
+      const engineOwned = new Set(
+        Object.entries(legend)
+          .filter(([, kind]) => kind === 'decoration' || kind === 'exit')
+          .map(([tile]) => tile),
+      );
+      rows = rows.map((row) =>
+        [...row].map((tile) => (engineOwned.has(tile) ? '.' : tile)).join(''),
+      );
+      level['legend'] = Object.fromEntries(
+        Object.entries(legend).filter(([, kind]) => kind !== 'decoration' && kind !== 'exit'),
+      );
+    }
+    delete level['tiles'];
+    level['tileRuns'] = rows.map(compactRow);
+    return `One complete level object (the response envelope and level count come from the schema):\n${JSON.stringify(level, null, 1)}`;
+  } catch {
+    return '(example unavailable)';
+  }
+}
+
+function compactRow(row: string): [tile: string, count: number][] {
+  const runs: [tile: string, count: number][] = [];
+  for (const tile of row) {
+    const previous = runs.at(-1);
+    if (previous?.[0] === tile) previous[1]++;
+    else runs.push([tile, 1]);
+  }
+  return runs;
+}
+
+function pruneUnusedDefs(schema: Record<string, unknown>): Record<string, unknown> {
+  const clone = structuredClone(schema) as Record<string, unknown> & {
+    $defs?: Record<string, unknown>;
+  };
+  const allDefs = clone.$defs ?? {};
+  const wanted = new Set<string>();
+  const scan = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(scan);
+      return;
+    }
+    if (!value || typeof value !== 'object') return;
+    const rec = value as Record<string, unknown>;
+    if (typeof rec['$ref'] === 'string') {
+      const match = /^#\/\$defs\/(.+)$/.exec(rec['$ref']);
+      if (match && !wanted.has(match[1]!)) {
+        wanted.add(match[1]!);
+        scan(allDefs[match[1]!]);
+      }
+    }
+    for (const [key, child] of Object.entries(rec)) {
+      if (key !== '$defs') scan(child);
+    }
+  };
+  scan(clone);
+  clone.$defs = Object.fromEntries([...wanted].map((name) => [name, allDefs[name]]));
+  return clone;
+}
+
+function schemaForDocumentDiagnostics(
+  archetype: ArchetypeId,
+  diagnostics: readonly LintError[],
+): Record<string, unknown> {
+  const roots = new Set(
+    diagnostics
+      .map((d) => d.path.split('/')[1])
+      .filter((root): root is string => typeof root === 'string' && root.length > 0),
+  );
+  const full = ARCHETYPE_SCHEMAS[archetype] as {
+    properties: Record<string, unknown>;
+    required?: string[];
+    $defs?: Record<string, unknown>;
+  };
+  const properties = Object.fromEntries(
+    [...roots]
+      .filter((root) => root in full.properties)
+      .map((root) => [root, full.properties[root]]),
+  );
+  if (!Object.keys(properties).length) return pruneUnusedDefs(stageSchema(archetype, 'levels'));
+  return pruneUnusedDefs({
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    title: `Sparkade ${archetype} document repair fragment`,
+    type: 'object',
+    properties,
+    required: (full.required ?? []).filter((root) => roots.has(root)),
+    additionalProperties: true,
+    $defs: structuredClone(full.$defs ?? {}),
+  });
+}
+
+function repairContext(
+  invalidJson: unknown,
+  diagnostics: readonly LintError[],
+  owner: RepairOwner,
+): unknown {
+  if (!invalidJson || typeof invalidJson !== 'object') return invalidJson;
+  const doc = invalidJson as Record<string, unknown>;
+  if (owner === 'music') return { music: doc['music'] };
+  if (owner === 'entities') {
+    return pick(doc, ['sprites', 'boss', 'sfx', 'backdrop', 'weather', 'lighting', 'juice']);
+  }
+  if (owner === 'levels') {
+    const levels = Array.isArray(doc['levels']) ? doc['levels'] : [];
+    const indexes = new Set<number>();
+    for (const diagnostic of diagnostics) {
+      const match = /^\/levels\/(\d+)/.exec(diagnostic.path);
+      if (match) indexes.add(Number(match[1]));
+    }
+    const selected = indexes.size
+      ? Object.fromEntries([...indexes].sort((a, b) => a - b).map((i) => [String(i), levels[i]]))
+      : Object.fromEntries(
+          levels.map((level, i) => [
+            String(i),
+            level && typeof level === 'object'
+              ? summarizeLevel(level as Record<string, unknown>, false)
+              : level,
+          ]),
+        );
+    const songs =
+      doc['music'] && typeof doc['music'] === 'object'
+        ? Object.keys(
+            ((doc['music'] as Record<string, unknown>)['songs'] as object | undefined) ?? {},
+          )
+        : [];
+    return {
+      levelsByOriginalIndex: selected,
+      ...(doc['player'] !== undefined ? { player: doc['player'] } : {}),
+      availableMusicSongs: songs,
+    };
+  }
+  const roots = [
+    ...new Set(
+      diagnostics
+        .map((d) => d.path.split('/')[1])
+        .filter((root): root is string => typeof root === 'string' && root.length > 0),
+    ),
+  ];
+  return pick(doc, roots);
+}
+
+function summarizeLevel(
+  level: Record<string, unknown>,
+  includeTiles: boolean,
+): Record<string, unknown> {
+  const summary = { ...level };
+  if (!includeTiles && Array.isArray(summary['tiles'])) {
+    const rows = summary['tiles'] as unknown[];
+    summary['tileShape'] = {
+      rows: rows.length,
+      widths: [
+        ...new Set(rows.filter((r): r is string => typeof r === 'string').map((r) => r.length)),
+      ],
+    };
+    delete summary['tiles'];
+  }
+  return summary;
+}
+
+function pick(source: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+  return Object.fromEntries(keys.filter((key) => key in source).map((key) => [key, source[key]]));
 }
 
 /** Golden excerpts require golden files on disk; degrade to a note if absent. */
-function safeExcerpt(archetype: ArchetypeId, stage: 'design' | 'levels' | 'entities' | 'music'): string {
+function safeExcerpt(
+  archetype: ArchetypeId,
+  stage: 'design' | 'levels' | 'entities' | 'music',
+): string {
   try {
     return goldenExcerpt(archetype, stage);
   } catch {

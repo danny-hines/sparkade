@@ -13,6 +13,7 @@ import {
   nearestMood,
   paletteProblems,
   SPEC_VERSION,
+  stageSchema,
   type ArchetypeId,
   type DesignDoc,
   type GameMetaFile,
@@ -41,30 +42,44 @@ import {
 } from '../providers/index';
 import type { ConfigStore } from '../storage/config';
 import type { Db } from '../storage/db';
-import type { GameFiles } from '../storage/files';
+import type { GameFiles, RawStageName } from '../storage/files';
 import { costOf, type PriceSnapshot } from './cost';
 import { applyPatch, PatchError, type JsonPatchOp } from './patch';
 import {
   buildDesignPrompt,
   buildEntitiesPrompt,
+  buildLevelRegenerationPrompt,
   buildLevelsPrompt,
   buildMusicPrompt,
   buildRepairPrompt,
   parseModelJson,
   type RecentUse,
   type BuiltPrompt,
+  type RepairOwner,
 } from './prompts';
+import { compileTileRunsStage, TileRunsError } from './tile-runs';
+import {
+  assertPatchTargetsOwner,
+  diagnosticOwner,
+  diagnosticSignature,
+  diagnosticsForOwner,
+  failingLevelIndexes,
+  groupDiagnostics,
+  repairMadeProgress,
+} from './repair-policy';
 import type { SseHub } from './sse';
 import {
   applySpriteFallbacks,
   applySpriteFallbacksForRepair,
   customBossSpriteDiagnostics,
   ensureLikenessHeroBody,
+  normalizeGeneratedSpec,
   normalizeTileGrids,
   securityScan,
   tooSimilar,
   validateDesignSchema,
   validateGameSchema,
+  validateAgainst,
 } from './validate';
 import { ensureDir, nowIso, sleep } from '../util';
 
@@ -95,6 +110,137 @@ export function enforceRequestedArchetype(
   requestedArchetype?: ArchetypeId,
 ): DesignDoc {
   return requestedArchetype ? { ...design, archetype: requestedArchetype } : design;
+}
+
+function dedupeDiagnostics(diagnostics: readonly LintError[]): LintError[] {
+  const seen = new Set<string>();
+  return diagnostics.filter((diagnostic) => {
+    const key = `${diagnostic.code}\u0000${diagnostic.path}\u0000${diagnostic.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function compileGeneratedLevels(
+  archetype: ArchetypeId,
+  output: unknown,
+  requireCompact = false,
+): unknown {
+  if (archetype !== 'platformer' && archetype !== 'hshooter') return output;
+  if (requireCompact) {
+    const levels = Array.isArray(output) ? output : isRecord(output) ? output['levels'] : null;
+    if (!Array.isArray(levels)) throw new TileRunsError('$.levels', 'expected an array');
+    levels.forEach((level, index) => {
+      if (!isRecord(level) || !Object.prototype.hasOwnProperty.call(level, 'tileRuns')) {
+        throw new TileRunsError(
+          `$.levels[${index}].tileRuns`,
+          'compact generation output must include tileRuns instead of tiles',
+        );
+      }
+    });
+  }
+  return compileTileRunsStage(archetype, output, { normalizeWidths: true });
+}
+
+function compileGeneratedLevel(archetype: ArchetypeId, level: unknown): unknown {
+  if (archetype !== 'platformer' && archetype !== 'hshooter') return level;
+  if (!isRecord(level) || !Object.prototype.hasOwnProperty.call(level, 'tileRuns')) {
+    throw new TileRunsError(
+      '$.levels[0].tileRuns',
+      'compact generation output must include tileRuns instead of tiles',
+    );
+  }
+  const compiled = compileTileRunsStage(
+    archetype,
+    { levels: [level] },
+    { normalizeWidths: true },
+  ) as { levels: unknown[] };
+  return compiled.levels[0];
+}
+
+function canonicalLevelsFallback(
+  archetype: ArchetypeId,
+  output: unknown,
+  compactError: TileRunsError,
+): unknown {
+  const canonical = compileGeneratedLevels(archetype, output);
+  const errors = validateAgainst(
+    `canonical-fallback:${archetype}:levels`,
+    stageSchema(archetype, 'levels'),
+    canonical,
+  );
+  if (errors.length) throw compactError;
+  return canonical;
+}
+
+function canonicalLevelFallback(level: unknown, compactError: TileRunsError): unknown {
+  if (
+    isRecord(level) &&
+    Array.isArray(level['tiles']) &&
+    !Object.prototype.hasOwnProperty.call(level, 'tileRuns')
+  ) {
+    return level;
+  }
+  throw compactError;
+}
+
+function tileRunsDiagnostic(error: TileRunsError, levelIndex?: number): LintError {
+  let pointer = error.path
+    .replace(/^\$\.?/, '/')
+    .replace(/\[(\d+)\]/g, '/$1')
+    .replace(/\./g, '/')
+    .replace(/\/{2,}/g, '/');
+  if (levelIndex !== undefined) {
+    pointer = pointer.replace(/^\/levels\/0(?=\/|$)/, `/levels/${levelIndex}`);
+  }
+  return {
+    code: 'TILE_RUNS_INVALID',
+    path: pointer.startsWith('/') ? pointer : '/levels',
+    message: error.message,
+  };
+}
+
+export function designOutputDiagnostics(raw: unknown): LintError[] {
+  const schema = validateDesignSchema(raw);
+  if (schema.length || !isRecord(raw)) return schema;
+  // Reuse the same inert-string scan applied to the assembled game. Supplying
+  // an empty sprite roster keeps design fields at their natural JSON paths.
+  return securityScan({
+    ...raw,
+    sprites: { custom: {}, assign: {} },
+  } as unknown as GameSpec);
+}
+
+/**
+ * A JSON parse failure at the model's completion ceiling is usually truncation,
+ * not a request that benefits from repeating the same ceiling. Grow only the
+ * retry allowance, conservatively and with a hard +4k cap, so a rare malformed
+ * response cannot turn into an unbounded generation bill.
+ */
+export function parseRetryTokenBudget(baseTokens: number, retryAttempt: number): number {
+  const base = Number.isFinite(baseTokens) ? Math.max(1, Math.round(baseTokens)) : 1;
+  const attempt = Number.isFinite(retryAttempt) ? Math.max(1, Math.floor(retryAttempt)) : 1;
+  return Math.min(base + 4000, Math.ceil(base * (1 + attempt * 0.25)));
+}
+
+/**
+ * Level geometry already gets its creative direction from the design pass.
+ * Live Muse runs at temperature 1 spent 10.5k tokens and truncated, while the
+ * otherwise identical temperature-0 retries completed in 6.5-7.1k tokens.
+ * Keep that heavy structured stage deterministic from its first call; every
+ * retry remains deterministic for all stages.
+ */
+export function generationTemperature(
+  stage: StageName,
+  retryAttempt: number,
+  requested?: number,
+): number | undefined {
+  return retryAttempt > 0 || stage === 'levels' ? 0 : requested;
 }
 
 interface SpecParts {
@@ -166,9 +312,7 @@ export class GenerationRunner {
         promptText: inputs.promptText,
         sourceKind: inputs.sourceKind,
         ...(inputs.presetId ? { presetId: inputs.presetId } : {}),
-        ...(inputs.requestedArchetype
-          ? { requestedArchetype: inputs.requestedArchetype }
-          : {}),
+        ...(inputs.requestedArchetype ? { requestedArchetype: inputs.requestedArchetype } : {}),
         seed,
         idempotencyKey: inputs.idempotencyKey,
         hasPhoto: !!inputs.photo,
@@ -209,10 +353,10 @@ export class GenerationRunner {
       error: null,
       attempt: job.attempt + 1,
     });
-    // Blank slate: clear the failed attempt's design and its leftover preview so
-    // the generation screen starts fresh (no stale title/palette/sprites/music)
-    // until the new run repopulates them. The photo lives in the same staging
-    // dir and is preserved; cost history is intentionally kept.
+    // Clear only the visible preview. Durable raw checkpoints remain available
+    // to the next attempt, which validates and restores every healthy completed
+    // stage while regenerating the recorded failing owner. The photo and cost
+    // history are preserved as before.
     this.db.resetGameForRetry(gameId, job.promptText.slice(0, 28).trim() || 'New game');
     this.files.clearPartial(job.id);
     this.enqueue(job.id);
@@ -303,6 +447,8 @@ export class GenerationRunner {
         temperature?: number;
         repair?: boolean;
         image?: Buffer;
+        reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
+        checkpoint?: RawStageName;
         label: string;
         stage: JobStage;
       },
@@ -312,6 +458,7 @@ export class GenerationRunner {
         throw new Error(`provider "${providerName}" does not support image input`);
       }
       let attempt = 0;
+      let activePrompt = prompt;
       for (;;) {
         if (abort.signal.aborted)
           throw new PipelineError('timeout', 'generation hit the 8 minute limit', opts.stage);
@@ -319,13 +466,19 @@ export class GenerationRunner {
           const stageCfg = config.stages[stageName];
           const res = await provider.complete(
             {
-              system: prompt.system,
-              user: prompt.user,
-              maxTokens: prompt.maxTokens,
-              temperature: opts.temperature,
-              ...(stageCfg?.reasoningEffort ? { effort: stageCfg.reasoningEffort } : {}),
-              ...(prompt.timeoutMs ? { timeoutMs: prompt.timeoutMs } : {}),
-              ...(provider.capabilities.structuredOutput ? { jsonSchema: prompt.jsonSchema } : {}),
+              system: activePrompt.system,
+              user: activePrompt.user,
+              maxTokens: activePrompt.maxTokens,
+              temperature: generationTemperature(stageName, attempt, opts.temperature),
+              ...(opts.reasoningEffort
+                ? { effort: opts.reasoningEffort }
+                : stageCfg?.reasoningEffort
+                  ? { effort: stageCfg.reasoningEffort }
+                  : {}),
+              ...(activePrompt.timeoutMs ? { timeoutMs: activePrompt.timeoutMs } : {}),
+              ...(provider.capabilities.structuredOutput
+                ? { jsonSchema: activePrompt.jsonSchema }
+                : {}),
               ...(opts.image && provider.capabilities.imageIn ? { image: opts.image } : {}),
             },
             { model, signal: abort.signal },
@@ -344,7 +497,17 @@ export class GenerationRunner {
             repair: opts.repair ?? false,
           });
           emit(opts.stage, opts.label, {});
-          return parseModelJson(res.text);
+          const parsed = parseModelJson(res.text);
+          if (opts.checkpoint) {
+            try {
+              this.files.writeRawStageCheckpoint(jobId, job.attempt, opts.checkpoint, parsed);
+            } catch {
+              // Checkpointing is evidence/resume infrastructure; a full disk or
+              // permissions issue must not turn a valid, already-billed model
+              // response into an identical provider retry.
+            }
+          }
+          return parsed;
         } catch (e) {
           if (abort.signal.aborted)
             throw new PipelineError('timeout', 'generation hit the 8 minute limit', opts.stage);
@@ -377,6 +540,13 @@ export class GenerationRunner {
           });
           if ((transient || parseIssue) && attempt < GENERATION.maxTransientRetriesPerCall) {
             attempt++;
+            if (parseIssue) {
+              activePrompt = {
+                ...prompt,
+                user: `${prompt.user}\n\nRETRY NOTE: The previous response was not valid JSON. Return one complete JSON value matching the response schema, with every string escaped and no prose or markdown.`,
+                maxTokens: parseRetryTokenBudget(prompt.maxTokens, attempt),
+              };
+            }
             const retryAfter =
               e instanceof ProviderHttpError && e.retryAfterS ? e.retryAfterS * 1000 : 0;
             const backoff =
@@ -394,6 +564,36 @@ export class GenerationRunner {
             opts.stage,
           );
         }
+      }
+    };
+    const recordEarlyRepairEvent = (
+      owner: RepairOwner,
+      action: string,
+      before: readonly LintError[],
+      after: readonly LintError[],
+      started: number,
+      outcome: string,
+    ): void => {
+      try {
+        const pass =
+          this.db
+            .repairEventsForJob(jobId)
+            .filter((event) => event.attempt === job.attempt && event.owner === owner)
+            .reduce((max, event) => Math.max(max, event.pass), 0) + 1;
+        this.db.insertRepairEvent({
+          jobId,
+          gameId,
+          attempt: job.attempt,
+          pass,
+          owner,
+          action,
+          diagnosticsBefore: before,
+          diagnosticsAfter: after,
+          elapsedMs: Date.now() - started,
+          outcome,
+        });
+      } catch {
+        /* telemetry must not fail generation */
       }
     };
 
@@ -436,15 +636,49 @@ export class GenerationRunner {
         ? `REQUIRED ARCHETYPE: ${job.requestedArchetype}. Design every level, character, control implication, and story beat for ${job.requestedArchetype}; do not choose a different archetype.`
         : undefined;
 
-      let design = await this.designPass(callLlm, {
-        promptText: job.promptText,
-        hasPhoto: !!photo,
-        describeInStory,
-        antiCollision: existingGames,
-        recentMoods,
-        photo: describeInStory ? photo : undefined,
-        extraNote: requiredArchetypeNote,
-      });
+      const priorAttempt = job.attempt > 1 ? job.attempt - 1 : null;
+      const failedOwnersByAttempt = new Map<number, Set<string>>();
+      for (const event of priorAttempt ? this.db.repairEventsForJob(jobId) : []) {
+        if (
+          event.outcome !== 'failed' ||
+          (event.action !== 'terminal' && event.action !== 'regenerate')
+        ) {
+          continue;
+        }
+        const owners = failedOwnersByAttempt.get(event.attempt) ?? new Set<string>();
+        owners.add(event.owner);
+        failedOwnersByAttempt.set(event.attempt, owners);
+      }
+      let priorDesign: unknown;
+      if (priorAttempt) {
+        for (let attempt = priorAttempt; attempt >= 1 && priorDesign === undefined; attempt--) {
+          // A document failure invalidates the design and everything derived
+          // from it; do not fall through to an even older copy of that design.
+          if (failedOwnersByAttempt.get(attempt)?.has('document')) break;
+          const candidates = this.files
+            .listRawStageCheckpoints(jobId, attempt)
+            .filter((checkpoint) => checkpoint.stage === 'design')
+            .reverse();
+          priorDesign = candidates.find(
+            (checkpoint) => designOutputDiagnostics(checkpoint.document).length === 0,
+          )?.document;
+        }
+      }
+      let design: DesignDoc;
+      if (priorDesign !== undefined) {
+        design = structuredClone(priorDesign) as DesignDoc;
+        emit('designing', 'Resuming the completed design…');
+      } else {
+        design = await this.designPass(callLlm, {
+          promptText: job.promptText,
+          hasPhoto: !!photo,
+          describeInStory,
+          antiCollision: existingGames,
+          recentMoods,
+          photo: describeInStory ? photo : undefined,
+          extraNote: requiredArchetypeNote,
+        });
+      }
       design = enforceRequestedArchetype(design, job.requestedArchetype);
 
       // Similarity gate: too close to an existing game → regenerate the design once.
@@ -488,6 +722,16 @@ export class GenerationRunner {
         const mood = nearestMood(design.palette);
         emit('designing', `Palette adjusted for legibility → ${mood.name}`);
         design = { ...design, palette: [...mood.colors] };
+      }
+      const designMatchesResumedCheckpoint =
+        priorDesign !== undefined && JSON.stringify(design) === JSON.stringify(priorDesign);
+
+      // This revision includes deterministic archetype/palette/collision gates,
+      // so retry resume picks up the actual design used by the stage passes.
+      try {
+        this.files.writeRawStageCheckpoint(jobId, job.attempt, 'design', design);
+      } catch {
+        /* see callLlm checkpoint note */
       }
 
       const archetype = design.archetype;
@@ -535,31 +779,124 @@ export class GenerationRunner {
         emit('writing-spec', `${what} done (${unitsDone}/3)`, { unitsDone, unitsTotal: 3 });
       };
       const parts: SpecParts = {};
-      const results = await Promise.allSettled([
-        callLlm('levels', buildLevelsPrompt(archetype, design), {
+      const resumeStage = (stage: Exclude<RawStageName, 'design'>): unknown | undefined => {
+        if (!priorAttempt || !designMatchesResumedCheckpoint) return undefined;
+        for (let attempt = priorAttempt; attempt >= 1; attempt--) {
+          const failedOwners = failedOwnersByAttempt.get(attempt);
+          if (failedOwners?.has('document') || failedOwners?.has(stage)) continue;
+          const attemptDesign = this.files.readRawStageCheckpoint(jobId, attempt, 'design')?.document;
+          if (JSON.stringify(attemptDesign) !== JSON.stringify(design)) continue;
+          const checkpoints = this.files
+            .listRawStageCheckpoints(jobId, attempt)
+            .filter((checkpoint) => checkpoint.stage === stage)
+            .reverse();
+          for (const checkpoint of checkpoints) {
+            try {
+              const candidate =
+                stage === 'levels'
+                  ? compileGeneratedLevels(archetype, checkpoint.document)
+                  : structuredClone(checkpoint.document);
+              if (
+                validateAgainst(
+                  `resume:${archetype}:${stage}`,
+                  stageSchema(archetype, stage),
+                  candidate,
+                ).length
+              ) {
+                continue;
+              }
+              this.files.writeRawStageCheckpoint(jobId, job.attempt, stage, checkpoint.document);
+              return candidate;
+            } catch {
+              continue;
+            }
+          }
+        }
+        return undefined;
+      };
+      const resumedLevels = resumeStage('levels');
+      const resumedEntities = resumeStage('entities');
+      const resumedMusic = resumeStage('music');
+      const loadLevels = async (): Promise<unknown> => {
+        if (resumedLevels !== undefined) return resumedLevels;
+        const raw = await callLlm('levels', buildLevelsPrompt(archetype, design), {
           stage: 'writing-spec',
+          checkpoint: 'levels',
           label: 'Building levels…',
-        }).then((r) => {
-          const roster = r as { player?: unknown; levels?: unknown };
-          parts.levels = roster.levels ?? r;
-          if (archetype === 'fighter') parts.player = roster.player;
-          tick('Levels');
+        });
+        try {
+          return compileGeneratedLevels(archetype, raw, true);
+        } catch (error) {
+          if (!(error instanceof TileRunsError)) throw error;
+          const diagnostic = tileRunsDiagnostic(error);
+          const retryStarted = Date.now();
+          try {
+            const retryRaw = await callLlm(
+              'levels',
+              buildLevelsPrompt(archetype, design, [diagnostic]),
+              {
+                stage: 'writing-spec',
+                checkpoint: 'levels',
+                label: 'Correcting compact level rows…',
+                reasoningEffort: 'minimal',
+              },
+            );
+            let compiled: unknown;
+            try {
+              compiled = compileGeneratedLevels(archetype, retryRaw, true);
+            } catch (retryError) {
+              if (!(retryError instanceof TileRunsError)) throw retryError;
+              compiled = canonicalLevelsFallback(archetype, retryRaw, retryError);
+            }
+            recordEarlyRepairEvent('levels', 'compile-retry', [diagnostic], [], retryStarted, 'fixed');
+            return compiled;
+          } catch (retryError) {
+            const after =
+              retryError instanceof TileRunsError
+                ? [tileRunsDiagnostic(retryError)]
+                : [diagnostic];
+            recordEarlyRepairEvent(
+              'levels',
+              'compile-retry',
+              [diagnostic],
+              after,
+              retryStarted,
+              'failed',
+            );
+            throw retryError;
+          }
+        }
+      };
+      const results = await Promise.allSettled([
+        loadLevels().then((canonical) => {
+          const roster = isRecord(canonical) ? canonical : null;
+          parts.levels = roster?.['levels'] ?? canonical;
+          if (archetype === 'fighter') parts.player = roster?.['player'];
+          tick(resumedLevels !== undefined ? 'Levels restored' : 'Levels');
         }),
-        callLlm('entities', buildEntitiesPrompt(archetype, design, !!photo, recentUse), {
-          stage: 'writing-spec',
-          label: 'Casting entities…',
-        }).then((r) => {
+        (resumedEntities !== undefined
+          ? Promise.resolve(resumedEntities)
+          : callLlm('entities', buildEntitiesPrompt(archetype, design, !!photo, recentUse), {
+              stage: 'writing-spec',
+              checkpoint: 'entities',
+              label: 'Casting entities…',
+            })
+        ).then((r) => {
           parts.entities = r as SpecParts['entities'];
           pushPartial({ sprites: parts.entities?.sprites as PartialSpec['sprites'] });
-          tick('Entities');
+          tick(resumedEntities !== undefined ? 'Entities restored' : 'Entities');
         }),
-        callLlm('music', buildMusicPrompt(archetype, design), {
-          stage: 'writing-spec',
-          label: 'Composing music…',
-        }).then((r) => {
-          parts.music = (r as { music: unknown }).music ?? r;
+        (resumedMusic !== undefined
+          ? Promise.resolve(resumedMusic)
+          : callLlm('music', buildMusicPrompt(archetype, design), {
+              stage: 'writing-spec',
+              checkpoint: 'music',
+              label: 'Composing music…',
+            })
+        ).then((r) => {
+          parts.music = isRecord(r) ? (r['music'] ?? r) : r;
           pushPartial({ music: parts.music as PartialSpec['music'] });
-          tick('Music');
+          tick(resumedMusic !== undefined ? 'Music restored' : 'Music');
         }),
       ]);
       const firstFailure = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
@@ -576,6 +913,7 @@ export class GenerationRunner {
         emit,
         !!photo,
         recentUse,
+        { jobId, gameId, attempt: job.attempt },
       );
       spec = ensureLikenessHeroBody(spec, !!photo);
 
@@ -658,9 +996,7 @@ export class GenerationRunner {
         sourcePrompt: job.promptText,
         sourceKind: job.sourceKind,
         ...(job.presetId ? { presetId: job.presetId } : {}),
-        ...(job.requestedArchetype
-          ? { requestedArchetype: job.requestedArchetype }
-          : {}),
+        ...(job.requestedArchetype ? { requestedArchetype: job.requestedArchetype } : {}),
         hadPhoto: !!photo,
         model: stageCfg.model,
         provider: process.env.SPARKADE_PROVIDER ?? stageCfg.provider,
@@ -748,6 +1084,8 @@ export class GenerationRunner {
         temperature?: number;
         repair?: boolean;
         image?: Buffer;
+        reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
+        checkpoint?: RawStageName;
         label: string;
         stage: JobStage;
       },
@@ -766,9 +1104,10 @@ export class GenerationRunner {
     let raw = await callLlm('design', prompt, {
       label: 'Design drafted',
       stage: 'designing',
+      checkpoint: 'design',
       ...(opts.photo ? { image: opts.photo } : {}),
     });
-    let errors = validateDesignSchema(raw);
+    let errors = designOutputDiagnostics(raw);
     if (errors.length) {
       const retryPrompt = buildDesignPrompt({
         ...opts,
@@ -785,9 +1124,10 @@ export class GenerationRunner {
       raw = await callLlm('design', retryPrompt, {
         label: 'Design redrafted',
         stage: 'designing',
+        checkpoint: 'design',
         ...(opts.photo ? { image: opts.photo } : {}),
       });
-      errors = validateDesignSchema(raw);
+      errors = designOutputDiagnostics(raw);
       if (errors.length) {
         throw new PipelineError(
           'design-invalid',
@@ -839,15 +1179,21 @@ export class GenerationRunner {
 
   private collectDiagnostics(spec: GameSpec, archetype: ArchetypeId): LintError[] {
     const schemaErrors = validateGameSchema(archetype, spec);
-    if (schemaErrors.length) return schemaErrors;
     const scan = securityScan(spec);
-    if (scan.length) return scan;
+    // Semantic linters assume schema-valid input, but independent security
+    // findings should not be hidden behind a schema failure. Once schema-safe,
+    // collect every independent diagnostic in one pass so a malformed custom
+    // boss cannot mask a broken level until the next paid repair call.
+    if (schemaErrors.length) return dedupeDiagnostics([...schemaErrors, ...scan]);
     const bossSpriteErrors = customBossSpriteDiagnostics(spec);
-    if (bossSpriteErrors.length) return bossSpriteErrors;
-    return archetypes[archetype].lint(spec);
+    return dedupeDiagnostics([...scan, ...bossSpriteErrors, ...archetypes[archetype].lint(spec)]);
   }
 
-  /** Validate → repair (≤2) → regenerate failing stages once → repair (≤2) → fail. */
+  /**
+   * Normalize deterministic defects, then repair independently-owned document
+   * regions. A stalled/no-op owner immediately advances to regeneration rather
+   * than spending the same prompt twice. Only failed levels are regenerated.
+   */
   private async validateAndRepair(
     input: GameSpec,
     archetype: ArchetypeId,
@@ -855,124 +1201,473 @@ export class GenerationRunner {
     callLlm: (
       stage: StageName,
       prompt: BuiltPrompt,
-      opts: { temperature?: number; repair?: boolean; label: string; stage: JobStage },
+      opts: {
+        temperature?: number;
+        repair?: boolean;
+        reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
+        checkpoint?: RawStageName;
+        label: string;
+        stage: JobStage;
+      },
     ) => Promise<unknown>,
     emit: (stage: JobStage, detail: string) => void,
     hasPhoto: boolean,
     recentUse?: RecentUse,
+    repairContext?: { jobId: string; gameId: string; attempt: number },
   ): Promise<GameSpec> {
     const fallbackOptions = { recentBosses: recentUse?.bosses };
-    const prepareForRepair = (candidate: GameSpec): GameSpec =>
-      applySpriteFallbacksForRepair(normalizeTileGrids(candidate), fallbackOptions);
-    let spec = prepareForRepair(input);
+    const passByOwner = new Map<string, number>();
+    if (repairContext) {
+      try {
+        for (const event of this.db.repairEventsForJob(repairContext.jobId)) {
+          if (event.attempt !== repairContext.attempt) continue;
+          passByOwner.set(event.owner, Math.max(passByOwner.get(event.owner) ?? 0, event.pass));
+        }
+      } catch {
+        /* telemetry continuity is best-effort */
+      }
+    }
+    const nextPass = (owner: string): number => {
+      const pass = (passByOwner.get(owner) ?? 0) + 1;
+      passByOwner.set(owner, pass);
+      return pass;
+    };
+    const outcomeOf = (before: readonly LintError[], after: readonly LintError[]): string =>
+      after.length === 0
+        ? 'fixed'
+        : after.length < before.length
+          ? 'improved'
+          : diagnosticSignature(after) === diagnosticSignature(before)
+            ? 'unchanged'
+            : after.length > before.length
+              ? 'worsened'
+              : 'changed';
+    const record = (
+      owner: string,
+      action: string,
+      before: readonly LintError[],
+      after: readonly LintError[],
+      patch: unknown,
+      startedAt: number,
+      outcome = outcomeOf(before, after),
+    ): void => {
+      if (!repairContext) return;
+      try {
+        this.db.insertRepairEvent({
+          ...repairContext,
+          pass: nextPass(owner),
+          owner,
+          action,
+          diagnosticsBefore: before,
+          diagnosticsAfter: after,
+          patch,
+          elapsedMs: Date.now() - startedAt,
+          outcome,
+        });
+      } catch {
+        // Telemetry must never make a playable spec fail validation.
+      }
+    };
+    const prepareForRepair = (
+      candidate: GameSpec,
+    ): { spec: GameSpec; fixes: ReturnType<typeof normalizeGeneratedSpec>['fixes'] } => {
+      // Normalizers intentionally operate on the richer GameSpec types, while
+      // this boundary also receives schema-invalid model output. Never let a
+      // missing nested array/object bypass the diagnostics and repair path by
+      // throwing from a deterministic cleanup first.
+      let normalized: ReturnType<typeof normalizeGeneratedSpec>;
+      try {
+        normalized = normalizeGeneratedSpec(candidate);
+      } catch {
+        normalized = { spec: candidate, fixes: [] };
+      }
+      try {
+        return {
+          spec: applySpriteFallbacksForRepair(normalized.spec, fallbackOptions),
+          fixes: normalized.fixes,
+        };
+      } catch {
+        return normalized;
+      }
+    };
+    const applyFallbacksSafely = (
+      candidate: GameSpec,
+    ): ReturnType<typeof applySpriteFallbacks> => {
+      try {
+        return applySpriteFallbacks(normalizeTileGrids(candidate), fallbackOptions);
+      } catch {
+        // A schema-invalid owner must reach owner regeneration. Sprite/grid
+        // downgrade helpers are opportunistic and cannot assume it is valid.
+        return { spec: candidate, downgraded: [] };
+      }
+    };
+
+    const initialDiagnostics = this.collectDiagnostics(input, archetype);
+    const initialPrepareStarted = Date.now();
+    const prepared = prepareForRepair(input);
+    let spec = prepared.spec;
     let diagnostics = this.collectDiagnostics(spec, archetype);
+    if (prepared.fixes.length || JSON.stringify(spec) !== JSON.stringify(input)) {
+      const owners = new Set<RepairOwner>(
+        prepared.fixes.map((fix) =>
+          diagnosticOwner({ code: fix.code, path: fix.path, message: fix.message }),
+        ),
+      );
+      const ownersToRecord: RepairOwner[] = owners.size ? [...owners] : ['entities'];
+      for (const owner of ownersToRecord) {
+        record(
+          owner,
+          'normalize',
+          diagnosticsForOwner(initialDiagnostics, owner),
+          diagnosticsForOwner(diagnostics, owner),
+          prepared.fixes.filter(
+            (fix) =>
+              diagnosticsForOwner([{ code: fix.code, path: fix.path, message: fix.message }], owner)
+                .length > 0,
+          ),
+          initialPrepareStarted,
+        );
+      }
+    }
     if (!diagnostics.length) return spec;
 
-    let repairsUsed = 0;
-    const tryRepairs = async (budget: number): Promise<boolean> => {
-      for (let i = 0; i < budget && diagnostics.length; i++) {
-        repairsUsed++;
-        emit(
-          'repairing',
-          `Repair attempt ${repairsUsed}/2 — fixing ${diagnostics.length} issue(s)…`,
-        );
-        const prompt = buildRepairPrompt(archetype, spec, diagnostics);
+    const stalledRepairOwners = new Set<RepairOwner>();
+    let modelRepairCalls = 0;
+    // Owner fairness without an unbounded 4 owners × 2 passes × cleanup bill.
+    // Regeneration remains available after this surgical-call ceiling.
+    const maxModelRepairCalls = 5;
+    const tryOwnerRepairs = async (owner: RepairOwner, budget: number): Promise<void> => {
+      if (stalledRepairOwners.has(owner)) return;
+      for (let i = 0; i < budget && modelRepairCalls < maxModelRepairCalls; i++) {
+        const before = diagnosticsForOwner(diagnostics, owner);
+        if (!before.length) return;
+        emit('repairing', `Repairing ${owner} (${i + 1}/${budget}) — ${before.length} issue(s)…`);
+        const prompt = buildRepairPrompt(archetype, spec, before, owner);
+        const started = Date.now();
         try {
+          modelRepairCalls++;
           const patch = (await callLlm('repair', prompt, {
             temperature: 0,
             repair: true,
+            reasoningEffort: 'minimal',
             label: 'Patch applied',
             stage: 'repairing',
           })) as JsonPatchOp[];
-          spec = prepareForRepair(applyPatch(spec, patch));
-          diagnostics = this.collectDiagnostics(spec, archetype);
+          assertPatchTargetsOwner(patch, owner, before);
+          const patched = applyPatch(spec, patch);
+          if (JSON.stringify(patched) === JSON.stringify(spec)) {
+            record(owner, 'model-repair', before, before, patch, started, 'unchanged');
+            stalledRepairOwners.add(owner);
+            return;
+          }
+          const nextPrepared = prepareForRepair(patched);
+          const nextDiagnostics = this.collectDiagnostics(nextPrepared.spec, archetype);
+          const after = diagnosticsForOwner(nextDiagnostics, owner);
+          const progress = repairMadeProgress(before, after);
+          record(
+            owner,
+            'model-repair',
+            before,
+            after,
+            { operations: patch, normalizationFixes: nextPrepared.fixes },
+            started,
+            outcomeOf(before, after),
+          );
+          if (after.length === 0 || progress) {
+            spec = nextPrepared.spec;
+            diagnostics = nextDiagnostics;
+          }
+          if (after.length === 0) return;
+          if (!progress) {
+            stalledRepairOwners.add(owner);
+            return;
+          }
         } catch (e) {
-          if (e instanceof PatchError) {
-            // Bad patch: count the attempt, keep the previous spec.
-            continue;
+          const recoverableProviderFailure =
+            e instanceof PipelineError && ['provider-error', 'call-timeout'].includes(e.code);
+          if (e instanceof PatchError || recoverableProviderFailure) {
+            record(owner, 'model-repair', before, before, null, started, 'failed');
+            stalledRepairOwners.add(owner);
+            return;
           }
           throw e;
         }
       }
-      return diagnostics.length === 0;
+    };
+    const repairOwners = async (budget: number): Promise<void> => {
+      const priority: RepairOwner[] = ['document', 'entities', 'music', 'levels'];
+      for (let round = 0; round < budget && modelRepairCalls < maxModelRepairCalls; round++) {
+        for (const owner of priority) {
+          if (modelRepairCalls >= maxModelRepairCalls) return;
+          await tryOwnerRepairs(owner, 1);
+        }
+      }
     };
 
-    if (await tryRepairs(GENERATION.maxRepairAttemptsPerStage)) return spec;
+    await repairOwners(GENERATION.maxRepairAttemptsPerStage);
+    if (!diagnostics.length) return spec;
 
-    // The authored boss has had its repair budget. Deliberately downgrade it
-    // now rather than silently deleting it before repair (the old behavior).
-    // Other outstanding diagnostics can still trigger their owning stage's
-    // regeneration below.
-    let fallbackResult = applySpriteFallbacks(normalizeTileGrids(spec), fallbackOptions);
+    // Authored sprite problems have now had a surgical repair opportunity.
+    // Downgrade only the still-invalid art before spending on regeneration.
+    const fallbackBefore = diagnostics;
+    const fallbackStarted = Date.now();
+    let fallbackResult = applyFallbacksSafely(spec);
     spec = fallbackResult.spec;
     diagnostics = this.collectDiagnostics(spec, archetype);
+    if (fallbackResult.downgraded.length) {
+      record(
+        'entities',
+        'fallback',
+        diagnosticsForOwner(fallbackBefore, 'entities'),
+        diagnosticsForOwner(diagnostics, 'entities'),
+        fallbackResult.downgraded,
+        fallbackStarted,
+      );
+    }
     const bossDowngrade = fallbackResult.downgraded.find((message) =>
       message.startsWith('assign.boss fell back'),
     );
     if (bossDowngrade) emit('validating', `Authored boss could not be repaired; ${bossDowngrade}.`);
     if (!diagnostics.length) return spec;
 
-    // One full regeneration of the stages that own the remaining errors.
-    const owners = new Set<'levels' | 'entities' | 'music'>();
-    for (const d of diagnostics) {
-      if (d.path.startsWith('/levels') || d.path.startsWith('/player')) owners.add('levels');
-      else if (d.path.startsWith('/music')) owners.add('music');
-      else if (
-        d.path.startsWith('/sprites') ||
-        d.path.startsWith('/boss') ||
-        d.path.startsWith('/sfx') ||
-        d.path.startsWith('/backdrop') ||
-        d.path.startsWith('/weather')
-      )
-        owners.add('entities');
-      else owners.add('levels'); // duration/floors and cross-cutting issues are level-shaped
-    }
-    emit('writing-spec', `Regenerating ${[...owners].join(' + ')}…`);
-    for (const owner of owners) {
-      if (owner === 'levels') {
-        const r = (await callLlm('levels', buildLevelsPrompt(archetype, design), {
-          label: 'Levels rebuilt',
-          stage: 'writing-spec',
-        })) as { player?: unknown; levels?: unknown };
-        spec = {
-          ...spec,
-          ...(archetype === 'fighter' && r.player ? { player: r.player as never } : {}),
-          levels: (r.levels ?? r) as never,
-        };
-      } else if (owner === 'entities') {
-        const r = (await callLlm(
+    // Recompute after every stage: fixing a schema-invalid owner can uncover
+    // semantic diagnostics in another owner that the linter could not safely
+    // inspect before. Each owner gets at most one regeneration in this pass.
+    const regeneratedOwners = new Set<RepairOwner>();
+    for (;;) {
+      const owner = (['levels', 'entities', 'music'] as const).find(
+        (candidate) =>
+          !regeneratedOwners.has(candidate) &&
+          diagnosticsForOwner(diagnostics, candidate).length > 0,
+      );
+      if (!owner) break;
+      regeneratedOwners.add(owner);
+      const before = diagnosticsForOwner(diagnostics, owner);
+      emit('writing-spec', `Regenerating ${owner}…`);
+      const started = Date.now();
+      try {
+        if (owner === 'levels') {
+        const levelCount = Array.isArray(spec.levels) ? spec.levels.length : 0;
+        const indexes = failingLevelIndexes(before).filter((index) => index < levelCount);
+        const onlyIndexedFailures =
+          indexes.length > 0 &&
+          before.every((diagnostic) =>
+            indexes.some((index) => diagnostic.path.startsWith(`/levels/${index}`)),
+          );
+        if (
+          onlyIndexedFailures &&
+          (indexes.length < levelCount || levelCount === 1)
+        ) {
+          const currentLevels = structuredClone(spec.levels) as unknown[];
+          const replacements = await Promise.all(
+            indexes.map(async (index) => {
+              const levelDiagnostics = before.filter((diagnostic) =>
+                diagnostic.path.startsWith(`/levels/${index}`),
+              );
+              const requestReplacement = (issues: readonly LintError[], label: string) =>
+                callLlm(
+                  'levels',
+                  buildLevelRegenerationPrompt(
+                    archetype,
+                    design,
+                    index,
+                    currentLevels,
+                    issues,
+                  ),
+                  { label, stage: 'writing-spec', reasoningEffort: 'minimal' },
+                );
+              const checkpointReplacement = (document: unknown): void => {
+                try {
+                  if (repairContext) {
+                    this.files.writeRawStageCheckpoint(
+                      repairContext.jobId,
+                      repairContext.attempt,
+                      'levels',
+                      document,
+                    );
+                  }
+                } catch {
+                  /* best-effort raw evidence */
+                }
+              };
+              let raw = await requestReplacement(
+                levelDiagnostics,
+                `Level ${index + 1} rebuilt`,
+              );
+              checkpointReplacement(raw);
+              try {
+                const level = isRecord(raw) ? (raw['level'] ?? raw) : raw;
+                return [index, compileGeneratedLevel(archetype, level)] as const;
+              } catch (error) {
+                if (!(error instanceof TileRunsError)) throw error;
+                const compileDiagnostic = tileRunsDiagnostic(error, index);
+                const retryStarted = Date.now();
+                raw = await requestReplacement(
+                  [...levelDiagnostics, compileDiagnostic],
+                  `Level ${index + 1} rows corrected`,
+                );
+                checkpointReplacement(raw);
+                const level = isRecord(raw) ? (raw['level'] ?? raw) : raw;
+                let replacement: unknown;
+                try {
+                  replacement = compileGeneratedLevel(archetype, level);
+                } catch (retryError) {
+                  if (!(retryError instanceof TileRunsError)) throw retryError;
+                  replacement = canonicalLevelFallback(level, retryError);
+                }
+                record('levels', 'compile-retry', [compileDiagnostic], [], null, retryStarted, 'fixed');
+                return [index, replacement] as const;
+              }
+            }),
+          );
+          const levels = structuredClone(spec.levels) as unknown[];
+          for (const [index, replacement] of replacements) levels[index] = replacement;
+          spec = { ...spec, levels: levels as never };
+          try {
+            if (repairContext) {
+              this.files.writeRawStageCheckpoint(
+                repairContext.jobId,
+                repairContext.attempt,
+                'levels',
+                {
+                  ...(archetype === 'fighter' && 'player' in spec ? { player: spec.player } : {}),
+                  levels,
+                },
+              );
+            }
+          } catch {
+            /* best-effort canonical checkpoint */
+          }
+        } else {
+          let raw = await callLlm('levels', buildLevelsPrompt(archetype, design, before), {
+            label: 'Levels rebuilt',
+            stage: 'writing-spec',
+            checkpoint: 'levels',
+            reasoningEffort: 'minimal',
+          });
+          let canonical: unknown;
+          try {
+            canonical = compileGeneratedLevels(archetype, raw, true);
+          } catch (error) {
+            if (!(error instanceof TileRunsError)) throw error;
+            const compileDiagnostic = tileRunsDiagnostic(error);
+            const retryStarted = Date.now();
+            raw = await callLlm(
+              'levels',
+              buildLevelsPrompt(archetype, design, [...before, compileDiagnostic]),
+              {
+                label: 'Correcting rebuilt level rows…',
+                stage: 'writing-spec',
+                checkpoint: 'levels',
+                reasoningEffort: 'minimal',
+              },
+            );
+            try {
+              canonical = compileGeneratedLevels(archetype, raw, true);
+            } catch (retryError) {
+              if (!(retryError instanceof TileRunsError)) throw retryError;
+              canonical = canonicalLevelsFallback(archetype, raw, retryError);
+            }
+            record('levels', 'compile-retry', [compileDiagnostic], [], null, retryStarted, 'fixed');
+          }
+          const roster = isRecord(canonical) ? canonical : null;
+          spec = {
+            ...spec,
+            ...(archetype === 'fighter' && roster?.['player']
+              ? { player: roster['player'] as never }
+              : {}),
+            levels: (roster?.['levels'] ?? canonical) as never,
+          };
+        }
+        } else if (owner === 'entities') {
+        const raw = await callLlm(
           'entities',
-          buildEntitiesPrompt(archetype, design, hasPhoto, recentUse),
-          { label: 'Entities recast', stage: 'writing-spec' },
-        )) as SpecParts['entities'];
+          buildEntitiesPrompt(archetype, design, hasPhoto, recentUse, before),
+          {
+            label: 'Entities recast',
+            stage: 'writing-spec',
+            checkpoint: 'entities',
+            reasoningEffort: 'minimal',
+          },
+        );
+        const r = isRecord(raw) ? raw : {};
+        const {
+          sprites: _sprites,
+          boss: _boss,
+          sfx: _sfx,
+          backdrop: _backdrop,
+          weather: _weather,
+          lighting: _lighting,
+          juice: _juice,
+          ...unowned
+        } = spec;
         spec = {
-          ...spec,
-          sprites: r!.sprites as GameSpec['sprites'],
-          boss: r!.boss as never,
-          ...(r!.sfx ? { sfx: r!.sfx as GameSpec['sfx'] } : {}),
-          ...(r!.backdrop ? { backdrop: r!.backdrop as never } : {}),
-          ...(r!.weather ? { weather: r!.weather as GameSpec['weather'] } : {}),
-          ...(r!.lighting ? { lighting: r!.lighting as GameSpec['lighting'] } : {}),
-          ...(r!.juice !== undefined ? { juice: r!.juice as GameSpec['juice'] } : {}),
+          ...unowned,
+          sprites: r['sprites'] as GameSpec['sprites'],
+          boss: r['boss'] as never,
+          ...(r['sfx'] ? { sfx: r['sfx'] as GameSpec['sfx'] } : {}),
+          ...(r['backdrop'] ? { backdrop: r['backdrop'] as never } : {}),
+          ...(r['weather'] ? { weather: r['weather'] as GameSpec['weather'] } : {}),
+          ...(r['lighting'] ? { lighting: r['lighting'] as GameSpec['lighting'] } : {}),
+          ...(r['juice'] !== undefined ? { juice: r['juice'] as GameSpec['juice'] } : {}),
         };
-      } else {
-        const r = (await callLlm('music', buildMusicPrompt(archetype, design), {
+        } else {
+        const raw = await callLlm('music', buildMusicPrompt(archetype, design, before), {
           label: 'Music recomposed',
           stage: 'writing-spec',
-        })) as { music: unknown };
-        spec = { ...spec, music: (r.music ?? r) as never };
+          checkpoint: 'music',
+          reasoningEffort: 'minimal',
+        });
+        spec = { ...spec, music: (isRecord(raw) ? (raw['music'] ?? raw) : raw) as never };
+        }
+        const regenerated = prepareForRepair(spec);
+        spec = regenerated.spec;
+        diagnostics = this.collectDiagnostics(spec, archetype);
+        record(
+          owner,
+          'regenerate',
+          before,
+          diagnosticsForOwner(diagnostics, owner),
+          { normalizationFixes: regenerated.fixes },
+          started,
+        );
+        stalledRepairOwners.delete(owner);
+      } catch (error) {
+        record(
+          owner,
+          'regenerate',
+          before,
+          before,
+          { error: error instanceof Error ? error.message : String(error) },
+          started,
+          'failed',
+        );
+        throw error;
       }
     }
-    spec = prepareForRepair(spec);
-    diagnostics = this.collectDiagnostics(spec, archetype);
     if (!diagnostics.length) return spec;
 
-    repairsUsed = 0;
-    if (await tryRepairs(GENERATION.maxRepairAttemptsPerStage)) return spec;
+    // A fresh stage gets one surgical cleanup. A second attempt is deliberately
+    // avoided here: if a regeneration plus one patch still cannot satisfy the
+    // same owner, historical data shows another identical repair is poor value.
+    await repairOwners(1);
+    if (!diagnostics.length) return spec;
 
-    fallbackResult = applySpriteFallbacks(normalizeTileGrids(spec), fallbackOptions);
+    const finalFallbackBefore = diagnostics;
+    const finalFallbackStarted = Date.now();
+    fallbackResult = applyFallbacksSafely(spec);
     spec = fallbackResult.spec;
     diagnostics = this.collectDiagnostics(spec, archetype);
+    if (fallbackResult.downgraded.length) {
+      record(
+        'entities',
+        'fallback',
+        diagnosticsForOwner(finalFallbackBefore, 'entities'),
+        diagnosticsForOwner(diagnostics, 'entities'),
+        fallbackResult.downgraded,
+        finalFallbackStarted,
+      );
+    }
     const regeneratedBossDowngrade = fallbackResult.downgraded.find((message) =>
       message.startsWith('assign.boss fell back'),
     );
@@ -980,6 +1675,10 @@ export class GenerationRunner {
       emit('validating', `Authored boss could not be repaired; ${regeneratedBossDowngrade}.`);
     }
     if (!diagnostics.length) return spec;
+
+    for (const [owner, ownerDiagnostics] of groupDiagnostics(diagnostics)) {
+      record(owner, 'terminal', ownerDiagnostics, ownerDiagnostics, null, Date.now(), 'failed');
+    }
 
     const summary = diagnostics
       .slice(0, 5)

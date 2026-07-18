@@ -6,7 +6,11 @@ describe('prompt templates', () => {
     // Variable content (player request, design doc, diagnostics) lives in the
     // USER message so the system prompt stays byte-identical → prefix-cacheable.
     const vars: Record<string, Record<string, string>> = {
-      design: { GOLDEN_EXCERPT: '{}', PALETTE_COOKBOOK: '- Ember Dusk — warm', SCHEMA: '{"type":"object"}' },
+      design: {
+        GOLDEN_EXCERPT: '{}',
+        PALETTE_COOKBOOK: '- Ember Dusk — warm',
+        SCHEMA: '{"type":"object"}',
+      },
       'levels-platformer': { GOLDEN_EXCERPT: '{}', SCHEMA: '{}' },
       'levels-shooter': { GOLDEN_EXCERPT: '{}', SCHEMA: '{}' },
       'levels-adventure': { GOLDEN_EXCERPT: '{}', SCHEMA: '{}' },
@@ -43,8 +47,26 @@ describe('prompt templates', () => {
     expect(t).toMatch(/closest supported archetype/);
   });
 
+  it('keeps platformer plans within the runtime and display strings complete', () => {
+    const t = loadTemplate('design');
+    expect(t).toContain('Plan ONLY what this runtime can deliver');
+    expect(t).toContain('walker/flyer/shooter/chaser');
+    expect(t).toContain('springs; moving platforms');
+    expect(t).toContain("player's run/jump/spin/throw verbs");
+    expect(t).toContain('Do NOT promise glide, collapsing tiles, pendulums');
+    expect(t).toContain('invented cast roles such as `bruiser`');
+    expect(t).toContain('NEVER truncate a string or cut off its final word');
+    expect(t).toContain('target at most 28 characters for `title`');
+  });
+
   it('golden excerpts are valid JSON slices of the goldens', () => {
-    for (const archetype of ['platformer', 'shooter', 'adventure', 'hshooter', 'fighter'] as const) {
+    for (const archetype of [
+      'platformer',
+      'shooter',
+      'adventure',
+      'hshooter',
+      'fighter',
+    ] as const) {
       const golden = loadGolden(archetype);
       expect(golden.meta.title.length).toBeGreaterThan(0);
       for (const stage of ['design', 'levels', 'entities', 'music'] as const) {

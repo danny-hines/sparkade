@@ -131,6 +131,8 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
     const inBounds = (x: number, y: number) => x >= 0 && x < grid.w && y >= 0 && y < grid.h;
     const solidLike = (kind: CellKind) => kind === 'solid' || kind === 'platform';
     const bodyOpen = (kind: CellKind) => kind !== 'solid' && kind !== 'platform' && kind !== 'hazard';
+    const movingPlatformClearance =
+      playerHeightTiles === 2 ? 'two clear player rows' : 'a clear player row';
     if (grid.w > BUDGET.maxLevelWidthTiles) {
       out.push(err('PLAT_TOO_WIDE', `${path}/tiles`, `level is ${grid.w} tiles wide; max ${BUDGET.maxLevelWidthTiles}`));
     }
@@ -205,7 +207,7 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
       if ((ENEMY_TYPES as readonly string[]).includes(e.type)) enemyTypesUsed.add(e.type);
       if (e.type === 'coin' || e.type === 'heart' || e.type === 'powerup') pickupCount++;
       if (e.type === 'powerup') powerupCount++;
-      if (playerHeightTiles === 2 && e.type === 'movingPlatform') {
+      if (e.type === 'movingPlatform') {
         const dx = e.props?.dx ?? 0;
         const dy = e.props?.dy ?? 0;
         const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))));
@@ -214,21 +216,48 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
           const t = step / steps;
           const platformX = Math.round(e.x + dx * t);
           const platformY = Math.round(e.y + dy * t);
+          if (
+            platformX < 0 ||
+            platformX + 1 >= grid.w ||
+            platformY < playerHeightTiles ||
+            platformY >= grid.h
+          ) {
+            clear = false;
+            break;
+          }
           for (const x of [platformX, platformX + 1]) {
-            if (!bodyOpen(grid.kind(x, platformY - 1)) || !bodyOpen(grid.kind(x, platformY - 2))) {
+            if (solidLike(grid.kind(x, platformY))) {
               clear = false;
               break;
+            }
+            for (let riderRow = 1; riderRow <= playerHeightTiles; riderRow++) {
+              if (!bodyOpen(grid.kind(x, platformY - riderRow))) {
+                clear = false;
+                break;
+              }
             }
           }
         }
         if (!clear) {
-          out.push(err('PLAT_MOVING_PLATFORM_NO_CLEARANCE', `${path}/entities`, `movingPlatform at (${e.x},${e.y}) needs two clear player rows along its entire travel path`));
+          out.push(
+            err(
+              'PLAT_MOVING_PLATFORM_NO_CLEARANCE',
+              `${path}/entities`,
+              `movingPlatform at (${e.x},${e.y}) needs a terrain-free surface path with ${movingPlatformClearance}`,
+            ),
+          );
         }
       }
       if (e.x >= grid.w || e.y >= grid.h) {
         out.push(err('PLAT_ENTITY_OOB', `${path}/entities`, `${e.type} at (${e.x},${e.y}) is outside the ${grid.w}x${grid.h} level`));
-      } else if (grid.kind(e.x, e.y) === 'solid') {
-        out.push(err('PLAT_ENTITY_IN_SOLID', `${path}/entities`, `${e.type} at (${e.x},${e.y}) is embedded in a solid tile and can't be reached — move it to an open cell on or just above the ground`));
+      } else if (e.type !== 'movingPlatform' && solidLike(grid.kind(e.x, e.y))) {
+        out.push(
+          err(
+            'PLAT_ENTITY_IN_SOLID',
+            `${path}/entities`,
+            `${e.type} at (${e.x},${e.y}) is embedded in authored solid/platform terrain and can't be reached — move it to the open cell above the surface`,
+          ),
+        );
       }
     }
   });

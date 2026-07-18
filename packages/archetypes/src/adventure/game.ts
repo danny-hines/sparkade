@@ -188,7 +188,7 @@ const ROLE_FALLBACK: Record<string, string> = {
   key: 'lib:pickup_key',
   heart: 'lib:pickup_heart',
   item: 'lib:pickup_power',
-  enemyShot: 'lib:proj_pellet',
+  enemy_shot: 'lib:proj_pellet',
 };
 
 function isEnemyType(t: AdventureEntityType): boolean {
@@ -1835,7 +1835,7 @@ class AdventureGame implements GameInstance {
     }
 
     // Projectiles.
-    const pelletSprite = this.sprites['enemyShot']!;
+    const pelletSprite = this.sprites['enemy_shot']!;
     for (const p of this.projs) {
       if (!p.active) continue;
       const sprite = p.arrow ? this.arrowSprite : pelletSprite;

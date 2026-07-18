@@ -167,7 +167,7 @@ const ROLE_FALLBACK: Record<string, string> = {
   kamikaze: 'lib:foe_kamikaze',
   boss: 'lib:boss_leviathan',
   projectile: 'lib:proj_bolt',
-  enemyShot: 'lib:proj_pellet',
+  enemy_shot: 'lib:proj_pellet',
 };
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -1245,7 +1245,7 @@ class HShooterGame implements GameInstance {
     }
 
     // enemy bullets on top
-    const shotSprite = this.sprites['enemyShot']!;
+    const shotSprite = this.sprites['enemy_shot']!;
     for (const sh of this.eshots) {
       if (!sh.active) continue;
       const img = this.engine.sprites.frame(shotSprite, 'idle', sh.t);

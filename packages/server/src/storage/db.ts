@@ -9,6 +9,7 @@ import type {
   GameStatus,
   JobRecord,
   JobStatus,
+  LintError,
   ScoreRow,
 } from '@sparkade/shared';
 import { ensureDir, nowIso } from '../util';
@@ -64,6 +65,23 @@ CREATE TABLE IF NOT EXISTS usage_events (
   at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS usage_by_job ON usage_events(job_id);
+CREATE TABLE IF NOT EXISTS repair_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id TEXT NOT NULL,
+  game_id TEXT NOT NULL,
+  attempt INTEGER NOT NULL,
+  pass INTEGER NOT NULL,
+  owner TEXT NOT NULL,
+  action TEXT NOT NULL,
+  diagnostics_before_json TEXT NOT NULL,
+  diagnostics_after_json TEXT NOT NULL,
+  patch_json TEXT,
+  elapsed_ms INTEGER NOT NULL,
+  outcome TEXT NOT NULL,
+  at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS repairs_by_job ON repair_events(job_id, id);
+CREATE INDEX IF NOT EXISTS repairs_by_game ON repair_events(game_id, id);
 CREATE TABLE IF NOT EXISTS scores (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   game_id TEXT NOT NULL,
@@ -92,6 +110,38 @@ export interface GameRow {
   failure: { code: string; message: string } | null;
   engineVersion: string;
   archetypeVersion: string;
+}
+
+/**
+ * One durable decision made by the validation/repair pipeline. These rows are
+ * intentionally independent from the cost ledger: deterministic normalization,
+ * no-op patches, stage regeneration and final fallbacks are all useful evidence
+ * even when no provider call was billed.
+ */
+export interface RepairEventInput {
+  jobId: string;
+  gameId: string;
+  /** Job retry number (JobRecord.attempt). */
+  attempt: number;
+  /** One-based pass number within this attempt/owner. */
+  pass: number;
+  /** The smallest document owner involved, e.g. levels, sprites or music. */
+  owner: string;
+  /** normalize, model-repair, regenerate, fallback, etc. */
+  action: string;
+  diagnosticsBefore: readonly LintError[];
+  diagnosticsAfter: readonly LintError[];
+  /** RFC 6902 operations, a regeneration summary, or null when not applicable. */
+  patch?: unknown;
+  elapsedMs: number;
+  /** fixed, improved, unchanged, failed, downgraded, etc. */
+  outcome: string;
+}
+
+export interface RepairEvent extends Omit<RepairEventInput, 'patch'> {
+  id: number;
+  patch: unknown | null;
+  at: string;
 }
 
 export class Db {
@@ -151,10 +201,9 @@ export class Db {
     this.db.prepare(`UPDATE games SET cost_usd=? WHERE id=?`).run(costUsd, id);
   }
 
-  /** Retry → blank slate: drop the failed attempt's design (title/tagline/cover)
-   *  and clear the failure so the generation screen starts clean instead of
-   *  flashing last run's reveal before the new run repopulates it. Cost history
-   *  (usage rows) is intentionally preserved. */
+  /** Clear the failed attempt's visible preview metadata while retry is queued.
+   *  Durable raw checkpoints are independent and may restore healthy stages;
+   *  cost history (usage rows) is intentionally preserved. */
   resetGameForRetry(id: string, title: string): void {
     this.db
       .prepare(
@@ -434,6 +483,51 @@ export class Db {
     return r.total;
   }
 
+  // --------------------------------------------------------- repair telemetry
+
+  /**
+   * Append-only account of a repair decision. Like usage events, repair events
+   * deliberately survive game deletion so aggregate reliability can be audited.
+   */
+  insertRepairEvent(ev: RepairEventInput): void {
+    this.db
+      .prepare(
+        `INSERT INTO repair_events
+         (job_id, game_id, attempt, pass, owner, action, diagnostics_before_json,
+          diagnostics_after_json, patch_json, elapsed_ms, outcome, at)
+         VALUES (@jobId, @gameId, @attempt, @pass, @owner, @action, @diagnosticsBefore,
+          @diagnosticsAfter, @patch, @elapsedMs, @outcome, @at)`,
+      )
+      .run({
+        jobId: ev.jobId,
+        gameId: ev.gameId,
+        attempt: ev.attempt,
+        pass: ev.pass,
+        owner: ev.owner,
+        action: ev.action,
+        diagnosticsBefore: JSON.stringify(ev.diagnosticsBefore),
+        diagnosticsAfter: JSON.stringify(ev.diagnosticsAfter),
+        patch: ev.patch === undefined ? null : JSON.stringify(ev.patch),
+        elapsedMs: Math.max(0, Math.round(ev.elapsedMs)),
+        outcome: ev.outcome,
+        at: nowIso(),
+      });
+  }
+
+  repairEventsForJob(jobId: string): RepairEvent[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM repair_events WHERE job_id=? ORDER BY id`)
+      .all(jobId) as Record<string, unknown>[];
+    return rows.map(toRepairEvent);
+  }
+
+  repairEventsForGame(gameId: string): RepairEvent[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM repair_events WHERE game_id=? ORDER BY id`)
+      .all(gameId) as Record<string, unknown>[];
+    return rows.map(toRepairEvent);
+  }
+
   // ------------------------------------------------------------------ scores
 
   topScores(gameId: string, limit = 10): ScoreRow[] {
@@ -516,5 +610,23 @@ function toJobRecord(r: Record<string, unknown>, costSoFarUsd: number | null): J
     costSoFarUsd,
     ...(r.error_json ? { error: JSON.parse(String(r.error_json)) } : {}),
     attempt: Number(r.attempt),
+  };
+}
+
+function toRepairEvent(r: Record<string, unknown>): RepairEvent {
+  return {
+    id: Number(r.id),
+    jobId: String(r.job_id),
+    gameId: String(r.game_id),
+    attempt: Number(r.attempt),
+    pass: Number(r.pass),
+    owner: String(r.owner),
+    action: String(r.action),
+    diagnosticsBefore: JSON.parse(String(r.diagnostics_before_json)) as LintError[],
+    diagnosticsAfter: JSON.parse(String(r.diagnostics_after_json)) as LintError[],
+    patch: r.patch_json === null ? null : JSON.parse(String(r.patch_json)),
+    elapsedMs: Number(r.elapsed_ms),
+    outcome: String(r.outcome),
+    at: String(r.at),
   };
 }

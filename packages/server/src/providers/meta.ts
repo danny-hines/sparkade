@@ -19,7 +19,7 @@
 // count against max_completion_tokens and bill as output; with a tight budget
 // the reply comes back content:null + finish_reason:"length". So this adapter
 //   (a) sends reasoning_effort (default "low"; config providers.meta.reasoningEffort)
-//   (b) adds REASONING_HEADROOM_TOKENS on top of the caller's output budget.
+//   (b) adds effort-scaled reasoning headroom on top of the caller's output budget.
 //
 // AUDIO (verified live): /audio/transcriptions returns 404 — it does not
 // exist on the preview. An OpenAI-style `input_audio` chat content part DOES
@@ -55,9 +55,16 @@ interface TranscriptionResponse {
 
 const DEFAULT_BASE_URL = 'https://api.meta.ai/v1';
 
-/** Extra completion budget for the model's internal reasoning (bills as output). */
-const REASONING_HEADROOM_TOKENS = 4000;
 const DEFAULT_REASONING_EFFORT = 'low';
+/** Internal reasoning bills as completion tokens. A fixed 4k surcharge made a
+ * tiny minimal-effort repair as expensive as a generation pass, so reserve
+ * headroom in proportion to the requested effort. */
+const REASONING_HEADROOM_TOKENS = {
+  minimal: 1500,
+  low: 3000,
+  medium: 5000,
+  high: 8000,
+} as const;
 
 export class MetaProvider implements Provider {
   readonly kind = 'meta' as const;
@@ -94,15 +101,16 @@ export class MetaProvider implements Provider {
       ];
     }
 
+    const reasoningEffort = req.effort ?? this.cfg.reasoningEffort ?? DEFAULT_REASONING_EFFORT;
     const body: Record<string, unknown> = {
       model,
       messages: [
         { role: 'system', content: req.system },
         { role: 'user', content: userContent },
       ],
-      max_completion_tokens: req.maxTokens + REASONING_HEADROOM_TOKENS,
+      max_completion_tokens: req.maxTokens + REASONING_HEADROOM_TOKENS[reasoningEffort],
       temperature: req.temperature ?? 1,
-      reasoning_effort: req.effort ?? this.cfg.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
+      reasoning_effort: reasoningEffort,
     };
     if (req.jsonSchema && this.capabilities.structuredOutput) {
       body.response_format = {
@@ -175,6 +183,7 @@ export class MetaProvider implements Provider {
 
     // Strategy 2: audio as an OpenAI-style input_audio chat content part.
     const format = mime.includes('wav') ? 'wav' : 'mp3';
+    const reasoningEffort = this.cfg.reasoningEffort ?? DEFAULT_REASONING_EFFORT;
     const res = await httpJson<ChatCompletionResponse>(`${this.baseUrl}/chat/completions`, {
       headers: {
         Authorization: `Bearer ${this.key()}`,
@@ -198,9 +207,9 @@ export class MetaProvider implements Provider {
             ],
           },
         ],
-        max_completion_tokens: 500 + REASONING_HEADROOM_TOKENS,
+        max_completion_tokens: 500 + REASONING_HEADROOM_TOKENS[reasoningEffort],
         temperature: 0,
-        reasoning_effort: this.cfg.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
+        reasoning_effort: reasoningEffort,
       }),
       timeoutMs: GENERATION.perCallTimeoutMs,
       signal: opts.signal,

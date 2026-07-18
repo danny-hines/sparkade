@@ -3,7 +3,9 @@ import {
   FONT_GLYPHS,
   LIBRARY,
   anchorSpriteOpaqueTop,
+  makeTallHeroEntry,
   makeTallHumanoidEntry,
+  makeTallSpriteEntry,
   missingLibraryIds,
   resolveLikenessHead,
   SpriteStore,
@@ -94,21 +96,11 @@ describe('built-in sprite library', () => {
     };
 
     expect(resolveLikenessHead(likeness, { x: 0, y: 0, size: 12 })).toBe(front12);
-    expect(resolveLikenessHead(likeness, { x: 0, y: 0, size: 12, view: 'front' })).toBe(
-      front12,
-    );
-    expect(resolveLikenessHead(likeness, { x: 0, y: 0, size: 12, view: 'side' })).toBe(
-      side12,
-    );
-    expect(resolveLikenessHead(likeness, { x: 0, y: 0, size: 12, view: 'back' })).toBe(
-      back12,
-    );
-    expect(resolveLikenessHead(likeness, { x: 0, y: 0, size: 16, view: 'side' })).toBe(
-      side16,
-    );
-    expect(resolveLikenessHead(likeness, { x: 0, y: 0, size: 16, view: 'back' })).toBe(
-      front16,
-    );
+    expect(resolveLikenessHead(likeness, { x: 0, y: 0, size: 12, view: 'front' })).toBe(front12);
+    expect(resolveLikenessHead(likeness, { x: 0, y: 0, size: 12, view: 'side' })).toBe(side12);
+    expect(resolveLikenessHead(likeness, { x: 0, y: 0, size: 12, view: 'back' })).toBe(back12);
+    expect(resolveLikenessHead(likeness, { x: 0, y: 0, size: 16, view: 'side' })).toBe(side16);
+    expect(resolveLikenessHead(likeness, { x: 0, y: 0, size: 16, view: 'back' })).toBe(front16);
 
     const store = new SpriteStore({} as never, likeness);
     expect(store.likenessHead(12, 'side')).toBe(side12);
@@ -146,17 +138,53 @@ describe('built-in sprite library', () => {
     // Props that lived outside the old 12px face replacement survive the
     // larger compositor instead of becoming a broken pick/sword/scarf.
     const miner = makeTallHumanoidEntry(LIBRARY['hero_miner']!);
-    expect(
-      miner.likenessOverlays?.[0]?.rows.slice(0, 16).some((row) => /[1-9a-f]/.test(row)),
-    ).toBe(true);
+    expect(miner.likenessOverlays?.[0]?.rows.slice(0, 16).some((row) => /[1-9a-f]/.test(row))).toBe(
+      true,
+    );
+  });
+
+  it('keeps a scaled native head on a tall library hero when no photo exists', () => {
+    const tall = makeTallHeroEntry(LIBRARY['hero_squire']!, true);
+    expect(tall.frames.every((frame) => frame.w === 16 && frame.h === 32)).toBe(true);
+    expect(tall.frames[0]!.rows.slice(0, 16).some((row) => /[1-9a-f]/.test(row))).toBe(true);
+    expect(tall.frames[0]!.rows.slice(16).some((row) => /[1-9a-f]/.test(row))).toBe(true);
+  });
+
+  it('normalizes every frame of an old custom hero to the tall contract', () => {
+    const custom = {
+      frames: [
+        { w: 4, h: 4, rows: ['1111', '1221', '1331', '1111'] },
+        { w: 4, h: 4, rows: ['2222', '2332', '2442', '2222'] },
+      ],
+      anims: { idle: [0], walk: [0, 1] },
+    };
+    const tall = makeTallHeroEntry(custom, true);
+    expect(tall).toEqual(makeTallSpriteEntry(custom));
+    expect(tall.frames).toHaveLength(2);
+    expect(tall.frames.every((frame) => frame.w === 16 && frame.h === 32)).toBe(true);
+    expect(tall.anims).toEqual(custom.anims);
+    expect(tall.frames[0]!.rows[0]).toBe('1111111111111111');
+    expect(tall.frames[1]!.rows[31]).toBe('2222222222222222');
+  });
+
+  it('leaves the tall library head empty for the 16px photo compositor', () => {
+    const tall = makeTallHeroEntry(LIBRARY['hero_squire']!, false);
+    expect(tall.frames[0]!.rows.slice(0, 16).every((row) => /^\.+$/.test(row))).toBe(true);
+    expect(tall.headSlots?.[0]).toEqual({ x: 0, y: 0, size: 16, view: 'front' });
   });
 
   it('supports every platformer hero body promised to the likeness renderer', () => {
     for (const id of LIB_HEROES_PLATFORMER) {
       const tall = makeTallHumanoidEntry(LIBRARY[id]!);
       expect(tall.frames.length, id).toBe(LIBRARY[id]!.frames.length);
-      expect(tall.frames.every((frame) => frame.w === 16 && frame.h === 32), id).toBe(true);
-      expect(tall.headSlots?.every((slot) => slot.size === 16), id).toBe(true);
+      expect(
+        tall.frames.every((frame) => frame.w === 16 && frame.h === 32),
+        id,
+      ).toBe(true);
+      expect(
+        tall.headSlots?.every((slot) => slot.size === 16),
+        id,
+      ).toBe(true);
       expect(tall.likenessOverlays?.length, id).toBe(tall.frames.length);
     }
   });
@@ -195,15 +223,11 @@ describe('built-in sprite library', () => {
       expect(
         inner!.frames.map((frame) => frame.rows),
         `${innerId} must read differently from ${capId}`,
-      ).not.toEqual(
-        cap!.frames.map((frame) => frame.rows),
-      );
+      ).not.toEqual(cap!.frames.map((frame) => frame.rows));
       expect(
         inner!.frames.map((frame) => frame.rows),
         `${innerId} must not copy dungeon-wall art from ${wallId}`,
-      ).not.toEqual(
-        wall!.frames.map((frame) => frame.rows),
-      );
+      ).not.toEqual(wall!.frames.map((frame) => frame.rows));
     }
   });
 

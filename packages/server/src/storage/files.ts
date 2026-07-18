@@ -20,10 +20,17 @@ import type { Db, GameRow } from './db';
 export class GameFiles {
   readonly gamesDir: string;
   readonly stagingDir: string;
+  /**
+   * Raw model responses live outside staging so a failed attempt, retry,
+   * successful publish, or staging cleanup cannot erase the evidence needed
+   * for resume and repair analysis. Photos are never written here.
+   */
+  readonly checkpointsDir: string;
 
   constructor(readonly dir: string) {
     this.gamesDir = ensureDir(join(dir, 'games'));
     this.stagingDir = ensureDir(join(dir, 'staging'));
+    this.checkpointsDir = ensureDir(join(dir, 'checkpoints'));
   }
 
   gameDir(gameId: string): string {
@@ -68,6 +75,90 @@ export class GameFiles {
    *  photo), so a retry doesn't surface last run's sprites/music. */
   clearPartial(jobId: string): void {
     rmSync(join(this.stagingDir, jobId, 'partial.json'), { force: true });
+  }
+
+  /**
+   * Append a parsed, otherwise-unmodified model stage response. Repeated
+   * writes for a stage create revisions rather than overwriting the response
+   * that led to a repair or regeneration.
+   */
+  writeRawStageCheckpoint<T>(
+    jobId: string,
+    attempt: number,
+    stage: RawStageName,
+    document: T,
+  ): RawStageCheckpoint<T> {
+    const dir = this.rawCheckpointAttemptDir(jobId, attempt);
+    const revision = this.rawCheckpointRevisions(dir, stage).at(-1)?.revision ?? -1;
+    const checkpoint: RawStageCheckpoint<T> = {
+      jobId,
+      attempt,
+      stage,
+      revision: revision + 1,
+      at: nowIso(),
+      document,
+    };
+    const json = JSON.stringify(checkpoint, null, 2);
+    if (json === undefined) throw new TypeError('raw stage checkpoint must be JSON-serializable');
+    atomicWriteFile(join(dir, rawCheckpointFilename(stage, checkpoint.revision)), `${json}\n`);
+    return checkpoint;
+  }
+
+  /** Read one revision, or the newest revision when omitted. */
+  readRawStageCheckpoint<T = unknown>(
+    jobId: string,
+    attempt: number,
+    stage: RawStageName,
+    revision?: number,
+  ): RawStageCheckpoint<T> | null {
+    const dir = this.rawCheckpointAttemptDir(jobId, attempt, false);
+    if (!dir) return null;
+    const selected =
+      revision === undefined
+        ? this.rawCheckpointRevisions(dir, stage).at(-1)
+        : { revision, filename: rawCheckpointFilename(stage, revision) };
+    if (!selected) return null;
+    return readJson<RawStageCheckpoint<T>>(join(dir, selected.filename));
+  }
+
+  /** All raw responses for an attempt, ordered by write time. */
+  listRawStageCheckpoints(jobId: string, attempt: number): RawStageCheckpoint[] {
+    const dir = this.rawCheckpointAttemptDir(jobId, attempt, false);
+    if (!dir) return [];
+    const checkpoints: RawStageCheckpoint[] = [];
+    for (const stage of RAW_STAGE_NAMES) {
+      for (const item of this.rawCheckpointRevisions(dir, stage)) {
+        const checkpoint = readJson<RawStageCheckpoint>(join(dir, item.filename));
+        if (checkpoint) checkpoints.push(checkpoint);
+      }
+    }
+    return checkpoints.sort((a, b) => a.at.localeCompare(b.at));
+  }
+
+  private rawCheckpointAttemptDir(jobId: string, attempt: number): string;
+  private rawCheckpointAttemptDir(jobId: string, attempt: number, create: true): string;
+  private rawCheckpointAttemptDir(jobId: string, attempt: number, create: false): string | null;
+  private rawCheckpointAttemptDir(jobId: string, attempt: number, create = true): string | null {
+    assertSafeCheckpointJobId(jobId);
+    assertCheckpointAttempt(attempt);
+    const dir = join(this.checkpointsDir, jobId, `attempt-${attempt}`);
+    if (create) return ensureDir(dir);
+    return existsSync(dir) ? dir : null;
+  }
+
+  private rawCheckpointRevisions(
+    dir: string,
+    stage: RawStageName,
+  ): { revision: number; filename: string }[] {
+    assertRawStageName(stage);
+    const pattern = new RegExp(`^${stage}-(\\d+)\\.json$`);
+    return readdirSync(dir)
+      .map((filename) => {
+        const match = pattern.exec(filename);
+        return match ? { revision: Number(match[1]), filename } : null;
+      })
+      .filter((item): item is { revision: number; filename: string } => item !== null)
+      .sort((a, b) => a.revision - b.revision);
   }
 
   /**
@@ -121,6 +212,40 @@ export class GameFiles {
       boss: resolve(spec.sprites.assign['boss']),
       hasLikeness,
     };
+  }
+}
+
+export const RAW_STAGE_NAMES = ['design', 'levels', 'entities', 'music'] as const;
+export type RawStageName = (typeof RAW_STAGE_NAMES)[number];
+
+export interface RawStageCheckpoint<T = unknown> {
+  jobId: string;
+  attempt: number;
+  stage: RawStageName;
+  /** Zero-based revision within this job attempt and stage. */
+  revision: number;
+  at: string;
+  document: T;
+}
+
+function rawCheckpointFilename(stage: RawStageName, revision: number): string {
+  if (!Number.isInteger(revision) || revision < 0)
+    throw new RangeError('checkpoint revision must be >= 0');
+  return `${stage}-${String(revision).padStart(3, '0')}.json`;
+}
+
+function assertSafeCheckpointJobId(jobId: string): void {
+  if (!/^[A-Za-z0-9_-]+$/.test(jobId)) throw new TypeError('invalid checkpoint job id');
+}
+
+function assertCheckpointAttempt(attempt: number): void {
+  if (!Number.isInteger(attempt) || attempt < 1)
+    throw new RangeError('checkpoint attempt must be >= 1');
+}
+
+function assertRawStageName(stage: string): asserts stage is RawStageName {
+  if (!(RAW_STAGE_NAMES as readonly string[]).includes(stage)) {
+    throw new TypeError(`invalid raw checkpoint stage: ${stage}`);
   }
 }
 

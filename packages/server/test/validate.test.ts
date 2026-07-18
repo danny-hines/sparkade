@@ -9,7 +9,7 @@ import {
   type PlatformerSpec,
   type StageName,
 } from '@sparkade/shared';
-import { GenerationRunner } from '../src/pipeline/runner';
+import { designOutputDiagnostics, GenerationRunner } from '../src/pipeline/runner';
 import type { BuiltPrompt, RecentUse } from '../src/pipeline/prompts';
 import {
   applySpriteFallbacks,
@@ -29,6 +29,26 @@ function golden(archetype: string): GameSpec {
   return JSON.parse(
     readFileSync(join(repoRoot(), 'packages/generation/golden', `golden-${archetype}.json`), 'utf8'),
   );
+}
+
+function compactLevelStage(levels: readonly unknown[]): { levels: unknown[] } {
+  return {
+    levels: levels.map((value) => {
+      const level = structuredClone(value) as Record<string, unknown>;
+      const tiles = level['tiles'] as string[];
+      level['tileRuns'] = tiles.map((row) => {
+        const runs: [string, number][] = [];
+        for (const tile of row) {
+          const previous = runs.at(-1);
+          if (previous?.[0] === tile) previous[1]++;
+          else runs.push([tile, 1]);
+        }
+        return runs;
+      });
+      delete level['tiles'];
+      return level;
+    }),
+  };
 }
 
 type RepairCall = (
@@ -73,6 +93,34 @@ async function validateAndRepairForTest(
 }
 
 describe('security scan', () => {
+  it('rejects unsafe display strings during design instead of after dependent stages run', () => {
+    const source = golden('platformer');
+    const design: DesignDoc = {
+      title: 'Safe Design',
+      tagline: 'A clean test design',
+      archetype: 'platformer',
+      palette: source.palette,
+      heroConcept: 'A careful arcade explorer',
+      story: source.story,
+      levelPlan: new Array(4).fill(null).map((_, index) => ({
+        name: `Stage ${index + 1}`,
+        summary: 'Cross a compact obstacle course.',
+      })),
+      cast: ['walker', 'flyer', 'shooter', 'chaser'].map((role) => ({
+        role,
+        concept: `A themed ${role}`,
+      })),
+      musicBrief: { key: 'C minor', bpm: 120, themeMood: 'bold', bossMood: 'tense' },
+      scoring: source.scoring,
+      difficulty: 'standard',
+    };
+
+    expect(designOutputDiagnostics(design)).toEqual([]);
+    expect(designOutputDiagnostics({ ...design, title: 'Visit www.bad.example' })).toEqual([
+      expect.objectContaining({ code: 'SCAN_REJECTED', path: '/title' }),
+    ]);
+  });
+
   it('injection strings in display fields are rejected and stay inert', () => {
     const attacks = [
       '<script>alert(1)</script>',
@@ -134,6 +182,9 @@ describe('custom sprite checks + repair-aware fallback', () => {
     expect(spec.sprites.assign['hero']).toBe('custom:signature_hero');
     expect(ensureLikenessHeroBody(fixed, true)).toBe(fixed);
     expect(ensureLikenessHeroBody(spec, false)).toBe(spec);
+
+    const malformed = { ...spec, sprites: {} } as unknown as GameSpec;
+    expect(ensureLikenessHeroBody(malformed, true)).toBe(malformed);
 
     const adventure = golden('adventure');
     expect(ensureLikenessHeroBody(adventure, true)).toBe(adventure);
@@ -258,7 +309,7 @@ describe('custom sprite checks + repair-aware fallback', () => {
     expect(customBossSpriteDiagnostics(fixed)).toEqual([]);
   });
 
-  it('falls back after the repair budget without needlessly regenerating entities', async () => {
+  it('falls back after a stalled repair without needlessly retrying or regenerating entities', async () => {
     const spec = golden('platformer');
     spec.seed = 2;
     spec.sprites.custom['unrepairable'] = { w: 8, h: 8, rows: ['..1111..'] };
@@ -278,11 +329,82 @@ describe('custom sprite checks + repair-aware fallback', () => {
       recentUse,
     );
 
-    expect(stages).toEqual(['repair', 'repair']);
+    expect(stages).toEqual(['repair']);
     expect(fixed.sprites.assign['boss']).toBe(platformerBossFallback(spec.seed, recentUse.bosses));
     expect(fixed.sprites.assign['boss']).not.toBe('lib:boss_knight');
     expect(fixed.sprites.assign['boss']).not.toBe('lib:boss_drake');
     expect(fixed.sprites.custom['unrepairable']).toBeUndefined();
+  });
+
+  it('routes structurally malformed output to owner regeneration without crashing cleanup', async () => {
+    const valid = golden('platformer') as PlatformerSpec;
+    const malformed = structuredClone(valid) as PlatformerSpec;
+    delete (malformed as unknown as { levels?: unknown }).levels;
+    const stages: StageName[] = [];
+
+    const fixed = await validateAndRepairForTest(malformed, async (stage) => {
+      stages.push(stage);
+      if (stage === 'repair') return [];
+      if (stage === 'levels') return compactLevelStage(valid.levels);
+      throw new Error(`unexpected ${stage} call`);
+    });
+
+    expect(stages).toEqual(['repair', 'levels']);
+    expect(fixed.levels).toEqual(valid.levels);
+    expect(validateGameSchema('platformer', fixed)).toEqual([]);
+  });
+
+  it('accepts canonical tile rows only after the compact regeneration retry is exhausted', async () => {
+    const valid = golden('platformer') as PlatformerSpec;
+    const malformed = structuredClone(valid) as PlatformerSpec;
+    delete (malformed as unknown as { levels?: unknown }).levels;
+    const stages: StageName[] = [];
+
+    const fixed = await validateAndRepairForTest(malformed, async (stage) => {
+      stages.push(stage);
+      if (stage === 'repair') return [];
+      if (stage === 'levels') return { levels: valid.levels };
+      throw new Error(`unexpected ${stage} call`);
+    });
+
+    expect(stages).toEqual(['repair', 'levels', 'levels']);
+    expect(fixed.levels).toEqual(valid.levels);
+    expect(validateGameSchema('platformer', fixed)).toEqual([]);
+  });
+
+  it('dynamically regenerates an owner revealed after another owner becomes schema-valid', async () => {
+    const valid = golden('platformer') as PlatformerSpec;
+    const malformed = structuredClone(valid) as PlatformerSpec;
+    delete (malformed as unknown as { levels?: unknown }).levels;
+    malformed.sprites.custom['invisible_boss'] = {
+      w: 8,
+      h: 8,
+      rows: new Array(8).fill('........'),
+    };
+    malformed.sprites.assign['boss'] = 'custom:invisible_boss';
+    const stages: StageName[] = [];
+
+    const fixed = await validateAndRepairForTest(malformed, async (stage) => {
+      stages.push(stage);
+      if (stage === 'repair') return [];
+      if (stage === 'levels') return compactLevelStage(valid.levels);
+      if (stage === 'entities') {
+        return {
+          sprites: valid.sprites,
+          boss: valid.boss,
+          sfx: valid.sfx,
+          backdrop: valid.backdrop,
+          weather: valid.weather,
+          lighting: valid.lighting,
+          juice: valid.juice,
+        };
+      }
+      throw new Error(`unexpected ${stage} call`);
+    });
+
+    expect(stages).toEqual(['repair', 'levels', 'entities']);
+    expect(fixed.sprites.assign['boss']).toBe(valid.sprites.assign['boss']);
+    expect(validateGameSchema('platformer', fixed)).toEqual([]);
   });
 
   it('keeps well-formed animation frames and drops malformed ones', () => {

@@ -1,14 +1,8 @@
 // Sprite decoding + the SpriteStore. All pixel work happens at load time
 // (ImageData -> offscreen canvas); runtime drawing is drawImage only.
-import {
-  LIB_HEROES_PLATFORMER,
-  type GameSpec,
-  type SpriteData,
-} from '@sparkade/shared';
+import { type GameSpec, type SpriteData } from '@sparkade/shared';
 import { LIBRARY } from './library/index';
 import type { HeadSlot, HeadView, LibraryEntry } from './types';
-
-const TALL_HUMANOID_IDS = new Set<string>(LIB_HEROES_PLATFORMER);
 
 /** Decode palette-indexed rows into an offscreen canvas. Index 0 and '.' are transparent. */
 export function decodeSprite(data: SpriteData, palette: string[]): HTMLCanvasElement {
@@ -165,7 +159,10 @@ export function anchorSpriteOpaqueTop(data: SpriteData): SpriteData {
  * lower band already contains the torso, gear, arms, and leg poses, so stretch
  * only that band and leave a clean 16x16 slot for the higher-detail head.
  */
-export function makeTallHumanoidEntry(entry: LibraryEntry): LibraryEntry {
+export function makeTallHumanoidEntry(
+  entry: LibraryEntry,
+  preserveNativeHead = false,
+): LibraryEntry {
   const slots = entry.headSlots;
   if (
     !slots ||
@@ -191,10 +188,7 @@ export function makeTallHumanoidEntry(entry: LibraryEntry): LibraryEntry {
       const dy = bodyStart <= 1 ? 0 : Math.round((sy * 15) / (bodyStart - 1));
       for (let x = 0; x < 16; x++) {
         const outsideOldSlot =
-          sy < slot.y ||
-          sy >= slot.y + slot.size ||
-          x < slot.x ||
-          x >= slot.x + slot.size;
+          sy < slot.y || sy >= slot.y + slot.size || x < slot.x || x >= slot.x + slot.size;
         const ch = row[x] ?? '.';
         if (outsideOldSlot && ch !== '.' && ch !== '0') overlayRows[dy]![x] = ch;
       }
@@ -209,13 +203,30 @@ export function makeTallHumanoidEntry(entry: LibraryEntry): LibraryEntry {
       // Keep the shoulder line at one pixel so tiny one-pixel accessories do
       // not become long vertical streaks. Spend the added height on the torso
       // and legs, where repeated rows read as volume instead.
-      const sy = Math.min(
-        source.length - 1,
-        Math.ceil((y * Math.max(0, source.length - 1)) / 15),
-      );
+      const sy = Math.min(source.length - 1, Math.ceil((y * Math.max(0, source.length - 1)) / 15));
       return source[sy] ?? blank;
     });
-    return { w: 16, h: 32, rows: [...Array<string>(16).fill(blank), ...body] };
+    const head = Array.from({ length: 16 }, () => Array<string>(16).fill('.'));
+    if (preserveNativeHead) {
+      // The native library head occupies a 12px slot. Nearest-neighbor scale it
+      // into the new 16px head budget, then restore props that lived outside
+      // that slot (hat brims, tools, scarf tips) over the scaled pixels.
+      for (let y = 0; y < 16; y++) {
+        const sy = slot.y + Math.min(slot.size - 1, Math.floor((y * slot.size) / 16));
+        const row = frame.rows[sy] ?? blank;
+        for (let x = 0; x < 16; x++) {
+          const sx = slot.x + Math.min(slot.size - 1, Math.floor((x * slot.size) / 16));
+          head[y]![x] = row[sx] ?? '.';
+        }
+      }
+      for (let y = 0; y < 16; y++) {
+        for (let x = 0; x < 16; x++) {
+          const ch = overlayRows[y]![x]!;
+          if (ch !== '.' && ch !== '0') head[y]![x] = ch;
+        }
+      }
+    }
+    return { w: 16, h: 32, rows: [...head.map((row) => row.join('')), ...body] };
   });
 
   return {
@@ -229,6 +240,63 @@ export function makeTallHumanoidEntry(entry: LibraryEntry): LibraryEntry {
     })),
     likenessOverlays,
   };
+}
+
+/**
+ * Normalize an arbitrary sprite entry to the platformer's 16x32 player
+ * contract. Every authored frame and overlay is retained and scaled with
+ * nearest-neighbor sampling, so old custom 16x16 heroes remain animated while
+ * new 16x32 heroes pass through unchanged.
+ */
+export function makeTallSpriteEntry(entry: LibraryEntry): LibraryEntry {
+  if (entry.frames.every((frame) => frame.w === 16 && frame.h === 32)) return entry;
+
+  const scaleFrame = (frame: SpriteData): SpriteData => {
+    const sourceW = Math.max(1, frame.w);
+    const sourceH = Math.max(1, frame.h);
+    const rows = Array.from({ length: 32 }, (_, y) => {
+      const sy = Math.min(sourceH - 1, Math.floor((y * sourceH) / 32));
+      const source = frame.rows[sy] ?? '';
+      return Array.from({ length: 16 }, (_, x) => {
+        const sx = Math.min(sourceW - 1, Math.floor((x * sourceW) / 16));
+        return source[sx] ?? '.';
+      }).join('');
+    });
+    return { w: 16, h: 32, rows };
+  };
+
+  const frames = entry.frames.map(scaleFrame);
+  const headSlots = entry.headSlots?.map((slot, i) => {
+    const source = entry.frames[i] ?? entry.frames[0]!;
+    const size: 12 | 16 = slot.size === 16 ? 16 : 12;
+    const centerX = ((slot.x + slot.size / 2) * 16) / Math.max(1, source.w);
+    const centerY = ((slot.y + slot.size / 2) * 32) / Math.max(1, source.h);
+    return {
+      x: Math.max(0, Math.min(16 - size, Math.round(centerX - size / 2))),
+      y: Math.max(0, Math.min(32 - size, Math.round(centerY - size / 2))),
+      size,
+      ...(slot.view ? { view: slot.view } : {}),
+    };
+  });
+
+  return {
+    frames,
+    anims: entry.anims,
+    ...(headSlots ? { headSlots } : {}),
+    ...(entry.likenessOverlays ? { likenessOverlays: entry.likenessOverlays.map(scaleFrame) } : {}),
+  };
+}
+
+/** Select the humanoid-aware transform when possible, generic normalization otherwise. */
+export function makeTallHeroEntry(entry: LibraryEntry, preserveNativeHead: boolean): LibraryEntry {
+  const canUseHumanoidLayout =
+    entry.headSlots?.length === entry.frames.length &&
+    entry.frames.every(
+      (frame, i) => frame.w === 16 && frame.h === 16 && entry.headSlots?.[i]?.size === 12,
+    );
+  return canUseHumanoidLayout
+    ? makeTallHumanoidEntry(entry, preserveNativeHead)
+    : makeTallSpriteEntry(entry);
 }
 
 /**
@@ -322,24 +390,15 @@ export class SpriteStore {
       };
     }
 
-    // A 16px likeness needs its own pixel budget. Only opt into the tall visual
-    // when head16 actually loaded; otherwise retain the complete native sprite
-    // instead of producing a headless body. The platformer reads the resulting
-    // presentation flag when selecting its matching, archetype-owned hitbox.
+    // The platformer's explicit height marker is a visual + collision contract,
+    // not a likeness feature flag. A marked hero is always resolved at 16x32:
+    // supported 16x16 humanoids keep their native head when no photo exists,
+    // while arbitrary/custom art is deterministically normalized with every
+    // animation frame intact.
     let appliedPresentation: SpritePresentation = 'native';
-    if (
-      presentation === 'tall-humanoid' &&
-      applyLikeness &&
-      this.likeness?.head16 &&
-      kind === 'lib' &&
-      TALL_HUMANOID_IDS.has(id) &&
-      entry.headSlots
-    ) {
-      const tall = makeTallHumanoidEntry(entry);
-      if (tall !== entry) {
-        entry = tall;
-        appliedPresentation = 'tall-humanoid';
-      }
+    if (presentation === 'tall-humanoid') {
+      entry = makeTallHeroEntry(entry, !(applyLikeness && this.likeness?.head16));
+      appliedPresentation = 'tall-humanoid';
     }
 
     if (anchorOpaqueTop) {
@@ -347,9 +406,7 @@ export class SpriteStore {
     }
 
     const frames = entry.frames.map((f) => decodeSprite(f, this.spec.palette));
-    const likenessOverlays = entry.likenessOverlays?.map((f) =>
-      decodeSprite(f, this.spec.palette),
-    );
+    const likenessOverlays = entry.likenessOverlays?.map((f) => decodeSprite(f, this.spec.palette));
     if (applyLikeness && this.likeness && entry.headSlots) {
       entry.headSlots.forEach((slot, i) => {
         const head = resolveLikenessHead(this.likeness!, slot);

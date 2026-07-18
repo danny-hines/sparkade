@@ -5,14 +5,16 @@ import {
   MOVING_PLATFORM_BODY,
   TALL_PLATFORMER_PLAYER_BODY,
   platformerDoorRect,
+  platformerHeroPresentation,
   platformerPlayerBody,
 } from '../src/platformer/geometry';
 
 describe('platformer player geometry', () => {
-  it('uses the visual 16x32 body only for marked games with a resolved tall hero', () => {
-    expect(platformerPlayerBody(2, true)).toEqual(TALL_PLATFORMER_PLAYER_BODY);
-    expect(platformerPlayerBody(undefined, true)).toEqual(LEGACY_PLATFORMER_PLAYER_BODY);
-    expect(platformerPlayerBody(2, false)).toEqual(LEGACY_PLATFORMER_PLAYER_BODY);
+  it('makes the explicit height marker authoritative while legacy saves stay native-sized', () => {
+    expect(platformerPlayerBody(2)).toEqual(TALL_PLATFORMER_PLAYER_BODY);
+    expect(platformerPlayerBody(undefined)).toEqual(LEGACY_PLATFORMER_PLAYER_BODY);
+    expect(platformerHeroPresentation(2)).toBe('tall-humanoid');
+    expect(platformerHeroPresentation(undefined)).toBe('native');
   });
 
   it('treats an exit coordinate as the foot tile of a two-tile door', () => {

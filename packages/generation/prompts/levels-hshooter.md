@@ -6,7 +6,7 @@ The design document arrives in the user message.
 
 ## How horizontal-shooter levels work
 
-- Each level is a TILE STAGE (exactly like a platformer level, but the camera auto-scrolls right at `scroll` px/s for `durationS` seconds). Author it as `tiles` (row strings, top→bottom) + a `legend` (character → tile kind: `solid` | `hazard` | `decoration`; `.` is empty).
+- Each level is a TILE STAGE (exactly like a platformer level, but the camera auto-scrolls right at `scroll` px/s for `durationS` seconds). Author it as compact `tileRuns` plus a `legend` (character → tile kind: `solid` | `hazard` | `decoration`; `.` is empty). Each visual row is a left-to-right array of `[tile,count]` tuples, for example `[["#",12],[".",220],["#",12]]`. Expanded rows must be equal-width; never output literal `tiles` strings.
 - **Solid tiles collide with BOTH the ship and the enemies** (and stop shots). Build a solid CEILING band along the top rows and a solid FLOOR band along the bottom rows, then place mid-field solid OBSTACLES (blocks, pillars, pinch points) the player must weave around. `hazard` tiles (spikes) damage the ship on contact but don't block. Make the stage ~19 rows tall so it fills the screen.
 - **There must be a continuous open lane from the left edge to the right edge** — the ship has to be able to thread all the way through (a lint check enforces this). Vary the lane: pinch it tight, open it wide, offset it up and down so the player reads ahead.
 - The stage must be WIDE ENOUGH to scroll the whole level: `cols * 16 ≥ scroll * durationS + one screen (512)`. So at scroll 40 / durationS 90 you need ≥ ~250 columns. Keep rows equal-length.

@@ -41,6 +41,7 @@ import {
 import {
   MOVING_PLATFORM_BODY,
   platformerDoorRect,
+  platformerHeroPresentation,
   platformerPlayerBody,
 } from './geometry';
 import { estimatePlatformerDurationS } from './lint';
@@ -182,16 +183,13 @@ class PlatformerGame implements GameInstance {
         role,
         role === 'boss' ? bossFallback : ROLE_FALLBACK[role]!,
         role === 'hero'
-          ? { presentation: 'tall-humanoid' }
+          ? { presentation: platformerHeroPresentation(this.spec.playerHeightTiles) }
           : role === 'obj_platform'
             ? { bob: false, anchorOpaqueTop: true }
             : {},
       );
     }
-    const body = platformerPlayerBody(
-      this.spec.playerHeightTiles,
-      this.sprites['hero']?.appliedPresentation === 'tall-humanoid',
-    );
+    const body = platformerPlayerBody(this.spec.playerHeightTiles);
     this.playerW = body.w;
     this.playerH = body.h;
   }

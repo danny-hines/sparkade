@@ -21,6 +21,19 @@ function firstSolid(level: PlatformerSpec['levels'][number]): { x: number; y: nu
   throw new Error('golden level has no solid tile');
 }
 
+function firstKind(
+  level: PlatformerSpec['levels'][number],
+  expected: 'solid' | 'platform',
+): { x: number; y: number } {
+  const grid = parseLevelGrid(level);
+  for (let y = 0; y < grid.h; y++) {
+    for (let x = 0; x < grid.w; x++) {
+      if (grid.kind(x, y) === expected) return { x, y };
+    }
+  }
+  throw new Error(`golden level has no ${expected} tile`);
+}
+
 function setLevelCell(
   level: PlatformerSpec['levels'][number],
   x: number,
@@ -121,6 +134,22 @@ describe('platformer lints', () => {
     const platform = level.entities.find((entity) => entity.type === 'movingPlatform')!;
     setLevelCell(level, platform.x, platform.y - 1, '#');
     expect(codes(archetypes.platformer.lint(spec))).toContain('PLAT_MOVING_PLATFORM_NO_CLEARANCE');
+
+    const surfaceSpec = golden<PlatformerSpec>('platformer');
+    const surfaceLevel = surfaceSpec.levels[2]!;
+    const horizontal = surfaceLevel.entities.find((entity) => entity.type === 'movingPlatform')!;
+    const platformChar = Object.entries(surfaceLevel.legend).find(
+      ([, kind]) => kind === 'platform',
+    )![0];
+    setLevelCell(
+      surfaceLevel,
+      horizontal.x + Math.floor((horizontal.props?.dx ?? 0) / 2),
+      horizontal.y,
+      platformChar,
+    );
+    expect(codes(archetypes.platformer.lint(surfaceSpec))).toContain(
+      'PLAT_MOVING_PLATFORM_NO_CLEARANCE',
+    );
   });
 
   it('collectible embedded in a solid tile → PLAT_ENTITY_IN_SOLID', () => {
@@ -128,6 +157,11 @@ describe('platformer lints', () => {
     const { x, y } = firstSolid(spec.levels[0]!);
     spec.levels[0]!.entities.push({ type: 'coin', x, y });
     expect(codes(archetypes.platformer.lint(spec))).toContain('PLAT_ENTITY_IN_SOLID');
+
+    const platformSpec = golden<PlatformerSpec>('platformer');
+    const platform = firstKind(platformSpec.levels[0]!, 'platform');
+    platformSpec.levels[0]!.entities.push({ type: 'coin', ...platform });
+    expect(codes(archetypes.platformer.lint(platformSpec))).toContain('PLAT_ENTITY_IN_SOLID');
   });
 
   it('a gap wider than the jump kernel makes the exit unreachable', () => {

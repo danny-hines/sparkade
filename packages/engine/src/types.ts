@@ -37,7 +37,8 @@ export interface ButtonState {
 
 export type InputSnapshot = Record<LogicalButton, ButtonState>;
 
-/** Baked likeness artifacts produced by the server, loaded by the shell. */
+/** Generated game art produced by the server, loaded by the shell.  The name is
+ * kept for API compatibility with older games that only have likeness heads. */
 export interface LikenessAssets {
   head12: CanvasImageSource | null;
   head16: CanvasImageSource | null;
@@ -46,6 +47,13 @@ export interface LikenessAssets {
   head16Side?: CanvasImageSource | null;
   head16Back?: CanvasImageSource | null;
   portrait: CanvasImageSource | null;
+  /** Generated widescreen art used behind the three major story beats. */
+  storyIntro?: CanvasImageSource | null;
+  storyBoss?: CanvasImageSource | null;
+  storyVictory?: CanvasImageSource | null;
+  /** Optional image-generated player poses. The fighter uses these when a
+   * complete enough set is present and otherwise keeps its procedural figure. */
+  fighterPoses?: Readonly<Record<string, CanvasImageSource>> | null;
 }
 
 /** What a finished run reports back to the host. */

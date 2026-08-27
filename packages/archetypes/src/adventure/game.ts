@@ -86,10 +86,42 @@ interface DoorGeom {
 }
 
 const DOOR_GEOM: readonly DoorGeom[] = [
-  { dir: 'n', dx: 0, dy: -1, cells: [{ tx: 11, ty: 0 }, { tx: 12, ty: 0 }] },
-  { dir: 's', dx: 0, dy: 1, cells: [{ tx: 11, ty: ROWS - 1 }, { tx: 12, ty: ROWS - 1 }] },
-  { dir: 'e', dx: 1, dy: 0, cells: [{ tx: COLS - 1, ty: 5 }, { tx: COLS - 1, ty: 6 }] },
-  { dir: 'w', dx: -1, dy: 0, cells: [{ tx: 0, ty: 5 }, { tx: 0, ty: 6 }] },
+  {
+    dir: 'n',
+    dx: 0,
+    dy: -1,
+    cells: [
+      { tx: 11, ty: 0 },
+      { tx: 12, ty: 0 },
+    ],
+  },
+  {
+    dir: 's',
+    dx: 0,
+    dy: 1,
+    cells: [
+      { tx: 11, ty: ROWS - 1 },
+      { tx: 12, ty: ROWS - 1 },
+    ],
+  },
+  {
+    dir: 'e',
+    dx: 1,
+    dy: 0,
+    cells: [
+      { tx: COLS - 1, ty: 5 },
+      { tx: COLS - 1, ty: 6 },
+    ],
+  },
+  {
+    dir: 'w',
+    dx: -1,
+    dy: 0,
+    cells: [
+      { tx: 0, ty: 5 },
+      { tx: 0, ty: 6 },
+    ],
+  },
 ];
 
 interface DoorInfo {
@@ -279,8 +311,24 @@ class AdventureGame implements GameInstance {
   private blocks: BlockObj[];
   private boom = { active: false, x: 0, y: 0, vx: 0, vy: 0, sx: 0, sy: 0, back: false, t: 0 };
   private boss: BossState = {
-    active: false, visible: true, x: 0, y: 0, w: 24, h: 24, hp: 1, maxHp: 1,
-    phaseIx: 0, invulnT: 0, dirX: -1, mode: 'idle', t: 0, vx: 0, vy: 0, angle: 0, emitT: 0, emits: 0,
+    active: false,
+    visible: true,
+    x: 0,
+    y: 0,
+    w: 24,
+    h: 24,
+    hp: 1,
+    maxHp: 1,
+    phaseIx: 0,
+    invulnT: 0,
+    dirX: -1,
+    mode: 'idle',
+    t: 0,
+    vx: 0,
+    vy: 0,
+    angle: 0,
+    emitT: 0,
+    emits: 0,
   };
 
   // reusable scratch boxes (no per-frame allocation)
@@ -349,24 +397,61 @@ class AdventureGame implements GameInstance {
     });
 
     this.ents = Array.from({ length: BUDGET.maxActiveEntities }, () => ({
-      active: false, type: 'walker' as AdventureEntityType, specIx: -1, x: 0, y: 0, w: 12, h: 12,
-      dirX: 1, dirY: 0, t: 0, hp: 1, fireT: 0, stunT: 0, hitT: 0, kbT: 0, kbX: 0, kbY: 0,
-      wanderT: 0, chaseT: 0, pauseT: 0, lastSwing: -1, props: {},
+      active: false,
+      type: 'walker' as AdventureEntityType,
+      specIx: -1,
+      x: 0,
+      y: 0,
+      w: 12,
+      h: 12,
+      dirX: 1,
+      dirY: 0,
+      t: 0,
+      hp: 1,
+      fireT: 0,
+      stunT: 0,
+      hitT: 0,
+      kbT: 0,
+      kbX: 0,
+      kbY: 0,
+      wanderT: 0,
+      chaseT: 0,
+      pauseT: 0,
+      lastSwing: -1,
+      props: {},
     }));
     this.projs = Array.from({ length: 32 }, () => ({
-      active: false, x: 0, y: 0, vx: 0, vy: 0, friendly: false, arrow: false, t: 0,
+      active: false,
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      friendly: false,
+      arrow: false,
+      t: 0,
     }));
     this.bombs = Array.from({ length: 3 }, () => ({ active: false, x: 0, y: 0, fuseT: 0 }));
     this.blocks = Array.from({ length: 16 }, () => ({
-      active: false, x: 0, y: 0, tx: 0, ty: 0, toTx: 0, toTy: 0, sliding: false,
+      active: false,
+      x: 0,
+      y: 0,
+      tx: 0,
+      ty: 0,
+      toTx: 0,
+      toTy: 0,
+      sliding: false,
     }));
 
     this.playerGrid = {
-      cols: COLS, rows: ROWS, tileSize: TILE_SIZE,
+      cols: COLS,
+      rows: ROWS,
+      tileSize: TILE_SIZE,
       solidityAt: (tx, ty) => this.solidity(tx, ty, false),
     };
     this.entGrid = {
-      cols: COLS, rows: ROWS, tileSize: TILE_SIZE,
+      cols: COLS,
+      rows: ROWS,
+      tileSize: TILE_SIZE,
       solidityAt: (tx, ty) => this.solidity(tx, ty, true),
     };
   }
@@ -376,6 +461,7 @@ class AdventureGame implements GameInstance {
       title: this.spec.meta.title,
       lines: [line],
       portrait: this.engine.portrait,
+      artRole: 'intro' as const,
     }));
     this.engine.cards.show(cards, () => this.enterDungeon());
   }
@@ -398,11 +484,13 @@ class AdventureGame implements GameInstance {
   private enterDungeon(): void {
     this.engine.music.playJingle('levelIntro');
     this.engine.cards.show(
-      [{
-        title: this.spec.meta.title,
-        lines: [this.spec.story.levelIntros[0] ?? '...'],
-        portrait: this.engine.portrait,
-      }],
+      [
+        {
+          title: this.spec.meta.title,
+          lines: [this.spec.story.levelIntros[0] ?? '...'],
+          portrait: this.engine.portrait,
+        },
+      ],
       () => this.enterRoom(this.startIx, null, null),
     );
   }
@@ -433,7 +521,14 @@ class AdventureGame implements GameInstance {
         this.phase = 'cards';
         this.engine.music.stopSong();
         this.engine.cards.show(
-          [{ title: this.spec.boss.name, lines: [this.spec.story.bossIntro], portrait: this.engine.portrait }],
+          [
+            {
+              title: this.spec.boss.name,
+              lines: [this.spec.story.bossIntro],
+              portrait: this.engine.portrait,
+              artRole: 'boss',
+            },
+          ],
           () => {
             this.engine.music.playSong('boss');
             this.phase = 'play';
@@ -524,7 +619,11 @@ class AdventureGame implements GameInstance {
       if (kind === 'none') continue;
       const nIx = this.posIndex.get(`${room.gridPos.x + g.dx},${room.gridPos.y + g.dy}`) ?? -1;
       const opened = kind === 'open' || (nIx >= 0 && this.openedDoors.has(this.pairKey(ix, nIx)));
-      const tileKind: TileKind = opened ? 'doorOpen' : kind === 'locked' ? 'doorLocked' : 'doorBoss';
+      const tileKind: TileKind = opened
+        ? 'doorOpen'
+        : kind === 'locked'
+          ? 'doorLocked'
+          : 'doorBoss';
       for (const c of g.cells) this.kinds[c.ty * COLS + c.tx] = tileKind;
       this.doors.push({ dir: g.dir, kind, neighbor: nIx, cells: g.cells });
     }
@@ -679,7 +778,10 @@ class AdventureGame implements GameInstance {
         let occupied = false;
         for (const e of this.ents) {
           if (!e.active) continue;
-          if (Math.floor((e.x + e.w / 2) / TILE_SIZE) === tx && Math.floor((e.y + e.h / 2) / TILE_SIZE) === ty) {
+          if (
+            Math.floor((e.x + e.w / 2) / TILE_SIZE) === tx &&
+            Math.floor((e.y + e.h / 2) / TILE_SIZE) === ty
+          ) {
             occupied = true;
             break;
           }
@@ -974,7 +1076,10 @@ class AdventureGame implements GameInstance {
       if (!on) {
         for (const b of this.blocks) {
           if (!b.active) continue;
-          if (Math.floor((b.x + 8) / TILE_SIZE) === s.tx && Math.floor((b.y + 8) / TILE_SIZE) === s.ty) {
+          if (
+            Math.floor((b.x + 8) / TILE_SIZE) === s.tx &&
+            Math.floor((b.y + 8) / TILE_SIZE) === s.ty
+          ) {
             on = true;
             break;
           }
@@ -1073,7 +1178,9 @@ class AdventureGame implements GameInstance {
         let airborne = 0;
         for (const p of this.projs) if (p.active && p.friendly && p.arrow) airborne++;
         if (airborne >= MAX_ARROWS) break;
-        if (this.fireProj(cx + fx * 10, cy + fy * 10, fx * ARROW_SPEED, fy * ARROW_SPEED, true, true)) {
+        if (
+          this.fireProj(cx + fx * 10, cy + fy * 10, fx * ARROW_SPEED, fy * ARROW_SPEED, true, true)
+        ) {
           this.bowCd = BOW_COOLDOWN;
           this.engine.sfx.play('shoot');
         }
@@ -1234,7 +1341,14 @@ class AdventureGame implements GameInstance {
           const dx = pcx - ecx;
           const dy = pcy - ecy;
           const len = Math.max(1, Math.hypot(dx, dy));
-          this.fireProj(ecx, ecy, (dx / len) * ENEMY_SHOT_SPEED, (dy / len) * ENEMY_SHOT_SPEED, false, false);
+          this.fireProj(
+            ecx,
+            ecy,
+            (dx / len) * ENEMY_SHOT_SPEED,
+            (dy / len) * ENEMY_SHOT_SPEED,
+            false,
+            false,
+          );
           this.engine.sfx.play('shoot');
         }
         break;
@@ -1360,7 +1474,13 @@ class AdventureGame implements GameInstance {
   }
 
   private bossFitsAt(x: number, y: number): boolean {
-    if (x < TILE_SIZE || y < TILE_SIZE || x + 24 > ROOM_W - TILE_SIZE || y + 24 > ROOM_H - TILE_SIZE) return false;
+    if (
+      x < TILE_SIZE ||
+      y < TILE_SIZE ||
+      x + 24 > ROOM_W - TILE_SIZE ||
+      y + 24 > ROOM_H - TILE_SIZE
+    )
+      return false;
     const pts = 23;
     for (let iy = 0; iy <= 1; iy++) {
       for (let ix = 0; ix <= 1; ix++) {
@@ -1431,9 +1551,12 @@ class AdventureGame implements GameInstance {
           for (let i = 0; i < 4; i++) {
             const a = (i * Math.PI) / 2 + Math.PI / 4;
             this.fireProj(
-              b.x + b.w / 2, b.y + b.h / 2,
-              Math.cos(a) * BOSS_SHOT_SPEED, Math.sin(a) * BOSS_SHOT_SPEED,
-              false, false,
+              b.x + b.w / 2,
+              b.y + b.h / 2,
+              Math.cos(a) * BOSS_SHOT_SPEED,
+              Math.sin(a) * BOSS_SHOT_SPEED,
+              false,
+              false,
             );
           }
           this.engine.sfx.play('shoot');
@@ -1451,9 +1574,12 @@ class AdventureGame implements GameInstance {
           for (let i = 0; i < 4; i++) {
             const a = b.angle + (i * Math.PI) / 2;
             this.fireProj(
-              b.x + b.w / 2, b.y + b.h / 2,
-              Math.cos(a) * BOSS_SHOT_SPEED, Math.sin(a) * BOSS_SHOT_SPEED,
-              false, false,
+              b.x + b.w / 2,
+              b.y + b.h / 2,
+              Math.cos(a) * BOSS_SHOT_SPEED,
+              Math.sin(a) * BOSS_SHOT_SPEED,
+              false,
+              false,
             );
           }
           b.angle += Math.PI / 6; // 30 degrees per emission
@@ -1471,7 +1597,8 @@ class AdventureGame implements GameInstance {
     if (b.visible && this.invulnT <= 0 && aabbOverlap(this.pbox, b)) {
       this.hurtPlayer(b.x + b.w / 2, b.y + b.h / 2, 110);
     }
-    if (b.active) this.hud.boss = { hp: Math.max(0, b.hp), maxHp: b.maxHp, name: this.spec.boss.name };
+    if (b.active)
+      this.hud.boss = { hp: Math.max(0, b.hp), maxHp: b.maxHp, name: this.spec.boss.name };
   }
 
   private startBossPattern(pattern: 'charge' | 'teleport' | 'spiral' | 'summon'): void {
@@ -1497,13 +1624,16 @@ class AdventureGame implements GameInstance {
         break;
       case 'summon': {
         let summons = 0;
-        for (const e of this.ents) if (e.active && e.type === 'walker' && e.specIx === -2) summons++;
+        for (const e of this.ents)
+          if (e.active && e.type === 'walker' && e.specIx === -2) summons++;
         for (let i = summons; i < 2; i++) {
           const cell = this.findSpawnCell(
             Math.floor((b.x + b.w / 2) / TILE_SIZE) - 2 + i * 4,
             Math.floor((b.y + b.h / 2) / TILE_SIZE) + 1,
           );
-          const m = this.spawnEnt('walker', cell.tx * TILE_SIZE + 8, cell.ty * TILE_SIZE + 8, -2, { speed: 1.2 });
+          const m = this.spawnEnt('walker', cell.tx * TILE_SIZE + 8, cell.ty * TILE_SIZE + 8, -2, {
+            speed: 1.2,
+          });
           if (m) {
             this.engine.particles.burst(m.x + m.w / 2, m.y + m.h / 2, 8, {
               color: this.spec.palette[10] ?? '#5d275d',
@@ -1569,7 +1699,11 @@ class AdventureGame implements GameInstance {
     this.engine.music.stopSong();
     this.phase = 'cards';
     this.engine.cards.show(
-      this.spec.story.victory.map((line) => ({ lines: [line], portrait: this.engine.portrait })),
+      this.spec.story.victory.map((line) => ({
+        lines: [line],
+        portrait: this.engine.portrait,
+        artRole: 'victory' as const,
+      })),
       () => {
         const par = estimateAdventureDurationS(this.spec) * 1.35;
         this.result = {
@@ -1583,7 +1717,14 @@ class AdventureGame implements GameInstance {
 
   // ------------------------------------------------------------- projectiles
 
-  private fireProj(x: number, y: number, vx: number, vy: number, friendly: boolean, arrow: boolean): boolean {
+  private fireProj(
+    x: number,
+    y: number,
+    vx: number,
+    vy: number,
+    friendly: boolean,
+    arrow: boolean,
+  ): boolean {
     for (const p of this.projs) {
       if (p.active) continue;
       p.active = true;
@@ -1613,7 +1754,10 @@ class AdventureGame implements GameInstance {
       if (this.projBlockedAt(p.x, p.y)) {
         p.active = false;
         if (p.arrow) {
-          this.engine.particles.burst(p.x, p.y, 4, { color: this.spec.palette[14] ?? '#94b0c2', speed: 40 });
+          this.engine.particles.burst(p.x, p.y, 4, {
+            color: this.spec.palette[14] ?? '#94b0c2',
+            speed: 40,
+          });
         }
         continue;
       }
@@ -1748,7 +1892,11 @@ class AdventureGame implements GameInstance {
     // so on a low-contrast palette (or the cabinet's dark LCD) they vanish into
     // the terrain. Stamp a palette-independent raised-block silhouette.
     drawObstacleShadows(
-      r, cam, COLS, ROWS, TILE_SIZE,
+      r,
+      cam,
+      COLS,
+      ROWS,
+      TILE_SIZE,
       (tx, ty) => this.isObstacleTile(tx, ty),
       (tx, ty) => this.isTerrainTile(tx, ty),
     );
@@ -1802,7 +1950,9 @@ class AdventureGame implements GameInstance {
     for (const bm of this.bombs) {
       if (!bm.active) continue;
       const blink = bm.fuseT < 0.35 && Math.floor(this.animT * 16) % 2 === 0;
-      const img = blink ? this.bombSprite.flash[0] ?? this.bombSprite.frames[0]! : this.bombSprite.frames[0]!;
+      const img = blink
+        ? (this.bombSprite.flash[0] ?? this.bombSprite.frames[0]!)
+        : this.bombSprite.frames[0]!;
       r.draw(img, bm.x - cam.x - this.bombSprite.w / 2, bm.y - cam.y - this.bombSprite.h / 2);
     }
 
@@ -1829,7 +1979,8 @@ class AdventureGame implements GameInstance {
       let bx = b.x - cam.x - (sprite.w - b.w) / 2;
       const by = b.y - cam.y - (sprite.h - b.h);
       if (b.mode === 'telegraph') bx += Math.sin(this.animT * 60) * 2;
-      const anim = b.mode === 'telegraph' || b.mode === 'charge' ? 'attack' : b.invulnT > 0 ? 'hurt' : 'idle';
+      const anim =
+        b.mode === 'telegraph' || b.mode === 'charge' ? 'attack' : b.invulnT > 0 ? 'hurt' : 'idle';
       const img = this.engine.sprites.frame(sprite, anim, this.animT, b.dirX > 0);
       r.draw(img, bx, by);
     }
@@ -1845,8 +1996,17 @@ class AdventureGame implements GameInstance {
 
     // Boomerang (spins by alternating flip).
     if (this.boom.active) {
-      const img = this.engine.sprites.frame(this.boomSprite, 'idle', this.boom.t, Math.floor(this.boom.t * 10) % 2 === 0);
-      r.draw(img, this.boom.x - cam.x - this.boomSprite.w / 2, this.boom.y - cam.y - this.boomSprite.h / 2);
+      const img = this.engine.sprites.frame(
+        this.boomSprite,
+        'idle',
+        this.boom.t,
+        Math.floor(this.boom.t * 10) % 2 === 0,
+      );
+      r.draw(
+        img,
+        this.boom.x - cam.x - this.boomSprite.w / 2,
+        this.boom.y - cam.y - this.boomSprite.h / 2,
+      );
     }
 
     // Player (invulnerability flicker) + sword slash.
@@ -1859,7 +2019,12 @@ class AdventureGame implements GameInstance {
     }
     if (this.swordT > 0) {
       this.setSwordBox();
-      const img = this.engine.sprites.frame(this.waveSprite, 'idle', this.animT, this.facing === 'left');
+      const img = this.engine.sprites.frame(
+        this.waveSprite,
+        'idle',
+        this.animT,
+        this.facing === 'left',
+      );
       r.draw(
         img,
         this.swordBox.x - cam.x + (this.swordBox.w - this.waveSprite.w) / 2,
@@ -1870,7 +2035,9 @@ class AdventureGame implements GameInstance {
     // Floating hint text.
     if (this.floatT > 0) {
       const rise = (1 - this.floatT) * 10;
-      r.text(this.floatText, this.floatX - cam.x, this.floatY - cam.y - 12 - rise, '#f4f4f4', { align: 'center' });
+      r.text(this.floatText, this.floatX - cam.x, this.floatY - cam.y - 12 - rise, '#f4f4f4', {
+        align: 'center',
+      });
     }
 
     if (this.mapOpen) this.renderMap();
@@ -1913,11 +2080,14 @@ class AdventureGame implements GameInstance {
         r.rect(x, y, cw, ch, '#181a2a');
         r.frame(x, y, cw, ch, '#2a2c44');
       }
-      if (i === this.bossIx) r.text('B', x + cw / 2, y + ch / 2 - 4, '#e04040', { align: 'center' });
+      if (i === this.bossIx)
+        r.text('B', x + cw / 2, y + ch / 2 - 4, '#e04040', { align: 'center' });
       if (i === this.roomIx && Math.floor(this.mapT * 2) % 2 === 0) {
         r.frame(x - 2, y - 2, cw + 4, ch + 4, '#f4f4f4');
       }
     }
-    r.text('(B / SELECT: close)', INTERNAL_WIDTH / 2, oy + totalH + 14, '#94b0c2', { align: 'center' });
+    r.text('(B / SELECT: close)', INTERNAL_WIDTH / 2, oy + totalH + 14, '#94b0c2', {
+      align: 'center',
+    });
   }
 }

@@ -17,6 +17,7 @@ import {
   type ArchetypeId,
   type DesignDoc,
   type GameMetaFile,
+  type GeneratedGameAssetRole,
   type GameSpec,
   type JobEvent,
   type JobStage,
@@ -25,24 +26,60 @@ import {
   type SparkadeConfig,
   type StageName,
 } from '@sparkade/shared';
-import { bakeLikeness, likenessAssetBuffers, type LikenessArtifacts } from '../likeness/likeness';
-import { drawAvatarLikeness } from '../likeness/avatar';
-import { generatePortrait } from '../likeness/portrait-gen';
+import type { LikenessArtifacts } from '../likeness/likeness';
 import {
-  buildFaceAnalysisPrompt,
-  buildPortraitPalette,
-  normalizeFaceFeatures,
-  type FaceFeatures,
-} from '../likeness/features';
+  GENERATED_HEAD_PROMPT_VERSION,
+  GENERATED_PORTRAIT_PROMPT_VERSION,
+  describeVisibleTraits,
+  generateHeadSprites,
+  generatePortrait,
+  type GeneratedHeadDirection,
+  type LikenessImageEdit,
+} from '../likeness/portrait-gen';
 import {
   ProviderAuthError,
   ProviderHttpError,
   ProviderNetworkError,
   stageProvider,
 } from '../providers/index';
+import { MetaImageAdapter, META_IMAGE_DEFAULT_API_KEY_ENV } from '../providers/meta-image';
+import {
+  buildKeyArtPrompt,
+  buildStoryArtPrompt,
+  KEY_ART_ASPECT_HINT,
+  KEY_ART_PROMPT_VERSION,
+  mockGeneratedImage,
+  normalizeKeyArt,
+  normalizeStoryArt,
+  prepareImageReference,
+  STORY_ART_ASPECT_HINT,
+  STORY_ART_PROMPT_VERSION,
+  type StoryArtRole,
+} from '../assets/game-art';
+import {
+  GENERATED_FIGHTER_POSES,
+  GENERATED_FIGHTER_POSE_PROMPT_VERSION,
+  buildFighterPosePrompt,
+  prepareGeneratedFighterReference,
+  processGeneratedFighterPose,
+  type GeneratedFighterPose,
+} from '../assets/fighter-pose';
+import {
+  GameAssetWorkspace,
+  GeneratedAssetStorageError,
+  imagePromptHash,
+  sha256,
+} from '../assets/manifest';
 import type { ConfigStore } from '../storage/config';
 import type { Db } from '../storage/db';
 import type { GameFiles, RawStageName } from '../storage/files';
+import {
+  detectIncidentRuntime,
+  hasSubstantiveRepair,
+  IncidentStore,
+  type GenerationIncident,
+  type IncidentOutcome,
+} from '../storage/incidents';
 import { costOf, type PriceSnapshot } from './cost';
 import { applyPatch, PatchError, type JsonPatchOp } from './patch';
 import {
@@ -102,6 +139,20 @@ export interface NewJobInputs {
   photo?: Buffer;
   idempotencyKey: string;
 }
+
+const FIGHTER_ASSET_ROLES = {
+  idle: 'fighterIdle',
+  walk: 'fighterWalk',
+  crouch: 'fighterCrouch',
+  jump: 'fighterJump',
+  punchHigh: 'fighterPunchHigh',
+  punchLow: 'fighterPunchLow',
+  kickHigh: 'fighterKickHigh',
+  kickLow: 'fighterKickLow',
+  block: 'fighterBlock',
+  hit: 'fighterHit',
+  ko: 'fighterKo',
+} as const satisfies Record<GeneratedFighterPose, GeneratedGameAssetRole>;
 
 /** Surprise's structured genre is authoritative; the design model still gets
  * the instruction, but cannot silently relabel the job by returning another id. */
@@ -267,13 +318,30 @@ export class GenerationRunner {
   );
   private aborts = new Map<string, AbortController>();
   private canceled = new Set<string>();
+  private activeImageCalls = 0;
+  private readonly maxConcurrentImageCalls = Math.max(
+    1,
+    Number(process.env.SPARKADE_IMAGE_CONCURRENCY) || GENERATION.maxConcurrentImageCalls,
+  );
+  private imageCallWaiters: Array<{
+    signal: AbortSignal;
+    resolve: (release: () => void) => void;
+    reject: (error: Error) => void;
+    onAbort: () => void;
+  }> = [];
+  private readonly incidents: IncidentStore | null;
 
   constructor(
     private db: Db,
     private files: GameFiles,
     private configStore: ConfigStore,
     private hub: SseHub,
-  ) {}
+  ) {
+    // A few pure semaphore tests intentionally provide a minimal file-store
+    // double. Incident capture is best-effort telemetry, never a prerequisite
+    // for constructing or running the generation machinery.
+    this.incidents = typeof files.dir === 'string' ? new IncidentStore(files.dir) : null;
+  }
 
   /** Called at boot: interrupted jobs -> failed-retryable (never stuck "Generating"). */
   reconcile(): void {
@@ -321,6 +389,12 @@ export class GenerationRunner {
         attempt: 1,
       },
       snapshot,
+      {
+        model: config.imageGeneration.model,
+        perImageUsd: Number.isFinite(config.imageGeneration.pricePerImageUsd)
+          ? Math.max(0, config.imageGeneration.pricePerImageUsd)
+          : null,
+      },
     );
     this.db.upsertGame({
       id: gameId,
@@ -346,6 +420,11 @@ export class GenerationRunner {
     const job = this.db.getJobForGame(gameId);
     if (!job || (job.status !== 'failed' && job.status !== 'canceled')) return null;
     this.canceled.delete(job.id);
+    try {
+      this.incidents?.markRetry(job.id, job.attempt, job.attempt + 1, 'running');
+    } catch (error) {
+      console.warn('could not update generation incident retry state:', error);
+    }
     this.db.updateJob(job.id, {
       status: 'queued',
       stage: 'queued',
@@ -405,6 +484,57 @@ export class GenerationRunner {
     return structuredClone(config.pricing);
   }
 
+  /** FIFO semaphore shared by every running job. The slot is held only for the
+   * provider request itself, never validation, local image work, or backoff. */
+  private async withImageCallSlot<T>(signal: AbortSignal, call: () => Promise<T>): Promise<T> {
+    const release = await this.acquireImageCallSlot(signal);
+    try {
+      return await call();
+    } finally {
+      release();
+    }
+  }
+
+  private acquireImageCallSlot(signal: AbortSignal): Promise<() => void> {
+    if (signal.aborted) return Promise.reject(new Error('image request canceled'));
+    if (this.activeImageCalls < this.maxConcurrentImageCalls) {
+      this.activeImageCalls++;
+      return Promise.resolve(() => this.releaseImageCallSlot());
+    }
+    return new Promise((resolve, reject) => {
+      const waiter = {
+        signal,
+        resolve,
+        reject,
+        onAbort: () => {
+          const index = this.imageCallWaiters.indexOf(waiter);
+          if (index >= 0) this.imageCallWaiters.splice(index, 1);
+          signal.removeEventListener('abort', waiter.onAbort);
+          reject(new Error('image request canceled'));
+        },
+      };
+      this.imageCallWaiters.push(waiter);
+      signal.addEventListener('abort', waiter.onAbort, { once: true });
+    });
+  }
+
+  private releaseImageCallSlot(): void {
+    for (;;) {
+      const waiter = this.imageCallWaiters.shift();
+      if (!waiter) {
+        this.activeImageCalls--;
+        return;
+      }
+      waiter.signal.removeEventListener('abort', waiter.onAbort);
+      if (waiter.signal.aborted) {
+        waiter.reject(new Error('image request canceled'));
+        continue;
+      }
+      waiter.resolve(() => this.releaseImageCallSlot());
+      return;
+    }
+  }
+
   // ------------------------------------------------------------------ execute
 
   private async execute(jobId: string): Promise<void> {
@@ -413,6 +543,12 @@ export class GenerationRunner {
     const gameId = job.gameId;
     const config = this.configStore.get();
     const snapshot = this.db.jobPriceSnapshot(jobId);
+    const imageSnapshot = this.db.jobImagePriceSnapshot(jobId) ?? {
+      model: config.imageGeneration.model,
+      perImageUsd: Number.isFinite(config.imageGeneration.pricePerImageUsd)
+        ? Math.max(0, config.imageGeneration.pricePerImageUsd)
+        : null,
+    };
     const abort = new AbortController();
     this.aborts.set(jobId, abort);
     const startedAt = Date.now();
@@ -461,7 +597,7 @@ export class GenerationRunner {
       let activePrompt = prompt;
       for (;;) {
         if (abort.signal.aborted)
-          throw new PipelineError('timeout', 'generation hit the 8 minute limit', opts.stage);
+          throw new PipelineError('timeout', 'generation hit the time limit', opts.stage);
         try {
           const stageCfg = config.stages[stageName];
           const res = await provider.complete(
@@ -510,7 +646,7 @@ export class GenerationRunner {
           return parsed;
         } catch (e) {
           if (abort.signal.aborted)
-            throw new PipelineError('timeout', 'generation hit the 8 minute limit', opts.stage);
+            throw new PipelineError('timeout', 'generation hit the time limit', opts.stage);
           if (e instanceof ProviderAuthError) {
             throw new PipelineError('auth', e.message, opts.stage);
           }
@@ -519,7 +655,7 @@ export class GenerationRunner {
             this.db.updateJob(jobId, { status: 'waiting-network' });
             emit(opts.stage, 'Waiting for network…', { waitingForNetwork: true });
             await sleep(8000, abort.signal).catch(() => {
-              throw new PipelineError('timeout', 'generation hit the 8 minute limit', opts.stage);
+              throw new PipelineError('timeout', 'generation hit the time limit', opts.stage);
             });
             this.db.updateJob(jobId, { status: 'running' });
             continue; // network waits don't consume transient-retry budget
@@ -553,7 +689,7 @@ export class GenerationRunner {
               Math.max(retryAfter, 1000 * Math.pow(3, attempt - 1)) + Math.random() * 500;
             emit(opts.stage, `Retrying (${attempt}/${GENERATION.maxTransientRetriesPerCall})…`);
             await sleep(backoff, abort.signal).catch(() => {
-              throw new PipelineError('timeout', 'generation hit the 8 minute limit', opts.stage);
+              throw new PipelineError('timeout', 'generation hit the time limit', opts.stage);
             });
             continue;
           }
@@ -562,6 +698,156 @@ export class GenerationRunner {
             timedOut ? 'call-timeout' : transient ? 'provider-unavailable' : 'provider-error',
             e instanceof Error ? e.message : String(e),
             opts.stage,
+          );
+        }
+      }
+    };
+
+    const mockImages = process.env.SPARKADE_PROVIDER === 'mock';
+    const imageConfig = config.imageGeneration;
+    const imageModel = mockImages ? 'mock-image' : imageSnapshot.model;
+    // Construct lazily inside callImage's guarded try. Invalid live config must
+    // become a persisted job failure, not reject execute before its outer
+    // failure/finally handling has started.
+    let imageAdapter: MetaImageAdapter | null = null;
+    const getImageAdapter = (): MetaImageAdapter | null => {
+      if (mockImages) return null;
+      imageAdapter ??= new MetaImageAdapter({
+        baseUrl: imageConfig.baseUrl,
+        model: imageModel,
+        apiKeyEnv: imageConfig.apiKeyEnv,
+        timeoutMs: imageConfig.timeoutMs,
+      });
+      return imageAdapter;
+    };
+    const imagePrice = mockImages ? 0 : imageSnapshot.perImageUsd;
+    const callImage = async (opts: {
+      role: string;
+      label: string;
+      prompt: string;
+      reference?: Buffer;
+      size?: string;
+    }): Promise<Buffer> => {
+      let attempt = 0;
+      for (;;) {
+        if (abort.signal.aborted) {
+          throw new PipelineError('timeout', 'generation hit the time limit', 'building-assets');
+        }
+        try {
+          const adapter = getImageAdapter();
+          const result = await this.withImageCallSlot(abort.signal, async () =>
+            adapter
+              ? opts.reference
+                ? adapter.edit(
+                    {
+                      prompt: opts.prompt,
+                      image: opts.reference,
+                      imageMimeType: 'image/png',
+                      imageFilename: 'reference.png',
+                      outputFormat: 'png',
+                      size: opts.size ?? imageConfig.size,
+                      user: gameId,
+                    },
+                    { signal: abort.signal },
+                  )
+                : adapter.generate(
+                    {
+                      prompt: opts.prompt,
+                      outputFormat: 'png',
+                      size: opts.size ?? imageConfig.size,
+                      user: gameId,
+                    },
+                    { signal: abort.signal },
+                  )
+              : Promise.resolve({
+                  image: await mockGeneratedImage(opts.prompt),
+                  imageCount: 1,
+                }),
+          );
+          this.db.insertUsage({
+            jobId,
+            gameId,
+            stage: `image:${opts.role}`,
+            model: imageModel,
+            provider: mockImages ? 'mock' : 'meta-image',
+            inputTokens: 0,
+            outputTokens: 0,
+            costUsd:
+              mockImages || imagePrice === null
+                ? mockImages
+                  ? 0
+                  : null
+                : imagePrice * result.imageCount,
+            failed: false,
+            repair: false,
+          });
+          emit('building-assets', opts.label);
+          return result.image;
+        } catch (error) {
+          if (abort.signal.aborted) {
+            throw new PipelineError('timeout', 'generation hit the time limit', 'building-assets');
+          }
+          if (error instanceof ProviderAuthError) {
+            throw new PipelineError('auth', error.message, 'building-assets');
+          }
+          if (error instanceof ProviderNetworkError) {
+            this.db.updateJob(jobId, { status: 'waiting-network' });
+            emit('building-assets', 'Waiting for network…', { waitingForNetwork: true });
+            await sleep(8000, abort.signal).catch(() => {
+              throw new PipelineError(
+                'timeout',
+                'generation hit the time limit',
+                'building-assets',
+              );
+            });
+            this.db.updateJob(jobId, { status: 'running' });
+            continue;
+          }
+
+          this.db.insertUsage({
+            jobId,
+            gameId,
+            stage: `image:${opts.role}`,
+            model: imageModel,
+            provider: mockImages ? 'mock' : 'meta-image',
+            inputTokens: 0,
+            outputTokens: 0,
+            costUsd: 0,
+            failed: true,
+            repair: false,
+          });
+          const malformed =
+            error instanceof Error &&
+            /image response|base64|decoded|empty image|JSON|unexpected token|unexpected end/i.test(
+              error.message,
+            );
+          const transient = error instanceof ProviderHttpError && error.transient;
+          if ((transient || malformed) && attempt < GENERATION.maxTransientRetriesPerCall) {
+            attempt++;
+            const retryAfter =
+              error instanceof ProviderHttpError && error.retryAfterS
+                ? error.retryAfterS * 1000
+                : 0;
+            const backoff =
+              Math.max(retryAfter, 1000 * Math.pow(3, attempt - 1)) + Math.random() * 500;
+            emit(
+              'building-assets',
+              `Retrying ${opts.label.toLowerCase()} (${attempt}/${GENERATION.maxTransientRetriesPerCall})…`,
+            );
+            await sleep(backoff, abort.signal).catch(() => {
+              throw new PipelineError(
+                'timeout',
+                'generation hit the time limit',
+                'building-assets',
+              );
+            });
+            continue;
+          }
+          const timedOut = error instanceof ProviderHttpError && error.status === 408;
+          throw new PipelineError(
+            timedOut ? 'call-timeout' : transient ? 'provider-unavailable' : 'image-provider-error',
+            error instanceof Error ? error.message : String(error),
+            'building-assets',
           );
         }
       }
@@ -596,10 +882,81 @@ export class GenerationRunner {
         /* telemetry must not fail generation */
       }
     };
+    const captureIncident = (
+      outcome: IncidentOutcome,
+      trigger: { code: string; message: string; stage: JobStage },
+      completedSpec?: GameSpec,
+    ): GenerationIncident | null => {
+      if (!this.incidents) return null;
+      try {
+        const partial = this.files.readPartial(jobId);
+        const game = this.db.getGame(gameId);
+        const partialArchetype =
+          partial?.archetype && partial.archetype in archetypes
+            ? (partial.archetype as ArchetypeId)
+            : undefined;
+        const archetype: ArchetypeId =
+          completedSpec?.archetype ??
+          partialArchetype ??
+          game?.archetype ??
+          job.requestedArchetype ??
+          'platformer';
+        const title =
+          completedSpec?.meta.title ??
+          partial?.title ??
+          (game?.tagline !== 'Generating…' ? game?.title : undefined) ??
+          'Untitled generation';
+        const repairs = this.db
+          .repairEventsForJob(jobId)
+          .filter((event) => event.attempt === job.attempt);
+        return this.incidents.capture({
+          outcome,
+          job,
+          game: { title, archetype },
+          trigger,
+          repairs,
+          checkpoints: this.files.listRawStageCheckpoints(jobId, job.attempt),
+          runtime: detectIncidentRuntime({
+            engineVersion: ENGINE_VERSION,
+            archetypeVersion: archetypes[archetype].version,
+            provider: process.env.SPARKADE_PROVIDER ?? config.stages.design.provider,
+            textModel: config.stages.design.model,
+            imageModel,
+          }),
+          cumulativeCostUsd: this.db.gameCost(gameId),
+        });
+      } catch (error) {
+        console.warn('could not capture generation incident:', error);
+        return null;
+      }
+    };
 
     try {
       this.db.updateJob(jobId, { status: 'running', startedAt: nowIso() });
       this.db.setGameStatus(gameId, 'generating');
+
+      // Muse Image is mandatory for every newly generated game. Validate its
+      // local configuration and credential before incurring any text-model cost.
+      if (!mockImages) {
+        try {
+          getImageAdapter();
+        } catch (error) {
+          throw new PipelineError(
+            'image-config',
+            error instanceof Error ? error.message : String(error),
+            'building-assets',
+          );
+        }
+        const imageKeyEnv = imageConfig.apiKeyEnv.trim() || META_IMAGE_DEFAULT_API_KEY_ENV;
+        if (!process.env[imageKeyEnv]?.trim()) {
+          throw new PipelineError(
+            'auth',
+            `${imageKeyEnv} is not set (required for Muse Image)`,
+            'building-assets',
+          );
+        }
+      }
+
       emit('designing', 'Dreaming up the design…');
 
       const photoPath = join(this.files.stagingFor(jobId), 'photo.jpg');
@@ -635,6 +992,19 @@ export class GenerationRunner {
       const requiredArchetypeNote = job.requestedArchetype
         ? `REQUIRED ARCHETYPE: ${job.requestedArchetype}. Design every level, character, control implication, and story beat for ${job.requestedArchetype}; do not choose a different archetype.`
         : undefined;
+      const recordDesignRedraft = (
+        before: readonly LintError[],
+        after: readonly LintError[],
+        started: number,
+      ) =>
+        recordEarlyRepairEvent(
+          'document',
+          'design-redraft',
+          before,
+          after,
+          started,
+          after.length ? 'failed' : 'fixed',
+        );
 
       const priorAttempt = job.attempt > 1 ? job.attempt - 1 : null;
       const failedOwnersByAttempt = new Map<number, Set<string>>();
@@ -677,6 +1047,7 @@ export class GenerationRunner {
           recentMoods,
           photo: describeInStory ? photo : undefined,
           extraNote: requiredArchetypeNote,
+          onRepair: recordDesignRedraft,
         });
       }
       design = enforceRequestedArchetype(design, job.requestedArchetype);
@@ -687,6 +1058,14 @@ export class GenerationRunner {
         existingGames.map((g) => g.title),
       );
       if (collision) {
+        const collisionRepairStarted = Date.now();
+        const collisionBefore = [
+          {
+            code: 'DESIGN_TOO_SIMILAR',
+            path: '/title',
+            message: `title was too similar to ${collision}`,
+          },
+        ];
         emit('designing', 'Too similar to an existing game — redesigning…');
         design = await this.designPass(callLlm, {
           promptText: job.promptText,
@@ -701,14 +1080,30 @@ export class GenerationRunner {
           ]
             .filter(Boolean)
             .join(' '),
+          onRepair: recordDesignRedraft,
         });
         design = enforceRequestedArchetype(design, job.requestedArchetype);
-        if (
-          tooSimilar(
-            design.title,
-            existingGames.map((g) => g.title),
-          )
-        ) {
+        const repeatedCollision = tooSimilar(
+          design.title,
+          existingGames.map((g) => g.title),
+        );
+        recordEarlyRepairEvent(
+          'document',
+          'design-collision-redraft',
+          collisionBefore,
+          repeatedCollision
+            ? [
+                {
+                  code: 'DESIGN_TOO_SIMILAR',
+                  path: '/title',
+                  message: `redrafted title was still too similar to ${repeatedCollision}`,
+                },
+              ]
+            : [],
+          collisionRepairStarted,
+          repeatedCollision ? 'fallback' : 'fixed',
+        );
+        if (repeatedCollision) {
           design.title = `${design.title.slice(0, 29)} II`;
         }
       }
@@ -784,7 +1179,11 @@ export class GenerationRunner {
         for (let attempt = priorAttempt; attempt >= 1; attempt--) {
           const failedOwners = failedOwnersByAttempt.get(attempt);
           if (failedOwners?.has('document') || failedOwners?.has(stage)) continue;
-          const attemptDesign = this.files.readRawStageCheckpoint(jobId, attempt, 'design')?.document;
+          const attemptDesign = this.files.readRawStageCheckpoint(
+            jobId,
+            attempt,
+            'design',
+          )?.document;
           if (JSON.stringify(attemptDesign) !== JSON.stringify(design)) continue;
           const checkpoints = this.files
             .listRawStageCheckpoints(jobId, attempt)
@@ -848,13 +1247,18 @@ export class GenerationRunner {
               if (!(retryError instanceof TileRunsError)) throw retryError;
               compiled = canonicalLevelsFallback(archetype, retryRaw, retryError);
             }
-            recordEarlyRepairEvent('levels', 'compile-retry', [diagnostic], [], retryStarted, 'fixed');
+            recordEarlyRepairEvent(
+              'levels',
+              'compile-retry',
+              [diagnostic],
+              [],
+              retryStarted,
+              'fixed',
+            );
             return compiled;
           } catch (retryError) {
             const after =
-              retryError instanceof TileRunsError
-                ? [tileRunsDiagnostic(retryError)]
-                : [diagnostic];
+              retryError instanceof TileRunsError ? [tileRunsDiagnostic(retryError)] : [diagnostic];
             recordEarlyRepairEvent(
               'levels',
               'compile-retry',
@@ -917,69 +1321,503 @@ export class GenerationRunner {
       );
       spec = ensureLikenessHeroBody(spec, !!photo);
 
-      // ---- Build assets + atomic publish ----------------------------------
-      emit('building-assets', 'Baking sprites and saving…');
+      // ---- Build Muse Image assets + atomic publish -----------------------
+      emit('building-assets', 'Painting the game art…');
       const staging = this.files.stagingFor(jobId);
       const assetsDir = ensureDir(join(staging, 'assets'));
-      if (photo) {
-        // Opt-in: read the photo's true (lighting-normalized) skin/hair colours
-        // and bake against a portrait palette built from them, instead of the
-        // game palette (which can quantize a face to gray). Falls back cleanly.
-        let feat: FaceFeatures | null = null;
-        if (config.likeness.smartFeatures) {
+      const assetWorkspace = new GameAssetWorkspace(assetsDir, imageModel);
+
+      // Production personalization deliberately relies on Muse Image's direct
+      // view of the photo instead of squeezing identity through the legacy,
+      // finite FaceFeatures taxonomy. This is both more inclusive and keeps the
+      // photo away from the configured text provider unless describeInStory is on.
+      const feat = null;
+
+      const validationFailure = (role: string): void => {
+        this.db.insertUsage({
+          jobId,
+          gameId,
+          stage: `image-validation:${role}`,
+          model: imageModel,
+          provider: mockImages ? 'mock' : 'meta-image',
+          inputTokens: 0,
+          outputTokens: 0,
+          costUsd: 0,
+          failed: true,
+          repair: false,
+        });
+      };
+      const generatedResult = (image: Buffer) => ({
+        image,
+        usage: undefined,
+        outputFormat: 'png' as const,
+        imageCount: 1,
+      });
+      const imageEditFor =
+        (role: string, label: string): LikenessImageEdit =>
+        async (request) =>
+          generatedResult(
+            await callImage({
+              role,
+              label,
+              prompt: request.prompt,
+              reference: request.image,
+              size: request.size,
+            }),
+          );
+      const cachedGeneratedAsset = async (opts: {
+        role: GeneratedGameAssetRole;
+        promptVersion: string;
+        prompt: string;
+        label: string;
+        reference?: Buffer;
+        size?: string;
+        normalize(image: Buffer): Promise<Buffer>;
+      }): Promise<Buffer> => {
+        const prompts = [
+          opts.prompt,
+          `${opts.prompt} RETRY CORRECTION: obey every composition, format, and no-text constraint exactly.`,
+        ];
+        const candidates = prompts.map((prompt) => ({
+          prompt,
+          promptSha: imagePromptHash(prompt, opts.reference),
+        }));
+        for (const candidate of candidates) {
+          const cached = assetWorkspace.load(opts.role, opts.promptVersion, candidate.promptSha);
+          if (cached) return cached;
+        }
+        let lastError: unknown;
+        for (const { prompt, promptSha } of candidates) {
           try {
-            emit('building-assets', 'Reading your photo…');
-            feat = normalizeFaceFeatures(
-              await callLlm('design', buildFaceAnalysisPrompt(), {
-                image: photo,
-                temperature: 0,
-                label: 'Read likeness',
-                stage: 'building-assets',
+            const raw = await callImage({
+              role: opts.role,
+              label: opts.label,
+              prompt,
+              ...(opts.reference ? { reference: opts.reference } : {}),
+              ...(opts.size ? { size: opts.size } : {}),
+            });
+            const normalized = await opts.normalize(raw);
+            await assetWorkspace.store(opts.role, normalized, opts.promptVersion, promptSha);
+            return normalized;
+          } catch (error) {
+            if (error instanceof PipelineError) throw error;
+            if (error instanceof GeneratedAssetStorageError) {
+              throw new PipelineError('storage', error.message, 'building-assets');
+            }
+            lastError = error;
+            validationFailure(opts.role);
+            emit('building-assets', `Repainting ${opts.label.toLowerCase()}…`);
+          }
+        }
+        throw new PipelineError(
+          'image-invalid',
+          `${opts.label} failed validation: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+          'building-assets',
+        );
+      };
+
+      const photoReference = photo ? await prepareImageReference(photo) : undefined;
+      const keyArtPrompt = buildKeyArtPrompt(spec, !!photo);
+      const keyArtTask = cachedGeneratedAsset({
+        role: 'keyArt',
+        promptVersion: KEY_ART_PROMPT_VERSION,
+        prompt: keyArtPrompt,
+        label: 'Key art',
+        ...(photoReference ? { reference: photoReference } : {}),
+        size: KEY_ART_ASPECT_HINT,
+        normalize: normalizeKeyArt,
+      });
+
+      const likenessTask = photo
+        ? (async (): Promise<void> => {
+            const identityKey = JSON.stringify({
+              portraitVersion: GENERATED_PORTRAIT_PROMPT_VERSION,
+              headVersion: GENERATED_HEAD_PROMPT_VERSION,
+              features: feat,
+            });
+            const portraitSha = imagePromptHash(
+              `${GENERATED_PORTRAIT_PROMPT_VERSION}:${identityKey}`,
+              photo,
+            );
+            let portrait = assetWorkspace.load(
+              'generatedPortrait',
+              GENERATED_PORTRAIT_PROMPT_VERSION,
+              portraitSha,
+            );
+            if (!portrait) {
+              let lastError: unknown;
+              for (let pass = 0; pass < 2 && !portrait; pass++) {
+                try {
+                  portrait = await generatePortrait(
+                    photo,
+                    feat,
+                    imageEditFor('portrait', 'Player portrait'),
+                    { size: '1024x1024', user: gameId },
+                  );
+                } catch (error) {
+                  if (error instanceof PipelineError) throw error;
+                  lastError = error;
+                  validationFailure('portrait');
+                  emit('building-assets', 'Repainting the player portrait…');
+                }
+              }
+              if (!portrait) {
+                throw new PipelineError(
+                  'image-invalid',
+                  `Player portrait failed validation: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+                  'building-assets',
+                );
+              }
+              await assetWorkspace.store(
+                'generatedPortrait',
+                portrait,
+                GENERATED_PORTRAIT_PROMPT_VERSION,
+                portraitSha,
+              );
+            }
+
+            const headDirections = [
+              {
+                direction: 'front',
+                role12: 'generatedHead12',
+                role16: 'generatedHead16',
+                label: 'front player sprite',
+              },
+              {
+                direction: 'side',
+                role12: 'generatedHead12Side',
+                role16: 'generatedHead16Side',
+                label: 'profile player sprite',
+              },
+              {
+                direction: 'back',
+                role12: 'generatedHead12Back',
+                role16: 'generatedHead16Back',
+                label: 'rear player sprite',
+              },
+            ] as const satisfies readonly {
+              direction: GeneratedHeadDirection;
+              role12: GeneratedGameAssetRole;
+              role16: GeneratedGameAssetRole;
+              label: string;
+            }[];
+            const headShas = Object.fromEntries(
+              headDirections.map(({ direction }) => [
+                direction,
+                imagePromptHash(
+                  `${GENERATED_HEAD_PROMPT_VERSION}:${direction}:${identityKey}`,
+                  photo,
+                ),
+              ]),
+            ) as Record<GeneratedHeadDirection, string>;
+
+            await Promise.all(
+              headDirections.map(async ({ direction, role12, role16, label }) => {
+                const headSha = headShas[direction];
+                if (
+                  assetWorkspace.load(role12, GENERATED_HEAD_PROMPT_VERSION, headSha) &&
+                  assetWorkspace.load(role16, GENERATED_HEAD_PROMPT_VERSION, headSha)
+                ) {
+                  return;
+                }
+                let generatedHeads: Awaited<ReturnType<typeof generateHeadSprites>> | null = null;
+                let lastError: unknown;
+                for (let pass = 0; pass < 2 && !generatedHeads; pass++) {
+                  try {
+                    generatedHeads = await generateHeadSprites(
+                      photo,
+                      feat,
+                      imageEditFor(`player-head-${direction}`, label),
+                      { size: '1024x1024', user: gameId, direction },
+                    );
+                  } catch (error) {
+                    if (
+                      error instanceof PipelineError ||
+                      error instanceof GeneratedAssetStorageError
+                    ) {
+                      throw error;
+                    }
+                    lastError = error;
+                    validationFailure(`player-head-${direction}`);
+                    emit('building-assets', `Repainting the ${label}…`);
+                  }
+                }
+                if (!generatedHeads) {
+                  throw new PipelineError(
+                    'image-invalid',
+                    `${label} failed validation: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+                    'building-assets',
+                  );
+                }
+                await Promise.all([
+                  assetWorkspace.store(
+                    role12,
+                    generatedHeads.heads[12],
+                    GENERATED_HEAD_PROMPT_VERSION,
+                    headSha,
+                  ),
+                  assetWorkspace.store(
+                    role16,
+                    generatedHeads.heads[16],
+                    GENERATED_HEAD_PROMPT_VERSION,
+                    headSha,
+                  ),
+                ]);
               }),
             );
-          } catch {
-            /* vision unavailable / failed → photo bake against the game palette */
-          }
-        }
-        // Each context uses the style that reads best at its size:
-        //  - "avatar": DRAWN pixel face for the in-game sprite heads (clean at
-        //    12/16px), + the pixel-PHOTO bake for the big story-card portrait
-        //    (a downscaled photo muds at sprite size but reads at 64px, where a
-        //    drawn avatar would look MS-Paint-ish). A hybrid, best of both.
-        //  - "photo": the real photo quantized everywhere (rich portrait palette
-        //    + light dither when feat is available, else game palette + strong).
-        let baked: LikenessArtifacts;
-        if (config.likeness.style === 'avatar' && feat) {
-          const [avatar, photoBake] = await Promise.all([
-            drawAvatarLikeness(feat),
-            bakeLikeness(photo, buildPortraitPalette(feat), 10),
-          ]);
-          // Experimental: an image model may repaint the story-card portrait
-          // (off by default). Any failure keeps the pixel-photo bake.
-          let portrait = photoBake.portrait;
-          const pg = config.likeness.portraitGen;
-          if (pg?.enabled) {
-            try {
-              emit('building-assets', 'Painting your portrait…');
-              portrait = await generatePortrait(photo, feat, pg);
-            } catch {
-              /* image model unavailable / failed → keep the pixel-photo portrait */
+
+            // Compile-time assertion that every legacy runtime slot is now fed
+            // by Muse-authored bytes; there is no local pixel-photo fallback.
+            const baked: LikenessArtifacts = {
+              head12: assetWorkspace.load(
+                'generatedHead12',
+                GENERATED_HEAD_PROMPT_VERSION,
+                headShas.front,
+              )!,
+              head12Side: assetWorkspace.load(
+                'generatedHead12Side',
+                GENERATED_HEAD_PROMPT_VERSION,
+                headShas.side,
+              )!,
+              head12Back: assetWorkspace.load(
+                'generatedHead12Back',
+                GENERATED_HEAD_PROMPT_VERSION,
+                headShas.back,
+              )!,
+              head16: assetWorkspace.load(
+                'generatedHead16',
+                GENERATED_HEAD_PROMPT_VERSION,
+                headShas.front,
+              )!,
+              head16Side: assetWorkspace.load(
+                'generatedHead16Side',
+                GENERATED_HEAD_PROMPT_VERSION,
+                headShas.side,
+              )!,
+              head16Back: assetWorkspace.load(
+                'generatedHead16Back',
+                GENERATED_HEAD_PROMPT_VERSION,
+                headShas.back,
+              )!,
+              portrait,
+            };
+            if (Object.values(baked).some((asset) => !asset)) {
+              throw new PipelineError(
+                'image-invalid',
+                'Muse player assets were incomplete after generation',
+                'building-assets',
+              );
             }
-          }
-          // Keep every generated head view while substituting the photo-based
-          // story portrait. Older renderers simply omit the optional views.
-          baked = { ...avatar, portrait };
-        } else {
-          baked = await bakeLikeness(
-            photo,
-            feat ? buildPortraitPalette(feat) : spec.palette,
-            feat ? 10 : 30,
-          );
-        }
-        for (const [filename, buffer] of likenessAssetBuffers(baked)) {
-          writeFileSync(join(assetsDir, filename), buffer);
-        }
-      }
+          })()
+        : Promise.resolve();
+
+      const foundations = await Promise.allSettled([keyArtTask, likenessTask] as const);
+      const foundationFailure = foundations.find(
+        (result): result is PromiseRejectedResult => result.status === 'rejected',
+      );
+      if (foundationFailure) throw foundationFailure.reason;
+      const keyArt = (foundations[0] as PromiseFulfilledResult<Buffer>).value;
+
+      const storyTask = (async (): Promise<void> => {
+        const roles: StoryArtRole[] = ['intro', 'boss', 'victory'];
+        const results = await Promise.allSettled(
+          roles.map((role) => {
+            const assetRole =
+              role === 'intro' ? 'storyIntro' : role === 'boss' ? 'storyBoss' : 'storyVictory';
+            return cachedGeneratedAsset({
+              role: assetRole,
+              promptVersion: STORY_ART_PROMPT_VERSION,
+              prompt: buildStoryArtPrompt(spec, role),
+              label: `${role} scene`,
+              reference: keyArt,
+              size: STORY_ART_ASPECT_HINT,
+              normalize: normalizeStoryArt,
+            });
+          }),
+        );
+        const failure = results.find(
+          (result): result is PromiseRejectedResult => result.status === 'rejected',
+        );
+        if (failure) throw failure.reason;
+      })();
+
+      let fighterArtStatus: GameMetaFile['fighterArt'] =
+        spec.archetype === 'fighter'
+          ? photoReference
+            ? {
+                mode: 'procedural',
+                attempted: true,
+                reason: 'Generated fighter art did not complete',
+              }
+            : {
+                mode: 'procedural',
+                attempted: false,
+                reason: 'No player photo was supplied',
+              }
+          : undefined;
+
+      const fighterTask =
+        photoReference && spec.archetype === 'fighter'
+          ? (async (): Promise<void> => {
+              const fighterGenerationStarted = Date.now();
+              let idleReference = photoReference;
+              const identity = describeVisibleTraits(feat);
+              const outfit =
+                spec.player?.outfit ?? spec.player?.build ?? 'distinctive arcade fighter';
+              const colors = spec.palette
+                .filter((hex) => {
+                  const r = Number.parseInt(hex.slice(1, 3), 16);
+                  const g = Number.parseInt(hex.slice(3, 5), 16);
+                  const b = Number.parseInt(hex.slice(5, 7), 16);
+                  return !(g > r * 1.15 && g > b * 1.15);
+                })
+                .join(', ');
+              const generatePose = async (pose: GeneratedFighterPose): Promise<Buffer> => {
+                const role = FIGHTER_ASSET_ROLES[pose];
+                const basePrompt = buildFighterPosePrompt(pose, { identity, outfit, colors });
+                const prompts = [
+                  basePrompt,
+                  `${basePrompt} RETRY CORRECTION: use one complete, uncropped silhouette on perfectly uniform #00ff00 and obey the requested pose exactly.`,
+                ];
+                const candidates = prompts.map((prompt) => ({
+                  prompt,
+                  promptSha: imagePromptHash(prompt, idleReference),
+                }));
+                for (const candidate of candidates) {
+                  const cached = assetWorkspace.load(
+                    role,
+                    GENERATED_FIGHTER_POSE_PROMPT_VERSION,
+                    candidate.promptSha,
+                  );
+                  const cachedReference =
+                    pose === 'idle'
+                      ? assetWorkspace.loadPrivate(
+                          'fighterReference',
+                          GENERATED_FIGHTER_POSE_PROMPT_VERSION,
+                          candidate.promptSha,
+                        )
+                      : null;
+                  if (cached && (pose !== 'idle' || cachedReference)) {
+                    if (cachedReference) idleReference = cachedReference;
+                    return cached;
+                  }
+                }
+                let lastError: unknown;
+                for (const { prompt, promptSha } of candidates) {
+                  const raw = await callImage({
+                    role,
+                    label: `Player ${pose} pose`,
+                    prompt,
+                    reference: idleReference,
+                    size: '1024x1024',
+                  });
+                  try {
+                    const processed = await processGeneratedFighterPose(raw);
+                    if (pose === 'idle') {
+                      const reference = await prepareGeneratedFighterReference(raw);
+                      await Promise.all([
+                        assetWorkspace.store(
+                          role,
+                          processed.png,
+                          GENERATED_FIGHTER_POSE_PROMPT_VERSION,
+                          promptSha,
+                        ),
+                        assetWorkspace.storePrivate(
+                          'fighterReference',
+                          reference,
+                          GENERATED_FIGHTER_POSE_PROMPT_VERSION,
+                          promptSha,
+                        ),
+                      ]);
+                      idleReference = reference;
+                    } else {
+                      await assetWorkspace.store(
+                        role,
+                        processed.png,
+                        GENERATED_FIGHTER_POSE_PROMPT_VERSION,
+                        promptSha,
+                      );
+                    }
+                    return processed.png;
+                  } catch (error) {
+                    if (error instanceof GeneratedAssetStorageError) {
+                      throw new PipelineError('storage', error.message, 'building-assets');
+                    }
+                    lastError = error;
+                    validationFailure(role);
+                    emit('building-assets', `Repainting the player ${pose} pose…`);
+                  }
+                }
+                throw lastError instanceof Error
+                  ? lastError
+                  : new Error(`player ${pose} pose failed validation`);
+              };
+
+              try {
+                const idle = await generatePose('idle');
+                const remaining = GENERATED_FIGHTER_POSES.filter((pose) => pose !== 'idle');
+                const results = await Promise.allSettled(remaining.map(generatePose));
+                const failure = results.find(
+                  (result): result is PromiseRejectedResult => result.status === 'rejected',
+                );
+                if (failure) throw failure.reason;
+                const poseBytes = [
+                  idle,
+                  ...results.map((result) => (result as PromiseFulfilledResult<Buffer>).value),
+                ];
+                if (new Set(poseBytes.map(sha256)).size !== GENERATED_FIGHTER_POSES.length) {
+                  throw new Error('generated fighter pose set contained duplicate frames');
+                }
+                fighterArtStatus = { mode: 'generated', attempted: true };
+              } catch (error) {
+                if (abort.signal.aborted || error instanceof PipelineError) {
+                  throw error;
+                }
+                await Promise.all([
+                  assetWorkspace.discard(Object.values(FIGHTER_ASSET_ROLES)),
+                  assetWorkspace.discardPrivate('fighterReference'),
+                ]);
+                fighterArtStatus = {
+                  mode: 'procedural',
+                  attempted: true,
+                  reason:
+                    error instanceof Error
+                      ? error.message.slice(0, 240)
+                      : 'Generated fighter pose set failed validation',
+                };
+                recordEarlyRepairEvent(
+                  'entities',
+                  'fighter-art-fallback',
+                  [
+                    {
+                      code: 'FIGHTER_ART_FALLBACK',
+                      path: '/assets/fighter',
+                      message:
+                        error instanceof Error
+                          ? error.message.slice(0, 240)
+                          : 'generated fighter pose set failed validation',
+                    },
+                  ],
+                  [],
+                  fighterGenerationStarted,
+                  'downgraded',
+                );
+                // Fighter poses are a complete-set experiment. The web loader
+                // activates them atomically; a partial/invalid set therefore
+                // leaves the stable procedural fighter in place without flicker.
+                emit(
+                  'building-assets',
+                  `Generated fighter poses did not pass as a complete set; using the stable fighter (${error instanceof Error ? error.message.slice(0, 120) : 'validation failed'})`,
+                );
+              }
+            })()
+          : Promise.resolve();
+
+      const finishingAssets = await Promise.allSettled([storyTask, fighterTask]);
+      const finishingFailure = finishingAssets.find(
+        (result): result is PromiseRejectedResult => result.status === 'rejected',
+      );
+      if (finishingFailure) throw finishingFailure.reason;
       writeFileSync(join(staging, 'game.json'), JSON.stringify(spec, null, 1));
       const stageCfg = config.stages.design;
       const meta: GameMetaFile = {
@@ -1003,6 +1841,11 @@ export class GenerationRunner {
         costUsd: this.db.gameCost(gameId),
         costBreakdown: this.db.usageForGame(gameId),
         priceSnapshot: snapshot,
+        imagePriceSnapshot: {
+          model: imageModel,
+          perImageUsd: mockImages ? 0 : imagePrice,
+        },
+        ...(fighterArtStatus ? { fighterArt: fighterArtStatus } : {}),
       };
       writeFileSync(join(staging, 'meta.json'), JSON.stringify(meta, null, 2));
 
@@ -1030,6 +1873,33 @@ export class GenerationRunner {
         detail: 'Ready to play',
         finishedAt: nowIso(),
       });
+      const completedRepairs = this.db
+        .repairEventsForJob(jobId)
+        .filter((event) => event.attempt === job.attempt);
+      const recoveredIncident = hasSubstantiveRepair(completedRepairs)
+        ? captureIncident(
+            'recovered',
+            {
+              code: 'repaired-generation',
+              message: `generation published after ${completedRepairs.filter((event) => event.action !== 'normalize').length} repair action(s)`,
+              stage: 'validating',
+            },
+            spec,
+          )
+        : null;
+      if (job.attempt > 1) {
+        try {
+          this.incidents?.markRetry(
+            jobId,
+            job.attempt - 1,
+            job.attempt,
+            'succeeded',
+            recoveredIncident?.id,
+          );
+        } catch (error) {
+          console.warn('could not update generation incident retry outcome:', error);
+        }
+      }
       this.hub.emit({
         type: 'done',
         jobId,
@@ -1045,7 +1915,9 @@ export class GenerationRunner {
       const err =
         e instanceof PipelineError
           ? e
-          : new PipelineError('internal', e instanceof Error ? e.message : String(e));
+          : e instanceof GeneratedAssetStorageError
+            ? new PipelineError('storage', e.message, 'building-assets')
+            : new PipelineError('internal', e instanceof Error ? e.message : String(e));
       const friendly = {
         code: err.code,
         message: err.message.slice(0, 500),
@@ -1059,6 +1931,20 @@ export class GenerationRunner {
       });
       this.db.setGameStatus(gameId, 'failed', { code: friendly.code, message: friendly.message });
       this.db.setGameCost(gameId, this.db.gameCost(gameId));
+      const failedIncident = captureIncident('failed', friendly);
+      if (job.attempt > 1) {
+        try {
+          this.incidents?.markRetry(
+            jobId,
+            job.attempt - 1,
+            job.attempt,
+            'failed',
+            failedIncident?.id,
+          );
+        } catch (error) {
+          console.warn('could not update generation incident retry outcome:', error);
+        }
+      }
       this.hub.emit({
         type: 'failed',
         jobId,
@@ -1098,6 +1984,11 @@ export class GenerationRunner {
       recentMoods?: string[];
       photo?: Buffer;
       extraNote?: string;
+      onRepair?: (
+        before: readonly LintError[],
+        after: readonly LintError[],
+        started: number,
+      ) => void;
     },
   ): Promise<DesignDoc> {
     const prompt = buildDesignPrompt(opts);
@@ -1109,6 +2000,8 @@ export class GenerationRunner {
     });
     let errors = designOutputDiagnostics(raw);
     if (errors.length) {
+      const before = errors;
+      const repairStarted = Date.now();
       const retryPrompt = buildDesignPrompt({
         ...opts,
         extraNote: [
@@ -1128,6 +2021,7 @@ export class GenerationRunner {
         ...(opts.photo ? { image: opts.photo } : {}),
       });
       errors = designOutputDiagnostics(raw);
+      opts.onRepair?.(before, errors, repairStarted);
       if (errors.length) {
         throw new PipelineError(
           'design-invalid',
@@ -1290,9 +2184,7 @@ export class GenerationRunner {
         return normalized;
       }
     };
-    const applyFallbacksSafely = (
-      candidate: GameSpec,
-    ): ReturnType<typeof applySpriteFallbacks> => {
+    const applyFallbacksSafely = (candidate: GameSpec): ReturnType<typeof applySpriteFallbacks> => {
       try {
         return applySpriteFallbacks(normalizeTileGrids(candidate), fallbackOptions);
       } catch {
@@ -1447,178 +2339,182 @@ export class GenerationRunner {
       const started = Date.now();
       try {
         if (owner === 'levels') {
-        const levelCount = Array.isArray(spec.levels) ? spec.levels.length : 0;
-        const indexes = failingLevelIndexes(before).filter((index) => index < levelCount);
-        const onlyIndexedFailures =
-          indexes.length > 0 &&
-          before.every((diagnostic) =>
-            indexes.some((index) => diagnostic.path.startsWith(`/levels/${index}`)),
-          );
-        if (
-          onlyIndexedFailures &&
-          (indexes.length < levelCount || levelCount === 1)
-        ) {
-          const currentLevels = structuredClone(spec.levels) as unknown[];
-          const replacements = await Promise.all(
-            indexes.map(async (index) => {
-              const levelDiagnostics = before.filter((diagnostic) =>
-                diagnostic.path.startsWith(`/levels/${index}`),
-              );
-              const requestReplacement = (issues: readonly LintError[], label: string) =>
-                callLlm(
-                  'levels',
-                  buildLevelRegenerationPrompt(
-                    archetype,
-                    design,
-                    index,
-                    currentLevels,
-                    issues,
-                  ),
-                  { label, stage: 'writing-spec', reasoningEffort: 'minimal' },
-                );
-              const checkpointReplacement = (document: unknown): void => {
-                try {
-                  if (repairContext) {
-                    this.files.writeRawStageCheckpoint(
-                      repairContext.jobId,
-                      repairContext.attempt,
-                      'levels',
-                      document,
-                    );
-                  }
-                } catch {
-                  /* best-effort raw evidence */
-                }
-              };
-              let raw = await requestReplacement(
-                levelDiagnostics,
-                `Level ${index + 1} rebuilt`,
-              );
-              checkpointReplacement(raw);
-              try {
-                const level = isRecord(raw) ? (raw['level'] ?? raw) : raw;
-                return [index, compileGeneratedLevel(archetype, level)] as const;
-              } catch (error) {
-                if (!(error instanceof TileRunsError)) throw error;
-                const compileDiagnostic = tileRunsDiagnostic(error, index);
-                const retryStarted = Date.now();
-                raw = await requestReplacement(
-                  [...levelDiagnostics, compileDiagnostic],
-                  `Level ${index + 1} rows corrected`,
-                );
-                checkpointReplacement(raw);
-                const level = isRecord(raw) ? (raw['level'] ?? raw) : raw;
-                let replacement: unknown;
-                try {
-                  replacement = compileGeneratedLevel(archetype, level);
-                } catch (retryError) {
-                  if (!(retryError instanceof TileRunsError)) throw retryError;
-                  replacement = canonicalLevelFallback(level, retryError);
-                }
-                record('levels', 'compile-retry', [compileDiagnostic], [], null, retryStarted, 'fixed');
-                return [index, replacement] as const;
-              }
-            }),
-          );
-          const levels = structuredClone(spec.levels) as unknown[];
-          for (const [index, replacement] of replacements) levels[index] = replacement;
-          spec = { ...spec, levels: levels as never };
-          try {
-            if (repairContext) {
-              this.files.writeRawStageCheckpoint(
-                repairContext.jobId,
-                repairContext.attempt,
-                'levels',
-                {
-                  ...(archetype === 'fighter' && 'player' in spec ? { player: spec.player } : {}),
-                  levels,
-                },
-              );
-            }
-          } catch {
-            /* best-effort canonical checkpoint */
-          }
-        } else {
-          let raw = await callLlm('levels', buildLevelsPrompt(archetype, design, before), {
-            label: 'Levels rebuilt',
-            stage: 'writing-spec',
-            checkpoint: 'levels',
-            reasoningEffort: 'minimal',
-          });
-          let canonical: unknown;
-          try {
-            canonical = compileGeneratedLevels(archetype, raw, true);
-          } catch (error) {
-            if (!(error instanceof TileRunsError)) throw error;
-            const compileDiagnostic = tileRunsDiagnostic(error);
-            const retryStarted = Date.now();
-            raw = await callLlm(
-              'levels',
-              buildLevelsPrompt(archetype, design, [...before, compileDiagnostic]),
-              {
-                label: 'Correcting rebuilt level rows…',
-                stage: 'writing-spec',
-                checkpoint: 'levels',
-                reasoningEffort: 'minimal',
-              },
+          const levelCount = Array.isArray(spec.levels) ? spec.levels.length : 0;
+          const indexes = failingLevelIndexes(before).filter((index) => index < levelCount);
+          const onlyIndexedFailures =
+            indexes.length > 0 &&
+            before.every((diagnostic) =>
+              indexes.some((index) => diagnostic.path.startsWith(`/levels/${index}`)),
             );
+          if (onlyIndexedFailures && (indexes.length < levelCount || levelCount === 1)) {
+            const currentLevels = structuredClone(spec.levels) as unknown[];
+            const replacements = await Promise.all(
+              indexes.map(async (index) => {
+                const levelDiagnostics = before.filter((diagnostic) =>
+                  diagnostic.path.startsWith(`/levels/${index}`),
+                );
+                const requestReplacement = (issues: readonly LintError[], label: string) =>
+                  callLlm(
+                    'levels',
+                    buildLevelRegenerationPrompt(archetype, design, index, currentLevels, issues),
+                    { label, stage: 'writing-spec', reasoningEffort: 'minimal' },
+                  );
+                const checkpointReplacement = (document: unknown): void => {
+                  try {
+                    if (repairContext) {
+                      this.files.writeRawStageCheckpoint(
+                        repairContext.jobId,
+                        repairContext.attempt,
+                        'levels',
+                        document,
+                      );
+                    }
+                  } catch {
+                    /* best-effort raw evidence */
+                  }
+                };
+                let raw = await requestReplacement(levelDiagnostics, `Level ${index + 1} rebuilt`);
+                checkpointReplacement(raw);
+                try {
+                  const level = isRecord(raw) ? (raw['level'] ?? raw) : raw;
+                  return [index, compileGeneratedLevel(archetype, level)] as const;
+                } catch (error) {
+                  if (!(error instanceof TileRunsError)) throw error;
+                  const compileDiagnostic = tileRunsDiagnostic(error, index);
+                  const retryStarted = Date.now();
+                  raw = await requestReplacement(
+                    [...levelDiagnostics, compileDiagnostic],
+                    `Level ${index + 1} rows corrected`,
+                  );
+                  checkpointReplacement(raw);
+                  const level = isRecord(raw) ? (raw['level'] ?? raw) : raw;
+                  let replacement: unknown;
+                  try {
+                    replacement = compileGeneratedLevel(archetype, level);
+                  } catch (retryError) {
+                    if (!(retryError instanceof TileRunsError)) throw retryError;
+                    replacement = canonicalLevelFallback(level, retryError);
+                  }
+                  record(
+                    'levels',
+                    'compile-retry',
+                    [compileDiagnostic],
+                    [],
+                    null,
+                    retryStarted,
+                    'fixed',
+                  );
+                  return [index, replacement] as const;
+                }
+              }),
+            );
+            const levels = structuredClone(spec.levels) as unknown[];
+            for (const [index, replacement] of replacements) levels[index] = replacement;
+            spec = { ...spec, levels: levels as never };
+            try {
+              if (repairContext) {
+                this.files.writeRawStageCheckpoint(
+                  repairContext.jobId,
+                  repairContext.attempt,
+                  'levels',
+                  {
+                    ...(archetype === 'fighter' && 'player' in spec ? { player: spec.player } : {}),
+                    levels,
+                  },
+                );
+              }
+            } catch {
+              /* best-effort canonical checkpoint */
+            }
+          } else {
+            let raw = await callLlm('levels', buildLevelsPrompt(archetype, design, before), {
+              label: 'Levels rebuilt',
+              stage: 'writing-spec',
+              checkpoint: 'levels',
+              reasoningEffort: 'minimal',
+            });
+            let canonical: unknown;
             try {
               canonical = compileGeneratedLevels(archetype, raw, true);
-            } catch (retryError) {
-              if (!(retryError instanceof TileRunsError)) throw retryError;
-              canonical = canonicalLevelsFallback(archetype, raw, retryError);
+            } catch (error) {
+              if (!(error instanceof TileRunsError)) throw error;
+              const compileDiagnostic = tileRunsDiagnostic(error);
+              const retryStarted = Date.now();
+              raw = await callLlm(
+                'levels',
+                buildLevelsPrompt(archetype, design, [...before, compileDiagnostic]),
+                {
+                  label: 'Correcting rebuilt level rows…',
+                  stage: 'writing-spec',
+                  checkpoint: 'levels',
+                  reasoningEffort: 'minimal',
+                },
+              );
+              try {
+                canonical = compileGeneratedLevels(archetype, raw, true);
+              } catch (retryError) {
+                if (!(retryError instanceof TileRunsError)) throw retryError;
+                canonical = canonicalLevelsFallback(archetype, raw, retryError);
+              }
+              record(
+                'levels',
+                'compile-retry',
+                [compileDiagnostic],
+                [],
+                null,
+                retryStarted,
+                'fixed',
+              );
             }
-            record('levels', 'compile-retry', [compileDiagnostic], [], null, retryStarted, 'fixed');
+            const roster = isRecord(canonical) ? canonical : null;
+            spec = {
+              ...spec,
+              ...(archetype === 'fighter' && roster?.['player']
+                ? { player: roster['player'] as never }
+                : {}),
+              levels: (roster?.['levels'] ?? canonical) as never,
+            };
           }
-          const roster = isRecord(canonical) ? canonical : null;
-          spec = {
-            ...spec,
-            ...(archetype === 'fighter' && roster?.['player']
-              ? { player: roster['player'] as never }
-              : {}),
-            levels: (roster?.['levels'] ?? canonical) as never,
-          };
-        }
         } else if (owner === 'entities') {
-        const raw = await callLlm(
-          'entities',
-          buildEntitiesPrompt(archetype, design, hasPhoto, recentUse, before),
-          {
-            label: 'Entities recast',
-            stage: 'writing-spec',
-            checkpoint: 'entities',
-            reasoningEffort: 'minimal',
-          },
-        );
-        const r = isRecord(raw) ? raw : {};
-        const {
-          sprites: _sprites,
-          boss: _boss,
-          sfx: _sfx,
-          backdrop: _backdrop,
-          weather: _weather,
-          lighting: _lighting,
-          juice: _juice,
-          ...unowned
-        } = spec;
-        spec = {
-          ...unowned,
-          sprites: r['sprites'] as GameSpec['sprites'],
-          boss: r['boss'] as never,
-          ...(r['sfx'] ? { sfx: r['sfx'] as GameSpec['sfx'] } : {}),
-          ...(r['backdrop'] ? { backdrop: r['backdrop'] as never } : {}),
-          ...(r['weather'] ? { weather: r['weather'] as GameSpec['weather'] } : {}),
-          ...(r['lighting'] ? { lighting: r['lighting'] as GameSpec['lighting'] } : {}),
-          ...(r['juice'] !== undefined ? { juice: r['juice'] as GameSpec['juice'] } : {}),
-        };
+          const raw = await callLlm(
+            'entities',
+            buildEntitiesPrompt(archetype, design, hasPhoto, recentUse, before),
+            {
+              label: 'Entities recast',
+              stage: 'writing-spec',
+              checkpoint: 'entities',
+              reasoningEffort: 'minimal',
+            },
+          );
+          const r = isRecord(raw) ? raw : {};
+          const {
+            sprites: _sprites,
+            boss: _boss,
+            sfx: _sfx,
+            backdrop: _backdrop,
+            weather: _weather,
+            lighting: _lighting,
+            juice: _juice,
+            ...unowned
+          } = spec;
+          spec = {
+            ...unowned,
+            sprites: r['sprites'] as GameSpec['sprites'],
+            boss: r['boss'] as never,
+            ...(r['sfx'] ? { sfx: r['sfx'] as GameSpec['sfx'] } : {}),
+            ...(r['backdrop'] ? { backdrop: r['backdrop'] as never } : {}),
+            ...(r['weather'] ? { weather: r['weather'] as GameSpec['weather'] } : {}),
+            ...(r['lighting'] ? { lighting: r['lighting'] as GameSpec['lighting'] } : {}),
+            ...(r['juice'] !== undefined ? { juice: r['juice'] as GameSpec['juice'] } : {}),
+          };
         } else {
-        const raw = await callLlm('music', buildMusicPrompt(archetype, design, before), {
-          label: 'Music recomposed',
-          stage: 'writing-spec',
-          checkpoint: 'music',
-          reasoningEffort: 'minimal',
-        });
-        spec = { ...spec, music: (isRecord(raw) ? (raw['music'] ?? raw) : raw) as never };
+          const raw = await callLlm('music', buildMusicPrompt(archetype, design, before), {
+            label: 'Music recomposed',
+            stage: 'writing-spec',
+            checkpoint: 'music',
+            reasoningEffort: 'minimal',
+          });
+          spec = { ...spec, music: (isRecord(raw) ? (raw['music'] ?? raw) : raw) as never };
         }
         const regenerated = prepareForRepair(spec);
         spec = regenerated.spec;

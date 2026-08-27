@@ -1,10 +1,11 @@
-// Vision-based likeness (opt-in via config.likeness.smartFeatures). Instead of
+// Dev-lab and legacy local-renderer likeness analysis. Instead of
 // quantizing the face to the game's arbitrary 16 colors — which turns a face
 // gray when the palette has no skin tone, and is at the mercy of webcam
 // lighting — we read the photo with the model, get the person's true (lighting-
 // normalized) skin/hair colours, and build a portrait palette from THOSE. The
 // real downscaled face still supplies the structure; only the colours change.
-// The photo is sent to the provider only when the opt-in is on.
+// Production Muse Image personalization reads the reference photo directly and
+// does not reduce identity to this deliberately finite taxonomy.
 import type { BuiltPrompt } from '../pipeline/prompts';
 
 export const FACE_ANALYSIS_PROMPT_VERSION = 'face-topology-v6';
@@ -19,14 +20,7 @@ export type BrowShape = 'straight' | 'arched' | 'angled';
 export type EarProminence = 'hidden' | 'small' | 'average' | 'prominent';
 export type FacialHair = 'none' | 'stubble' | 'mustache' | 'goatee' | 'beard';
 export type HeadwearType =
-  | 'none'
-  | 'cap'
-  | 'beanie'
-  | 'brim'
-  | 'flatCap'
-  | 'beret'
-  | 'topHat'
-  | 'wideBrim';
+  'none' | 'cap' | 'beanie' | 'brim' | 'flatCap' | 'beret' | 'topHat' | 'wideBrim';
 export type HairStyle =
   | 'bald'
   | 'hidden'
@@ -123,19 +117,58 @@ export const FACE_SCHEMA: Record<string, unknown> = {
   type: 'object',
   additionalProperties: false,
   required: [
-    'skinTone', 'hairColor', 'hairStyle', 'hairLength', 'hairTexture', 'hairPart', 'facialHairColor', 'headwearColor', 'glasses', 'glassesColor', 'headwear', 'headwearType', 'facialHair', 'topology',
-    'faceShape', 'chin', 'noseSize', 'eyeSpacing', 'eyeShape', 'eyebrows', 'eyebrowShape', 'ears',
+    'skinTone',
+    'hairColor',
+    'hairStyle',
+    'hairLength',
+    'hairTexture',
+    'hairPart',
+    'facialHairColor',
+    'headwearColor',
+    'glasses',
+    'glassesColor',
+    'headwear',
+    'headwearType',
+    'facialHair',
+    'topology',
+    'faceShape',
+    'chin',
+    'noseSize',
+    'eyeSpacing',
+    'eyeShape',
+    'eyebrows',
+    'eyebrowShape',
+    'ears',
   ],
   properties: {
-    skinTone: { type: 'string', description: "hex of the person's true base skin tone in neutral daylight" },
-    hairColor: { type: 'string', description: 'hex of visible hair colour, or "none" if bald, shaved, or fully occluded' },
+    skinTone: {
+      type: 'string',
+      description: "hex of the person's true base skin tone in neutral daylight",
+    },
+    hairColor: {
+      type: 'string',
+      description: 'hex of visible hair colour, or "none" if bald, shaved, or fully occluded',
+    },
     hairStyle: {
-      enum: ['bald', 'hidden', 'buzz', 'short', 'parted', 'curly', 'afro', 'horseshoe', 'long', 'ponytail'],
-      description: 'dominant visible hair silhouette; hidden means no scalp hair pixels are observable because of headwear/cropping and makes no claim about baldness; use bald only when a clearly visible hairless/shaved scalp confirms it',
+      enum: [
+        'bald',
+        'hidden',
+        'buzz',
+        'short',
+        'parted',
+        'curly',
+        'afro',
+        'horseshoe',
+        'long',
+        'ponytail',
+      ],
+      description:
+        'dominant visible hair silhouette; hidden means no scalp hair pixels are observable because of headwear/cropping and makes no claim about baldness; use bald only when a clearly visible hairless/shaved scalp confirms it',
     },
     hairLength: {
       enum: ['none', 'buzz', 'short', 'jaw', 'long', 'tied'],
-      description: 'visible hair length; none means no hair is visible and does not by itself distinguish bald from fully occluded',
+      description:
+        'visible hair length; none means no hair is visible and does not by itself distinguish bald from fully occluded',
     },
     hairTexture: {
       enum: ['none', 'straight', 'wavy', 'curly', 'coily'],
@@ -143,26 +176,40 @@ export const FACE_SCHEMA: Record<string, unknown> = {
     },
     hairPart: {
       enum: ['none', 'left', 'center', 'right'],
-      description: "visible part from the person's perspective; none when absent, hidden, or uncertain",
+      description:
+        "visible part from the person's perspective; none when absent, hidden, or uncertain",
     },
-    facialHairColor: { type: 'string', description: 'hex of facial-hair colour, or "none" if clean-shaven' },
+    facialHairColor: {
+      type: 'string',
+      description: 'hex of facial-hair colour, or "none" if clean-shaven',
+    },
     headwearColor: { type: 'string', description: 'hex of the headwear, or "none"' },
     glasses: { type: 'boolean' },
-    glassesColor: { type: 'string', description: 'hex of the visible glasses frame, or "none" when not wearing glasses' },
+    glassesColor: {
+      type: 'string',
+      description: 'hex of the visible glasses frame, or "none" when not wearing glasses',
+    },
     headwear: { type: 'boolean', description: 'true if wearing a hat / cap / head covering' },
     headwearType: {
       enum: ['none', 'cap', 'beanie', 'brim', 'flatCap', 'beret', 'topHat', 'wideBrim'],
-      description: 'cap = baseball/snapback; beanie = knit cap; brim is the legacy bucket/fedora category; flatCap, beret, topHat, and wideBrim are more precise shapes; none if bare-headed',
+      description:
+        'cap = baseball/snapback; beanie = knit cap; brim is the legacy bucket/fedora category; flatCap, beret, topHat, and wideBrim are more precise shapes; none if bare-headed',
     },
     facialHair: { enum: ['none', 'stubble', 'mustache', 'goatee', 'beard'] },
-    faceShape: { enum: ['round', 'oval', 'square', 'long', 'heart'], description: 'overall face outline & height:width ratio' },
+    faceShape: {
+      enum: ['round', 'oval', 'square', 'long', 'heart'],
+      description: 'overall face outline & height:width ratio',
+    },
     chin: { enum: ['round', 'pointed', 'square', 'wide'] },
     noseSize: { enum: ['small', 'medium', 'large'], description: 'nose size relative to the face' },
     eyeSpacing: { enum: ['close', 'average', 'wide'], description: 'gap between the eyes' },
     eyeShape: { enum: ['round', 'almond', 'narrow'] },
     eyebrows: { enum: ['thin', 'medium', 'thick'], description: 'eyebrow thickness' },
     eyebrowShape: { enum: ['straight', 'arched', 'angled'] },
-    ears: { enum: ['hidden', 'small', 'average', 'prominent'], description: 'ear prominence, or "hidden" if covered/not visible' },
+    ears: {
+      enum: ['hidden', 'small', 'average', 'prominent'],
+      description: 'ear prominence, or "hidden" if covered/not visible',
+    },
     topology: {
       type: 'object',
       additionalProperties: false,
@@ -174,7 +221,10 @@ export const FACE_SCHEMA: Record<string, unknown> = {
           required: ['crown', 'temples', 'belowEars'],
           properties: {
             crown: { type: 'boolean', description: 'visible hair occupies the crown' },
-            temples: { type: 'boolean', description: 'visible hair occupies either temple/sideburn area' },
+            temples: {
+              type: 'boolean',
+              description: 'visible hair occupies either temple/sideburn area',
+            },
             belowEars: { type: 'boolean', description: 'visible hair extends below the ears' },
           },
         },
@@ -223,7 +273,7 @@ export function buildFaceAnalysisPrompt(): BuiltPrompt {
     '- hairStyle: bald | hidden | buzz | short | parted | curly | afro | horseshoe | long | ponytail. Choose the dominant OBSERVABLE SILHOUETTE, not a subtle salon label. Use "hidden" whenever a hat, crop, or occlusion leaves no scalp hair pixels visible; this does NOT mean bald. Use "bald" only when exposed scalp clearly confirms bald/shaved hair. Never invent hair beneath headwear. "buzz" is close-cropped; "short" is an even cap; "parted" has a visible side/centre part or asymmetric fringe; "curly" has a visibly textured/bumpy outline; "afro" is a rounded, outward-volume coily silhouette; "horseshoe" is an exposed crown with visible hair around the sides/back; "long" falls beside the jaw; "ponytail" has tied-back length. Hair silhouette is the most important identity cue in a tiny sprite.',
     '- hairLength: none | buzz | short | jaw | long | tied. Length and texture are independent: long curly hair is hairLength "long" AND hairTexture "curly", never collapse one into the other. Use "none" only when no hair pixels are visible.',
     '- hairTexture: none | straight | wavy | curly | coily. Describe the visible outline/texture independently of length.',
-    '- hairPart: none | left | center | right, from the person\'s perspective. Use none when hidden or uncertain; do not guess.',
+    "- hairPart: none | left | center | right, from the person's perspective. Use none when hidden or uncertain; do not guess.",
     '- facialHairColor: hex, or "none" if clean-shaven.',
     '- headwearColor: hex, or "none".',
     '- glassesColor: hex of the visible frame, or "none" when glasses is false.',
@@ -259,11 +309,31 @@ export function buildFaceAnalysisPrompt(): BuiltPrompt {
   };
 }
 
-const HAIR_STYLES = ['bald', 'hidden', 'buzz', 'short', 'parted', 'curly', 'afro', 'horseshoe', 'long', 'ponytail'] as const;
+const HAIR_STYLES = [
+  'bald',
+  'hidden',
+  'buzz',
+  'short',
+  'parted',
+  'curly',
+  'afro',
+  'horseshoe',
+  'long',
+  'ponytail',
+] as const;
 const HAIR_LENGTHS = ['none', 'buzz', 'short', 'jaw', 'long', 'tied'] as const;
 const HAIR_TEXTURES = ['none', 'straight', 'wavy', 'curly', 'coily'] as const;
 const HAIR_PARTS = ['none', 'left', 'center', 'right'] as const;
-const HEADWEAR_TYPES = ['none', 'cap', 'beanie', 'brim', 'flatCap', 'beret', 'topHat', 'wideBrim'] as const;
+const HEADWEAR_TYPES = [
+  'none',
+  'cap',
+  'beanie',
+  'brim',
+  'flatCap',
+  'beret',
+  'topHat',
+  'wideBrim',
+] as const;
 const FACIAL_HAIR = ['none', 'stubble', 'mustache', 'goatee', 'beard'] as const;
 const HEADWEAR_CROWNS = ['none', 'panelled', 'knit', 'structured'] as const;
 const HEADWEAR_PROJECTIONS = ['none', 'front-bill', 'full-brim'] as const;
@@ -319,7 +389,10 @@ export function normalizeFaceFeatures(input: unknown): NormalizedFaceFeatures {
   const rawTopologyFacialHair = recordValue(rawTopology['facialHair']);
 
   const topologyHeadwearCrown = optionalEnumValue(rawTopologyHeadwear['crown'], HEADWEAR_CROWNS);
-  const topologyHeadwearProjection = optionalEnumValue(rawTopologyHeadwear['projection'], HEADWEAR_PROJECTIONS);
+  const topologyHeadwearProjection = optionalEnumValue(
+    rawTopologyHeadwear['projection'],
+    HEADWEAR_PROJECTIONS,
+  );
   const requestedHeadwearType = optionalEnumValue(raw['headwearType'], HEADWEAR_TYPES);
   const topologySaysHeadwear =
     (topologyHeadwearCrown !== undefined && topologyHeadwearCrown !== 'none') ||
@@ -327,7 +400,8 @@ export function normalizeFaceFeatures(input: unknown): NormalizedFaceFeatures {
   const headwear =
     typeof raw['headwear'] === 'boolean'
       ? raw['headwear']
-      : (requestedHeadwearType !== undefined && requestedHeadwearType !== 'none') || topologySaysHeadwear;
+      : (requestedHeadwearType !== undefined && requestedHeadwearType !== 'none') ||
+        topologySaysHeadwear;
   const inferredHeadwearType: HeadwearType =
     topologyHeadwearProjection === 'full-brim'
       ? 'brim'
@@ -389,31 +463,31 @@ export function normalizeFaceFeatures(input: unknown): NormalizedFaceFeatures {
     return 'short';
   };
   const canonicalHairIsVisible =
-    hairLength !== 'none' || rawScalpHair['crown'] === true || rawScalpHair['temples'] === true || rawScalpHair['belowEars'] === true;
+    hairLength !== 'none' ||
+    rawScalpHair['crown'] === true ||
+    rawScalpHair['temples'] === true ||
+    rawScalpHair['belowEars'] === true;
   const requestedHairStyle =
     legacyHairStyle === 'afro' || legacyHairStyle === 'horseshoe'
       ? legacyHairStyle
-      : hasCanonicalHairInput && legacyHairStyle !== 'bald' && (legacyHairStyle !== 'hidden' || canonicalHairIsVisible)
-      ? styleFromCanonicalHair()
-      : (legacyHairStyle ?? styleFromCanonicalHair());
+      : hasCanonicalHairInput &&
+          legacyHairStyle !== 'bald' &&
+          (legacyHairStyle !== 'hidden' || canonicalHairIsVisible)
+        ? styleFromCanonicalHair()
+        : (legacyHairStyle ?? styleFromCanonicalHair());
   const noHairColor = isNone(raw['hairColor']);
   // Old providers used hairColor:none as their only no-hair signal. Preserve
   // that behavior when bare-headed, but under headwear it means "not visible",
   // not permission to guess either baldness or a hairstyle.
   const bald =
-    requestedHairStyle === 'bald' ||
-    (noHairColor && requestedHairStyle !== 'hidden' && !headwear);
-  const hidden =
-    !bald &&
-    (requestedHairStyle === 'hidden' || (noHairColor && headwear));
+    requestedHairStyle === 'bald' || (noHairColor && requestedHairStyle !== 'hidden' && !headwear);
+  const hidden = !bald && (requestedHairStyle === 'hidden' || (noHairColor && headwear));
   if (bald || hidden) {
     hairLength = 'none';
     hairTexture = 'none';
     hairPart = 'none';
   }
-  const hairColor = bald || hidden
-    ? 'none'
-    : normHex(String(raw['hairColor'] ?? ''), '#2a2320');
+  const hairColor = bald || hidden ? 'none' : normHex(String(raw['hairColor'] ?? ''), '#2a2320');
   const hairStyle: HairStyle = bald ? 'bald' : hidden ? 'hidden' : requestedHairStyle;
 
   const topologyFacialRegions = ['upperLip', 'chin', 'jaw', 'cheeks'].map((region) =>
@@ -446,9 +520,7 @@ export function normalizeFaceFeatures(input: unknown): NormalizedFaceFeatures {
   const topologyGlassesFrame = optionalEnumValue(rawTopologyGlasses['frame'], GLASSES_FRAMES);
   const topologySaysGlasses = topologyGlassesFrame !== undefined && topologyGlassesFrame !== 'none';
   const glasses = typeof raw['glasses'] === 'boolean' ? raw['glasses'] : topologySaysGlasses;
-  const glassesColor = glasses
-    ? normHex(String(raw['glassesColor'] ?? ''), '#1b1622')
-    : 'none';
+  const glassesColor = glasses ? normHex(String(raw['glassesColor'] ?? ''), '#1b1622') : 'none';
 
   const visibleScalpHair = hairStyle !== 'bald' && hairStyle !== 'hidden' && hairLength !== 'none';
   const scalpHair: FaceTopology['scalpHair'] = visibleScalpHair
@@ -496,15 +568,15 @@ export function normalizeFaceFeatures(input: unknown): NormalizedFaceFeatures {
   const topologyGlasses: FaceTopology['glasses'] = glasses
     ? {
         frame:
-          topologyGlassesFrame && topologyGlassesFrame !== 'none'
-            ? topologyGlassesFrame
-            : 'thin',
-        lensShape: enumValue(rawTopologyGlasses['lensShape'], LENS_SHAPES, 'rectangular') === 'none'
-          ? 'rectangular'
-          : enumValue(rawTopologyGlasses['lensShape'], LENS_SHAPES, 'rectangular'),
-        lensTint: enumValue(rawTopologyGlasses['lensTint'], LENS_TINTS, 'clear') === 'none'
-          ? 'clear'
-          : enumValue(rawTopologyGlasses['lensTint'], LENS_TINTS, 'clear'),
+          topologyGlassesFrame && topologyGlassesFrame !== 'none' ? topologyGlassesFrame : 'thin',
+        lensShape:
+          enumValue(rawTopologyGlasses['lensShape'], LENS_SHAPES, 'rectangular') === 'none'
+            ? 'rectangular'
+            : enumValue(rawTopologyGlasses['lensShape'], LENS_SHAPES, 'rectangular'),
+        lensTint:
+          enumValue(rawTopologyGlasses['lensTint'], LENS_TINTS, 'clear') === 'none'
+            ? 'clear'
+            : enumValue(rawTopologyGlasses['lensTint'], LENS_TINTS, 'clear'),
       }
     : { frame: 'none', lensShape: 'none', lensTint: 'none' };
 
@@ -575,10 +647,15 @@ function normHex(hex: string | undefined, fallback: string): string {
   return /^#[0-9a-fA-F]{6}$/.test(h) ? h.toLowerCase() : fallback;
 }
 function shade(hex: string, f: number): string {
-  return toHex(parseInt(hex.slice(1, 3), 16) * f, parseInt(hex.slice(3, 5), 16) * f, parseInt(hex.slice(5, 7), 16) * f);
+  return toHex(
+    parseInt(hex.slice(1, 3), 16) * f,
+    parseInt(hex.slice(3, 5), 16) * f,
+    parseInt(hex.slice(5, 7), 16) * f,
+  );
 }
 function blend(a: string, b: string, t: number): string {
-  const mix = (i: number) => parseInt(a.slice(i, i + 2), 16) * (1 - t) + parseInt(b.slice(i, i + 2), 16) * t;
+  const mix = (i: number) =>
+    parseInt(a.slice(i, i + 2), 16) * (1 - t) + parseInt(b.slice(i, i + 2), 16) * t;
   return toHex(mix(1), mix(3), mix(5));
 }
 
@@ -594,9 +671,7 @@ export function buildPortraitPalette(feat: FaceFeatures): string[] {
   const noVisibleHair = normalized.hairStyle === 'bald' || normalized.hairStyle === 'hidden';
   const hair = noVisibleHair ? shade(skin, 0.66) : normalized.hairColor;
   const hw =
-    normalized.headwear && normalized.headwearColor !== 'none'
-      ? normalized.headwearColor
-      : hair;
+    normalized.headwear && normalized.headwearColor !== 'none' ? normalized.headwearColor : hair;
   return [
     '#000000', // 0 unused (transparent)
     shade(skin, 0.24), // 1 outline + darkest features

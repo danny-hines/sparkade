@@ -5,7 +5,7 @@ the player (their likeness becomes the hero) and a voice prompt. Runs on a dev P
 production target: a Raspberry Pi 3B+ inside a 3D-printed mini cabinet with a 1024×600 display,
 USB webcam + mic, and arcade controls on a Zero Delay USB encoder.
 
-Three hand-crafted **golden games** ship preinstalled, so the cabinet is playable out of the box
+Five hand-crafted **golden games** ship preinstalled, so the cabinet is playable out of the box
 with no API key. Everything except the AI API calls works fully offline.
 
 ---
@@ -25,6 +25,8 @@ npm run dev       # Vite dev server (http://127.0.0.1:5173, HMR) + tsx-watch API
 npm run verify    # typecheck + eslint + unit tests + full build — must pass cleanly
 npm run test:e2e  # Playwright at 1024×600 against demo mode (dev/CI only, never on the Pi)
 npm run build     # web shell → packages/web/dist · server/cli → single Node bundles
+npm run analyze:repairs # aggregate repair + incident patterns from the local data directory
+npm run incidents -- list # review the local generation incident catalog
 ```
 
 Keyboard controls (default map): **arrows** = d-pad, **X**=A, **Z**=B, **A**=X, **S**=Y,
@@ -42,7 +44,8 @@ hero head-slots, and reroll backdrop/weather seeds. Rendered by the real engine 
 review is what ships (`scripts/check-art.mts` and `scripts/check-palettes.mts` validate the data;
 this page is for taste).
 
-To hit a real model, copy `.env.example` to `.env`, set `META_API_KEY`, and use `npm run dev`.
+To hit the real models, copy `.env.example` to `.env`, set `META_API_KEY`, and use `npm run dev`.
+The same key is used for Muse Spark 1.2 Contributor and Muse Image 1.0.
 
 ## Pi install (production)
 
@@ -52,16 +55,18 @@ Flash **Raspberry Pi OS Lite (Bookworm, 64-bit)**, boot, then:
 curl -fsSL https://raw.githubusercontent.com/danny-hines/sparkade/main/install/install.sh | bash
 ```
 
-The installer is idempotent. It **prompts you to pick an AI provider (Meta / Anthropic /
-OpenAI-compatible / skip-for-demo) and enter the API key** (the prompt works even through
+The installer is idempotent. It **prompts you to pick a text AI provider (Meta / Anthropic /
+OpenAI-compatible / skip-for-demo) and enter its API key plus the Meta key required by Muse Image**
+(the prompt works even through
 `curl | bash`), installs X/openbox/chromium/Node 24, temporarily raises swap to 1024 MB for the
 build, clones to `/opt/sparkade`, builds, installs the `sparkade` systemd service and CLI, wires
 the chosen provider into `config.json`, configures console-autologin → `startx` → openbox →
 Chromium kiosk (with a relaunch loop that waits for the server, so a crash or slow boot never
 strands the cabinet), and scopes a sudoers rule to the exact `nmcli` invocations the WiFi settings
 screen uses. Set `SPARKADE_REPO=owner/repo` to install a fork; `--force` allows other Debian ARM
-boxes. Only Meta can transcribe voice, so a non-Meta text provider keeps the `stt` stage on Meta —
-the installer offers to take a Meta key too, or you generate from the preset idea cards.
+boxes. Muse Image always runs through Meta, and only Meta can transcribe voice, so a non-Meta text
+provider still needs `META_API_KEY` for generated art (and voice). Without it, the five preinstalled
+games and mock demo remain playable, but new real-model games cannot publish.
 
 After reboot the cabinet boots straight to the attract screen. Useful commands:
 
@@ -92,8 +97,9 @@ No SSH needed to update: **Settings → System info → Check for updates** runs
                        │  │  substrate: loop·renderer·input·chiptune │  │
                        │  │  synth·SFX·sprite lib·HUD·pause·initials │  │
                        │  ├──────────────────────────────────────────┤  │
-                       │  │ packages/archetypes — platformer /       │  │
-                       │  │  shooter / adventure (schema+lint+game)  │  │
+                       │  │ packages/archetypes — platformer ·       │  │
+                       │  │  shooter · adventure · hshooter · fighter│  │
+                       │  │  (schema + lint + hand-written gameplay) │  │
                        │  └──────────────────────────────────────────┘  │
                        └───────────────┬────────────────────────────────┘
                               /api (127.0.0.1:8080, same-origin enforced)
@@ -102,8 +108,9 @@ No SSH needed to update: **Settings → System info → Check for updates** runs
                        │  durable pipeline: design → levels|entities|   │
                        │  music (parallel) → validate → repair →        │
                        │  assets → ATOMIC publish                       │
-                       │  providers: meta · openai-compat · anthropic · │
-                       │  mock  ·  likeness (sharp)  ·  wifi (nmcli)    │
+                       │  text: meta · openai-compat · anthropic · mock │
+                       │  images: Muse Image · postprocess: sharp       │
+                       │  wifi: nmcli                                   │
                        │  node:sqlite (WAL): games·jobs·scores·         │
                        │  usage ledger  ·  specs live on disk           │
                        └────────────────────────────────────────────────┘
@@ -114,8 +121,9 @@ No SSH needed to update: **Settings → System info → Check for updates** runs
 1. **Engine substrate** (hand-written): loop, renderer, input, audio synthesis, physics, pools,
    HUD, pause, scoring, leaderboards — plus game-feel (coyote time, jump buffering, hit-stop,
    screen shake) baked in so every generated game inherits it.
-2. **Archetype templates** (hand-written): the platformer/shooter/adventure gameplay systems,
-   each with a strict JSON Schema, semantic linter, duration estimator and content floors.
+2. **Archetype templates** (hand-written): the platformer, vertical shooter, adventure,
+   horizontal shooter and fighter gameplay systems, each with a strict JSON Schema, semantic
+   linter, duration estimator and content floors.
 3. **Generated game spec** (model-authored, pure data): story, palette, sprites, levels,
    boss, backdrop, weather, music score, SFX params, scoring — validated, auto-repaired (RFC 6902
    patches at temperature 0), and bounded. The model composes each game's look from a broad built-in
@@ -130,6 +138,14 @@ No SSH needed to update: **Settings → System info → Check for updates** runs
 A "game" is `engine + archetype(spec)`. Specs are validated by the same JSON Schemas that are
 embedded verbatim in the prompt templates (`packages/shared/src/schemas/`).
 
+**Generated art:** after the spec passes validation, Muse Image 1.0 authors landscape key art and
+three consistent story scenes (intro, boss, victory). Photo games additionally require a generated
+story portrait and generated 12/16px player-head sprites; there is no quantized-photo fallback or UI
+toggle. Fighter photo games also attempt one complete 11-pose player set. The runtime activates that
+set only if every pose passes green-screen, crop, size, and transparency checks—otherwise it keeps
+the procedural fighter for the whole match. Successful binaries carry model/prompt/hash provenance
+in `assets/manifest.json` and are reused across job retries.
+
 **Durability:** jobs persist to SQLite before work starts; all output goes to
 `staging/<jobId>/` and is atomically renamed into `games/<gameId>/` only after every gate
 passes. Yank the plug mid-generation and the boot reconciliation marks the job failed-retryable —
@@ -137,11 +153,16 @@ no half-written game is ever visible as playable, and existing games/scores can'
 
 ## Privacy
 
-- The player's photo is processed locally (sharp): oval crop → downscale → palette quantize →
-  outline. It is kept only while a job is retryable and deleted the moment a game publishes.
-- Photos and audio never appear in logs. By default the photo never leaves the device; the single
-  exception is `likeness.describeInStory` (ships **off**), which attaches it to the design call
-  with a guard restricting the model to observable features only.
+- The player's photo is kept only while a job is retryable and deleted the moment a game publishes.
+  Photos and audio never appear in logs.
+- An accepted photo is sent to Meta's Model API (Muse Image) to create the hero. Sparkade also
+  sends it to the configured design-stage provider only when `likeness.describeInStory` is enabled
+  (it ships **off**) so the story can reference visible traits; there is no production face-taxonomy
+  analysis step. Recorded ideas go to the configured transcription provider. The story setting does
+  not disable Muse Image personalization.
+- The default text model uses the Muse Spark 1.2 Contributor tier. Inputs and responses sent through
+  this tier may be used by Meta for model training; choose another configured model/provider if that
+  is unsuitable for your use case.
 - API keys live in an env file (0600), never in config.json, the API, or the browser.
 - The server binds 127.0.0.1 by default and rejects cross-origin mutations.
 
@@ -149,24 +170,54 @@ no half-written game is ever visible as playable, and existing games/scores can'
 
 ```
 ~/.sparkade (Pi)  ·  ./data (dev)
-├── config.json        # providers, per-stage models, pricing, presets, volumes, key mappings
+├── config.json        # text/image models, pricing, presets, volumes, key mappings
 ├── sparkade.db        # games index, jobs, scores, settings, immutable cost ledger
+├── checkpoints/       # versioned raw model stages; retained across retries and successful publish
+├── incidents/         # structured failures/recoveries + editable lifecycle notes (gitignored)
 ├── staging/<jobId>/   # in-flight generation (atomically renamed on success)
-└── games/<gameId>/    # game.json · meta.json (cost breakdown, versions) · assets/ (likeness)
+└── games/<gameId>/    # game.json · meta.json · assets/ (manifest, key/story art, player sprites)
 ```
+
+### Generation incident workflow
+
+Every terminal pipeline failure is recorded under `incidents/<timestamp>--<jobId>--attempt-N/`.
+Sparkade also records a `recovered` incident when a game publishes only after a substantive model
+repair, level regeneration, compile retry, collision redraft, content fallback, or fighter-art
+fallback. Routine deterministic normalization remains in aggregate repair telemetry without
+creating a noisy incident for every harmless cleanup.
+
+Each incident has an `incident.json` machine-readable snapshot and a `notes.md` file with lifecycle
+frontmatter. Prompts, photos, audio, and credentials are never copied into incidents; the record
+links to the durable SQLite repair rows and raw checkpoints instead. A successful retry updates the
+prior incident's retry outcome but does not automatically resolve it.
+
+```bash
+npm run incidents -- list
+npm run incidents -- list --status open
+npm run incidents -- set <id> candidate-fixed --fixed-by <commit> --note "Added a fallback"
+npm run incidents -- set <id> resolved --verified-by <job-or-test>
+npm run incidents -- set <id> obsolete --superseded-by <incident-or-change>
+npm run incidents -- backfill # import currently recoverable historical evidence
+npm run analyze:repairs       # include status/fingerprint/retry aggregates
+```
+
+Lifecycle states are `open`, `candidate-fixed`, `resolved`, `obsolete`, and `accepted`. Keep an
+incident `candidate-fixed` until a regression test or fresh generation is recorded in
+`verifiedBy`; a one-off successful retry is evidence of nondeterminism, not proof of a fix.
 
 ## Pointing at a different model / provider
 
 Per-stage config in `config.json` (`sparkade config edit`, or `sparkade config set
 stages.music.model <id>`): stages are `design · levels · entities · music · repair · stt`, each
-with `{provider, model}`. Providers: `meta` (Meta Model API, default `muse-spark-1.1`),
+with `{provider, model}`. Providers: `meta` (Meta Model API, default `muse-spark-1.2-contributor`),
 `compat` (any OpenAI-compatible server — set `baseUrl`), `anthropic`, `mock`. Capability flags
 (`structuredOutput`, `audioIn`, `imageIn`) control what the pipeline sends. Add pricing rows under
-`pricing` or the UI shows "cost unavailable" (never $0.00). **Every wire-format detail of the Meta
-Model API lives in `packages/server/src/providers/meta.ts`** with a configurable `baseUrl` — if
-Meta changes shapes, fix that one file.
+`pricing` or the UI shows "cost unavailable" (never $0.00). Muse Image is configured separately at
+`imageGeneration` and defaults to `muse-image-1.0` at $0.01 per returned image. Meta wire formats
+live in `packages/server/src/providers/meta.ts` (text/audio) and
+`packages/server/src/providers/meta-image.ts` (generation/edits), both with configurable base URLs.
 
-## Adding a fourth archetype
+## Adding another archetype
 
 1. `packages/shared/src/schemas/<id>.schema.json` — full game schema (copy the shared `$defs`
    block verbatim; a unit test enforces parity) + types in `shared/src/types.ts`.
@@ -177,9 +228,8 @@ Meta changes shapes, fix that one file.
    passes `npx tsx scripts/check-golden.mts <id>` with zero repairs.
 4. Add the archetype to the design prompt's menu (`prompts/design.md`).
 
-Deferred archetypes (documented, not built): see [docs/EXTENDING.md](docs/EXTENDING.md) — includes
-the canonical **fighter** (Y high punch, X high kick, B low punch, A low kick, L/R block) and
-**racing** (B accelerate, Y brake, A item/boost, L/R hop/drift) control maps.
+Deferred archetypes (documented, not built): see [docs/EXTENDING.md](docs/EXTENDING.md), including
+the canonical **racing** control map (B accelerate, Y brake, A item/boost, L/R hop/drift).
 
 ## On-device smoke checklist (hardware-only — cannot be tested in CI)
 
@@ -207,8 +257,8 @@ the canonical **fighter** (Y high punch, X high kick, B low punch, A low kick, L
 
 Manual `sparkade update` on the login user is fine for a hobbyist cabinet. A hardened install
 would add: a dedicated service user, checksummed release archives with atomic-symlink updates and
-rollback, CI-built artifacts, and a read-only root. Also out of scope: fighting/racing archetypes,
-multiplayer, image-generation sprites, accounts, localization, touch, analytics.
+rollback, CI-built artifacts, and a read-only root. Also out of scope: racing, multiplayer,
+accounts, localization, touch, analytics.
 
 ## License notes
 

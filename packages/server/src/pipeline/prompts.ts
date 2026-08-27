@@ -118,7 +118,7 @@ export function buildLevelsPrompt(
     // measured margin so a healthy three-level document does not pay for a
     // full retry; Meta adds its reasoning headroom in the provider adapter.
     maxTokens: archetype === 'hshooter' ? 9000 : archetype === 'platformer' ? 9000 : 14000,
-    // Levels are the heaviest artifact (measured live: muse-spark-1.1 regularly
+    // Levels are the heaviest artifact (measured live: Muse Spark regularly
     // needs >90s for platformer tile grids). 150s here deviates from the 90s
     // default deliberately — without it, platformer generation cannot complete.
     timeoutMs: 150_000,
@@ -226,7 +226,7 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
   const small = [...LIB_PROJECTILES, ...LIB_PICKUPS].join(', ');
   const byArchetype: Record<ArchetypeId, string> = {
     platformer: [
-      '\nHERO BODIES (side view; all take the photo-likeness head — identity lives in the body):',
+      '\nHERO BODIES (side view; all take the generated likeness head — identity lives in the body):',
       annotated(LIB_HEROES_PLATFORMER),
       'ENEMY BODIES (any body can skin any behavior role):',
       annotated(LIB_ENEMIES_GROUND),
@@ -237,7 +237,7 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       `SMALL ART (self-describing): ${small}`,
     ].join('\n'),
     shooter: [
-      '\nSHIPS (top-down, pointing up; all take the photo-likeness head in the canopy):',
+      '\nSHIPS (top-down, pointing up; all take the generated likeness head in the canopy):',
       annotated(LIB_SHIPS),
       'FOE BODIES (top-down; any body can skin any behavior role):',
       annotated(LIB_FOES_SHOOTER),
@@ -246,7 +246,7 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       `SMALL ART (self-describing): ${small}`,
     ].join('\n'),
     adventure: [
-      '\nHERO BODIES (top-down 3/4; all take the photo-likeness head — identity lives in the body):',
+      '\nHERO BODIES (top-down 3/4; all take the generated likeness head — identity lives in the body):',
       annotated(LIB_HEROES_ADVENTURE),
       'ENEMY BODIES (any body can skin any behavior role):',
       annotated(LIB_ENEMIES_GROUND),
@@ -258,7 +258,7 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       `SMALL ART (self-describing): ${small}`,
     ].join('\n'),
     hshooter: [
-      '\nSHIPS (the engine flips them to face RIGHT; all take the photo-likeness head in the canopy):',
+      '\nSHIPS (the engine flips them to face RIGHT; all take the generated likeness head in the canopy):',
       annotated(LIB_SHIPS),
       'FOE BODIES (any body can skin any behavior role; they fly in from the right):',
       annotated(LIB_FOES_SHOOTER),
@@ -267,7 +267,7 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       `SMALL ART (self-describing): ${small}`,
     ].join('\n'),
     fighter: [
-      '\nFIGHTERS ARE DRAWN PROCEDURALLY — there are NO body sprites to pick. Set sprites.assign.hero and sprites.assign.boss to any library sprite (both are unused placeholders), e.g. "hero": "lib:hero_squire", "boss": "lib:boss_titan". A fighter\'s look comes from its build (nimble/balanced/heavy), outfit silhouette (gi/boxer/wrestler/street/robe/armor), and palette colorSlot. Opponent and boss faces are deterministic pixel avatars derived from the game seed, roster slot, and name; do not add unsupported face fields. When a photo exists, the player automatically receives the baked directional likeness head; never try to encode their face as a custom sprite.',
+      '\nFIGHTER APPEARANCES DO NOT USE sprites.assign body art. Set sprites.assign.hero and sprites.assign.boss to any library sprite (both are unused schema placeholders), e.g. "hero": "lib:hero_squire", "boss": "lib:boss_titan". The runtime renders opponents and the boss procedurally; their look comes from build (nimble/balanced/heavy), outfit silhouette (gi/boxer/wrestler/street/robe/armor), palette colorSlot, and deterministic identity. A no-photo player and the stable fallback are procedural too. When a photo exists, a later image-asset stage may replace the player with one complete validated pose set; the photo supplies identity while the roster build/outfit/color guides the game-world costume. Never add unsupported face fields or encode the player as a custom sprite.',
     ].join('\n'),
   };
   const tileRoles: Record<ArchetypeId, string[]> = {
@@ -380,7 +380,7 @@ export function buildEntitiesPrompt(
     : '';
   const likenessBodyNote =
     hasPhoto && archetype === 'platformer'
-      ? '\n\nLIKENESS BODY REQUIREMENT: Set sprites.assign.hero to one of the built-in lib:hero_* bodies listed above. The 16x32 likeness presentation needs that body and its 16px face slot. Put bespoke signature art on the boss, an enemy, or an object instead of the hero.'
+      ? '\n\nLIKENESS BODY REQUIREMENT: Set sprites.assign.hero to one of the built-in lib:hero_* bodies listed above. The 16x32 likeness presentation needs that body and its 16px generated-head slot. Put bespoke signature art on the boss, an enemy, or an object instead of the hero.'
       : '';
   return {
     system,

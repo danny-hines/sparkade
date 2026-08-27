@@ -4,8 +4,21 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { LOGICAL_BUTTONS, type SystemInfo, type WifiNetwork } from '@sparkade/shared';
 import { api, type SettingsPayload } from '../api';
-import { FooterLegend, newOskState, OnScreenKeyboard, oskHandle, usd, type OskState } from '../components';
-import { enumerateInputs, getUserMediaForDevice, probeMedia, type DeviceInfo, type MediaProbe } from '../media';
+import {
+  FooterLegend,
+  newOskState,
+  OnScreenKeyboard,
+  oskHandle,
+  usd,
+  type OskState,
+} from '../components';
+import {
+  enumerateInputs,
+  getUserMediaForDevice,
+  probeMedia,
+  type DeviceInfo,
+  type MediaProbe,
+} from '../media';
 import { shellInput } from '../shell-input';
 import { Icon, Btn, SignalBars } from '../icons';
 import type { Screen } from '../app';
@@ -43,7 +56,9 @@ export function SettingsScreen(props: {
   const [tab, setTab] = useState<Tab>((props.tab as Tab) ?? 'controls');
   const [zone, setZone] = useState<'tabs' | 'panel'>('tabs');
   const [panelCursor, setPanelCursor] = useState(0);
-  const [audio, setAudio] = useState(props.settings?.audio ?? { musicVol: 0.7, sfxVol: 0.8, uiVol: 0.4 });
+  const [audio, setAudio] = useState(
+    props.settings?.audio ?? { musicVol: 0.7, sfxVol: 0.8, uiVol: 0.4 },
+  );
   const [networks, setNetworks] = useState<WifiNetwork[] | null>(null);
   const [wifiMsg, setWifiMsg] = useState('');
   const [osk, setOsk] = useState<OskState | null>(null);
@@ -51,10 +66,9 @@ export function SettingsScreen(props: {
   const [inputs, setInputs] = useState<{ cameras: DeviceInfo[]; mics: DeviceInfo[] } | null>(null);
   const [probe, setProbe] = useState<MediaProbe | null>(null);
   const [devSel, setDevSel] = useState<DeviceSel>(props.settings?.devices ?? {});
-  const [smartFeatures, setSmartFeatures] = useState(props.settings?.likeness?.smartFeatures ?? false);
-  const [likenessStyle, setLikenessStyle] = useState<'photo' | 'avatar'>(props.settings?.likeness?.style ?? 'photo');
-  const [portraitGen, setPortraitGen] = useState(props.settings?.likeness?.portraitGen?.enabled ?? false);
-  const [upState, setUpState] = useState<'idle' | 'checking' | 'available' | 'uptodate' | 'installing' | 'error'>('idle');
+  const [upState, setUpState] = useState<
+    'idle' | 'checking' | 'available' | 'uptodate' | 'installing' | 'error'
+  >('idle');
   const [upLatest, setUpLatest] = useState<string | null>(null);
   const [upMsg, setUpMsg] = useState('');
   const oskTarget = useRef<string>('');
@@ -64,35 +78,43 @@ export function SettingsScreen(props: {
   stateRef.current = { tab, zone, panelCursor, tabs, osk, networks, inputs, info, upState };
 
   useEffect(() => {
-    void api.systemInfo().then(setInfo).catch(() => {});
+    void api
+      .systemInfo()
+      .then(setInfo)
+      .catch(() => {});
   }, []);
   useEffect(() => {
     if (props.settings) setAudio(props.settings.audio);
     if (props.settings) setDevSel(props.settings.devices ?? {});
-    if (props.settings) setSmartFeatures(props.settings.likeness?.smartFeatures ?? false);
-    if (props.settings) setLikenessStyle(props.settings.likeness?.style ?? 'photo');
-    if (props.settings) setPortraitGen(props.settings.likeness?.portraitGen?.enabled ?? false);
   }, [props.settings]);
   useEffect(() => {
     if (tab === 'wifi' && networks === null) {
-      void api.wifiNetworks().then(setNetworks).catch((e: Error) => setWifiMsg(e.message));
+      void api
+        .wifiNetworks()
+        .then(setNetworks)
+        .catch((e: Error) => setWifiMsg(e.message));
     }
     if (tab === 'devices' && inputs === null) {
       void enumerateInputs()
         .then((r) => {
           setInputs(r);
           // Nothing enumerated → probe the media stack so we can see WHY on-device.
-          if (r.cameras.length === 0 && r.mics.length === 0) void probeMedia().then(setProbe).catch(() => {});
+          if (r.cameras.length === 0 && r.mics.length === 0)
+            void probeMedia()
+              .then(setProbe)
+              .catch(() => {});
         })
         .catch(() => setInputs({ cameras: [], mics: [] }));
     }
   }, [tab, networks, inputs]);
 
   // The Camera & Mic list can outgrow its column (no-device messages,
-  // diagnostics, the likeness toggle); keep the focused row scrolled into view.
+  // diagnostics and privacy disclosure); keep the focused row scrolled into view.
   useEffect(() => {
     if (tab !== 'devices' || zone !== 'panel') return;
-    deviceListRef.current?.querySelector('.focusable.focused')?.scrollIntoView({ block: 'nearest' });
+    deviceListRef.current
+      ?.querySelector('.focusable.focused')
+      ?.scrollIntoView({ block: 'nearest' });
   }, [tab, zone, panelCursor, inputs]);
 
   // The System-info tab can overflow (long data dir + update section); keep the
@@ -115,33 +137,6 @@ export function SettingsScreen(props: {
           ? { ...cur, cameraId: d.id, cameraLabel: d.label }
           : { ...cur, micId: d.id, micLabel: d.label };
       void api.saveSettings({ devices: next }).then(props.onSettingsChanged);
-      return next;
-    });
-    shellInput.blip('select');
-  };
-
-  const toggleSmartFeatures = () => {
-    setSmartFeatures((cur) => {
-      const next = !cur;
-      void api.saveSettings({ likeness: { smartFeatures: next } }).then(props.onSettingsChanged);
-      return next;
-    });
-    shellInput.blip('select');
-  };
-
-  const cycleLikenessStyle = () => {
-    setLikenessStyle((cur) => {
-      const next = cur === 'photo' ? 'avatar' : 'photo';
-      void api.saveSettings({ likeness: { style: next } }).then(props.onSettingsChanged);
-      return next;
-    });
-    shellInput.blip('select');
-  };
-
-  const togglePortraitGen = () => {
-    setPortraitGen((cur) => {
-      const next = !cur;
-      void api.saveSettings({ likeness: { portraitGen: { enabled: next } } }).then(props.onSettingsChanged);
       return next;
     });
     shellInput.blip('select');
@@ -264,36 +259,39 @@ export function SettingsScreen(props: {
           } else if (btn === 'LEFT' || btn === 'RIGHT') {
             const key = keys[s.panelCursor]!;
             const next = { ...audio };
-            next[key] = Math.max(0, Math.min(1, Math.round((next[key] + (btn === 'RIGHT' ? 0.1 : -0.1)) * 10) / 10));
+            next[key] = Math.max(
+              0,
+              Math.min(1, Math.round((next[key] + (btn === 'RIGHT' ? 0.1 : -0.1)) * 10) / 10),
+            );
             saveAudio(next);
             shellInput.blip('move');
           }
         } else if (s.tab === 'controls') {
           if (btn === 'A') {
             shellInput.blip('select');
-            props.go({ name: 'remap', firstBoot: false, returnTo: { name: 'settings', tab: 'controls' } });
+            props.go({
+              name: 'remap',
+              firstBoot: false,
+              returnTo: { name: 'settings', tab: 'controls' },
+            });
           }
         } else if (s.tab === 'devices') {
           const cams = s.inputs?.cameras ?? [];
           const mics = s.inputs?.mics ?? [];
-          const rows = cams.length + mics.length + 4; // + rescan + smart + style + AI portrait
+          const rows = cams.length + mics.length + 1; // + rescan
           if (btn === 'UP' || btn === 'DOWN') {
             setPanelCursor((c) => (c + (btn === 'DOWN' ? 1 : rows - 1)) % rows);
             shellInput.blip('move');
           } else if (btn === 'A' || btn === 'LEFT' || btn === 'RIGHT') {
-            if (btn === 'A' && s.panelCursor < cams.length) chooseDevice('camera', cams[s.panelCursor]!);
-            else if (btn === 'A' && s.panelCursor < cams.length + mics.length) chooseDevice('mic', mics[s.panelCursor - cams.length]!);
+            if (btn === 'A' && s.panelCursor < cams.length)
+              chooseDevice('camera', cams[s.panelCursor]!);
+            else if (btn === 'A' && s.panelCursor < cams.length + mics.length)
+              chooseDevice('mic', mics[s.panelCursor - cams.length]!);
             else if (btn === 'A' && s.panelCursor === cams.length + mics.length) {
               setInputs(null); // rescan
               setProbe(null);
               setPanelCursor(0);
               shellInput.blip('select');
-            } else if (s.panelCursor === cams.length + mics.length + 1) {
-              if (btn === 'A') toggleSmartFeatures();
-            } else if (s.panelCursor === cams.length + mics.length + 2) {
-              cycleLikenessStyle(); // A / Left / Right all flip photo <-> avatar
-            } else if (s.panelCursor === cams.length + mics.length + 3) {
-              if (btn === 'A') togglePortraitGen();
             }
           }
         } else if (s.tab === 'wifi') {
@@ -361,7 +359,10 @@ export function SettingsScreen(props: {
                   ['UI blips', 'uiVol'],
                 ] as const
               ).map(([label, key], i) => (
-                <div key={key} class={`slider-row focusable ${zone === 'panel' && panelCursor === i ? 'focused' : ''}`}>
+                <div
+                  key={key}
+                  class={`slider-row focusable ${zone === 'panel' && panelCursor === i ? 'focused' : ''}`}
+                >
                   <span style="width:130px">{label}</span>
                   <div class="bar">
                     <div style={{ width: `${audio[key] * 100}%` }} />
@@ -369,15 +370,25 @@ export function SettingsScreen(props: {
                   <span style="width:56px;text-align:right">{Math.round(audio[key] * 100)}%</span>
                 </div>
               ))}
-              <p style="color:var(--text-dim);font-size:16px;margin-top:14px"><Icon name="arrowLeft" /> <Icon name="arrowRight" /> adjust · <Btn>B</Btn> back to tabs</p>
+              <p style="color:var(--text-dim);font-size:16px;margin-top:14px">
+                <Icon name="arrowLeft" /> <Icon name="arrowRight" /> adjust · <Btn>B</Btn> back to
+                tabs
+              </p>
             </div>
           )}
           {tab === 'controls' && (
             <div>
-              <div class="control-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:2px 24px">
+              <div
+                class="control-grid"
+                style="display:grid;grid-template-columns:1fr 1fr;gap:2px 24px"
+              >
                 {LOGICAL_BUTTONS.map((b) => {
-                  const gp = Object.entries(props.settings?.input.gamepad ?? {}).find(([, v]) => v === b)?.[0];
-                  const kb = Object.entries(props.settings?.input.keyboard ?? {}).find(([, v]) => v === b)?.[0];
+                  const gp = Object.entries(props.settings?.input.gamepad ?? {}).find(
+                    ([, v]) => v === b,
+                  )?.[0];
+                  const kb = Object.entries(props.settings?.input.keyboard ?? {}).find(
+                    ([, v]) => v === b,
+                  )?.[0];
                   return (
                     <div key={b} class="kv">
                       <span class="k">{b}</span>
@@ -388,8 +399,14 @@ export function SettingsScreen(props: {
                   );
                 })}
               </div>
-              <div class={`focusable menu-item ${zone === 'panel' ? 'focused' : ''}`} style="margin-top:12px;max-width:320px;font-size:16px">
-                <span class="icon"><Icon name="joystick" /></span> Remap controls
+              <div
+                class={`focusable menu-item ${zone === 'panel' ? 'focused' : ''}`}
+                style="margin-top:12px;max-width:320px;font-size:16px"
+              >
+                <span class="icon">
+                  <Icon name="joystick" />
+                </span>{' '}
+                Remap controls
               </div>
               <p style="color:var(--text-dim);font-size:16px;margin-top:10px">
                 Tip: hold any single button for 5 seconds on any menu to remap.
@@ -400,60 +417,70 @@ export function SettingsScreen(props: {
             <div class="devices-layout">
               <div class="device-lists" ref={deviceListRef}>
                 {inputs === null ? (
-                  <div style="color:var(--text-dim)"><Icon name="sparkle" class="spin" /> Detecting cameras &amp; mics…</div>
+                  <div style="color:var(--text-dim)">
+                    <Icon name="sparkle" class="spin" /> Detecting cameras &amp; mics…
+                  </div>
                 ) : (
                   <>
                     <div class="device-group">Camera</div>
-                    {inputs.cameras.length === 0 && <div class="device-none">No camera found — check the USB connection</div>}
+                    {inputs.cameras.length === 0 && (
+                      <div class="device-none">No camera found — check the USB connection</div>
+                    )}
                     {inputs.cameras.map((d, i) => (
-                      <div key={d.id} class={`focusable device-row ${zone === 'panel' && panelCursor === i ? 'focused' : ''}`}>
-                        <span class="device-check">{devSel.cameraId === d.id ? <Icon name="dot" /> : <Icon name="ring" />}</span>
+                      <div
+                        key={d.id}
+                        class={`focusable device-row ${zone === 'panel' && panelCursor === i ? 'focused' : ''}`}
+                      >
+                        <span class="device-check">
+                          {devSel.cameraId === d.id ? <Icon name="dot" /> : <Icon name="ring" />}
+                        </span>
                         <span class="device-label">{d.label}</span>
                       </div>
                     ))}
                     <div class="device-group">Microphone</div>
-                    {inputs.mics.length === 0 && <div class="device-none">No microphone found — check the USB connection</div>}
+                    {inputs.mics.length === 0 && (
+                      <div class="device-none">No microphone found — check the USB connection</div>
+                    )}
                     {inputs.mics.map((d, i) => {
                       const row = inputs.cameras.length + i;
                       return (
-                        <div key={d.id} class={`focusable device-row ${zone === 'panel' && panelCursor === row ? 'focused' : ''}`}>
-                          <span class="device-check">{devSel.micId === d.id ? <Icon name="dot" /> : <Icon name="ring" />}</span>
+                        <div
+                          key={d.id}
+                          class={`focusable device-row ${zone === 'panel' && panelCursor === row ? 'focused' : ''}`}
+                        >
+                          <span class="device-check">
+                            {devSel.micId === d.id ? <Icon name="dot" /> : <Icon name="ring" />}
+                          </span>
                           <span class="device-label">{d.label}</span>
                         </div>
                       );
                     })}
-                    <div class={`focusable device-row device-rescan ${zone === 'panel' && panelCursor === inputs.cameras.length + inputs.mics.length ? 'focused' : ''}`}>
-                      <span class="device-check"><Icon name="refresh" /></span>
+                    <div
+                      class={`focusable device-row device-rescan ${zone === 'panel' && panelCursor === inputs.cameras.length + inputs.mics.length ? 'focused' : ''}`}
+                    >
+                      <span class="device-check">
+                        <Icon name="refresh" />
+                      </span>
                       <span class="device-label">Rescan devices</span>
                     </div>
-                    <div class="device-group" style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line,#333)">
-                      Player likeness
+                    <div
+                      class="device-group"
+                      style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line,#333)"
+                    >
+                      Generated hero art
                     </div>
                     <div style="font-size:13px;color:var(--text-dim);margin:0 0 6px 4px;max-width:440px;line-height:1.5">
-                      Reads your photo's true skin &amp; hair tones with the vision model so faces
-                      look right instead of tinting to the game's colours. Turn off to keep the
-                      photo on-device.
-                    </div>
-                    <div class={`focusable device-row likeness-toggle-row ${zone === 'panel' && panelCursor === inputs.cameras.length + inputs.mics.length + 1 ? 'focused' : ''}`}>
-                      <span class="device-check">{smartFeatures ? <Icon name="check" /> : <Icon name="ring" />}</span>
-                      <span class="device-label">Smart avatar colours — {smartFeatures ? 'On' : 'Off'}</span>
-                    </div>
-                    <div class={`focusable device-row likeness-toggle-row ${zone === 'panel' && panelCursor === inputs.cameras.length + inputs.mics.length + 2 ? 'focused' : ''}`}>
-                      <span class="device-check">{likenessStyle === 'avatar' ? <Icon name="sparkle" /> : <Icon name="camera" />}</span>
-                      <span class="device-label">
-                        Style — {likenessStyle === 'avatar' ? 'Avatar + photo' : 'Your photo'}
-                        {likenessStyle === 'avatar' && !smartFeatures ? ' (needs smart colours on)' : ''}
-                      </span>
-                    </div>
-                    <div class={`focusable device-row likeness-toggle-row ${zone === 'panel' && panelCursor === inputs.cameras.length + inputs.mics.length + 3 ? 'focused' : ''}`}>
-                      <span class="device-check">{portraitGen ? <Icon name="check" /> : <Icon name="ring" />}</span>
-                      <span class="device-label">AI story portrait — {portraitGen ? 'On' : 'Off'}</span>
+                      Photos accepted in the game wizard are sent to Meta's Model API to create
+                      personalized hero sprites and story art. The source photo is removed after the
+                      game is successfully published.
                     </div>
                     {inputs.cameras.length === 0 && inputs.mics.length === 0 && (
                       <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line,#333)">
                         <div class="device-group">Diagnostics</div>
                         {probe === null ? (
-                          <div style="color:var(--text-dim)"><Icon name="sparkle" class="spin" /> Probing media stack…</div>
+                          <div style="color:var(--text-dim)">
+                            <Icon name="sparkle" class="spin" /> Probing media stack…
+                          </div>
                         ) : (
                           <pre style="font-size:13px;line-height:1.5;color:var(--text-dim);white-space:pre-wrap;word-break:break-word;margin:0">
                             {describeProbe(probe)}
@@ -473,7 +500,9 @@ export function SettingsScreen(props: {
           )}
           {tab === 'wifi' && (
             <div>
-              {wifiMsg && <div style="color:var(--cyan);font-size:18px;margin-bottom:10px">{wifiMsg}</div>}
+              {wifiMsg && (
+                <div style="color:var(--cyan);font-size:18px;margin-bottom:10px">{wifiMsg}</div>
+              )}
               {connecting && (
                 <div style="color:var(--gold);font-size:18px;margin-bottom:10px">
                   <Icon name="sparkle" class="spin" /> Connecting…
@@ -486,38 +515,77 @@ export function SettingsScreen(props: {
               ) : (
                 <div style="display:flex;flex-direction:column;gap:8px;max-height:360px;overflow:hidden">
                   {networks.slice(0, 7).map((n, i) => (
-                    <div key={n.ssid} class={`focusable wifi-row ${zone === 'panel' && panelCursor === i ? 'focused' : ''}`}>
-                      <span>{n.current ? <Icon name="check" /> : n.secured ? <Icon name="lock" /> : '·'}</span>
+                    <div
+                      key={n.ssid}
+                      class={`focusable wifi-row ${zone === 'panel' && panelCursor === i ? 'focused' : ''}`}
+                    >
+                      <span>
+                        {n.current ? <Icon name="check" /> : n.secured ? <Icon name="lock" /> : '·'}
+                      </span>
                       <span>{n.ssid}</span>
-                      <span class="signal"><SignalBars level={barsFor(n.signal)} /></span>
+                      <span class="signal">
+                        <SignalBars level={barsFor(n.signal)} />
+                      </span>
                     </div>
                   ))}
-                  <div class={`focusable wifi-row ${zone === 'panel' && panelCursor === (networks?.length ?? 0) ? 'focused' : ''}`}>
-                    <span><Icon name="refresh" /></span>
+                  <div
+                    class={`focusable wifi-row ${zone === 'panel' && panelCursor === (networks?.length ?? 0) ? 'focused' : ''}`}
+                  >
+                    <span>
+                      <Icon name="refresh" />
+                    </span>
                     <span>Rescan</span>
                   </div>
                 </div>
               )}
-              {info?.forcedPi && <p style="color:var(--gold);font-size:15px;margin-top:10px">MOCK WiFi (SPARKADE_FORCE_PI)</p>}
+              {info?.forcedPi && (
+                <p style="color:var(--gold);font-size:15px;margin-top:10px">
+                  MOCK WiFi (SPARKADE_FORCE_PI)
+                </p>
+              )}
             </div>
           )}
           {tab === 'system' && info && (
             <div class="system-scroll" ref={systemRef}>
-              <div class="kv"><span class="k">Version</span><span>{info.version}</span></div>
-              <div class="kv"><span class="k">IP address</span><span>{info.ip}</span></div>
+              <div class="kv">
+                <span class="k">Version</span>
+                <span>{info.version}</span>
+              </div>
+              <div class="kv">
+                <span class="k">IP address</span>
+                <span>{info.ip}</span>
+              </div>
               <div class="kv">
                 <span class="k">Disk</span>
                 <span>
-                  {(info.diskFreeBytes / 1e9).toFixed(0)} / {(info.diskTotalBytes / 1e9).toFixed(0)} GB free
+                  {(info.diskFreeBytes / 1e9).toFixed(0)} / {(info.diskTotalBytes / 1e9).toFixed(0)}{' '}
+                  GB free
                 </span>
               </div>
-              <div class="kv"><span class="k">Games</span><span>{info.gameCount}</span></div>
-              <div class="kv"><span class="k">Data dir</span><span style="font-size:12px;word-break:break-all;text-align:right">{info.dataDir}</span></div>
+              <div class="kv">
+                <span class="k">Games</span>
+                <span>{info.gameCount}</span>
+              </div>
+              <div class="kv">
+                <span class="k">Data dir</span>
+                <span style="font-size:12px;word-break:break-all;text-align:right">
+                  {info.dataDir}
+                </span>
+              </div>
               <div class="kv">
                 <span class="k">Lifetime API spend</span>
                 <span style="color:var(--gold)">{usd(info.lifetimeSpendUsd)}</span>
               </div>
-              <div class="kv"><span class="k">Hardware</span><span>{info.isPi ? (info.forcedPi ? 'Forced Pi (mock)' : 'Raspberry Pi') : 'Dev machine'}</span></div>
+              <div class="kv">
+                <span class="k">Hardware</span>
+                <span>
+                  {info.isPi
+                    ? info.forcedPi
+                      ? 'Forced Pi (mock)'
+                      : 'Raspberry Pi'
+                    : 'Dev machine'}
+                </span>
+              </div>
               {info.isPi && (
                 <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--line,#333)">
                   <div class="kv">
@@ -536,10 +604,15 @@ export function SettingsScreen(props: {
                       )}
                     </span>
                   </div>
-                  <div class={`focusable menu-item ${zone === 'panel' ? 'focused' : ''}`} style="margin-top:8px;max-width:360px;font-size:16px">
+                  <div
+                    class={`focusable menu-item ${zone === 'panel' ? 'focused' : ''}`}
+                    style="margin-top:8px;max-width:360px;font-size:16px"
+                  >
                     <span class="icon">
                       <Icon
-                        name={upState === 'checking' || upState === 'installing' ? 'sparkle' : 'refresh'}
+                        name={
+                          upState === 'checking' || upState === 'installing' ? 'sparkle' : 'refresh'
+                        }
                         class={upState === 'checking' || upState === 'installing' ? 'spin' : ''}
                       />
                     </span>
@@ -552,7 +625,9 @@ export function SettingsScreen(props: {
                           : 'Check for updates'}
                   </div>
                   {upMsg && (
-                    <p style="color:var(--text-dim);font-size:14px;margin-top:8px;max-width:440px;line-height:1.5">{upMsg}</p>
+                    <p style="color:var(--text-dim);font-size:14px;margin-top:8px;max-width:440px;line-height:1.5">
+                      {upMsg}
+                    </p>
                   )}
                 </div>
               )}
@@ -568,9 +643,19 @@ export function SettingsScreen(props: {
                   </span>
                 </div>
               ))}
+              {props.settings?.imageGeneration && (
+                <div class="kv">
+                  <span class="k">image art</span>
+                  <span>
+                    Meta · {props.settings.imageGeneration.model} · $
+                    {props.settings.imageGeneration.pricePerImageUsd.toFixed(2)}/image
+                  </span>
+                </div>
+              )}
               <p style="color:var(--text-dim);font-size:16px;margin-top:14px">
                 Read-only here — change providers and models with <b>sparkade config</b> on the
-                command line. API keys live in the env file and never appear on this screen.
+                command line. Contributor-tier text inputs and responses may be used by Meta for
+                model training. API keys live in the env file and never appear on this screen.
               </p>
             </div>
           )}
@@ -623,7 +708,10 @@ function DeviceMonitor(props: { cameraId?: string; micId?: string }): ComponentC
     let stopped = false;
     let stream: MediaStream | null = null;
     setCamErr(false);
-    void getUserMediaForDevice('video', props.cameraId, { width: { ideal: 640 }, height: { ideal: 480 } })
+    void getUserMediaForDevice('video', props.cameraId, {
+      width: { ideal: 640 },
+      height: { ideal: 480 },
+    })
       .then((s) => {
         if (stopped) {
           s.getTracks().forEach((t) => t.stop());

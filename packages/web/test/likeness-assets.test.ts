@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { GENERATED_GAME_ASSET_FILES, type GeneratedGameAssetRole } from '@sparkade/shared';
 import type { GameDetail } from '../src/api';
-import { loadLikenessAssets } from '../src/likeness-assets';
+import { FIGHTER_POSE_ASSETS, loadLikenessAssets } from '../src/likeness-assets';
 
 const requested: string[] = [];
+const failing = new Set<string>();
 
 class FakeImage {
   onload: ((event: Event) => void) | null = null;
@@ -16,9 +18,19 @@ class FakeImage {
   set src(value: string) {
     this.value = value;
     requested.push(value);
-    queueMicrotask(() => this.onload?.(new Event('load')));
+    queueMicrotask(() => {
+      if (failing.has(value)) this.onerror?.('failed');
+      else this.onload?.(new Event('load'));
+    });
   }
 }
+
+const unavailableGeneratedAssets = Object.fromEntries(
+  (Object.keys(GENERATED_GAME_ASSET_FILES) as GeneratedGameAssetRole[]).map((role) => [
+    role,
+    false,
+  ]),
+) as Record<GeneratedGameAssetRole, boolean>;
 
 const legacyAssets: GameDetail['assets'] = {
   head12: true,
@@ -28,11 +40,13 @@ const legacyAssets: GameDetail['assets'] = {
   head16Side: false,
   head16Back: false,
   portrait: true,
+  ...unavailableGeneratedAssets,
 };
 
 describe('loadLikenessAssets', () => {
   beforeEach(() => {
     requested.length = 0;
+    failing.clear();
     vi.stubGlobal('Image', FakeImage);
   });
 
@@ -69,5 +83,69 @@ describe('loadLikenessAssets', () => {
       '/api/games/new-game/assets/head16-back.png',
       '/api/games/new-game/assets/portrait.png',
     ]);
+  });
+
+  it('loads generated story scenes alongside likeness assets', async () => {
+    const result = await loadLikenessAssets('story-game', {
+      ...legacyAssets,
+      storyIntro: true,
+      storyBoss: true,
+      storyVictory: true,
+    });
+
+    expect(result?.storyIntro).not.toBeNull();
+    expect(result?.storyBoss).not.toBeNull();
+    expect(result?.storyVictory).not.toBeNull();
+    expect(requested).toContain('/api/games/story-game/assets/story-intro.png');
+    expect(requested).toContain('/api/games/story-game/assets/story-boss.png');
+    expect(requested).toContain('/api/games/story-game/assets/story-victory.png');
+  });
+
+  it('exposes fighter poses only after the complete 11-pose set loads', async () => {
+    const fighterAvailability = Object.fromEntries(
+      FIGHTER_POSE_ASSETS.map(([, role]) => [role, true]),
+    );
+    const result = await loadLikenessAssets('fighter-game', {
+      ...legacyAssets,
+      ...fighterAvailability,
+    });
+
+    expect(Object.keys(result?.fighterPoses ?? {})).toEqual(
+      FIGHTER_POSE_ASSETS.map(([pose]) => pose),
+    );
+    for (const [, role] of FIGHTER_POSE_ASSETS) {
+      expect(requested).toContain(
+        `/api/games/fighter-game/assets/${GENERATED_GAME_ASSET_FILES[role]}`,
+      );
+    }
+  });
+
+  it('rejects the entire generated fighter set when one pose fails to load', async () => {
+    const fighterAvailability = Object.fromEntries(
+      FIGHTER_POSE_ASSETS.map(([, role]) => [role, true]),
+    );
+    failing.add(`/api/games/broken-fighter/assets/${GENERATED_GAME_ASSET_FILES.fighterHit}`);
+
+    const result = await loadLikenessAssets('broken-fighter', {
+      ...legacyAssets,
+      ...fighterAvailability,
+    });
+
+    expect(result?.fighterPoses).toBeNull();
+    expect(requested.filter((url) => url.includes('/assets/fighter-player-'))).toHaveLength(11);
+  });
+
+  it('does not start loading an incomplete fighter pose set', async () => {
+    const fighterAvailability = Object.fromEntries(
+      FIGHTER_POSE_ASSETS.map(([, role]) => [role, role !== 'fighterKo']),
+    );
+
+    const result = await loadLikenessAssets('partial-fighter', {
+      ...legacyAssets,
+      ...fighterAvailability,
+    });
+
+    expect(result?.fighterPoses).toBeNull();
+    expect(requested.some((url) => url.includes('/assets/fighter-player-'))).toBe(false);
   });
 });

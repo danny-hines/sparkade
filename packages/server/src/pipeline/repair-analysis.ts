@@ -11,6 +11,7 @@ import { archetypes } from '@sparkade/archetypes';
 import type { ArchetypeId, DesignDoc, GameSpec, LintError } from '@sparkade/shared';
 import type { RepairEvent } from '../storage/db';
 import type { RawStageCheckpoint, RawStageName } from '../storage/files';
+import { IncidentStore } from '../storage/incidents';
 import { compileTileRunsStage } from './tile-runs';
 import * as validation from './validate';
 
@@ -51,6 +52,7 @@ export interface RepairAnalysisReport {
     publishedGames: number;
     checkpointSnapshots: number;
     repairEvents: number;
+    incidents: number;
   };
   repairs: {
     jobs: number;
@@ -75,6 +77,14 @@ export interface RepairAnalysisReport {
     diagnosticsAfter: number;
     byFixCode: CountEntry[];
     comparisons: NormalizationComparison[];
+  };
+  incidents: {
+    total: number;
+    reviewable: number;
+    byStatus: CountEntry[];
+    byOutcome: CountEntry[];
+    byFingerprint: CountEntry[];
+    byRetryOutcome: CountEntry[];
   };
 }
 
@@ -118,6 +128,7 @@ export function analyzeRepairData(
   options: RepairAnalysisOptions = {},
 ): RepairAnalysisReport {
   const dataset = loadAnalysisDataset(dir, options);
+  const incidentRecords = new IncidentStore(dir).list();
   const normalizer = options.normalizer === undefined ? bundledNormalizer : options.normalizer;
   const archetypeByGame = dataset.gameArchetypes;
 
@@ -186,6 +197,17 @@ export function analyzeRepairData(
     for (const fix of comparison.fixes) increment(byFixCode, fix.code || 'unknown');
   }
 
+  const incidentStatus = new Map<string, number>();
+  const incidentOutcome = new Map<string, number>();
+  const incidentFingerprint = new Map<string, number>();
+  const incidentRetryOutcome = new Map<string, number>();
+  for (const record of incidentRecords) {
+    increment(incidentStatus, record.lifecycle.status);
+    increment(incidentOutcome, record.incident.outcome);
+    increment(incidentFingerprint, record.incident.fingerprint);
+    if (record.incident.retry) increment(incidentRetryOutcome, record.incident.retry.outcome);
+  }
+
   return {
     generatedAt: (options.now ?? (() => new Date().toISOString()))(),
     dataDir: dir,
@@ -193,6 +215,7 @@ export function analyzeRepairData(
       publishedGames: dataset.published.length,
       checkpointSnapshots: dataset.checkpoints.length,
       repairEvents: dataset.events.length,
+      incidents: incidentRecords.length,
     },
     repairs: {
       jobs: jobs.size,
@@ -224,6 +247,16 @@ export function analyzeRepairData(
       byFixCode: sortedCounts(byFixCode),
       comparisons,
     },
+    incidents: {
+      total: incidentRecords.length,
+      reviewable: incidentRecords.filter(({ lifecycle }) =>
+        ['open', 'candidate-fixed'].includes(lifecycle.status),
+      ).length,
+      byStatus: sortedCounts(incidentStatus),
+      byOutcome: sortedCounts(incidentOutcome),
+      byFingerprint: sortedCounts(incidentFingerprint),
+      byRetryOutcome: sortedCounts(incidentRetryOutcome),
+    },
   };
 }
 
@@ -232,7 +265,7 @@ export function formatRepairAnalysis(report: RepairAnalysisReport): string {
   const lines = [
     'Sparkade repair analysis',
     `Data: ${report.dataDir}`,
-    `Sources: ${report.sources.publishedGames} published games, ${report.sources.checkpointSnapshots} checkpoint snapshots, ${report.sources.repairEvents} repair events`,
+    `Sources: ${report.sources.publishedGames} published games, ${report.sources.checkpointSnapshots} checkpoint snapshots, ${report.sources.repairEvents} repair events, ${report.sources.incidents} incidents`,
     '',
     `Repairs: ${report.repairs.events} events across ${report.repairs.jobs} jobs / ${report.repairs.games} games`,
     `Diagnostics: ${report.repairs.diagnosticsBefore} before -> ${report.repairs.diagnosticsAfter} after`,
@@ -242,6 +275,12 @@ export function formatRepairAnalysis(report: RepairAnalysisReport): string {
     formatCounts('Unresolved diagnostic code', report.repairs.unresolvedByCode),
     formatCounts('By action', report.repairs.byAction),
     formatCounts('By outcome', report.repairs.byOutcome),
+    '',
+    `Incidents: ${report.incidents.total} total, ${report.incidents.reviewable} reviewable`,
+    formatCounts('By incident status', report.incidents.byStatus),
+    formatCounts('By incident outcome', report.incidents.byOutcome),
+    formatCounts('By incident fingerprint', report.incidents.byFingerprint),
+    formatCounts('By retry outcome', report.incidents.byRetryOutcome),
     '',
   ];
 
@@ -529,11 +568,7 @@ export function diagnosticsForSpec(spec: GameSpec): LintError[] {
     const security = validation.securityScan(spec);
     if (schema.length) return dedupeDiagnostics([...schema, ...security]);
     const sprites = validation.customBossSpriteDiagnostics(spec);
-    return dedupeDiagnostics([
-      ...security,
-      ...sprites,
-      ...archetypes[spec.archetype].lint(spec),
-    ]);
+    return dedupeDiagnostics([...security, ...sprites, ...archetypes[spec.archetype].lint(spec)]);
   } catch (error) {
     return [
       {

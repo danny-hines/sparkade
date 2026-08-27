@@ -66,19 +66,33 @@ describe('atomic publish', () => {
     expect(db.getGame('game1')).toBeNull();
   });
 
-  it('publish renames staging into games/ in one step and strips the raw photo', () => {
+  it('publish renames staging in one step and strips raw and retry-only private assets', () => {
     const staging = files.stagingFor('job2');
     writeFileSync(join(staging, 'game.json'), FAKE_SPEC);
     writeFileSync(join(staging, 'meta.json'), FAKE_META('game2'));
     writeFileSync(join(staging, 'photo.jpg'), Buffer.from([0xff, 0xd8])); // privacy: must not survive
-    ensureDir(join(staging, 'assets'));
+    const assets = ensureDir(join(staging, 'assets'));
+    const fighterReference = join(assets, '.fighter-player-reference.png');
+    const fighterReferenceMeta = `${fighterReference}.json`;
+    writeFileSync(fighterReference, Buffer.from('retry reference'));
+    writeFileSync(fighterReferenceMeta, '{}');
+    expect(existsSync(fighterReference)).toBe(true);
+    expect(existsSync(fighterReferenceMeta)).toBe(true);
+
     files.publish('job2', 'game2');
+
     expect(existsSync(join(files.gameDir('game2'), 'game.json'))).toBe(true);
     expect(existsSync(join(files.gameDir('game2'), 'photo.jpg'))).toBe(false);
+    expect(
+      existsSync(join(files.gameDir('game2'), 'assets', '.fighter-player-reference.png')),
+    ).toBe(false);
+    expect(
+      existsSync(join(files.gameDir('game2'), 'assets', '.fighter-player-reference.png.json')),
+    ).toBe(false);
     expect(existsSync(staging)).toBe(false);
-    expect(JSON.parse(readFileSync(join(files.gameDir('game2'), 'game.json'), 'utf8')).meta.title).toBe(
-      'Test Game',
-    );
+    expect(
+      JSON.parse(readFileSync(join(files.gameDir('game2'), 'game.json'), 'utf8')).meta.title,
+    ).toBe('Test Game');
   });
 
   it('reconciliation indexes published games and drops rows whose files vanished', () => {
@@ -157,16 +171,60 @@ describe('jobs and the immutable cost ledger', () => {
   });
 
   it('ledger keeps failed + repair calls and survives game deletion (lifetime spend)', () => {
-    db.insertUsage({ jobId: 'j2', gameId: 'g2', stage: 'design', model: 'm', provider: 'p', inputTokens: 100, outputTokens: 50, costUsd: 0.01, failed: false, repair: false });
-    db.insertUsage({ jobId: 'j2', gameId: 'g2', stage: 'levels', model: 'm', provider: 'p', inputTokens: 0, outputTokens: 0, costUsd: 0, failed: true, repair: false });
-    db.insertUsage({ jobId: 'j2', gameId: 'g2', stage: 'repair', model: 'm', provider: 'p', inputTokens: 40, outputTokens: 20, costUsd: 0.004, failed: false, repair: true });
+    db.insertUsage({
+      jobId: 'j2',
+      gameId: 'g2',
+      stage: 'design',
+      model: 'm',
+      provider: 'p',
+      inputTokens: 100,
+      outputTokens: 50,
+      costUsd: 0.01,
+      failed: false,
+      repair: false,
+    });
+    db.insertUsage({
+      jobId: 'j2',
+      gameId: 'g2',
+      stage: 'levels',
+      model: 'm',
+      provider: 'p',
+      inputTokens: 0,
+      outputTokens: 0,
+      costUsd: 0,
+      failed: true,
+      repair: false,
+    });
+    db.insertUsage({
+      jobId: 'j2',
+      gameId: 'g2',
+      stage: 'repair',
+      model: 'm',
+      provider: 'p',
+      inputTokens: 40,
+      outputTokens: 20,
+      costUsd: 0.004,
+      failed: false,
+      repair: true,
+    });
     expect(db.jobCost('j2')).toBeCloseTo(0.014, 9);
     db.deleteGame('g2');
     expect(db.lifetimeSpendUsd()).toBeCloseTo(0.014, 9);
   });
 
   it('unknown-price events poison job cost to null (cost unavailable, not $0)', () => {
-    db.insertUsage({ jobId: 'j3', gameId: 'g3', stage: 'design', model: 'm', provider: 'p', inputTokens: 1, outputTokens: 1, costUsd: null, failed: false, repair: false });
+    db.insertUsage({
+      jobId: 'j3',
+      gameId: 'g3',
+      stage: 'design',
+      model: 'm',
+      provider: 'p',
+      inputTokens: 1,
+      outputTokens: 1,
+      costUsd: null,
+      failed: false,
+      repair: false,
+    });
     expect(db.jobCost('j3')).toBeNull();
   });
 
@@ -187,7 +245,18 @@ describe('jobs and the immutable cost ledger', () => {
       engineVersion: '1.0.0',
       archetypeVersion: '1.0.0',
     });
-    db.insertUsage({ jobId: 'jr', gameId: 'gr', stage: 'design', model: 'm', provider: 'p', inputTokens: 500, outputTokens: 200, costUsd: 0.15, failed: false, repair: false });
+    db.insertUsage({
+      jobId: 'jr',
+      gameId: 'gr',
+      stage: 'design',
+      model: 'm',
+      provider: 'p',
+      inputTokens: 500,
+      outputTokens: 200,
+      costUsd: 0.15,
+      failed: false,
+      repair: false,
+    });
     const staging = files.stagingFor('jr');
     writeFileSync(join(staging, 'photo.jpg'), Buffer.from([0xff, 0xd8])); // must survive retry
     files.writePartial('jr', {

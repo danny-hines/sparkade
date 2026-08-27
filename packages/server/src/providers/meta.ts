@@ -2,8 +2,8 @@
 // Meta Model API adapter — EVERY wire-format detail of this API lives in THIS
 // file so a human can correct request/response shapes in one place.
 //
-// Verified LIVE against api.meta.ai with a real key on 2026-07-10 (the day
-// after muse-spark-1.1 shipped on the public preview):
+// Originally verified LIVE against api.meta.ai with a real key on 2026-07-10
+// using Muse Spark 1.1; Muse Spark 1.2 retains this protocol:
 //   endpoint   POST {baseUrl}/chat/completions        (baseUrl default https://api.meta.ai/v1)
 //   auth       Authorization: Bearer $META_API_KEY
 //   body       { model, messages:[{role, content}], max_completion_tokens,
@@ -15,7 +15,7 @@
 //                image_url: { url: "data:image/png;base64,..." } } → WORKS
 //   response   choices[0].message.content ; usage.prompt_tokens / completion_tokens
 //
-// REASONING: muse-spark-1.1 is a reasoning model. Internal reasoning tokens
+// REASONING: Muse Spark is a reasoning model. Internal reasoning tokens
 // count against max_completion_tokens and bill as output; with a tight budget
 // the reply comes back content:null + finish_reason:"length". So this adapter
 //   (a) sends reasoning_effort (default "low"; config providers.meta.reasoningEffort)
@@ -35,7 +35,7 @@ import type {
   ProviderConfig,
   ProviderUsage,
 } from '@sparkade/shared';
-import { GENERATION } from '@sparkade/shared';
+import { DEFAULT_MODEL, GENERATION } from '@sparkade/shared';
 import { needsWavTranscode, transcodeToWav } from './audio';
 import { apiKeyFor, httpJson, ProviderHttpError } from './base';
 
@@ -75,8 +75,15 @@ export class MetaProvider implements Provider {
     readonly name: string,
     private cfg: ProviderConfig,
   ) {
-    this.baseUrl = (cfg.baseUrl && cfg.baseUrl.length > 0 ? cfg.baseUrl : DEFAULT_BASE_URL).replace(/\/$/, '');
-    this.capabilities = cfg.capabilities ?? { structuredOutput: true, audioIn: true, imageIn: true };
+    this.baseUrl = (cfg.baseUrl && cfg.baseUrl.length > 0 ? cfg.baseUrl : DEFAULT_BASE_URL).replace(
+      /\/$/,
+      '',
+    );
+    this.capabilities = cfg.capabilities ?? {
+      structuredOutput: true,
+      audioIn: true,
+      imageIn: true,
+    };
   }
 
   private key(): string {
@@ -87,7 +94,7 @@ export class MetaProvider implements Provider {
     req: CompleteRequest,
     opts: { model?: string; signal?: AbortSignal } = {},
   ): Promise<CompleteResponse> {
-    const model = opts.model ?? 'muse-spark-1.1';
+    const model = opts.model ?? DEFAULT_MODEL;
 
     // User content: plain string, or multi-part when an image rides along.
     let userContent: unknown = req.user;
@@ -140,7 +147,7 @@ export class MetaProvider implements Provider {
     mime: string,
     opts: { model?: string; signal?: AbortSignal } = {},
   ): Promise<{ text: string; usage: ProviderUsage }> {
-    const model = opts.model ?? 'muse-spark-1.1';
+    const model = opts.model ?? DEFAULT_MODEL;
 
     // input_audio accepts only wav/mp3 (format:"webm" → 400, verified live).
     // Browsers record webm/opus, so transcode first. Done before strategy 1 too
@@ -155,11 +162,7 @@ export class MetaProvider implements Provider {
       const form = new FormData();
       const ext = mime.includes('webm') ? 'webm' : mime.includes('wav') ? 'wav' : 'ogg';
       form.append('model', model);
-      form.append(
-        'file',
-        new Blob([new Uint8Array(audio)], { type: mime }),
-        `recording.${ext}`,
-      );
+      form.append('file', new Blob([new Uint8Array(audio)], { type: mime }), `recording.${ext}`);
       const res = await httpJson<TranscriptionResponse>(`${this.baseUrl}/audio/transcriptions`, {
         headers: { Authorization: `Bearer ${this.key()}` },
         body: form,

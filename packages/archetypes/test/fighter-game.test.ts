@@ -1,18 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  LOGICAL_BUTTONS,
-  type FighterSpec,
-  type LogicalButton,
-} from '@sparkade/shared';
-import {
-  STEP,
-  type EngineContext,
-  type GameInstance,
-  type InputSnapshot,
-} from '@sparkade/engine';
+import { LOGICAL_BUTTONS, type FighterSpec, type LogicalButton } from '@sparkade/shared';
+import { STEP, type EngineContext, type GameInstance, type InputSnapshot } from '@sparkade/engine';
 import { createFighterGame } from '../src/fighter/game';
+import { FIGHTER_POSES, type FighterPose } from '../src/fighter/figure';
 
 vi.mock('@sparkade/engine', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@sparkade/engine')>();
@@ -27,15 +19,7 @@ vi.mock('@sparkade/engine', async (importOriginal) => {
 
 type MoveId = 'punchHigh' | 'punchLow' | 'kickHigh' | 'kickLow' | 'airKick';
 type ActorState =
-  | 'idle'
-  | 'walk'
-  | 'crouch'
-  | 'jump'
-  | 'attack'
-  | 'block'
-  | 'hitstun'
-  | 'blockstun'
-  | 'ko';
+  'idle' | 'walk' | 'crouch' | 'jump' | 'attack' | 'block' | 'hitstun' | 'blockstun' | 'ko';
 
 interface TestActor {
   x: number;
@@ -64,14 +48,26 @@ interface FighterHarness extends GameInstance {
   roundPhase: 'ready' | 'fight' | 'over';
   p: TestActor;
   o: TestActor;
+  playerGeneratedPoses: Readonly<Record<FighterPose, CanvasImageSource>> | null;
   startMove(actor: TestActor, move: MoveId): void;
   aiControl(actor: TestActor, foe: TestActor, dt: number): void;
   stepActor(actor: TestActor, dt: number): void;
+  drawGeneratedPlayer(actor: TestActor, pose: FighterPose, flash: boolean): boolean;
 }
 
 interface HarnessOptions {
   chance?: boolean | ((probability: number) => boolean);
+  fighterPoses?: Readonly<Record<string, CanvasImageSource>> | null;
   rangeUnit?: number;
+}
+
+interface GeneratedDrawEvent {
+  image: CanvasImageSource;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  filter: string;
 }
 
 function loadSpec(): FighterSpec {
@@ -95,12 +91,27 @@ function makeHarness(options: HarnessOptions = {}): {
   game: FighterHarness;
   sfxEvents: string[];
   chanceEvents: number[];
+  generatedDraws: GeneratedDrawEvent[];
+  transforms: Array<readonly ['translate' | 'scale', number, number]>;
 } {
   const spec = loadSpec();
   const sfxEvents: string[] = [];
   const chanceEvents: number[] = [];
+  const generatedDraws: GeneratedDrawEvent[] = [];
+  const transforms: Array<readonly ['translate' | 'scale', number, number]> = [];
   const noop = (): void => undefined;
+  const ctx = {
+    filter: 'none',
+    imageSmoothingEnabled: true,
+    save: noop,
+    restore: noop,
+    translate: (x: number, y: number) => transforms.push(['translate', x, y]),
+    scale: (x: number, y: number) => transforms.push(['scale', x, y]),
+    drawImage: (image: CanvasImageSource, x: number, y: number, width: number, height: number) =>
+      generatedDraws.push({ image, x, y, width, height, filter: ctx.filter }),
+  };
   const engine = {
+    renderer: { ctx },
     sprites: { likenessHead: () => null },
     rng: {
       chance: (probability: number) => {
@@ -109,8 +120,7 @@ function makeHarness(options: HarnessOptions = {}): {
           ? options.chance(probability)
           : (options.chance ?? true);
       },
-      range: (min: number, max: number) =>
-        min + (max - min) * (options.rangeUnit ?? 0),
+      range: (min: number, max: number) => min + (max - min) * (options.rangeUnit ?? 0),
     },
     cards: {
       show: (_cards: unknown, done?: () => void) => done?.(),
@@ -120,6 +130,7 @@ function makeHarness(options: HarnessOptions = {}): {
     particles: { burst: noop },
     camera: { snap: noop },
     portrait: null,
+    fighterPoses: options.fighterPoses ?? null,
     attract: false,
     shake: noop,
     hitStop: noop,
@@ -130,7 +141,13 @@ function makeHarness(options: HarnessOptions = {}): {
   game.start();
   game.phase = 'fight';
   game.roundPhase = 'fight';
-  return { game, sfxEvents, chanceEvents };
+  return { game, sfxEvents, chanceEvents, generatedDraws, transforms };
+}
+
+function generatedPoseSet(): Record<FighterPose, CanvasImageSource> {
+  return Object.fromEntries(
+    FIGHTER_POSES.map((pose) => [pose, { pose } as unknown as CanvasImageSource]),
+  ) as Record<FighterPose, CanvasImageSource>;
 }
 
 function putAtLeftWall(game: FighterHarness): void {
@@ -238,5 +255,51 @@ describe('fighter pressure and counter windows', () => {
     expect(game.p.moveSerial).toBe(1);
     expect(game.o.hp).toBeLessThan(opponentHp);
     expect(sfxEvents.filter((event) => event === 'hit')).toHaveLength(2);
+  });
+});
+
+describe('generated fighter player poses', () => {
+  it('uses generated art only when the complete pose set is available', () => {
+    const complete = generatedPoseSet();
+    const ready = makeHarness({ fighterPoses: complete });
+
+    expect(ready.game.playerGeneratedPoses).not.toBeNull();
+    expect(ready.game.drawGeneratedPlayer(ready.game.p, 'idle', false)).toBe(true);
+    expect(ready.generatedDraws).toEqual([
+      {
+        image: complete.idle,
+        x: Math.round(ready.game.p.x) - 32,
+        y: Math.round(ready.game.p.y) - 60,
+        width: 64,
+        height: 64,
+        filter: 'none',
+      },
+    ]);
+
+    const incomplete = generatedPoseSet();
+    delete (incomplete as Partial<Record<FighterPose, CanvasImageSource>>).ko;
+    const fallback = makeHarness({ fighterPoses: incomplete });
+
+    expect(fallback.game.playerGeneratedPoses).toBeNull();
+    expect(fallback.game.drawGeneratedPlayer(fallback.game.p, 'idle', false)).toBe(false);
+    expect(fallback.generatedDraws).toHaveLength(0);
+  });
+
+  it('mirrors left-facing art and preserves the hit-flash filter', () => {
+    const poses = generatedPoseSet();
+    const { game, generatedDraws, transforms } = makeHarness({ fighterPoses: poses });
+    game.p.facing = -1;
+
+    expect(game.drawGeneratedPlayer(game.p, 'hit', true)).toBe(true);
+    expect(transforms).toEqual([
+      ['translate', Math.round(game.p.x) * 2, 0],
+      ['scale', -1, 1],
+    ]);
+    expect(generatedDraws[0]).toMatchObject({
+      image: poses.hit,
+      width: 64,
+      height: 64,
+      filter: 'brightness(0) invert(1)',
+    });
   });
 });

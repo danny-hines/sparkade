@@ -8,7 +8,7 @@ The design document arrives in the user message.
 
 - Output one `player` fighter as well as the three `levels`. Match the player's name and outfit to `heroConcept`; if the hero is the person in a likeness photo, invent only their game-world persona and clothing, never facial traits.
 - Each level is one ladder bout: a `name` (the arena, e.g. "The Salt Pier"), a `musicSong` (use `theme`), and an `opponent` fighter the player faces there (best-of-3 rounds).
-- A fighter is bounded DATA, not art (fighters are drawn procedurally): `name`, `build` (nimble = small/fast, balanced, heavy = big/slow), REQUIRED `outfit`, `colorSlot` (a palette slot 5-10 that colors the body), `hp` (round HP, 60-140), and optional `speedScale`/`powerScale` (0.85-1.15 light leans).
+- A fighter is bounded DATA, not art: `name`, `build` (nimble = small/fast, balanced, heavy = big/slow), REQUIRED `outfit`, `colorSlot` (a palette slot 5-10 that colors the body), `hp` (round HP, 60-140), and optional `speedScale`/`powerScale` (0.85-1.15 light leans). The runtime renders opponents and the boss procedurally and always keeps a stable procedural player fallback. After spec validation, a photographed player may receive one complete generated pose set; you do not author those images or any face fields.
 - Outfit is a visual silhouette only: `gi` (sleeves + belt), `boxer` (gloves + shorts), `wrestler` (singlet + kneepads), `street` (jacket + cuffs), `robe` (long sleeves + flared hem), or `armor` (pads + gauntlets). It never changes hitboxes, moves, damage, or frame data.
 - The move set and frame data are IDENTICAL for everyone and owned by the engine - you do NOT author moves. Variety comes from build, outfit, colors, HP and the small stat leans.
 

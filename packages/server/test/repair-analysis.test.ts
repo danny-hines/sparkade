@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { analyzeRepairData, formatRepairAnalysis } from '../src/pipeline/repair-analysis';
 import { Db } from '../src/storage/db';
 import { GameFiles } from '../src/storage/files';
+import { IncidentStore } from '../src/storage/incidents';
 
 let dir: string;
 let db: Db;
@@ -122,6 +123,28 @@ describe('repair analysis', () => {
       boss: SPEC.boss,
     });
     files.writeRawStageCheckpoint('job-a', 1, 'music', { music: SPEC.music });
+    new IncidentStore(dir).capture({
+      outcome: 'recovered',
+      job: db.getJob('job-a')!,
+      game: { title: 'Ice Test', archetype: 'platformer' },
+      trigger: {
+        code: 'repaired-generation',
+        message: 'generation published after one model repair',
+        stage: 'validating',
+      },
+      repairs: db.repairEventsForJob('job-a'),
+      checkpoints: files.listRawStageCheckpoints('job-a', 1),
+      runtime: {
+        engineVersion: '1.0.0',
+        archetypeVersion: '1.0.0',
+        provider: 'meta',
+        textModel: 'muse-spark-1.2-contributor',
+        imageModel: 'muse-image-1.0',
+        git: null,
+      },
+      cumulativeCostUsd: 0,
+      at: '2026-01-01T00:01:00.000Z',
+    });
 
     const gameBefore = readFileSync(join(dir, 'games', 'game-a', 'game.json'), 'utf8');
     const report = analyzeRepairData(dir, {
@@ -136,6 +159,7 @@ describe('repair analysis', () => {
       publishedGames: 1,
       checkpointSnapshots: 1,
       repairEvents: 2,
+      incidents: 1,
     });
     expect(report.repairs).toMatchObject({
       jobs: 1,
@@ -171,6 +195,13 @@ describe('repair analysis', () => {
       'published',
       'checkpoint',
     ]);
+    expect(report.incidents).toMatchObject({
+      total: 1,
+      reviewable: 1,
+      byStatus: [{ key: 'open', count: 1 }],
+      byOutcome: [{ key: 'recovered', count: 1 }],
+      byFingerprint: [{ key: 'platformer:validating:BLOCKED_PICKUP', count: 1 }],
+    });
     expect(readFileSync(join(dir, 'games', 'game-a', 'game.json'), 'utf8')).toBe(gameBefore);
     expect(formatRepairAnalysis(report)).toContain('2 events across 1 jobs / 1 games');
   });
@@ -186,6 +217,7 @@ describe('repair analysis', () => {
       publishedGames: 0,
       checkpointSnapshots: 0,
       repairEvents: 0,
+      incidents: 0,
     });
     expect(report.normalization.enabled).toBe(false);
     expect(formatRepairAnalysis(report)).toContain('no normalizer supplied');

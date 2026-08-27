@@ -11,11 +11,11 @@ test('boots to attract; key screens produce no uncaught console errors', async (
   await expect(page.locator('.attract .logo')).toContainText('SPARK');
   await expect(page.locator('.press-start')).toBeVisible();
 
-  // home: New Game + the three golden games + Settings, all in one list
+  // home: New Game + the five golden games + Settings, all in one list
   await tap(page, 'Enter');
   await expect(page.locator('.home-item.new')).toBeVisible();
-  await expect(page.locator('.home-item.game')).toHaveCount(3);
-  await expect(page.locator('.badge.golden')).toHaveCount(3);
+  await expect(page.locator('.home-item.game')).toHaveCount(5);
+  await expect(page.locator('.badge.golden')).toHaveCount(5);
 
   // settings is the last list item; Up wraps to it
   await tap(page, 'ArrowUp');
@@ -26,7 +26,9 @@ test('boots to attract; key screens produce no uncaught console errors', async (
   expect(errors).toEqual([]);
 });
 
-test('keyboard-only: create via preset → honest progress → ready → play boots and responds', async ({ page }) => {
+test('keyboard-only: create via preset → honest progress → ready → play boots and responds', async ({
+  page,
+}) => {
   test.setTimeout(240_000);
   const errors = trackErrors(page);
   await toMenu(page);
@@ -47,14 +49,18 @@ test('keyboard-only: create via preset → honest progress → ready → play bo
   await tap(page, 'KeyX'); // pick the first card
 
   // Step 3: review shows the idea text + labeled estimate BEFORE generating
-  await expect(page.locator('.transcript-box')).toContainText(/Gearheart|Marshmallow|Museum|Tidepool|Static|Garden/);
+  await expect(page.locator('.transcript-box')).toContainText(
+    /Gearheart|Marshmallow|Museum|Tidepool|Static|Garden/,
+  );
   await expect(page.getByText(/estimate|cost unavailable/)).toBeVisible();
 
   // Generate
   await tap(page, 'KeyX');
 
   // Honest stage checklist + cost ticker
-  await expect(page.locator('.screen-title', { hasText: 'GENERATING' })).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('.screen-title', { hasText: 'GENERATING' })).toBeVisible({
+    timeout: 15_000,
+  });
   await expect(page.locator('.genstage.active')).toBeVisible();
   await expect(page.locator('.cost-ticker')).toBeVisible();
 
@@ -66,10 +72,14 @@ test('keyboard-only: create via preset → honest progress → ready → play bo
 
   // canvas is actually rendering (frames differ)
   await page.waitForTimeout(600);
-  const frameA = await canvas.evaluate((c: HTMLCanvasElement) => c.toDataURL().length + c.toDataURL().slice(0, 512));
+  const frameA = await canvas.evaluate(
+    (c: HTMLCanvasElement) => c.toDataURL().length + c.toDataURL().slice(0, 512),
+  );
   await tap(page, 'KeyX'); // skip how-to card (input responds)
   await page.waitForTimeout(900);
-  const frameB = await canvas.evaluate((c: HTMLCanvasElement) => c.toDataURL().length + c.toDataURL().slice(0, 512));
+  const frameB = await canvas.evaluate(
+    (c: HTMLCanvasElement) => c.toDataURL().length + c.toDataURL().slice(0, 512),
+  );
   expect(frameB).not.toBe(frameA);
 
   // guaranteed shell escape: hold START ~2.3s → back to the home launcher
@@ -135,13 +145,13 @@ test('generation progress survives a page reload (durable jobs)', async ({ page 
         }),
       { timeout: 120_000 },
     )
-    .toBeGreaterThanOrEqual(5); // 3 goldens + 2 generated
+    .toBeGreaterThanOrEqual(7); // 5 goldens + 2 generated
 });
 
 test('delete flow: Cancel is the default; hold-A deletes', async ({ page }) => {
   await toMenu(page);
   const countBefore = await page.locator('.home-item.game').count();
-  expect(countBefore).toBeGreaterThanOrEqual(4);
+  expect(countBefore).toBeGreaterThanOrEqual(7);
   await tap(page, 'ArrowDown'); // first game (newest generated)
   await tap(page, 'KeyX'); // focus into the detail panel (actions: Play | Delete)
 
@@ -180,7 +190,20 @@ test('remap wizard completes and saves; defaults restored afterwards', async ({ 
   await tap(page, 'Space');
   await expect(page.getByText('D-pad UP')).toBeVisible();
 
-  const sequence = ['KeyI', 'KeyK', 'KeyJ', 'KeyL', 'KeyX', 'KeyZ', 'KeyC', 'KeyV', 'KeyQ', 'KeyW', 'Enter', 'ShiftRight'];
+  const sequence = [
+    'KeyI',
+    'KeyK',
+    'KeyJ',
+    'KeyL',
+    'KeyX',
+    'KeyZ',
+    'KeyC',
+    'KeyV',
+    'KeyQ',
+    'KeyW',
+    'Enter',
+    'ShiftRight',
+  ];
   for (const code of sequence) {
     await tap(page, code);
     await page.waitForTimeout(120);
@@ -196,7 +219,12 @@ test('remap wizard completes and saves; defaults restored afterwards', async ({ 
   await expect(page.locator('.home-item.new')).toBeVisible({ timeout: 10_000 });
 
   // the new map is live: KeyI now navigates up. Verify via saved settings, then restore defaults.
-  const saved = await page.evaluate(async () => (await (await fetch('/api/settings')).json()) as { input: { keyboard: Record<string, string> } });
+  const saved = await page.evaluate(
+    async () =>
+      (await (await fetch('/api/settings')).json()) as {
+        input: { keyboard: Record<string, string> };
+      },
+  );
   expect(saved.input.keyboard['KeyI']).toBe('UP');
   expect(saved.input.keyboard['Enter']).toBe('START');
   await page.evaluate(async () => {
@@ -206,9 +234,18 @@ test('remap wizard completes and saves; defaults restored afterwards', async ({ 
       body: JSON.stringify({
         input: {
           keyboard: {
-            ArrowUp: 'UP', ArrowDown: 'DOWN', ArrowLeft: 'LEFT', ArrowRight: 'RIGHT',
-            KeyX: 'A', KeyZ: 'B', KeyA: 'X', KeyS: 'Y', KeyQ: 'L', KeyW: 'R',
-            Enter: 'START', ShiftRight: 'SELECT',
+            ArrowUp: 'UP',
+            ArrowDown: 'DOWN',
+            ArrowLeft: 'LEFT',
+            ArrowRight: 'RIGHT',
+            KeyX: 'A',
+            KeyZ: 'B',
+            KeyA: 'X',
+            KeyS: 'Y',
+            KeyQ: 'L',
+            KeyW: 'R',
+            Enter: 'START',
+            ShiftRight: 'SELECT',
           },
         },
       }),

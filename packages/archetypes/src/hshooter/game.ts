@@ -199,23 +199,64 @@ class HShooterGame implements GameInstance {
 
   // tile stage
   private grid: { cols: number; rows: number; kind(x: number, y: number): TileKind } = {
-    cols: 0, rows: 0, kind: () => 'empty',
+    cols: 0,
+    rows: 0,
+    kind: () => 'empty',
   };
   private tileFrames: Record<string, HTMLCanvasElement[]> = {};
 
   private foes: Foe[] = Array.from({ length: 24 }, () => ({
-    active: false, type: 'popcorn', path: 'dive', x: 0, y: 0, vx: 0, vy: 0, avoidVy: 0, stuckT: 0, baseY: 0, t: 0,
-    hp: 1, fireRate: 0, fireT: 0, state: ST_APPROACH, holdSX: 0, holdT: 0, holdDur: 0,
-    phase: 0, speedMul: 1, flashT: 0, chargeSeq: 0,
+    active: false,
+    type: 'popcorn',
+    path: 'dive',
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    avoidVy: 0,
+    stuckT: 0,
+    baseY: 0,
+    t: 0,
+    hp: 1,
+    fireRate: 0,
+    fireT: 0,
+    state: ST_APPROACH,
+    holdSX: 0,
+    holdT: 0,
+    holdDur: 0,
+    phase: 0,
+    speedMul: 1,
+    flashT: 0,
+    chargeSeq: 0,
   }));
   private pshots: PShot[] = Array.from({ length: 8 }, () => ({
-    active: false, x: 0, y: 0, vx: 0, vy: 0, dmg: 1, pierce: false, seq: 0, t: 0,
+    active: false,
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    dmg: 1,
+    pierce: false,
+    seq: 0,
+    t: 0,
   }));
   private eshots: EShot[] = Array.from({ length: 48 }, () => ({
-    active: false, x: 0, y: 0, vx: 0, vy: 0, dmg: 1, t: 0,
+    active: false,
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    dmg: 1,
+    t: 0,
   }));
   private picks: Pick[] = Array.from({ length: 8 }, () => ({
-    active: false, type: 'spread', x: 0, y: 0, avoidVy: 0, baseY: 0, t: 0,
+    active: false,
+    type: 'spread',
+    x: 0,
+    y: 0,
+    avoidVy: 0,
+    baseY: 0,
+    t: 0,
   }));
 
   // player (WORLD center)
@@ -273,7 +314,10 @@ class HShooterGame implements GameInstance {
 
   start(): void {
     const cards = this.spec.story.intro.map((line) => ({
-      title: this.spec.meta.title, lines: [line], portrait: this.engine.portrait,
+      title: this.spec.meta.title,
+      lines: [line],
+      portrait: this.engine.portrait,
+      artRole: 'intro' as const,
     }));
     this.engine.cards.show(cards, () => this.enterLevel(0));
   }
@@ -308,7 +352,8 @@ class HShooterGame implements GameInstance {
       }
     }
     this.grid = {
-      cols, rows,
+      cols,
+      rows,
       kind: (x, y) => (x < 0 || y < 0 || x >= cols || y >= rows ? 'empty' : kinds[y * cols + x]!),
     };
     const art: Record<string, string> = {
@@ -327,7 +372,12 @@ class HShooterGame implements GameInstance {
   }
 
   private tileGrid(): TileGrid {
-    return { cols: this.grid.cols, rows: this.grid.rows, tileSize: TILE, solidityAt: (x, y) => this.solidity(x, y) };
+    return {
+      cols: this.grid.cols,
+      rows: this.grid.rows,
+      tileSize: TILE,
+      solidityAt: (x, y) => this.solidity(x, y),
+    };
   }
 
   private solidAtWorld(wx: number, wy: number): boolean {
@@ -339,7 +389,8 @@ class HShooterGame implements GameInstance {
   private boxOverlapsSolid(cx: number, cy: number): boolean {
     for (const ox of [-(PW / 2) + 1, PW / 2 - 1]) {
       for (const oy of [-(PH / 2) + 1, PH / 2 - 1]) {
-        if (this.grid.kind(Math.floor((cx + ox) / TILE), Math.floor((cy + oy) / TILE)) === 'solid') return true;
+        if (this.grid.kind(Math.floor((cx + ox) / TILE), Math.floor((cy + oy) / TILE)) === 'solid')
+          return true;
       }
     }
     return false;
@@ -367,7 +418,13 @@ class HShooterGame implements GameInstance {
     }
     this.engine.music.playJingle('levelIntro');
     this.engine.cards.show(
-      [{ title: this.spec.levels[ix]!.name, lines: [this.spec.story.levelIntros[ix] ?? '...'], portrait: this.engine.portrait }],
+      [
+        {
+          title: this.spec.levels[ix]!.name,
+          lines: [this.spec.story.levelIntros[ix] ?? '...'],
+          portrait: this.engine.portrait,
+        },
+      ],
       () => {
         this.loadLevel(ix);
         this.engine.music.playSong(this.spec.levels[ix]!.musicSong);
@@ -403,7 +460,14 @@ class HShooterGame implements GameInstance {
     };
     if (withCard) {
       this.engine.cards.show(
-        [{ title: this.spec.boss.name, lines: [this.spec.story.bossIntro], portrait: this.engine.portrait }],
+        [
+          {
+            title: this.spec.boss.name,
+            lines: [this.spec.story.bossIntro],
+            portrait: this.engine.portrait,
+            artRole: 'boss',
+          },
+        ],
         build,
       );
     } else build();
@@ -416,14 +480,29 @@ class HShooterGame implements GameInstance {
     this.scrollX = 0;
     const cols = Math.ceil(W / TILE) + 4;
     const rows = Math.ceil(H / TILE);
-    this.buildGrid(Array.from({ length: rows }, () => '.'.repeat(cols)), {});
+    this.buildGrid(
+      Array.from({ length: rows }, () => '.'.repeat(cols)),
+      {},
+    );
     this.backdrop = makeBackdrop(this.spec.palette, this.spec.seed + 777, this.bgVariant);
     this.clearPools();
     this.spawnPlayer();
     const b = this.spec.boss;
     this.boss = {
-      active: true, x: W + 60, y: H / 2, t: 0, hp: b.hp, maxHp: b.hp, phaseIx: 0,
-      entranceT: 0, fireT: 0, burstLeft: 0, burstT: 0, spiralAngle: 0, flashT: 0, chargeSeq: 0,
+      active: true,
+      x: W + 60,
+      y: H / 2,
+      t: 0,
+      hp: b.hp,
+      maxHp: b.hp,
+      phaseIx: 0,
+      entranceT: 0,
+      fireT: 0,
+      burstLeft: 0,
+      burstT: 0,
+      spiralAngle: 0,
+      flashT: 0,
+      chargeSeq: 0,
     };
     const bossSprite = this.sprites['boss']!;
     this.pods = [];
@@ -431,10 +510,13 @@ class HShooterGame implements GameInstance {
       const side = i % 2 === 0 ? -1 : 1;
       const rank = Math.floor(i / 2) + 1;
       this.pods.push({
-        alive: true, hp: b.podHp,
+        alive: true,
+        hp: b.podHp,
         ox: -8 - (rank - 1) * 24,
         oy: side * (bossSprite.h / 2 + 6 + (rank - 1) * 12),
-        fireT: i * 0.4, flashT: 0, chargeSeq: 0,
+        fireT: i * 0.4,
+        flashT: 0,
+        chargeSeq: 0,
       });
     }
     this.hud.boss = { hp: b.hp, maxHp: b.hp, name: b.name };
@@ -515,7 +597,13 @@ class HShooterGame implements GameInstance {
     if (this.thrustT >= 0.07) {
       this.thrustT = 0;
       this.engine.particles.burst(this.px - 8, this.py, 1, {
-        color: this.spec.palette[12], speed: 30, life: 0.22, gravity: 0, size: 2, angle: Math.PI, spread: 0.6,
+        color: this.spec.palette[12],
+        speed: 30,
+        life: 0.22,
+        gravity: 0,
+        size: 2,
+        angle: Math.PI,
+        spread: 0.6,
       });
     }
 
@@ -548,7 +636,10 @@ class HShooterGame implements GameInstance {
       if (this.glowT >= 0.05) {
         this.glowT = 0;
         this.engine.particles.burst(this.px + 10, this.py, this.chargeReady ? 2 : 1, {
-          color: this.spec.palette[this.chargeReady ? 15 : 7], speed: 26, life: 0.25, gravity: 0,
+          color: this.spec.palette[this.chargeReady ? 15 : 7],
+          speed: 26,
+          life: 0.25,
+          gravity: 0,
           size: this.chargeReady ? 3 : 2,
         });
       }
@@ -567,7 +658,10 @@ class HShooterGame implements GameInstance {
     if (input.B.pressed && this.hud.bombs > 0) this.detonateBomb();
 
     // hazard tile under the ship
-    if (this.invulnT <= 0 && this.grid.kind(Math.floor(this.px / TILE), Math.floor(this.py / TILE)) === 'hazard') {
+    if (
+      this.invulnT <= 0 &&
+      this.grid.kind(Math.floor(this.px / TILE), Math.floor(this.py / TILE)) === 'hazard'
+    ) {
       this.hurtPlayer(1);
       if (this.phase !== 'play') return;
     }
@@ -580,7 +674,11 @@ class HShooterGame implements GameInstance {
     for (const s of this.eshots) {
       if (!s.active) continue;
       s.active = false;
-      this.engine.particles.burst(s.x, s.y, 2, { color: this.spec.palette[14], speed: 50, life: 0.3 });
+      this.engine.particles.burst(s.x, s.y, 2, {
+        color: this.spec.palette[14],
+        speed: 50,
+        life: 0.3,
+      });
     }
     for (const e of this.foes) {
       if (!e.active) continue;
@@ -603,7 +701,10 @@ class HShooterGame implements GameInstance {
     this.engine.shake(400, 5);
     this.engine.hitStop(60);
     this.engine.particles.burst(this.px + 20, this.py, 24, {
-      color: this.spec.palette[12], speed: 190, life: 0.6, size: 3,
+      color: this.spec.palette[12],
+      speed: 190,
+      life: 0.6,
+      size: 3,
     });
   }
 
@@ -634,7 +735,12 @@ class HShooterGame implements GameInstance {
   private spawnWave(w: ShooterWave): void {
     const rng = this.engine.rng;
     const sweepDir = rng.chance(0.5) ? 1 : -1;
-    const centerY = w.path === 'sweep' ? (sweepDir > 0 ? 70 : H - 70) : this.openYAt(this.scrollX + W + 24, rng.range(60, H - 60));
+    const centerY =
+      w.path === 'sweep'
+        ? sweepDir > 0
+          ? 70
+          : H - 70
+        : this.openYAt(this.scrollX + W + 24, rng.range(60, H - 60));
     const height = Math.max(64, (w.count - 1) * 28);
     for (let i = 0; i < w.count; i++) {
       const e = this.claimFoe();
@@ -642,7 +748,9 @@ class HShooterGame implements GameInstance {
       let ox = 0;
       let oy = 0;
       switch (w.formation) {
-        case 'line': oy = (i - (w.count - 1) / 2) * 30; break;
+        case 'line':
+          oy = (i - (w.count - 1) / 2) * 30;
+          break;
         case 'vee': {
           const k = Math.ceil(i / 2);
           const side = i === 0 ? 0 : i % 2 === 1 ? -1 : 1;
@@ -650,7 +758,9 @@ class HShooterGame implements GameInstance {
           ox = k * 22;
           break;
         }
-        case 'column': ox = i * 34; break;
+        case 'column':
+          ox = i * 34;
+          break;
         case 'arc': {
           const f = w.count > 1 ? i / (w.count - 1) : 0.5;
           oy = (f - 0.5) * height;
@@ -682,10 +792,22 @@ class HShooterGame implements GameInstance {
         e.vy = 0;
       } else {
         switch (w.path) {
-          case 'dive': e.vx = -70 * e.speedMul; e.vy = 0; break;
-          case 'sweep': e.vx = -60 * e.speedMul; e.vy = sweepDir * -50 * e.speedMul; break;
-          case 'sine': e.vx = -50 * e.speedMul; e.vy = 0; break;
-          case 'hold': e.vx = -70 * e.speedMul; e.vy = 0; break;
+          case 'dive':
+            e.vx = -70 * e.speedMul;
+            e.vy = 0;
+            break;
+          case 'sweep':
+            e.vx = -60 * e.speedMul;
+            e.vy = sweepDir * -50 * e.speedMul;
+            break;
+          case 'sine':
+            e.vx = -50 * e.speedMul;
+            e.vy = 0;
+            break;
+          case 'hold':
+            e.vx = -70 * e.speedMul;
+            e.vy = 0;
+            break;
         }
       }
       e.holdSX = w.path === 'hold' ? W * 0.62 + rng.range(-24, 24) : -9999;
@@ -694,7 +816,11 @@ class HShooterGame implements GameInstance {
   }
 
   private claimFoe(): Foe | null {
-    for (const e of this.foes) if (!e.active) { e.active = true; return e; }
+    for (const e of this.foes)
+      if (!e.active) {
+        e.active = true;
+        return e;
+      }
     return null;
   }
 
@@ -721,7 +847,10 @@ class HShooterGame implements GameInstance {
     const m = moveAABB(this.tileGrid(), this.ebox, e.vx * dt, (e.vy + e.avoidVy) * dt);
     e.x = m.x + ECOLL;
     e.y = m.y + ECOLL;
-    if (m.hitY) { e.vy = 0; e.avoidVy = 0; }
+    if (m.hitY) {
+      e.vy = 0;
+      e.avoidVy = 0;
+    }
     // wedged against a wall making no horizontal headway?
     if (m.hitX && Math.abs(e.x - px) < 0.4) e.stuckT += dt;
     else e.stuckT = Math.max(0, e.stuckT - dt * 3);
@@ -738,8 +867,16 @@ class HShooterGame implements GameInstance {
     if (this.grid.kind(aheadTx, ty) === 'solid' || this.grid.kind(hereTx, ty) === 'solid') {
       let up = 99;
       let down = 99;
-      for (let d = 1; d <= 9; d++) if (this.grid.kind(aheadTx, ty - d) !== 'solid') { up = d; break; }
-      for (let d = 1; d <= 9; d++) if (this.grid.kind(aheadTx, ty + d) !== 'solid') { down = d; break; }
+      for (let d = 1; d <= 9; d++)
+        if (this.grid.kind(aheadTx, ty - d) !== 'solid') {
+          up = d;
+          break;
+        }
+      for (let d = 1; d <= 9; d++)
+        if (this.grid.kind(aheadTx, ty + d) !== 'solid') {
+          down = d;
+          break;
+        }
       return clamp(avoidVy + (up <= down ? -1 : 1) * 260 * dt, -155, 155);
     }
     return avoidVy * 0.9;
@@ -762,7 +899,8 @@ class HShooterGame implements GameInstance {
       e.flashT = Math.max(0, e.flashT - dt);
       const sx = e.x - this.scrollX; // screen x
 
-      if (e.type === 'kamikaze' && e.state === ST_APPROACH && sx < KAMIKAZE_TRIGGER_SX) e.state = ST_HOMING;
+      if (e.type === 'kamikaze' && e.state === ST_APPROACH && sx < KAMIKAZE_TRIGGER_SX)
+        e.state = ST_HOMING;
 
       // steer around terrain so a moving enemy never jams into an obstacle
       if (e.type !== 'turret' && e.state !== ST_HOLD && sx < W + 40) this.avoidTerrain(e, dt);
@@ -784,7 +922,10 @@ class HShooterGame implements GameInstance {
         e.vy += (dy / len) * 240 * dt;
         const sp = Math.hypot(e.vx, e.vy);
         const max = 220 * e.speedMul;
-        if (sp > max) { e.vx = (e.vx / sp) * max; e.vy = (e.vy / sp) * max; }
+        if (sp > max) {
+          e.vx = (e.vx / sp) * max;
+          e.vy = (e.vy / sp) * max;
+        }
         this.moveFoe(e, dt);
       } else {
         if (e.path === 'sine' && e.state === ST_APPROACH) {
@@ -794,12 +935,19 @@ class HShooterGame implements GameInstance {
         } else {
           this.moveFoe(e, dt);
         }
-        if (e.type === 'weaver') e.y += (Math.sin(e.t * 6 + e.phase) - Math.sin(prevT * 6 + e.phase)) * 14;
-        if (e.state === ST_APPROACH && sx <= e.holdSX && e.holdDur > 0) { e.state = ST_HOLD; e.holdT = 0; }
+        if (e.type === 'weaver')
+          e.y += (Math.sin(e.t * 6 + e.phase) - Math.sin(prevT * 6 + e.phase)) * 14;
+        if (e.state === ST_APPROACH && sx <= e.holdSX && e.holdDur > 0) {
+          e.state = ST_HOLD;
+          e.holdT = 0;
+        }
       }
 
       // last resort: if truly wedged (fully sealed pocket), crash it
-      if (e.stuckT > 0.8) { this.crashFoe(e); continue; }
+      if (e.stuckT > 0.8) {
+        this.crashFoe(e);
+        continue;
+      }
 
       // fire aimed shots
       if (e.fireRate > 0) {
@@ -816,14 +964,21 @@ class HShooterGame implements GameInstance {
         }
       }
 
-      if (sx < -48 || e.y < -48 || e.y > H + 48) { e.active = false; continue; }
+      if (sx < -48 || e.y < -48 || e.y > H + 48) {
+        e.active = false;
+        continue;
+      }
 
       const d = this.foeDims[e.type];
       if (this.invulnT <= 0 && this.overlap(e.x, e.y, d.w, d.h, this.px, this.py, 4, 4)) {
         this.hurtPlayer(1);
         if (e.type === 'popcorn' || e.type === 'weaver') {
           e.active = false;
-          this.engine.particles.burst(e.x, e.y, 8, { color: this.spec.palette[8], speed: 80, life: 0.4 });
+          this.engine.particles.burst(e.x, e.y, 8, {
+            color: this.spec.palette[8],
+            speed: 80,
+            life: 0.4,
+          });
         }
         if (this.phase !== 'play') return;
       }
@@ -834,7 +989,11 @@ class HShooterGame implements GameInstance {
     e.active = false;
     this.hud.score += this.spec.scoring.events.enemyKill;
     this.engine.sfx.play('hit');
-    this.engine.particles.burst(e.x, e.y, 10, { color: this.spec.palette[8], speed: 95, life: 0.45 });
+    this.engine.particles.burst(e.x, e.y, 10, {
+      color: this.spec.palette[8],
+      speed: 95,
+      life: 0.45,
+    });
   }
 
   // ------------------------------------------------------------------- boss
@@ -863,7 +1022,11 @@ class HShooterGame implements GameInstance {
       b.fireT = 0;
       b.burstLeft = 0;
       this.engine.shake(300, 4);
-      this.engine.particles.burst(b.x, b.y, 20, { color: this.spec.palette[11], speed: 130, life: 0.6 });
+      this.engine.particles.burst(b.x, b.y, 20, {
+        color: this.spec.palette[11],
+        speed: 130,
+        life: 0.6,
+      });
     }
     const phase = phases[b.phaseIx]!;
     const interval = phase.fireIntervalMs / 1000;
@@ -889,7 +1052,13 @@ class HShooterGame implements GameInstance {
         while (b.fireT >= step) {
           b.fireT -= step;
           b.spiralAngle += (25 * Math.PI) / 180;
-          this.fireEnemyShot(b.x, b.y, Math.cos(b.spiralAngle) * spd, Math.sin(b.spiralAngle) * spd, 1);
+          this.fireEnemyShot(
+            b.x,
+            b.y,
+            Math.cos(b.spiralAngle) * spd,
+            Math.sin(b.spiralAngle) * spd,
+            1,
+          );
         }
         break;
       }
@@ -933,7 +1102,10 @@ class HShooterGame implements GameInstance {
       }
     }
 
-    if (this.invulnT <= 0 && this.overlap(b.x, b.y, bossSprite.w - 8, bossSprite.h - 8, this.px, this.py, 4, 4)) {
+    if (
+      this.invulnT <= 0 &&
+      this.overlap(b.x, b.y, bossSprite.w - 8, bossSprite.h - 8, this.px, this.py, 4, 4)
+    ) {
       this.hurtPlayer(1);
       if (this.phase !== 'play') return;
     }
@@ -947,7 +1119,11 @@ class HShooterGame implements GameInstance {
     this.hud.score += this.spec.scoring.events.bossHit;
     this.engine.sfx.play('hit');
     this.engine.shake(150, 2);
-    this.engine.particles.burst(b.x + pod.ox, b.y + pod.oy, 14, { color: this.spec.palette[9], speed: 110, life: 0.5 });
+    this.engine.particles.burst(b.x + pod.ox, b.y + pod.oy, 14, {
+      color: this.spec.palette[9],
+      speed: 110,
+      life: 0.5,
+    });
   }
 
   private defeatBoss(b: BossState): void {
@@ -957,7 +1133,10 @@ class HShooterGame implements GameInstance {
     const rng = this.engine.rng;
     for (let i = 0; i < 5; i++) {
       this.engine.particles.burst(b.x + rng.range(-24, 24), b.y + rng.range(-16, 16), 16, {
-        color: this.spec.palette[i % 2 === 0 ? 12 : 14], speed: 170, life: 0.9, size: 3,
+        color: this.spec.palette[i % 2 === 0 ? 12 : 14],
+        speed: 170,
+        life: 0.9,
+        size: 3,
       });
     }
     this.engine.shake(600, 6);
@@ -966,10 +1145,18 @@ class HShooterGame implements GameInstance {
     this.engine.music.stopSong();
     this.phase = 'cards';
     this.engine.cards.show(
-      this.spec.story.victory.map((line) => ({ lines: [line], portrait: this.engine.portrait })),
+      this.spec.story.victory.map((line) => ({
+        lines: [line],
+        portrait: this.engine.portrait,
+        artRole: 'victory' as const,
+      })),
       () => {
         const par = estimateHShooterDurationS(this.spec) * 1.35;
-        this.result = { outcome: 'won', score: this.hud.score, timeBonusSeconds: Math.max(0, Math.round(par - this.playT)) };
+        this.result = {
+          outcome: 'won',
+          score: this.hud.score,
+          timeBonusSeconds: Math.max(0, Math.round(par - this.playT)),
+        };
       },
     );
   }
@@ -987,11 +1174,26 @@ class HShooterGame implements GameInstance {
     return this.claimPShot(x, y, vx, vy, CHARGE_DMG, true, this.chargeSeqCounter);
   }
 
-  private claimPShot(x: number, y: number, vx: number, vy: number, dmg: number, pierce: boolean, seq: number): boolean {
+  private claimPShot(
+    x: number,
+    y: number,
+    vx: number,
+    vy: number,
+    dmg: number,
+    pierce: boolean,
+    seq: number,
+  ): boolean {
     for (const p of this.pshots) {
       if (p.active) continue;
       p.active = true;
-      p.x = x; p.y = y; p.vx = vx; p.vy = vy; p.dmg = dmg; p.pierce = pierce; p.seq = seq; p.t = 0;
+      p.x = x;
+      p.y = y;
+      p.vx = vx;
+      p.vy = vy;
+      p.dmg = dmg;
+      p.pierce = pierce;
+      p.seq = seq;
+      p.t = 0;
       return true;
     }
     return false;
@@ -1001,7 +1203,12 @@ class HShooterGame implements GameInstance {
     for (const s of this.eshots) {
       if (s.active) continue;
       s.active = true;
-      s.x = x; s.y = y; s.vx = vx; s.vy = vy; s.dmg = dmg; s.t = 0;
+      s.x = x;
+      s.y = y;
+      s.vx = vx;
+      s.vy = vy;
+      s.dmg = dmg;
+      s.t = 0;
       return true;
     }
     return false;
@@ -1023,7 +1230,10 @@ class HShooterGame implements GameInstance {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       const sx = p.x - this.scrollX;
-      if (sx > W + 16 || p.y < -16 || p.y > H + 16 || this.solidAtWorld(p.x, p.y)) { p.active = false; continue; }
+      if (sx > W + 16 || p.y < -16 || p.y > H + 16 || this.solidAtWorld(p.x, p.y)) {
+        p.active = false;
+        continue;
+      }
       const pw = p.pierce ? 16 : 10;
       const ph = p.pierce ? 12 : 6;
 
@@ -1053,13 +1263,20 @@ class HShooterGame implements GameInstance {
           else this.engine.sfx.play('hit');
           if (!p.active) break;
         }
-        if (p.active && !(p.pierce && b.chargeSeq === p.seq) &&
-            this.overlap(p.x, p.y, pw, ph, b.x, b.y, bossSprite.w - 8, bossSprite.h - 8)) {
+        if (
+          p.active &&
+          !(p.pierce && b.chargeSeq === p.seq) &&
+          this.overlap(p.x, p.y, pw, ph, b.x, b.y, bossSprite.w - 8, bossSprite.h - 8)
+        ) {
           b.hp -= p.dmg;
           b.flashT = 0.12;
           this.hud.score += this.spec.scoring.events.bossHit;
           this.engine.sfx.play('hit');
-          this.engine.particles.burst(p.x, p.y, 5, { color: this.spec.palette[9], speed: 70, life: 0.3 });
+          this.engine.particles.burst(p.x, p.y, 5, {
+            color: this.spec.palette[9],
+            speed: 70,
+            life: 0.3,
+          });
           if (p.pierce) b.chargeSeq = p.seq;
           else p.active = false;
         }
@@ -1074,7 +1291,10 @@ class HShooterGame implements GameInstance {
       s.x += s.vx * dt;
       s.y += s.vy * dt;
       const sx = s.x - this.scrollX;
-      if (sx < -16 || sx > W + 16 || s.y < -16 || s.y > H + 16 || this.solidAtWorld(s.x, s.y)) { s.active = false; continue; }
+      if (sx < -16 || sx > W + 16 || s.y < -16 || s.y > H + 16 || this.solidAtWorld(s.x, s.y)) {
+        s.active = false;
+        continue;
+      }
       if (this.invulnT <= 0 && this.overlap(s.x, s.y, 5, 5, this.px, this.py, 4, 4)) {
         s.active = false;
         this.hurtPlayer(s.dmg);
@@ -1099,17 +1319,36 @@ class HShooterGame implements GameInstance {
       const m = moveAABB(this.tileGrid(), this.pkbox, vx * dt, (bobVy + p.avoidVy) * dt);
       p.x = m.x + 6;
       p.y = m.y + 6;
-      if (p.x - this.scrollX < -16) { p.active = false; continue; }
+      if (p.x - this.scrollX < -16) {
+        p.active = false;
+        continue;
+      }
       if (!this.overlap(p.x, p.y, 12, 12, this.px, this.py, 14, 14)) continue;
       p.active = false;
       this.hud.score += this.spec.scoring.events.pickup;
       switch (p.type) {
-        case 'spread': this.spread = true; this.engine.sfx.play('powerup'); break;
-        case 'rapid': this.rapid = true; this.engine.sfx.play('powerup'); break;
-        case 'shield': this.shieldUp = true; this.engine.sfx.play('powerup'); break;
-        case 'bomb': this.hud.bombs = Math.min(MAX_BOMBS, this.hud.bombs + 1); this.engine.sfx.play('pickup'); break;
+        case 'spread':
+          this.spread = true;
+          this.engine.sfx.play('powerup');
+          break;
+        case 'rapid':
+          this.rapid = true;
+          this.engine.sfx.play('powerup');
+          break;
+        case 'shield':
+          this.shieldUp = true;
+          this.engine.sfx.play('powerup');
+          break;
+        case 'bomb':
+          this.hud.bombs = Math.min(MAX_BOMBS, this.hud.bombs + 1);
+          this.engine.sfx.play('pickup');
+          break;
       }
-      this.engine.particles.burst(p.x, p.y, 10, { color: this.spec.palette[13], speed: 60, life: 0.4 });
+      this.engine.particles.burst(p.x, p.y, 10, {
+        color: this.spec.palette[13],
+        speed: 60,
+        life: 0.4,
+      });
     }
   }
 
@@ -1121,7 +1360,11 @@ class HShooterGame implements GameInstance {
       this.shieldUp = false;
       this.invulnT = 0.8;
       this.engine.sfx.play('hit');
-      this.engine.particles.burst(this.px, this.py, 12, { color: this.spec.palette[4], speed: 80, life: 0.4 });
+      this.engine.particles.burst(this.px, this.py, 12, {
+        color: this.spec.palette[4],
+        speed: 80,
+        life: 0.4,
+      });
       return;
     }
     this.hud.health -= dmg;
@@ -1135,7 +1378,11 @@ class HShooterGame implements GameInstance {
   private killPlayer(): void {
     this.hud.lives--;
     this.engine.sfx.play('die');
-    this.engine.particles.burst(this.px, this.py, 20, { color: this.spec.palette[5], speed: 130, life: 0.7 });
+    this.engine.particles.burst(this.px, this.py, 20, {
+      color: this.spec.palette[5],
+      speed: 130,
+      life: 0.7,
+    });
     for (const p of this.pshots) p.active = false;
     for (const s of this.eshots) s.active = false;
     this.chargeT = 0;
@@ -1147,7 +1394,9 @@ class HShooterGame implements GameInstance {
       this.engine.music.stopSong();
       this.engine.cards.show(
         this.spec.story.defeat.map((line) => ({ lines: [line], portrait: this.engine.portrait })),
-        () => { this.result = { outcome: 'lost', score: this.hud.score, timeBonusSeconds: 0 }; },
+        () => {
+          this.result = { outcome: 'lost', score: this.hud.score, timeBonusSeconds: 0 };
+        },
       );
       return;
     }
@@ -1155,12 +1404,16 @@ class HShooterGame implements GameInstance {
     this.hud.health = this.hud.maxHealth;
     if (this.isBoss()) {
       const b = this.boss;
-      if (b) { b.fireT = 0; b.burstLeft = 0; }
+      if (b) {
+        b.fireT = 0;
+        b.burstLeft = 0;
+      }
     } else {
       for (const e of this.foes) e.active = false;
       this.clock = this.lastWaveT;
       const waves = this.level.waves;
-      for (let i = 0; i < waves.length; i++) if (waves[i]!.t >= this.lastWaveT) this.waveFired[i] = false;
+      for (let i = 0; i < waves.length; i++)
+        if (waves[i]!.t >= this.lastWaveT) this.waveFired[i] = false;
     }
     this.spawnPlayer();
     this.invulnT = 2;
@@ -1181,7 +1434,16 @@ class HShooterGame implements GameInstance {
 
   // ---------------------------------------------------------------- helpers
 
-  private overlap(ax: number, ay: number, aw: number, ah: number, bx: number, by: number, bw: number, bh: number): boolean {
+  private overlap(
+    ax: number,
+    ay: number,
+    aw: number,
+    ah: number,
+    bx: number,
+    by: number,
+    bw: number,
+    bh: number,
+  ): boolean {
     return Math.abs(ax - bx) * 2 < aw + bw && Math.abs(ay - by) * 2 < ah + bh;
   }
 
@@ -1226,7 +1488,8 @@ class HShooterGame implements GameInstance {
     for (const e of this.foes) {
       if (!e.active) continue;
       const sprite = this.sprites[e.type]!;
-      const img = e.flashT > 0 ? sprite.flash[0]! : this.engine.sprites.frame(sprite, 'fly', e.t, true);
+      const img =
+        e.flashT > 0 ? sprite.flash[0]! : this.engine.sprites.frame(sprite, 'fly', e.t, true);
       r.draw(img, e.x - cam.x - sprite.w / 2, e.y - sprite.h / 2);
     }
 
@@ -1234,12 +1497,18 @@ class HShooterGame implements GameInstance {
     const b = this.boss;
     if (b && b.active) {
       const sprite = this.sprites['boss']!;
-      const img = b.flashT > 0 ? sprite.flash[0]! : this.engine.sprites.frame(sprite, 'idle', this.animT, true);
+      const img =
+        b.flashT > 0
+          ? sprite.flash[0]!
+          : this.engine.sprites.frame(sprite, 'idle', this.animT, true);
       r.draw(img, b.x - cam.x - sprite.w / 2, b.y - sprite.h / 2);
       const podSprite = this.sprites['pod']!;
       for (const pod of this.pods) {
         if (!pod.alive) continue;
-        const pimg = pod.flashT > 0 ? podSprite.flash[0]! : this.engine.sprites.frame(podSprite, 'fly', this.animT, true);
+        const pimg =
+          pod.flashT > 0
+            ? podSprite.flash[0]!
+            : this.engine.sprites.frame(podSprite, 'fly', this.animT, true);
         r.draw(pimg, b.x + pod.ox - cam.x - podSprite.w / 2, b.y + pod.oy - podSprite.h / 2);
       }
     }
@@ -1261,7 +1530,10 @@ class HShooterGame implements GameInstance {
       if (this.shieldUp) r.frame(sxp - 11, this.py - 11, 22, 22, this.spec.palette[4] ?? '#41a6f6');
       if (this.chargeT > 0.15) {
         const size = 10 + Math.min(1, this.chargeT / CHARGE_TIME) * 8;
-        const color = this.chargeReady && Math.floor(this.animT * 10) % 2 === 0 ? this.spec.palette[15] : this.spec.palette[7];
+        const color =
+          this.chargeReady && Math.floor(this.animT * 10) % 2 === 0
+            ? this.spec.palette[15]
+            : this.spec.palette[7];
         r.frame(sxp - size / 2, this.py - size / 2, size, size, color ?? '#f4f4f4');
       }
     }

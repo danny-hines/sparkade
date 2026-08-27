@@ -25,6 +25,7 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "analyze:repairs": "tsx scripts/analyze-repairs.mts",
+    "incidents": "tsx scripts/incidents.mts",
     "verify": "node scripts/verify.mjs",
     "test:e2e": "playwright test"
   },

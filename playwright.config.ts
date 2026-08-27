@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 const root = dirname(fileURLToPath(import.meta.url));
 
 // e2e runs against demo mode (mock provider) with an isolated data dir so the
-// library always starts as exactly the three golden games. Dev/CI only — never on the Pi.
+// library always starts as exactly the five golden games. Dev/CI only — never on the Pi.
 export default defineConfig({
   testDir: 'tests/e2e',
   timeout: 120_000,
@@ -20,7 +20,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    // Wipes .e2e-data first (fresh library = exactly the three golden games).
+    // Wipes .e2e-data first (fresh library = exactly the five golden games).
     command: 'node tests/e2e/e2e-server.mjs --fresh',
     url: 'http://127.0.0.1:8098/api/system/info',
     timeout: 300_000,

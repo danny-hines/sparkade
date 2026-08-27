@@ -145,10 +145,10 @@ if have_tty; then
   cat > /dev/tty <<'MENU'
 
 Which AI service should generate games?
-  1) Meta Model API      (recommended — voice prompts, photo likeness, structured output)
-  2) Anthropic (Claude)  (text + photo; voice transcription still needs a Meta key)
-  3) OpenAI-compatible   (your own server — you supply the base URL + model)
-  4) Skip for now        (demo mode: the 3 preinstalled games; add a key later)
+  1) Meta Model API      (recommended — text, voice, and generated game art)
+  2) Anthropic (Claude)  (text; generated art and voice still use Meta)
+  3) OpenAI-compatible   (text; generated art and voice still use Meta)
+  4) Skip for now        (demo mode: the 5 preinstalled games; add a key later)
 MENU
   ask "Choice [1]: " CHOICE 1
   case "$CHOICE" in
@@ -167,7 +167,7 @@ MENU
       ask "Anthropic API key: " K
       [ -n "$K" ] && env_set ANTHROPIC_API_KEY "$K"
       ask "Model [claude-haiku-4-5-20251001]: " APPLY_MODEL claude-haiku-4-5-20251001
-      ask "Add a Meta key too, for VOICE prompts? (blank = presets only): " MK
+      ask "Meta Model API key for REQUIRED Muse Image art + voice (blank = demo games only): " MK
       [ -n "$MK" ] && env_set META_API_KEY "$MK"
       ;;
     compat)
@@ -175,7 +175,7 @@ MENU
       ask "API key (blank if the server needs none): " K
       [ -n "$K" ] && env_set COMPAT_API_KEY "$K"
       ask "Model name your server serves: " APPLY_MODEL
-      ask "Add a Meta key too, for VOICE prompts? (blank = presets only): " MK
+      ask "Meta Model API key for REQUIRED Muse Image art + voice (blank = demo games only): " MK
       [ -n "$MK" ] && env_set META_API_KEY "$MK"
       ;;
     skip)

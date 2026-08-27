@@ -8,12 +8,14 @@ import { join } from 'node:path';
 import { LIBRARY } from '@sparkade/engine';
 import {
   ENGINE_VERSION,
+  GENERATED_GAME_ASSET_FILES,
   type CoverData,
   type GameMetaFile,
   type GameSpec,
   type PartialSpec,
   type SpriteData,
 } from '@sparkade/shared';
+import { PRIVATE_GENERATED_ASSET_FILENAMES } from '../assets/manifest';
 import { atomicWriteFile, ensureDir, nowIso, readJson, repoRoot } from '../util';
 import type { Db, GameRow } from './db';
 
@@ -47,10 +49,7 @@ export class GameFiles {
 
   /** Replace a published game spec without exposing a partially-written JSON file. */
   writeSpec(gameId: string, spec: GameSpec): void {
-    atomicWriteFile(
-      join(this.gameDir(gameId), 'game.json'),
-      `${JSON.stringify(spec, null, 2)}\n`,
-    );
+    atomicWriteFile(join(this.gameDir(gameId), 'game.json'), `${JSON.stringify(spec, null, 2)}\n`);
   }
 
   readMeta(gameId: string): GameMetaFile | null {
@@ -164,7 +163,8 @@ export class GameFiles {
   /**
    * Atomic publish: staging/<jobId> (which must contain game.json + meta.json +
    * assets/) becomes games/<gameId>. The raw photo is deleted first — it never
-   * reaches the published game dir.
+   * reaches the published game dir. Retry-only generated references remain in
+   * staging through the atomic rename, then are scrubbed from published output.
    */
   publish(jobId: string, gameId: string): void {
     const staging = join(this.stagingDir, jobId);
@@ -173,6 +173,21 @@ export class GameFiles {
     const target = this.gameDir(gameId);
     rmSync(target, { recursive: true, force: true });
     renameSync(staging, target);
+    for (const filename of PRIVATE_GENERATED_ASSET_FILENAMES) {
+      for (const privatePath of [
+        join(target, 'assets', filename),
+        join(target, 'assets', `${filename}.json`),
+      ]) {
+        try {
+          rmSync(privatePath, { force: true });
+        } catch (error) {
+          // Publishing has already completed atomically. Do not turn a ready
+          // game into a failed retry with no staging directory; these dotfiles
+          // are also excluded from the generated-asset serving allowlist.
+          console.warn(`could not scrub private generated asset ${filename}:`, error);
+        }
+      }
+    }
   }
 
   discardStaging(jobId: string): void {
@@ -204,6 +219,9 @@ export class GameFiles {
     const hasLikeness = gameId
       ? existsSync(join(this.gameDir(gameId), 'assets', 'head12.png'))
       : false;
+    const hasKeyArt = gameId
+      ? existsSync(join(this.gameDir(gameId), 'assets', GENERATED_GAME_ASSET_FILES.keyArt))
+      : false;
     return {
       palette: spec.palette,
       hero: resolve(heroRef),
@@ -211,6 +229,7 @@ export class GameFiles {
       enemy: resolve(showcase?.[1]),
       boss: resolve(spec.sprites.assign['boss']),
       hasLikeness,
+      hasKeyArt,
     };
   }
 }
@@ -249,8 +268,12 @@ function assertRawStageName(stage: string): asserts stage is RawStageName {
   }
 }
 
-/** Seed the three golden games from packages/generation/golden on first boot. */
-export function seedGoldenGames(files: GameFiles, db: Db, archetypeVersions: Record<string, string>): void {
+/** Seed the five golden games from packages/generation/golden on first boot. */
+export function seedGoldenGames(
+  files: GameFiles,
+  db: Db,
+  archetypeVersions: Record<string, string>,
+): void {
   const goldenDir = join(repoRoot(), 'packages', 'generation', 'golden');
   if (!existsSync(goldenDir)) return;
   for (const file of readdirSync(goldenDir)) {
@@ -265,7 +288,11 @@ export function seedGoldenGames(files: GameFiles, db: Db, archetypeVersions: Rec
       if (!existing.golden) continue; // never touch a user game that shares the id
       const storedPath = join(files.gameDir(id), 'game.json');
       try {
-        if (existsSync(storedPath) && readFileSync(storedPath, 'utf8') === readFileSync(srcPath, 'utf8')) continue;
+        if (
+          existsSync(storedPath) &&
+          readFileSync(storedPath, 'utf8') === readFileSync(srcPath, 'utf8')
+        )
+          continue;
       } catch {
         continue;
       }
@@ -341,7 +368,8 @@ export function reconcileGames(files: GameFiles, db: Db): void {
     if (!meta || !spec) continue; // half-written dirs are never publishable (publish is atomic)
     const majorOf = (v: string) => v.split('.')[0] ?? '0';
     const incompatible =
-      majorOf(meta.engineVersion) !== majorOf(ENGINE_VERSION) || meta.specVersion !== spec.specVersion;
+      majorOf(meta.engineVersion) !== majorOf(ENGINE_VERSION) ||
+      meta.specVersion !== spec.specVersion;
     const existing = db.getGame(id);
     const status = incompatible ? 'needs-migration' : (existing?.status ?? 'ready');
     const row: GameRow = {

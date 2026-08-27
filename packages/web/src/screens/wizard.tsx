@@ -47,7 +47,13 @@ export function WizardScreen(props: {
   const [level, setLevel] = useState(0);
   const [sttError, setSttError] = useState('');
   const [appending, setAppending] = useState(false);
-  const [estimate, setEstimate] = useState<{ usd: number | null; label: string; model: string; busy: boolean } | null>(null);
+  const [estimate, setEstimate] = useState<{
+    usd: number | null;
+    label: string;
+    model: string;
+    imageModel: string;
+    busy: boolean;
+  } | null>(null);
   const [online, setOnline] = useState(navigator.onLine);
   const [isPi, setIsPi] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -85,10 +91,13 @@ export function WizardScreen(props: {
     if (recorderRef.current && recorderRef.current.state !== 'inactive') recorderRef.current.stop();
     recorderRef.current = null;
   };
-  useEffect(() => () => {
-    stopCamera();
-    stopMic();
-  }, []);
+  useEffect(
+    () => () => {
+      stopCamera();
+      stopMic();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (step === 'photo' && photoMode === 'camera') {
@@ -106,7 +115,9 @@ export function WizardScreen(props: {
           if (videoRef.current) videoRef.current.srcObject = stream;
         })
         .catch((e: Error) => {
-          setCameraError(e.name === 'NotAllowedError' ? 'Camera access was denied.' : 'No camera found.');
+          setCameraError(
+            e.name === 'NotAllowedError' ? 'Camera access was denied.' : 'No camera found.',
+          );
           setPhotoMode('error');
           setCursor(0);
         });
@@ -119,7 +130,10 @@ export function WizardScreen(props: {
   }, [step, photoMode]);
 
   useEffect(() => {
-    void api.systemInfo().then((i) => setIsPi(i.isPi)).catch(() => {});
+    void api
+      .systemInfo()
+      .then((i) => setIsPi(i.isPi))
+      .catch(() => {});
     const on = () => setOnline(true);
     const off = () => setOnline(false);
     window.addEventListener('online', on);
@@ -132,9 +146,17 @@ export function WizardScreen(props: {
 
   useEffect(() => {
     if (step === 'review') {
-      void api.estimate().then(setEstimate).catch(() => setEstimate(null));
+      const archetype =
+        requestedArchetype ?? presets.find((preset) => preset.id === presetId)?.archetype;
+      void api
+        .estimate({
+          photo: !!photoBlob,
+          ...(archetype ? { archetype: archetype as ArchetypeId } : {}),
+        })
+        .then(setEstimate)
+        .catch(() => setEstimate(null));
     }
-  }, [step]);
+  }, [step, photoBlob, presetId, presets, requestedArchetype]);
 
   // Keep the focused idea card scrolled into view and refresh the up/down hint.
   useEffect(() => {
@@ -419,7 +441,8 @@ export function WizardScreen(props: {
               setCursor(0);
             }
           } else if (m.ideaMode === 'record') {
-            if (btn === 'A') stopMic(); // A stops (it also started)
+            if (btn === 'A')
+              stopMic(); // A stops (it also started)
             else if (btn === 'B') {
               shellInput.blip('back');
               stopMic();
@@ -494,16 +517,30 @@ export function WizardScreen(props: {
           props.go({ name: 'settings', tab: 'wifi' });
         }
       }),
-    [countdown, online, isPi, presets, requestedArchetype, sourceKind, submitting, transcript, props.go],
+    [
+      countdown,
+      online,
+      isPi,
+      presets,
+      requestedArchetype,
+      sourceKind,
+      submitting,
+      transcript,
+      props.go,
+    ],
   );
 
   // ------------------------------------------------------------------ render
   const stepChip = (
     <div class="wizard-steps">
       <span class={`step ${step === 'photo' ? 'on' : ''}`}>1 PHOTO</span>
-      <span><Icon name="chevronRight" /></span>
+      <span>
+        <Icon name="chevronRight" />
+      </span>
       <span class={`step ${step === 'idea' ? 'on' : ''}`}>2 IDEA</span>
-      <span><Icon name="chevronRight" /></span>
+      <span>
+        <Icon name="chevronRight" />
+      </span>
       <span class={`step ${step === 'review' ? 'on' : ''}`}>3 REVIEW</span>
     </div>
   );
@@ -519,19 +556,29 @@ export function WizardScreen(props: {
           <div class="center-col">
             <div style="font-size:24px">Want to be in the game?</div>
             <div style="color:var(--text-dim);font-size:18px;max-width:560px">
-              Your face becomes the hero's pixel head and the story-card portrait. The photo never
-              leaves this cabinet.
+              Your photo is sent to Muse Image through Meta's Model API to create your hero, then
+              deleted after the game publishes. Game text uses Muse Spark's Contributor tier by
+              default; Contributor inputs and responses may be used by Meta for model training.
             </div>
             <div class="menu-list" style="width:480px;margin-top:10px">
               <div class={`focusable menu-item ${cursor === 0 ? 'focused' : ''}`}>
-                <span class="icon"><Icon name="camera" /></span> Take photo
+                <span class="icon">
+                  <Icon name="camera" />
+                </span>{' '}
+                Take photo
               </div>
               <div class={`focusable menu-item ${cursor === 1 ? 'focused' : ''}`}>
-                <span class="icon"><Icon name="arrowRight" /></span> Skip
+                <span class="icon">
+                  <Icon name="arrowRight" />
+                </span>{' '}
+                Skip
               </div>
               {import.meta.env.DEV && (
                 <div class={`focusable menu-item ${cursor === 2 ? 'focused' : ''}`}>
-                  <span class="icon"><Icon name="folder" /></span> Upload photo (dev)
+                  <span class="icon">
+                    <Icon name="folder" />
+                  </span>{' '}
+                  Upload photo (dev)
                 </div>
               )}
             </div>
@@ -612,18 +659,30 @@ export function WizardScreen(props: {
             {sttError && <div style="color:var(--danger);font-size:17px">{sttError}</div>}
             <div class="menu-list" style="width:520px">
               <div class={`focusable menu-item ${cursor === 0 ? 'focused' : ''}`}>
-                <span class="icon"><Icon name="mic" /></span> Speak
+                <span class="icon">
+                  <Icon name="mic" />
+                </span>{' '}
+                Speak
                 <span class="hint">up to {GENERATION.maxRecordingSeconds}s</span>
               </div>
               <div class={`focusable menu-item ${cursor === 1 ? 'focused' : ''}`}>
-                <span class="icon"><Icon name="cards" /></span> Idea card
+                <span class="icon">
+                  <Icon name="cards" />
+                </span>{' '}
+                Idea card
               </div>
               <div class={`focusable menu-item ${cursor === 2 ? 'focused' : ''}`}>
-                <span class="icon"><Icon name="sparkle" /></span> Surprise me
+                <span class="icon">
+                  <Icon name="sparkle" />
+                </span>{' '}
+                Surprise me
               </div>
               {import.meta.env.DEV && (
                 <div class={`focusable menu-item ${cursor === 3 ? 'focused' : ''}`}>
-                  <span class="icon"><Icon name="keyboard" /></span> Canned (dev)
+                  <span class="icon">
+                    <Icon name="keyboard" />
+                  </span>{' '}
+                  Canned (dev)
                 </div>
               )}
             </div>
@@ -631,19 +690,25 @@ export function WizardScreen(props: {
         )}
         {step === 'idea' && ideaMode === 'record' && (
           <div class="center-col">
-            <div style="font-size:26px;color:var(--spark)"><Icon name="dot" /> Recording…</div>
+            <div style="font-size:26px;color:var(--spark)">
+              <Icon name="dot" /> Recording…
+            </div>
             <div style="font-size:20px;color:var(--text-dim)">
               Describe the game you want. {GENERATION.maxRecordingSeconds - recordSecs}s left
             </div>
             <div class="level-meter">
               <div style={{ width: `${Math.round(level * 100)}%` }} />
             </div>
-            <div style="color:var(--text-dim);font-size:18px"><Btn>A</Btn> Stop · <Btn>B</Btn> Cancel</div>
+            <div style="color:var(--text-dim);font-size:18px">
+              <Btn>A</Btn> Stop · <Btn>B</Btn> Cancel
+            </div>
           </div>
         )}
         {step === 'idea' && ideaMode === 'transcribing' && (
           <div class="center-col">
-            <span style="font-size:38px;color:var(--cyan)"><Icon name="sparkle" class="spin" /></span>
+            <span style="font-size:38px;color:var(--cyan)">
+              <Icon name="sparkle" class="spin" />
+            </span>
             <div style="font-size:22px">Listening back…</div>
           </div>
         )}
@@ -655,7 +720,9 @@ export function WizardScreen(props: {
                 ref={i === cursor ? cardRef : undefined}
                 class={`focusable idea-card ${i === cursor ? 'focused' : ''}`}
               >
-                <div class="genre">{p.archetype} · {p.tone}</div>
+                <div class="genre">
+                  {p.archetype} · {p.tone}
+                </div>
                 <div class="name">{p.title}</div>
                 <div class="premise">{p.premise}</div>
               </div>
@@ -667,7 +734,11 @@ export function WizardScreen(props: {
           <div class="two-col">
             <div>
               <div style="color:var(--cyan);font-size:17px;margin-bottom:8px">
-                {sourceKind === 'voice' ? 'HEARD:' : sourceKind === 'preset' ? 'IDEA CARD:' : 'SURPRISE:'}
+                {sourceKind === 'voice'
+                  ? 'HEARD:'
+                  : sourceKind === 'preset'
+                    ? 'IDEA CARD:'
+                    : 'SURPRISE:'}
               </div>
               <div class="transcript-box">{transcript}</div>
               <div style="display:flex;gap:16px;margin-top:16px;align-items:center">
@@ -683,7 +754,10 @@ export function WizardScreen(props: {
                 )}
                 <div style="font-size:17px;color:var(--text-dim)">
                   <div>
-                    Model: <b style="color:var(--text)">{estimate?.model ?? '…'}</b>
+                    Models:{' '}
+                    <b style="color:var(--text)">
+                      {estimate ? `${estimate.model} + ${estimate.imageModel}` : '…'}
+                    </b>
                   </div>
                   <div>
                     Network:{' '}
@@ -694,12 +768,24 @@ export function WizardScreen(props: {
                   <div>
                     Cost: <b style="color:var(--gold)">{estimate?.label ?? '…'}</b>
                   </div>
-                  {estimate?.busy && <div style="color:var(--cyan)">Another game is generating — this one will queue.</div>}
+                  {estimate?.busy && (
+                    <div style="color:var(--cyan)">
+                      Another game is generating — this one will queue.
+                    </div>
+                  )}
                 </div>
               </div>
               {!online && (
                 <div style="margin-top:12px;color:var(--danger);font-size:18px">
-                  Offline — connect to WiFi to generate.{isPi ? (<> Press <Btn>X</Btn> for WiFi settings.</>) : ''}
+                  Offline — connect to WiFi to generate.
+                  {isPi ? (
+                    <>
+                      {' '}
+                      Press <Btn>X</Btn> for WiFi settings.
+                    </>
+                  ) : (
+                    ''
+                  )}
                 </div>
               )}
             </div>
@@ -709,14 +795,23 @@ export function WizardScreen(props: {
                   class={`focusable menu-item ${cursor === 0 ? 'focused' : ''}`}
                   style={!online ? 'opacity:0.45' : ''}
                 >
-                  <span class="icon"><Icon name="sparkle" /></span> {submitting ? 'Starting…' : 'Generate'}
+                  <span class="icon">
+                    <Icon name="sparkle" />
+                  </span>{' '}
+                  {submitting ? 'Starting…' : 'Generate'}
                 </div>
                 <div class={`focusable menu-item ${cursor === 1 ? 'focused' : ''}`}>
-                  <span class="icon"><Icon name="refresh" /></span> {sourceKind === 'voice' ? 'Re-record' : 'Change idea'}
+                  <span class="icon">
+                    <Icon name="refresh" />
+                  </span>{' '}
+                  {sourceKind === 'voice' ? 'Re-record' : 'Change idea'}
                 </div>
                 {sourceKind === 'voice' && (
                   <div class={`focusable menu-item ${cursor === 2 ? 'focused' : ''}`}>
-                    <span class="icon"><Icon name="plus" /></span> Add more
+                    <span class="icon">
+                      <Icon name="plus" />
+                    </span>{' '}
+                    Add more
                   </div>
                 )}
               </div>

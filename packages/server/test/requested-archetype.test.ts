@@ -166,6 +166,7 @@ describe('requested Surprise archetype persistence', () => {
     cleanup.push(() => db.close());
     const jobColumns = db.db.prepare(`PRAGMA table_info(jobs)`).all() as { name: string }[];
     expect(jobColumns.some((column) => column.name === 'requested_archetype')).toBe(true);
+    expect(jobColumns.some((column) => column.name === 'image_price_snapshot_json')).toBe(true);
 
     db.insertJob(
       {
@@ -185,9 +186,14 @@ describe('requested Surprise archetype persistence', () => {
         attempt: 1,
       },
       {},
+      { model: 'muse-image-1.0', perImageUsd: 0.01 },
     );
 
     expect(db.getJob('j-surprise')?.requestedArchetype).toBe('adventure');
+    expect(db.jobImagePriceSnapshot('j-surprise')).toEqual({
+      model: 'muse-image-1.0',
+      perImageUsd: 0.01,
+    });
     db.updateJob('j-surprise', { status: 'failed', attempt: 2 });
     expect(db.getJob('j-surprise')?.requestedArchetype).toBe('adventure');
     expect(db.getJobByIdempotencyKey('ik-surprise')?.requestedArchetype).toBe('adventure');

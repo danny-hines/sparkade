@@ -148,8 +148,13 @@ export interface HeroFeel {
   jumpScale?: number; // 1.0–1.25 — higher = taller jump
   speedScale?: number; // 1.0–1.3 — higher = faster run
 }
-export function resolveHeroFeel(f: HeroFeel | undefined): { gravity: number; jump: number; speed: number } {
-  const clamp = (v: number | undefined, lo: number, hi: number) => Math.max(lo, Math.min(hi, v ?? 1));
+export function resolveHeroFeel(f: HeroFeel | undefined): {
+  gravity: number;
+  jump: number;
+  speed: number;
+} {
+  const clamp = (v: number | undefined, lo: number, hi: number) =>
+    Math.max(lo, Math.min(hi, v ?? 1));
   return {
     gravity: clamp(f?.gravityScale, 0.72, 1.0),
     jump: clamp(f?.jumpScale, 1.0, 1.25),
@@ -214,8 +219,8 @@ export const LIKENESS_OVAL = { cx: 0.5, cy: 0.45, rx: 0.22, ry: 0.28 } as const;
 
 export const GENERATION = {
   perCallTimeoutMs: 90_000,
-  softBudgetMs: 5 * 60 * 1000, // "taking longer than usual"
-  hardBudgetMs: 8 * 60 * 1000, // fail as timeout (retryable)
+  softBudgetMs: 6 * 60 * 1000, // "taking longer than usual"
+  hardBudgetMs: 12 * 60 * 1000, // image-aware fail timeout (retryable)
   maxRepairAttemptsPerStage: 2,
   maxTransientRetriesPerCall: 2,
   maxRecordingSeconds: 45,
@@ -225,6 +230,9 @@ export const GENERATION = {
    *  on the model), so a few in parallel overlap those waits; kept small to stay
    *  gentle on the cabinet + the API. Override with SPARKADE_GEN_CONCURRENCY. */
   maxConcurrentJobs: 3,
+  /** Shared across jobs so photo fighters cannot fan out into dozens of
+   * simultaneous Muse Image calls on a busy demo floor. */
+  maxConcurrentImageCalls: 6,
 } as const;
 
 export const STAGE_NAMES = ['design', 'levels', 'entities', 'music', 'repair', 'stt'] as const;
@@ -243,13 +251,17 @@ export const JOB_STAGES = [
 ] as const;
 export type JobStage = (typeof JOB_STAGES)[number];
 
-/** July 2026 public-preview pricing for the default model (USD per million tokens).
- *  Cached input (automatic prefix caching) bills at $0.15/M per Meta's pricing page. */
-export const DEFAULT_PRICING: Record<string, { inputPerM: number; outputPerM: number; cachedInputPerM?: number }> = {
+/** Published Meta Model API pricing (USD per million tokens).
+ *  Keep historical rows so existing game ledgers remain interpretable. */
+export const DEFAULT_PRICING: Record<
+  string,
+  { inputPerM: number; outputPerM: number; cachedInputPerM?: number }
+> = {
   'muse-spark-1.1': { inputPerM: 1.25, outputPerM: 4.25, cachedInputPerM: 0.15 },
+  'muse-spark-1.2-contributor': { inputPerM: 0.1, outputPerM: 0.2, cachedInputPerM: 0.002 },
 };
 
-export const DEFAULT_MODEL = 'muse-spark-1.1';
+export const DEFAULT_MODEL = 'muse-spark-1.2-contributor';
 
 // ---------------------------------------------------------------------------
 // Server
@@ -257,6 +269,35 @@ export const DEFAULT_MODEL = 'muse-spark-1.1';
 
 export const DEFAULT_PORT = 8080;
 export const DEFAULT_BIND = '127.0.0.1';
+
+/** Stable filenames for image-model-authored game art. These names are also the
+ * HTTP allowlist; a manifest can never escape a game's assets directory. */
+export const GENERATED_GAME_ASSET_FILES = {
+  generatedPortrait: 'portrait.png',
+  generatedHead12: 'head12.png',
+  generatedHead12Side: 'head12-side.png',
+  generatedHead12Back: 'head12-back.png',
+  generatedHead16: 'head16.png',
+  generatedHead16Side: 'head16-side.png',
+  generatedHead16Back: 'head16-back.png',
+  keyArt: 'key-art.png',
+  storyIntro: 'story-intro.png',
+  storyBoss: 'story-boss.png',
+  storyVictory: 'story-victory.png',
+  fighterIdle: 'fighter-player-idle.png',
+  fighterWalk: 'fighter-player-walk.png',
+  fighterCrouch: 'fighter-player-crouch.png',
+  fighterJump: 'fighter-player-jump.png',
+  fighterPunchHigh: 'fighter-player-punch-high.png',
+  fighterPunchLow: 'fighter-player-punch-low.png',
+  fighterKickHigh: 'fighter-player-kick-high.png',
+  fighterKickLow: 'fighter-player-kick-low.png',
+  fighterBlock: 'fighter-player-block.png',
+  fighterHit: 'fighter-player-hit.png',
+  fighterKo: 'fighter-player-ko.png',
+} as const;
+
+export type GeneratedGameAssetRole = keyof typeof GENERATED_GAME_ASSET_FILES;
 
 // ---------------------------------------------------------------------------
 // Built-in sprite library ids (the contract between engine art, schemas,
@@ -382,7 +423,13 @@ export const LIB_PICKUPS = [
 
 export const LIB_ITEMS = ['item_boomerang', 'item_bombs', 'item_bow'] as const;
 
-export const LIB_NPCS = ['npc_keeper', 'npc_elder', 'npc_merchant', 'npc_ghost', 'npc_tinker'] as const;
+export const LIB_NPCS = [
+  'npc_keeper',
+  'npc_elder',
+  'npc_merchant',
+  'npc_ghost',
+  'npc_tinker',
+] as const;
 
 export const LIB_OBJECTS = ['obj_spring', 'obj_platform'] as const;
 
@@ -613,14 +660,6 @@ export const IDEA_CARDS: readonly IdeaCard[] = [
 // ---------------------------------------------------------------------------
 
 export const DEFERRED_CONTROL_MAPS = {
-  fighter: {
-    Y: 'high punch',
-    X: 'high kick',
-    B: 'low punch',
-    A: 'low kick',
-    L: 'block',
-    R: 'block',
-  },
   racing: {
     B: 'accelerate',
     Y: 'brake',

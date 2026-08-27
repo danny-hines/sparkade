@@ -14,6 +14,7 @@ import {
 } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
+import { DEFAULT_MODEL } from '@sparkade/shared';
 
 const REPO = process.env.SPARKADE_REPO_DIR ?? '/opt/sparkade';
 const ENV_FILE = process.platform === 'linux' ? '/etc/sparkade/env' : join(repoDir(), '.env');
@@ -36,7 +37,11 @@ function dataDir(): string {
   return join(homedir(), '.sparkade');
 }
 
-function sh(cmd: string, args: string[], opts: { quiet?: boolean; check?: boolean; cwd?: string } = {}): string {
+function sh(
+  cmd: string,
+  args: string[],
+  opts: { quiet?: boolean; check?: boolean; cwd?: string } = {},
+): string {
   const res = spawnSync(cmd, args, {
     encoding: 'utf8',
     cwd: opts.cwd,
@@ -55,11 +60,9 @@ function tryRun(cmd: string, args: string[]): { ok: boolean; out: string } {
 
 function serverGet<T>(path: string): T | null {
   try {
-    const out = execFileSync(
-      'curl',
-      ['-fsS', '--max-time', '4', `http://127.0.0.1:8080${path}`],
-      { encoding: 'utf8' },
-    );
+    const out = execFileSync('curl', ['-fsS', '--max-time', '4', `http://127.0.0.1:8080${path}`], {
+      encoding: 'utf8',
+    });
     return JSON.parse(out) as T;
   } catch {
     return null;
@@ -161,9 +164,13 @@ function cmdUpdate(): void {
   // service, so refuse up front (leaving the running server intact) and point
   // at the installer, which upgrades Node.
   if (spawnSync('node', ['-e', 'require("node:sqlite")'], { stdio: 'ignore' }).status !== 0) {
-    console.error("This version needs Node with built-in node:sqlite (>= 22.13); this box's node is older.");
+    console.error(
+      "This version needs Node with built-in node:sqlite (>= 22.13); this box's node is older.",
+    );
     console.error('Re-run the installer to upgrade Node (idempotent, keeps your data):');
-    console.error('  curl -fsSL "https://raw.githubusercontent.com/danny-hines/sparkade/main/install/install.sh?$(date +%s)" | bash');
+    console.error(
+      '  curl -fsSL "https://raw.githubusercontent.com/danny-hines/sparkade/main/install/install.sh?$(date +%s)" | bash',
+    );
     process.exit(1);
   }
   console.log(`updating ${dir} …`);
@@ -179,7 +186,9 @@ function cmdUpdate(): void {
   sh('git', ['-C', dir, 'fetch', '--tags', '--force'], {});
   let target = '';
   try {
-    target = sh('git', ['-C', dir, 'describe', '--tags', '--abbrev=0', 'origin/main'], { quiet: true });
+    target = sh('git', ['-C', dir, 'describe', '--tags', '--abbrev=0', 'origin/main'], {
+      quiet: true,
+    });
   } catch {
     /* no tags */
   }
@@ -249,9 +258,9 @@ function cmdConfig(args: string[]): void {
     spawnSync(editor, [join(dataDir(), 'config.json')], { stdio: 'inherit' });
   } else if (op === 'set-provider' && path) {
     // sparkade config set-provider <meta|anthropic|compat> [model] [baseUrl]
-    // Points the five text-generation stages at the provider. The stt (voice
-    // transcription) stage stays on an audio-capable provider — only meta has
-    // audioIn — so a non-meta text provider still needs a Meta key for voice.
+    // Points the five text-generation stages at the provider. Muse Image remains
+    // on Meta for every generated game, and stt (voice transcription) stays on
+    // an audio-capable provider, so non-Meta text still requires a Meta key.
     const name = path;
     const [modelArg, baseUrlArg] = rest;
     const cfg = readConfig() as {
@@ -259,13 +268,20 @@ function cmdConfig(args: string[]): void {
       stages: Record<string, { provider: string; model: string }>;
     };
     if (!cfg.providers?.[name]) {
-      console.error(`unknown provider "${name}". Known: ${Object.keys(cfg.providers ?? {}).join(', ')}`);
+      console.error(
+        `unknown provider "${name}". Known: ${Object.keys(cfg.providers ?? {}).join(', ')}`,
+      );
       process.exit(1);
     }
-    const DEFAULT_MODELS: Record<string, string> = { meta: 'muse-spark-1.1', anthropic: 'claude-haiku-4-5-20251001' };
+    const DEFAULT_MODELS: Record<string, string> = {
+      meta: DEFAULT_MODEL,
+      anthropic: 'claude-haiku-4-5-20251001',
+    };
     const model = modelArg || DEFAULT_MODELS[name];
     if (!model) {
-      console.error(`provider "${name}" needs an explicit model: sparkade config set-provider ${name} <model> [baseUrl]`);
+      console.error(
+        `provider "${name}" needs an explicit model: sparkade config set-provider ${name} <model> [baseUrl]`,
+      );
       process.exit(1);
     }
     const TEXT_STAGES = ['design', 'levels', 'entities', 'music', 'repair'];
@@ -276,12 +292,19 @@ function cmdConfig(args: string[]): void {
     console.log(`text stages (design/levels/entities/music/repair) → ${name} · ${model}`);
     const sttProvider = cfg.stages['stt']?.provider ?? 'meta';
     if (name !== 'meta') {
-      console.log(`voice transcription (stt) stays on "${sttProvider}" — only Meta can transcribe audio.`);
-      console.log(`  → set that provider's key for voice input, or generate from the preset cards.`);
+      console.log(
+        `voice transcription (stt) stays on "${sttProvider}" — only Meta can transcribe audio.`,
+      );
+      console.log('Muse Image also stays on Meta and is required for every generated game.');
+      console.log('  → set META_API_KEY even when the text stages use another provider.');
     }
     if (name === 'compat') {
       const url = cfg.providers['compat']?.baseUrl;
-      console.log(url ? `compat baseUrl: ${url}` : 'compat baseUrl not set — sparkade config set providers.compat.baseUrl <url>');
+      console.log(
+        url
+          ? `compat baseUrl: ${url}`
+          : 'compat baseUrl not set — sparkade config set providers.compat.baseUrl <url>',
+      );
     }
     console.log('Restart to apply: sparkade restart');
   } else if (op === 'set-key' && path) {
@@ -327,7 +350,7 @@ async function cmdProviderTest(): Promise<void> {
     }
     const model =
       Object.values(cfg.stages).find((s) => s.provider === name)?.model ??
-      (p.kind === 'anthropic' ? 'claude-haiku-4-5-20251001' : 'muse-spark-1.1');
+      (p.kind === 'anthropic' ? 'claude-haiku-4-5-20251001' : DEFAULT_MODEL);
     const started = Date.now();
     try {
       let url: string;
@@ -335,8 +358,16 @@ async function cmdProviderTest(): Promise<void> {
       let body: string;
       if (p.kind === 'anthropic') {
         url = `${p.baseUrl ?? 'https://api.anthropic.com'}/v1/messages`;
-        headers = { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' };
-        body = JSON.stringify({ model, max_tokens: 8, messages: [{ role: 'user', content: 'Say OK' }] });
+        headers = {
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        };
+        body = JSON.stringify({
+          model,
+          max_tokens: 8,
+          messages: [{ role: 'user', content: 'Say OK' }],
+        });
       } else {
         url = `${p.baseUrl}/chat/completions`;
         headers = { authorization: `Bearer ${key}`, 'content-type': 'application/json' };
@@ -352,11 +383,20 @@ async function cmdProviderTest(): Promise<void> {
         console.log(`${name.padEnd(10)} HTTP ${res.status} in ${ms}ms`);
         continue;
       }
-      const json = (await res.json()) as { usage?: { prompt_tokens?: number; completion_tokens?: number; input_tokens?: number; output_tokens?: number } };
+      const json = (await res.json()) as {
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          input_tokens?: number;
+          output_tokens?: number;
+        };
+      };
       const input = json.usage?.prompt_tokens ?? json.usage?.input_tokens ?? 0;
       const output = json.usage?.completion_tokens ?? json.usage?.output_tokens ?? 0;
       const price = cfg.pricing[model];
-      const cost = price ? (input / 1e6) * price.inputPerM + (output / 1e6) * price.outputPerM : null;
+      const cost = price
+        ? (input / 1e6) * price.inputPerM + (output / 1e6) * price.outputPerM
+        : null;
       console.log(
         `${name.padEnd(10)} OK ${ms}ms · ${input}+${output} tokens · ${cost === null ? 'cost unavailable' : `$${cost.toFixed(5)}`}`,
       );
@@ -409,10 +449,7 @@ function cmdDoctor(): void {
         return r.ok ? 'OK (active)' : `NOT ACTIVE (${r.out || 'systemd unavailable'})`;
       },
     ],
-    [
-      'port 8080',
-      () => (serverGet('/api/system/info') ? 'OK (answering)' : 'NOT ANSWERING'),
-    ],
+    ['port 8080', () => (serverGet('/api/system/info') ? 'OK (answering)' : 'NOT ANSWERING')],
     [
       'chromium',
       () => {
@@ -434,17 +471,15 @@ function cmdDoctor(): void {
           const m = /N: Name="([^"]*)"[\s\S]*?H: Handlers=[^\n]*js\d/.exec(devices);
           if (js.length && m) return `OK (${m[1]} on /dev/input/${js[0]})`;
           if (js.length) return `OK (/dev/input/${js[0]})`;
-          if (/dragonrise|0079/i.test(devices)) return 'PRESENT as keyboard-mode clone (works — remap on first boot)';
+          if (/dragonrise|0079/i.test(devices))
+            return 'PRESENT as keyboard-mode clone (works — remap on first boot)';
           return 'NOT FOUND — check the USB encoder (keyboard-mode clones also work)';
         } catch {
           return 'cannot read /proc/bus/input/devices (not Linux?)';
         }
       },
     ],
-    [
-      'camera',
-      () => (existsSync('/dev/video0') ? 'OK (/dev/video0)' : 'NOT FOUND'),
-    ],
+    ['camera', () => (existsSync('/dev/video0') ? 'OK (/dev/video0)' : 'NOT FOUND')],
     [
       'microphone',
       () => {
@@ -458,7 +493,9 @@ function cmdDoctor(): void {
         if (!existsSync(ENV_FILE)) return `MISSING (${ENV_FILE} does not exist)`;
         const env = readFileSync(ENV_FILE, 'utf8');
         const m = /^META_API_KEY=(.+)$/m.exec(env);
-        return m ? `OK (${maskKey(m[1]!)})` : 'MISSING (META_API_KEY not set — sparkade config set-key META_API_KEY <key>)';
+        return m
+          ? `OK (${maskKey(m[1]!)})`
+          : 'MISSING (META_API_KEY not set — sparkade config set-key META_API_KEY <key>)';
       },
     ],
   ];
@@ -501,7 +538,9 @@ function cmdLan(action: string | undefined): void {
 
   if (!action || action === 'status') {
     console.log(`LAN access  ${currentlyEnabled ? 'ON' : 'OFF'} (${configuredBind}:8080)`);
-    console.log(currentlyEnabled ? `Kiosk URL  http://${ip}:8080` : 'Kiosk is reachable only from the Pi.');
+    console.log(
+      currentlyEnabled ? `Kiosk URL  http://${ip}:8080` : 'Kiosk is reachable only from the Pi.',
+    );
     return;
   }
 
@@ -517,7 +556,9 @@ function cmdLan(action: string | undefined): void {
 
   if (enabled) {
     console.log(`LAN access enabled: http://${ip}:8080`);
-    console.log('Anyone on this local network can use the full kiosk and API until you run `sparkade lan off`.');
+    console.log(
+      'Anyone on this local network can use the full kiosk and API until you run `sparkade lan off`.',
+    );
   } else {
     console.log('LAN access disabled. Sparkade is localhost-only again.');
   }
@@ -525,7 +566,9 @@ function cmdLan(action: string | undefined): void {
 
 function cmdDebug(): void {
   if (process.platform !== 'linux') {
-    console.error('Run `sparkade debug` on the Raspberry Pi, then use the printed command on this computer.');
+    console.error(
+      'Run `sparkade debug` on the Raspberry Pi, then use the printed command on this computer.',
+    );
     process.exitCode = 1;
     return;
   }
@@ -547,7 +590,9 @@ function cmdDebug(): void {
 
   console.log(`Chromium DevTools  ${endpoint.ok ? 'ready' : 'not active'} (127.0.0.1:9222 only)`);
   if (!endpoint.ok) {
-    console.log('The installed kiosk launcher does not appear to be running with debugging enabled.');
+    console.log(
+      'The installed kiosk launcher does not appear to be running with debugging enabled.',
+    );
     console.log('After updating Sparkade, reboot the Pi once, then run this command again:');
     console.log('  sudo reboot');
     process.exitCode = 1;

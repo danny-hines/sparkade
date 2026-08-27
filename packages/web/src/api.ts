@@ -1,19 +1,21 @@
 // Typed API client. The browser never sees an API key; everything talks to the
 // local server (Vite proxies /api in dev).
-import type {
-  ArchetypeId,
-  CostEstimate,
-  GameListItem,
-  GameMetaFile,
-  GameSpec,
-  JobEvent,
-  JobRecord,
-  LogicalButton,
-  PartialSpec,
-  ScoreRow,
-  SystemInfo,
-  WifiNetwork,
-  WifiStatus,
+import {
+  GENERATED_GAME_ASSET_FILES,
+  type ArchetypeId,
+  type CostEstimate,
+  type GameListItem,
+  type GameMetaFile,
+  type GameSpec,
+  type GeneratedGameAssetRole,
+  type JobEvent,
+  type JobRecord,
+  type LogicalButton,
+  type PartialSpec,
+  type ScoreRow,
+  type SystemInfo,
+  type WifiNetwork,
+  type WifiStatus,
 } from '@sparkade/shared';
 
 async function json<T>(res: Response): Promise<T> {
@@ -30,20 +32,22 @@ async function json<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
+export type GameAssetAvailability = {
+  head12: boolean;
+  head12Side: boolean;
+  head12Back: boolean;
+  head16: boolean;
+  head16Side: boolean;
+  head16Back: boolean;
+  portrait: boolean;
+} & Record<GeneratedGameAssetRole, boolean>;
+
 export interface GameDetail {
   item: GameListItem;
   spec: GameSpec | null;
   meta: GameMetaFile | null;
   job: JobRecord | null;
-  assets: {
-    head12: boolean;
-    head12Side: boolean;
-    head12Back: boolean;
-    head16: boolean;
-    head16Side: boolean;
-    head16Back: boolean;
-    portrait: boolean;
-  };
+  assets: GameAssetAvailability;
   usage: {
     stage: string;
     model: string;
@@ -62,14 +66,12 @@ export interface SettingsPayload {
   input: { gamepad: Record<string, LogicalButton>; keyboard: Record<string, LogicalButton> };
   likeness: {
     describeInStory: boolean;
-    smartFeatures?: boolean;
-    style?: 'photo' | 'avatar';
-    portraitGen?: { enabled: boolean };
   };
   devices: { cameraId?: string; cameraLabel?: string; micId?: string; micLabel?: string };
   presets: { id: string; title: string; archetype: string; premise: string; tone: string }[];
   stages: Record<string, { provider: string; model: string }>;
   pricing: Record<string, { inputPerM: number; outputPerM: number }>;
+  imageGeneration: { model: string; baseUrl: string; pricePerImageUsd: number };
 }
 
 export const api = {
@@ -114,19 +116,28 @@ export const api = {
     const res = await fetch('/api/games', { method: 'POST', body: form });
     return json(res);
   },
-  estimate: () =>
-    fetch('/api/generation/estimate').then((r) =>
-      json<CostEstimate & { model: string; busy: boolean; maxRecordingSeconds: number }>(r),
-    ),
+  estimate: (opts: { photo?: boolean; archetype?: ArchetypeId } = {}) => {
+    const query = new URLSearchParams();
+    if (opts.photo) query.set('photo', '1');
+    if (opts.archetype) query.set('archetype', opts.archetype);
+    const suffix = query.size ? `?${query.toString()}` : '';
+    return fetch(`/api/generation/estimate${suffix}`).then((r) =>
+      json<
+        CostEstimate & {
+          model: string;
+          imageModel: string;
+          busy: boolean;
+          maxRecordingSeconds: number;
+        }
+      >(r),
+    );
+  },
   settings: () => fetch('/api/settings').then((r) => json<SettingsPayload>(r)),
   saveSettings: (patch: {
     audio?: { musicVol: number; sfxVol: number; uiVol: number };
     input?: { gamepad?: Record<string, LogicalButton>; keyboard?: Record<string, LogicalButton> };
     likeness?: {
       describeInStory?: boolean;
-      smartFeatures?: boolean;
-      style?: 'photo' | 'avatar';
-      portraitGen?: { enabled?: boolean };
     };
     devices?: { cameraId?: string; cameraLabel?: string; micId?: string; micLabel?: string };
   }) =>
@@ -169,7 +180,8 @@ export const api = {
       | 'head16.png'
       | 'head16-side.png'
       | 'head16-back.png'
-      | 'portrait.png',
+      | 'portrait.png'
+      | (typeof GENERATED_GAME_ASSET_FILES)[GeneratedGameAssetRole],
   ) => `/api/games/${gameId}/assets/${name}`,
 };
 

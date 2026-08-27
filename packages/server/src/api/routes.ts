@@ -7,13 +7,20 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { MultipartFile } from '@fastify/multipart';
 import {
   ARCHETYPE_IDS,
+  GENERATED_GAME_ASSET_FILES,
   GENERATION,
   type ArchetypeId,
+  type GeneratedGameAssetRole,
   type JobEvent,
   type LogicalButton,
   type SystemInfo,
 } from '@sparkade/shared';
-import { costOf, estimateGenerationCost } from '../pipeline/cost';
+import {
+  GAME_ASSET_MANIFEST_FILE,
+  generatedAssetForFilename,
+  generatedAssetForRole,
+} from '../assets/manifest';
+import { costOf, estimateGenerationCost, estimateImageCount, formatUsd } from '../pipeline/cost';
 import { stageProvider } from '../providers/index';
 import type { GenerationRunner } from '../pipeline/runner';
 import type { SseHub } from '../pipeline/sse';
@@ -182,9 +189,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       return reply.code(400).send({ error: 'requestedArchetype is invalid' });
     }
     if (requestedArchetype !== undefined && String(sourceKind) !== 'surprise') {
-      return reply
-        .code(400)
-        .send({ error: 'requestedArchetype is only valid for Surprise Me' });
+      return reply.code(400).send({ error: 'requestedArchetype is only valid for Surprise Me' });
     }
     if (photo && photo.length > MAX_PHOTO_BYTES)
       return reply.code(413).send({ error: 'photo too large' });
@@ -213,14 +218,33 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     const assetsDir = join(files.gameDir(id), 'assets');
     const hasAsset = (name: keyof typeof LIKENESS_ASSET_FILES): boolean =>
       existsSync(join(assetsDir, LIKENESS_ASSET_FILES[name]));
+    const hasGeneratedManifest = existsSync(join(assetsDir, GAME_ASSET_MANIFEST_FILE));
+    const generatedAssets = Object.fromEntries(
+      (
+        Object.entries(GENERATED_GAME_ASSET_FILES) as Array<
+          [GeneratedGameAssetRole, (typeof GENERATED_GAME_ASSET_FILES)[GeneratedGameAssetRole]]
+        >
+      ).map(([role, filename]) => {
+        return [role, generatedAssetForRole(assetsDir, role)?.filename === filename];
+      }),
+    ) as Record<GeneratedGameAssetRole, boolean>;
     const assets = {
-      head12: hasAsset('head12'),
-      head12Side: hasAsset('head12Side'),
-      head12Back: hasAsset('head12Back'),
-      head16: hasAsset('head16'),
-      head16Side: hasAsset('head16Side'),
-      head16Back: hasAsset('head16Back'),
-      portrait: hasAsset('portrait'),
+      head12: hasGeneratedManifest ? generatedAssets.generatedHead12 : hasAsset('head12'),
+      head12Side: hasGeneratedManifest
+        ? generatedAssets.generatedHead12Side
+        : hasAsset('head12Side'),
+      head12Back: hasGeneratedManifest
+        ? generatedAssets.generatedHead12Back
+        : hasAsset('head12Back'),
+      head16: hasGeneratedManifest ? generatedAssets.generatedHead16 : hasAsset('head16'),
+      head16Side: hasGeneratedManifest
+        ? generatedAssets.generatedHead16Side
+        : hasAsset('head16Side'),
+      head16Back: hasGeneratedManifest
+        ? generatedAssets.generatedHead16Back
+        : hasAsset('head16Back'),
+      portrait: hasGeneratedManifest ? generatedAssets.generatedPortrait : hasAsset('portrait'),
+      ...generatedAssets,
     };
     return {
       item: db.listItem(row),
@@ -243,10 +267,14 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
 
   app.get('/api/games/:id/assets/:name', async (req, reply) => {
     const { id, name } = req.params as { id: string; name: string };
-    if (!LIKENESS_ASSET_NAMES.has(name)) {
+    const assetsDir = join(files.gameDir(id), 'assets');
+    const hasGeneratedManifest = existsSync(join(assetsDir, GAME_ASSET_MANIFEST_FILE));
+    const generated = !!generatedAssetForFilename(assetsDir, name);
+    const legacy = !hasGeneratedManifest && LIKENESS_ASSET_NAMES.has(name);
+    if (!legacy && !generated) {
       return reply.code(404).send({ error: 'unknown asset' });
     }
-    const path = join(files.gameDir(id), 'assets', name);
+    const path = join(assetsDir, name);
     if (!existsSync(path)) return reply.code(404).send({ error: 'asset not found' });
     return reply
       .type('image/png')
@@ -359,6 +387,11 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       presets: c.presets,
       stages: c.stages, // read-only in the UI; keys never appear here
       pricing: c.pricing,
+      imageGeneration: {
+        model: c.imageGeneration.model,
+        baseUrl: c.imageGeneration.baseUrl,
+        pricePerImageUsd: c.imageGeneration.pricePerImageUsd,
+      },
     };
   });
 
@@ -368,9 +401,6 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       input?: { gamepad?: Record<string, LogicalButton>; keyboard?: Record<string, LogicalButton> };
       likeness?: {
         describeInStory?: boolean;
-        smartFeatures?: boolean;
-        style?: 'photo' | 'avatar';
-        portraitGen?: { enabled?: boolean };
       };
       devices?: { cameraId?: string; cameraLabel?: string; micId?: string; micLabel?: string };
     } | null;
@@ -394,19 +424,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
           ...(body.likeness.describeInStory !== undefined
             ? { describeInStory: !!body.likeness.describeInStory }
             : {}),
-          ...(body.likeness.smartFeatures !== undefined
-            ? { smartFeatures: !!body.likeness.smartFeatures }
-            : {}),
-          ...(body.likeness.style
-            ? { style: body.likeness.style === 'avatar' ? 'avatar' : 'photo' }
-            : {}),
         };
-        if (body.likeness.portraitGen?.enabled !== undefined && c.likeness.portraitGen) {
-          c.likeness.portraitGen = {
-            ...c.likeness.portraitGen,
-            enabled: !!body.likeness.portraitGen.enabled,
-          };
-        }
       }
       if (body.devices) {
         // Store only short strings; empty string clears back to browser default.
@@ -424,14 +442,26 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
   });
 
   // ---- generation cost estimate (review screen) --------------------------------
-  app.get('/api/generation/estimate', async () => {
+  app.get('/api/generation/estimate', async (req) => {
     const c = configStore.get();
     const model = c.stages.design.model;
-    const usd = estimateGenerationCost(model, c.pricing);
+    const query = (req.query ?? {}) as { photo?: string; archetype?: string };
+    const textUsd = estimateGenerationCost(model, c.pricing);
+    const hasPhoto = query.photo === '1';
+    const archetype =
+      query.archetype && isArchetypeId(query.archetype) ? query.archetype : undefined;
+    const conservativeUpperBound = hasPhoto && archetype === undefined;
+    const happyPathImages = estimateImageCount(hasPhoto, archetype);
+    const imageUsd = happyPathImages * Math.max(0, c.imageGeneration.pricePerImageUsd);
+    const usd = textUsd === null ? null : textUsd + imageUsd;
     return {
       usd,
-      label: usd === null ? 'cost unavailable' : `about $${usd.toFixed(2)} (estimate)`,
+      label:
+        usd === null
+          ? 'cost unavailable'
+          : `${conservativeUpperBound ? 'up to' : 'about'} ${formatUsd(usd)} (estimate)`,
       model,
+      imageModel: c.imageGeneration.model,
       busy: runner.isBusy(),
       maxRecordingSeconds: GENERATION.maxRecordingSeconds,
     };
@@ -458,6 +488,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       isPi: piMode(),
       forcedPi: process.env.SPARKADE_FORCE_PI === '1',
       model: process.env.SPARKADE_PROVIDER === 'mock' ? 'mock' : c.stages.design.model,
+      imageModel: process.env.SPARKADE_PROVIDER === 'mock' ? 'mock-image' : c.imageGeneration.model,
       provider: process.env.SPARKADE_PROVIDER ?? c.stages.design.provider,
       lifetimeSpendUsd: db.lifetimeSpendUsd(),
       dataDir: files.dir,

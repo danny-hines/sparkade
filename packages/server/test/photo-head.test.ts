@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
-import type { Provider } from '@sparkade/shared';
+import { DEFAULT_MODEL, type Provider } from '@sparkade/shared';
 import {
   PHOTO_HEAD_INPUT_SIZE,
   PHOTO_HEAD_SCANLINES,
@@ -35,10 +35,22 @@ const features = {
 };
 
 const spans = [
-  [350, 650], [250, 750], [150, 850], [80, 920],
-  [40, 960], [70, 930], [100, 900], [120, 880],
-  [130, 870], [150, 850], [180, 820], [210, 790],
-  [250, 750], [300, 700], [350, 650], [410, 590],
+  [350, 650],
+  [250, 750],
+  [150, 850],
+  [80, 920],
+  [40, 960],
+  [70, 930],
+  [100, 900],
+  [120, 880],
+  [130, 870],
+  [150, 850],
+  [180, 820],
+  [210, 790],
+  [250, 750],
+  [300, 700],
+  [350, 650],
+  [410, 590],
 ] as const;
 
 const geometry: PhotoHeadGeometry = {
@@ -87,7 +99,12 @@ describe('Muse-guided photo heads', () => {
       properties: { geometry: { required: string[]; properties: Record<string, unknown> } };
     };
     expect(schema.required).toEqual(['geometry']);
-    expect(schema.properties.geometry.required).toEqual(['headBox', 'faceBox', 'landmarks', 'confidence']);
+    expect(schema.properties.geometry.required).toEqual([
+      'headBox',
+      'faceBox',
+      'landmarks',
+      'confidence',
+    ]);
     expect(schema.properties.geometry.properties).not.toHaveProperty('rows');
   });
 
@@ -95,7 +112,9 @@ describe('Muse-guided photo heads', () => {
     const normalized = normalizePhotoHeadGeometry({
       ...geometry,
       headBox: { x: -3, y: 120.4, width: 1100, height: 680.2 },
-      rows: geometry.rows.map((row, index) => index === 0 ? { left: row.right, right: row.left } : row),
+      rows: geometry.rows.map((row, index) =>
+        index === 0 ? { left: row.right, right: row.left } : row,
+      ),
     });
     expect(normalized.headBox.x).toBeGreaterThanOrEqual(0);
     expect(normalized.headBox.x + normalized.headBox.width).toBeLessThanOrEqual(1000);
@@ -107,12 +126,21 @@ describe('Muse-guided photo heads', () => {
     expect(normalized.rows.every((row) => row.left < row.right)).toBe(true);
     expect(normalized.landmarks.leftEye.x).toBeLessThan(normalized.landmarks.rightEye.x);
 
-    expect(() => normalizePhotoHeadGeometry({ ...geometry, rows: geometry.rows.slice(1) })).toThrow(/exactly 16/);
-    expect(() => normalizePhotoHeadGeometry({ ...geometry, headBox: { x: 990, y: 990, width: 40, height: 40 } })).toThrow(/implausibly small/);
-    expect(() => normalizePhotoHeadGeometry({
-      ...geometry,
-      rows: geometry.rows.map(() => ({ left: 0, right: 1000 })),
-    })).toThrow(/mean coverage/);
+    expect(() => normalizePhotoHeadGeometry({ ...geometry, rows: geometry.rows.slice(1) })).toThrow(
+      /exactly 16/,
+    );
+    expect(() =>
+      normalizePhotoHeadGeometry({
+        ...geometry,
+        headBox: { x: 990, y: 990, width: 40, height: 40 },
+      }),
+    ).toThrow(/implausibly small/);
+    expect(() =>
+      normalizePhotoHeadGeometry({
+        ...geometry,
+        rows: geometry.rows.map(() => ({ left: 0, right: 1000 })),
+      }),
+    ).toThrow(/mean coverage/);
   });
 
   it('keeps locally segmented geometry local when an already-normalized document is normalized again', () => {
@@ -140,7 +168,9 @@ describe('Muse-guided photo heads', () => {
   it('normalizes arbitrary source dimensions to the exact shared coordinate image', async () => {
     const source = await sharp({
       create: { width: 240, height: 480, channels: 3, background: '#8f5d45' },
-    }).webp().toBuffer();
+    })
+      .webp()
+      .toBuffer();
     const normalized = await normalizePhotoHeadInput(source);
     expect(await sharp(normalized).metadata()).toMatchObject({
       width: PHOTO_HEAD_INPUT_SIZE,
@@ -219,11 +249,20 @@ describe('Muse-guided photo heads', () => {
         expect(request.effort).toBe('minimal');
         expect(request.jsonSchema).toBeTruthy();
         expect(request.image).toBeTruthy();
-        expect(await sharp(request.image!).metadata()).toMatchObject({ width: 512, height: 512, format: 'jpeg' });
+        expect(await sharp(request.image!).metadata()).toMatchObject({
+          width: 512,
+          height: 512,
+          format: 'jpeg',
+        });
         return { text: JSON.stringify(documentFixture()), usage: { input: 123, output: 456 } };
       },
     };
-    const result = await generatePhotoHeadLikeness(await syntheticHead(), features, provider, 'muse-spark-1.1');
+    const result = await generatePhotoHeadLikeness(
+      await syntheticHead(),
+      features,
+      provider,
+      DEFAULT_MODEL,
+    );
     expect(calls).toBe(1);
     expect(result.features.headwearType).toBe('cap');
     expect(result.geometry.rows).toHaveLength(16);

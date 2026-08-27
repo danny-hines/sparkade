@@ -1,9 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { costOf, estimateGenerationCost, formatUsd, sumCosts } from '../src/pipeline/cost';
+import { DEFAULT_MODEL, DEFAULT_PRICING } from '@sparkade/shared';
+import {
+  costOf,
+  estimateGenerationCost,
+  estimateImageCount,
+  formatUsd,
+  sumCosts,
+} from '../src/pipeline/cost';
 
 const SNAPSHOT = { 'muse-spark-1.1': { inputPerM: 1.25, outputPerM: 4.25, cachedInputPerM: 0.15 } };
 
 describe('cost calculator', () => {
+  it('uses the fighter image upper bound when a photographed voice idea has no known archetype', () => {
+    expect(estimateImageCount(false)).toBe(4);
+    expect(estimateImageCount(true, 'platformer')).toBe(8);
+    expect(estimateImageCount(true, 'fighter')).toBe(19);
+    expect(estimateImageCount(true)).toBe(19);
+  });
+
   it('prices tokens against the snapshot', () => {
     const c = costOf('muse-spark-1.1', { input: 1_000_000, output: 1_000_000 }, SNAPSHOT);
     expect(c).toBeCloseTo(5.5, 6);
@@ -61,5 +75,26 @@ describe('cost calculator', () => {
     expect(est!).toBeGreaterThan(0.01);
     expect(est!).toBeLessThan(1);
     expect(estimateGenerationCost('unknown', SNAPSHOT)).toBeNull();
+  });
+
+  it('uses the published Contributor pricing for the new default', () => {
+    expect(DEFAULT_MODEL).toBe('muse-spark-1.2-contributor');
+    expect(DEFAULT_PRICING[DEFAULT_MODEL]).toEqual({
+      inputPerM: 0.1,
+      outputPerM: 0.2,
+      cachedInputPerM: 0.002,
+    });
+    expect(
+      costOf(
+        DEFAULT_MODEL,
+        { input: 1_000_000, cachedInput: 750_000, output: 1_000_000 },
+        DEFAULT_PRICING,
+      ),
+    ).toBeCloseTo(0.2265, 9);
+    const estimate = estimateGenerationCost(DEFAULT_MODEL, DEFAULT_PRICING);
+    expect(estimate).not.toBeNull();
+    expect(estimate!).toBeGreaterThan(0.001);
+    expect(estimate!).toBeLessThan(0.01);
+    expect(formatUsd(estimate!)).not.toBe('$0.000');
   });
 });

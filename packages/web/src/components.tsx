@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { decodeSprite, LIBRARY, makeTallHumanoidEntry } from '@sparkade/engine';
-import { LIB_HEROES_PLATFORMER, type GameListItem, type LogicalButton } from '@sparkade/shared';
+import {
+  GENERATED_GAME_ASSET_FILES,
+  LIB_HEROES_PLATFORMER,
+  type GameListItem,
+  type LogicalButton,
+} from '@sparkade/shared';
 import { shellInput } from './shell-input';
 import { Icon } from './icons';
 
@@ -27,10 +32,9 @@ export function FooterLegend(props: {
 }
 
 /**
- * Live cover render — a mini-scene of the game's actual art: hero (wearing the
- * player's likeness head when the game has one), its most distinctive enemy,
- * and the boss looming dim behind. No stored images; everything is decoded
- * from the spec's pixel data against the game's own palette.
+ * Prefer a dedicated image-model-authored cover when one was published. The
+ * live mini-scene remains the immediate/error fallback, so legacy games and a
+ * failed image request still have a complete cover.
  */
 export function GameCover(props: {
   cover: GameListItem['cover'];
@@ -65,7 +69,7 @@ export function GameCover(props: {
       candidateTallEntry && candidateTallEntry !== sourceHeroEntry ? candidateTallEntry : undefined;
     const likenessHeadSlot = tallHeroEntry?.headSlots?.[0] ?? nativeHeadSlot;
 
-    const draw = (head: HTMLImageElement | null) => {
+    const drawProcedural = (head: HTMLImageElement | null) => {
       if (disposed) return;
       canvas.width = 128;
       canvas.height = 76;
@@ -176,16 +180,57 @@ export function GameCover(props: {
       }
     };
 
-    draw(null);
-    if (props.cover?.hasLikeness && props.gameId) {
+    const drawKeyArt = (image: HTMLImageElement) => {
+      if (disposed) return;
+      // The attract-screen marquee intentionally relies on the canvas's
+      // intrinsic 128×76 size; preserve that layout while raising the backing
+      // resolution for generated art. Other cover classes already set both
+      // dimensions in CSS.
+      if (props.class?.split(/\s+/).includes('marquee')) {
+        canvas.style.width = '128px';
+        canvas.style.height = '76px';
+      }
+      canvas.width = 512;
+      canvas.height = 304;
+      const ctx = canvas.getContext('2d')!;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      const sourceRatio = image.naturalWidth / image.naturalHeight;
+      const targetRatio = canvas.width / canvas.height;
+      let sx = 0;
+      let sy = 0;
+      let sw = image.naturalWidth;
+      let sh = image.naturalHeight;
+      if (sourceRatio > targetRatio) {
+        sw = image.naturalHeight * targetRatio;
+        sx = (image.naturalWidth - sw) / 2;
+      } else if (sourceRatio < targetRatio) {
+        sh = image.naturalWidth / targetRatio;
+        sy = (image.naturalHeight - sh) / 2;
+      }
+      ctx.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    };
+
+    const loadProceduralLikeness = () => {
+      if (!props.cover?.hasLikeness || !props.gameId) return;
       const img = new Image();
-      img.onload = () => draw(img);
+      img.onload = () => drawProcedural(img);
       img.src = `/api/games/${props.gameId}/assets/head${likenessHeadSlot?.size ?? 12}.png`;
+    };
+
+    drawProcedural(null);
+    if (props.cover?.hasKeyArt && props.gameId) {
+      const keyArt = new Image();
+      keyArt.onload = () => drawKeyArt(keyArt);
+      keyArt.onerror = loadProceduralLikeness;
+      keyArt.src = `/api/games/${props.gameId}/assets/${GENERATED_GAME_ASSET_FILES.keyArt}`;
+    } else {
+      loadProceduralLikeness();
     }
     return () => {
       disposed = true;
     };
-  }, [props.cover, props.archetype, props.gameId, props.seedText, props.pending]);
+  }, [props.cover, props.archetype, props.gameId, props.seedText, props.class, props.pending]);
   return <canvas ref={ref} class={props.class} />;
 }
 

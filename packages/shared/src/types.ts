@@ -6,6 +6,7 @@ import type {
   ArchetypeId,
   BackdropVariantId,
   Difficulty,
+  GeneratedGameAssetRole,
   HeroFeel,
   JobStage,
   LightingMode,
@@ -162,13 +163,7 @@ export type SfxBlock = Partial<Record<SfxEvent, SfxParams>>;
 // ---------------------------------------------------------------------------
 
 export type PlatformerTileType =
-  | 'empty'
-  | 'solid'
-  | 'platform'
-  | 'hazard'
-  | 'checkpoint'
-  | 'exit'
-  | 'decoration';
+  'empty' | 'solid' | 'platform' | 'hazard' | 'checkpoint' | 'exit' | 'decoration';
 
 export type PlatformerEntityType =
   | 'walker'
@@ -354,24 +349,10 @@ export interface FighterSpec extends GameSpecBase {
 // ---------------------------------------------------------------------------
 
 export type AdventureTileType =
-  | 'floor'
-  | 'wall'
-  | 'hazard'
-  | 'block'
-  | 'pit'
-  | 'switch'
-  | 'decoration';
+  'floor' | 'wall' | 'hazard' | 'block' | 'pit' | 'switch' | 'decoration';
 
 export type AdventureEntityType =
-  | 'walker'
-  | 'flyer'
-  | 'shooter'
-  | 'chaser'
-  | 'bruiser'
-  | 'npc'
-  | 'key'
-  | 'heart'
-  | 'item';
+  'walker' | 'flyer' | 'shooter' | 'chaser' | 'bruiser' | 'npc' | 'key' | 'heart' | 'item';
 
 export type AdventureSecondaryItem = 'boomerang' | 'bombs' | 'bow';
 export type AdventureDoor = 'none' | 'open' | 'locked' | 'boss';
@@ -572,6 +553,15 @@ export interface GameMetaFile {
   costUsd: number | null;
   costBreakdown: CostBreakdownEntry[];
   priceSnapshot: Record<string, PriceRow>;
+  /** Fixed image price captured by this run (separate from token pricing). */
+  imagePriceSnapshot?: { model: string; perImageUsd: number | null };
+  /** QA/readiness signal for the experimental generated fighter pose set. */
+  fighterArt?: {
+    mode: 'generated' | 'procedural';
+    attempted: boolean;
+    /** Present when the generated set was skipped or rejected. */
+    reason?: string;
+  };
   golden?: boolean;
   failure?: { code: string; message: string; stage: string };
 }
@@ -649,6 +639,28 @@ export interface CoverData {
   boss?: SpriteData | null;
   /** True when baked likeness head sprites exist for this game. */
   hasLikeness?: boolean;
+  /** True when Muse Image authored a dedicated library-card cover. */
+  hasKeyArt?: boolean;
+}
+
+/** Provenance and integrity data for one generated binary asset. */
+export interface GeneratedGameAsset {
+  role: GeneratedGameAssetRole;
+  filename: string;
+  mimeType: 'image/png';
+  width: number;
+  height: number;
+  model: string;
+  promptVersion: string;
+  /** Hash of the complete prompt + reference identity, used for retry reuse. */
+  promptSha256: string;
+  sha256: string;
+}
+
+/** Stored beside generated images as assets/manifest.json. */
+export interface GameAssetManifest {
+  version: 1;
+  assets: GeneratedGameAsset[];
 }
 
 export interface GameListItem {
@@ -684,6 +696,8 @@ export interface SystemInfo {
   isPi: boolean;
   forcedPi: boolean;
   model: string;
+  /** Image model used for key, story, and player art. */
+  imageModel: string;
   provider: string;
   lifetimeSpendUsd: number;
   dataDir: string;
@@ -737,17 +751,24 @@ export interface StageConfig {
   reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
 }
 
+export interface ImageGenerationConfig {
+  baseUrl: string;
+  model: string;
+  apiKeyEnv: string;
+  /** Fixed public price for each successfully returned Muse image. */
+  pricePerImageUsd: number;
+  /** Provider request size/aspect-ratio hint before local normalization. */
+  size?: string;
+  timeoutMs?: number;
+}
+
 export interface SparkadeConfig {
   providers: Record<string, ProviderConfig>;
   stages: Record<StageName, StageConfig>;
   pricing: Record<string, PriceRow>;
+  imageGeneration: ImageGenerationConfig;
   likeness: {
     describeInStory: boolean;
-    smartFeatures?: boolean;
-    style?: 'photo' | 'avatar';
-    /** Experimental: generate the story-card portrait with an image model instead
-     *  of the pixel-photo bake. OFF by default; swappable to Meta Muse Image. */
-    portraitGen?: { enabled: boolean; baseUrl: string; model: string; apiKeyEnv: string; size?: string };
   };
   presets: { id: string; title: string; archetype: ArchetypeId; premise: string; tone: string }[];
   audio: { musicVol: number; sfxVol: number; uiVol: number };
@@ -799,7 +820,10 @@ export interface Provider {
   readonly name: string;
   readonly kind: ProviderKind;
   readonly capabilities: ProviderCapabilities;
-  complete(req: CompleteRequest, opts?: { model?: string; signal?: AbortSignal }): Promise<CompleteResponse>;
+  complete(
+    req: CompleteRequest,
+    opts?: { model?: string; signal?: AbortSignal },
+  ): Promise<CompleteResponse>;
   transcribe?(
     audio: Buffer,
     mime: string,

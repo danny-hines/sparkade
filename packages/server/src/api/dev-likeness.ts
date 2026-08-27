@@ -21,6 +21,7 @@ import {
   generateHeadSprites,
   generatePortrait,
   type GeneratedHeadSprites,
+  type LikenessImageEdit,
 } from '../likeness/portrait-gen';
 import {
   DIRECT_PIXEL_PROMPT_VERSION,
@@ -34,6 +35,7 @@ import {
 } from '../likeness/photo-head';
 import { parseModelJson } from '../pipeline/prompts';
 import { stageProvider } from '../providers/index';
+import { MetaImageAdapter, META_IMAGE_DEFAULT_MODEL } from '../providers/meta-image';
 import type { ConfigStore } from '../storage/config';
 
 const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
@@ -71,7 +73,28 @@ async function headsUris(feat: FaceFeatures, detailAt: number): Promise<Record<n
   return Object.fromEntries(Object.entries(bufs).map(([s, b]) => [s, png(b)]));
 }
 
-export function registerDevLikenessRoutes(app: FastifyInstance, configStore: ConfigStore): void {
+export interface DevLikenessImageOptions {
+  /** Override for focused tests or custom usage accounting. Defaults to MetaImageAdapter.edit(). */
+  edit?: LikenessImageEdit;
+  model?: string;
+  size?: string;
+}
+
+export function registerDevLikenessRoutes(
+  app: FastifyInstance,
+  configStore: ConfigStore,
+  imageOptions: DevLikenessImageOptions = {},
+): void {
+  // An injected edit seam keeps focused tests/provider experiments isolated.
+  // The real lab path must mirror production's configured Meta endpoint, key
+  // name, model, and timeout instead of silently falling back to adapter defaults.
+  const imageConfig = imageOptions.edit ? undefined : configStore.get().imageGeneration;
+  const adapter = imageOptions.edit ? null : new MetaImageAdapter(imageConfig);
+  const imageEdit = imageOptions.edit ?? adapter!.edit.bind(adapter);
+  const imageModel =
+    imageOptions.model?.trim() || imageConfig?.model?.trim() || META_IMAGE_DEFAULT_MODEL;
+  const imageSize = imageOptions.size?.trim() || '1024x1024';
+
   // Hand-set FaceFeatures → drawn avatar. Deterministic and free; the lab calls
   // this on every control change for live iteration.
   app.post('/api/dev/likeness/render', async (req, reply) => {
@@ -322,11 +345,9 @@ export function registerDevLikenessRoutes(app: FastifyInstance, configStore: Con
         cached: !!hit,
       };
     } catch (e) {
-      return reply
-        .code(502)
-        .send({
-          error: `Muse-guided photo head failed: ${e instanceof Error ? e.message : String(e)}`,
-        });
+      return reply.code(502).send({
+        error: `Muse-guided photo head failed: ${e instanceof Error ? e.message : String(e)}`,
+      });
     }
   });
 
@@ -351,15 +372,12 @@ export function registerDevLikenessRoutes(app: FastifyInstance, configStore: Con
     }
     if (!photo) return reply.code(400).send({ error: 'no photo uploaded' });
     if (photo.length > MAX_PHOTO_BYTES) return reply.code(413).send({ error: 'photo too large' });
-    const pg = configStore.get().likeness.portraitGen;
-    if (!pg) return reply.code(400).send({ error: 'likeness.portraitGen is not configured' });
     const normalizedFeatures = normalizeFaceFeatures(features ?? {});
     const key = createHash('sha256')
       .update(photo)
       .update(JSON.stringify(normalizedFeatures))
-      .update(pg.baseUrl)
-      .update(pg.model)
-      .update(pg.size ?? '')
+      .update(imageModel)
+      .update(imageSize)
       .update(GENERATED_HEAD_PROMPT_VERSION)
       .digest('hex');
     const fresh = (req.query as { fresh?: string } | null)?.fresh === '1';
@@ -369,7 +387,9 @@ export function registerDevLikenessRoutes(app: FastifyInstance, configStore: Con
       if (!result) {
         let pending = fresh ? undefined : generatedHeadInFlight.get(key);
         if (!pending) {
-          pending = generateHeadSprites(photo, normalizedFeatures, pg);
+          pending = generateHeadSprites(photo, normalizedFeatures, imageEdit, {
+            size: imageSize,
+          });
           if (!fresh) generatedHeadInFlight.set(key, pending);
         }
         try {
@@ -388,7 +408,7 @@ export function registerDevLikenessRoutes(app: FastifyInstance, configStore: Con
         heads: Object.fromEntries(
           Object.entries(result.heads).map(([size, buffer]) => [size, png(buffer)]),
         ),
-        model: pg.model,
+        model: imageModel,
         cached: !!hit,
       };
     } catch (e) {
@@ -398,10 +418,8 @@ export function registerDevLikenessRoutes(app: FastifyInstance, configStore: Con
     }
   });
 
-  // Photo + features → an image-model-generated portrait, for prototyping the
-  // experimental portraitGen path before enabling it in the pipeline. Uses the
-  // configured portraitGen block regardless of its `enabled` flag; needs its
-  // API key set (OPENAI_API_KEY for the default OpenAI placeholder).
+  // Photo + features -> the same Muse Image portrait path used by generation.
+  // This remains an explicit paid action in the dev lab and uses META_API_KEY.
   app.post('/api/dev/likeness/generate', async (req, reply) => {
     let photo: Buffer | undefined;
     let features: FaceFeatures | undefined;
@@ -412,18 +430,27 @@ export function registerDevLikenessRoutes(app: FastifyInstance, configStore: Con
         photo = await (part as { toBuffer: () => Promise<Buffer> }).toBuffer();
       else if (part.type === 'field' && part.fieldname === 'features') {
         try {
-          features = JSON.parse(String((part as { value: unknown }).value)) as FaceFeatures;
+          features = normalizeFaceFeatures(JSON.parse(String((part as { value: unknown }).value)));
         } catch {
-          /* ignore malformed features; generatePortrait tolerates a bare object */
+          /* fall through to normalized defaults */
         }
       }
     }
     if (!photo) return reply.code(400).send({ error: 'no photo uploaded' });
-    const pg = configStore.get().likeness.portraitGen;
-    if (!pg) return reply.code(400).send({ error: 'likeness.portraitGen is not configured' });
+    if (photo.length > MAX_PHOTO_BYTES) return reply.code(413).send({ error: 'photo too large' });
     try {
-      const buf = await generatePortrait(photo, features ?? ({} as FaceFeatures), pg);
-      return { portrait: `data:image/png;base64,${buf.toString('base64')}` };
+      await sharp(photo).metadata();
+    } catch {
+      return reply.code(400).send({ error: 'unsupported or invalid image' });
+    }
+    try {
+      const buf = await generatePortrait(photo, normalizeFaceFeatures(features ?? {}), imageEdit, {
+        size: imageSize,
+      });
+      return {
+        portrait: `data:image/png;base64,${buf.toString('base64')}`,
+        model: imageModel,
+      };
     } catch (e) {
       return reply
         .code(502)

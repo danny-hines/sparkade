@@ -184,18 +184,56 @@ class ShooterGame implements GameInstance {
 
   // pools (allocated once; BUDGET.maxActiveEntities = 24 enemies)
   private foes: Foe[] = Array.from({ length: 24 }, () => ({
-    active: false, type: 'popcorn', path: 'dive', x: 0, y: 0, vx: 0, vy: 0, baseX: 0, t: 0,
-    hp: 1, fireRate: 0, fireT: 0, state: ST_APPROACH, holdY: 0, holdT: 0, holdDur: 0,
-    savedVx: 0, savedVy: 0, phase: 0, speedMul: 1, flashT: 0, chargeSeq: 0,
+    active: false,
+    type: 'popcorn',
+    path: 'dive',
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    baseX: 0,
+    t: 0,
+    hp: 1,
+    fireRate: 0,
+    fireT: 0,
+    state: ST_APPROACH,
+    holdY: 0,
+    holdT: 0,
+    holdDur: 0,
+    savedVx: 0,
+    savedVy: 0,
+    phase: 0,
+    speedMul: 1,
+    flashT: 0,
+    chargeSeq: 0,
   }));
   private pshots: PShot[] = Array.from({ length: 8 }, () => ({
-    active: false, x: 0, y: 0, vx: 0, vy: 0, dmg: 1, pierce: false, seq: 0, t: 0,
+    active: false,
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    dmg: 1,
+    pierce: false,
+    seq: 0,
+    t: 0,
   }));
   private eshots: EShot[] = Array.from({ length: 48 }, () => ({
-    active: false, x: 0, y: 0, vx: 0, vy: 0, dmg: 1, t: 0,
+    active: false,
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    dmg: 1,
+    t: 0,
   }));
   private picks: Pick[] = Array.from({ length: 8 }, () => ({
-    active: false, type: 'spread', x: 0, y: 0, baseX: 0, t: 0,
+    active: false,
+    type: 'spread',
+    x: 0,
+    y: 0,
+    baseX: 0,
+    t: 0,
   }));
 
   // player (center-based; 4x4 hurt box)
@@ -256,6 +294,7 @@ class ShooterGame implements GameInstance {
       title: this.spec.meta.title,
       lines: [line],
       portrait: this.engine.portrait,
+      artRole: 'intro' as const,
     }));
     this.engine.cards.show(cards, () => this.enterLevel(0));
   }
@@ -285,7 +324,13 @@ class ShooterGame implements GameInstance {
     }
     this.engine.music.playJingle('levelIntro');
     this.engine.cards.show(
-      [{ title: this.spec.levels[ix]!.name, lines: [this.spec.story.levelIntros[ix] ?? '...'], portrait: this.engine.portrait }],
+      [
+        {
+          title: this.spec.levels[ix]!.name,
+          lines: [this.spec.story.levelIntros[ix] ?? '...'],
+          portrait: this.engine.portrait,
+        },
+      ],
       () => {
         this.loadLevel(ix);
         this.engine.music.playSong(this.spec.levels[ix]!.musicSong);
@@ -297,7 +342,11 @@ class ShooterGame implements GameInstance {
   private loadLevel(ix: number): void {
     const level = this.spec.levels[ix]!;
     this.level = level;
-    this.backdrop = makeScrollBackdrop(this.spec.palette, this.spec.seed + ix * 101, this.bgVariant);
+    this.backdrop = makeScrollBackdrop(
+      this.spec.palette,
+      this.spec.seed + ix * 101,
+      this.bgVariant,
+    );
     this.scrollY = 0;
     this.clock = 0;
     this.lastWaveT = 0;
@@ -320,7 +369,14 @@ class ShooterGame implements GameInstance {
     };
     if (withCard) {
       this.engine.cards.show(
-        [{ title: this.spec.boss.name, lines: [this.spec.story.bossIntro], portrait: this.engine.portrait }],
+        [
+          {
+            title: this.spec.boss.name,
+            lines: [this.spec.story.bossIntro],
+            portrait: this.engine.portrait,
+            artRole: 'boss',
+          },
+        ],
         build,
       );
     } else build();
@@ -421,7 +477,13 @@ class ShooterGame implements GameInstance {
     if (this.thrustT >= 0.07) {
       this.thrustT = 0;
       this.engine.particles.burst(this.px, this.py + 8, 1, {
-        color: this.spec.palette[12], speed: 30, life: 0.22, gravity: 90, size: 2, angle: Math.PI / 2, spread: 0.6,
+        color: this.spec.palette[12],
+        speed: 30,
+        life: 0.22,
+        gravity: 90,
+        size: 2,
+        angle: Math.PI / 2,
+        spread: 0.6,
       });
     }
 
@@ -430,7 +492,10 @@ class ShooterGame implements GameInstance {
       this.fast = !this.fast;
       this.engine.sfx.play('jump');
       this.engine.particles.burst(this.px, this.py + 6, 6, {
-        color: this.spec.palette[this.fast ? 14 : 4], speed: 60, life: 0.3, gravity: 0,
+        color: this.spec.palette[this.fast ? 14 : 4],
+        speed: 60,
+        life: 0.3,
+        gravity: 0,
       });
     }
 
@@ -458,7 +523,10 @@ class ShooterGame implements GameInstance {
       if (this.glowT >= 0.05) {
         this.glowT = 0;
         this.engine.particles.burst(this.px, this.py - 10, this.chargeReady ? 2 : 1, {
-          color: this.spec.palette[this.chargeReady ? 15 : 7], speed: 26, life: 0.25, gravity: -70,
+          color: this.spec.palette[this.chargeReady ? 15 : 7],
+          speed: 26,
+          life: 0.25,
+          gravity: -70,
           size: this.chargeReady ? 3 : 2,
         });
       }
@@ -469,12 +537,18 @@ class ShooterGame implements GameInstance {
           this.engine.sfx.play('shoot');
           this.engine.shake(80, 1);
           this.engine.particles.burst(this.px, this.py - 12, 10, {
-            color: this.spec.palette[15], speed: 90, life: 0.3, gravity: 0,
+            color: this.spec.palette[15],
+            speed: 90,
+            life: 0.3,
+            gravity: 0,
           });
         }
       } else {
         this.engine.particles.burst(this.px, this.py - 8, 3, {
-          color: this.spec.palette[3], speed: 30, life: 0.2, gravity: 0,
+          color: this.spec.palette[3],
+          speed: 30,
+          life: 0.2,
+          gravity: 0,
         });
       }
       this.chargeT = 0;
@@ -493,14 +567,23 @@ class ShooterGame implements GameInstance {
     for (const s of this.eshots) {
       if (!s.active) continue;
       s.active = false;
-      this.engine.particles.burst(s.x, s.y, 2, { color: this.spec.palette[14], speed: 50, life: 0.3, gravity: 0 });
+      this.engine.particles.burst(s.x, s.y, 2, {
+        color: this.spec.palette[14],
+        speed: 50,
+        life: 0.3,
+        gravity: 0,
+      });
     }
     // 3 damage to every enemy on screen
     for (const e of this.foes) {
       if (!e.active) continue;
       e.hp -= BOMB_DMG;
       e.flashT = 0.15;
-      this.engine.particles.burst(e.x, e.y, 4, { color: this.spec.palette[11], speed: 70, life: 0.35 });
+      this.engine.particles.burst(e.x, e.y, 4, {
+        color: this.spec.palette[11],
+        speed: 70,
+        life: 0.35,
+      });
       if (e.hp <= 0) this.killFoe(e);
     }
     const b = this.boss;
@@ -519,7 +602,11 @@ class ShooterGame implements GameInstance {
     this.engine.shake(400, 5);
     this.engine.hitStop(60);
     this.engine.particles.burst(this.px, this.py - 20, 24, {
-      color: this.spec.palette[12], speed: 190, life: 0.6, gravity: 0, size: 3,
+      color: this.spec.palette[12],
+      speed: 190,
+      life: 0.6,
+      gravity: 0,
+      size: 3,
     });
   }
 
@@ -550,9 +637,7 @@ class ShooterGame implements GameInstance {
   private spawnWave(w: ShooterWave): void {
     const rng = this.engine.rng;
     const sweepDir = rng.chance(0.5) ? 1 : -1;
-    const centerX = w.path === 'sweep'
-      ? (sweepDir > 0 ? 80 : W - 80)
-      : rng.range(120, W - 120);
+    const centerX = w.path === 'sweep' ? (sweepDir > 0 ? 80 : W - 80) : rng.range(120, W - 120);
     const width = Math.max(96, (w.count - 1) * 32);
     for (let i = 0; i < w.count; i++) {
       const e = this.claimFoe();
@@ -628,7 +713,11 @@ class ShooterGame implements GameInstance {
   }
 
   private claimFoe(): Foe | null {
-    for (const e of this.foes) if (!e.active) { e.active = true; return e; }
+    for (const e of this.foes)
+      if (!e.active) {
+        e.active = true;
+        return e;
+      }
     return null;
   }
 
@@ -734,7 +823,11 @@ class ShooterGame implements GameInstance {
         this.hurtPlayer(1);
         if (e.type === 'popcorn' || e.type === 'weaver') {
           e.active = false;
-          this.engine.particles.burst(e.x, e.y, 8, { color: this.spec.palette[8], speed: 80, life: 0.4 });
+          this.engine.particles.burst(e.x, e.y, 8, {
+            color: this.spec.palette[8],
+            speed: 80,
+            life: 0.4,
+          });
         }
         if (this.phase !== 'play') return;
       }
@@ -745,7 +838,12 @@ class ShooterGame implements GameInstance {
     e.active = false;
     this.hud.score += this.spec.scoring.events.enemyKill;
     this.engine.sfx.play('hit');
-    this.engine.particles.burst(e.x, e.y, 10, { color: this.spec.palette[8], speed: 95, life: 0.45, gravity: 30 });
+    this.engine.particles.burst(e.x, e.y, 10, {
+      color: this.spec.palette[8],
+      speed: 95,
+      life: 0.45,
+      gravity: 30,
+    });
   }
 
   // ------------------------------------------------------------------- boss
@@ -775,7 +873,11 @@ class ShooterGame implements GameInstance {
       b.fireT = 0;
       b.burstLeft = 0;
       this.engine.shake(300, 4);
-      this.engine.particles.burst(b.x, b.y, 20, { color: this.spec.palette[11], speed: 130, life: 0.6 });
+      this.engine.particles.burst(b.x, b.y, 20, {
+        color: this.spec.palette[11],
+        speed: 130,
+        life: 0.6,
+      });
     }
     const phase = phases[b.phaseIx]!;
     const interval = phase.fireIntervalMs / 1000;
@@ -803,7 +905,13 @@ class ShooterGame implements GameInstance {
         while (b.fireT >= step) {
           b.fireT -= step;
           b.spiralAngle += (25 * Math.PI) / 180;
-          this.fireEnemyShot(b.x, b.y + 8, Math.cos(b.spiralAngle) * spd, Math.sin(b.spiralAngle) * spd, 1);
+          this.fireEnemyShot(
+            b.x,
+            b.y + 8,
+            Math.cos(b.spiralAngle) * spd,
+            Math.sin(b.spiralAngle) * spd,
+            1,
+          );
         }
         break;
       }
@@ -851,8 +959,10 @@ class ShooterGame implements GameInstance {
     }
 
     // ramming the boss hurts
-    if (this.invulnT <= 0 &&
-        this.overlap(b.x, b.y, bossSprite.w - 8, bossSprite.h - 8, this.px, this.py, 4, 4)) {
+    if (
+      this.invulnT <= 0 &&
+      this.overlap(b.x, b.y, bossSprite.w - 8, bossSprite.h - 8, this.px, this.py, 4, 4)
+    ) {
       this.hurtPlayer(1);
       if (this.phase !== 'play') return;
     }
@@ -867,7 +977,9 @@ class ShooterGame implements GameInstance {
     this.engine.sfx.play('hit');
     this.engine.shake(150, 2);
     this.engine.particles.burst(b.x + pod.ox, b.y + pod.oy, 14, {
-      color: this.spec.palette[9], speed: 110, life: 0.5,
+      color: this.spec.palette[9],
+      speed: 110,
+      life: 0.5,
     });
   }
 
@@ -878,7 +990,11 @@ class ShooterGame implements GameInstance {
     const rng = this.engine.rng;
     for (let i = 0; i < 5; i++) {
       this.engine.particles.burst(b.x + rng.range(-24, 24), b.y + rng.range(-16, 16), 16, {
-        color: this.spec.palette[i % 2 === 0 ? 12 : 14], speed: 170, life: 0.9, gravity: 0, size: 3,
+        color: this.spec.palette[i % 2 === 0 ? 12 : 14],
+        speed: 170,
+        life: 0.9,
+        gravity: 0,
+        size: 3,
       });
     }
     this.engine.shake(600, 6);
@@ -887,7 +1003,11 @@ class ShooterGame implements GameInstance {
     this.engine.music.stopSong();
     this.phase = 'cards';
     this.engine.cards.show(
-      this.spec.story.victory.map((line) => ({ lines: [line], portrait: this.engine.portrait })),
+      this.spec.story.victory.map((line) => ({
+        lines: [line],
+        portrait: this.engine.portrait,
+        artRole: 'victory' as const,
+      })),
       () => {
         const par = estimateShooterDurationS(this.spec) * 1.35;
         this.result = {
@@ -913,7 +1033,15 @@ class ShooterGame implements GameInstance {
     return this.claimPShot(x, y, vx, vy, CHARGE_DMG, true, this.chargeSeqCounter);
   }
 
-  private claimPShot(x: number, y: number, vx: number, vy: number, dmg: number, pierce: boolean, seq: number): boolean {
+  private claimPShot(
+    x: number,
+    y: number,
+    vx: number,
+    vy: number,
+    dmg: number,
+    pierce: boolean,
+    seq: number,
+  ): boolean {
     for (const p of this.pshots) {
       if (p.active) continue;
       p.active = true;
@@ -996,13 +1124,20 @@ class ShooterGame implements GameInstance {
           else this.engine.sfx.play('hit');
           if (!p.active) break;
         }
-        if (p.active && !(p.pierce && b.chargeSeq === p.seq) &&
-            this.overlap(p.x, p.y, pw, ph, b.x, b.y, bossSprite.w - 8, bossSprite.h - 8)) {
+        if (
+          p.active &&
+          !(p.pierce && b.chargeSeq === p.seq) &&
+          this.overlap(p.x, p.y, pw, ph, b.x, b.y, bossSprite.w - 8, bossSprite.h - 8)
+        ) {
           b.hp -= p.dmg;
           b.flashT = 0.12;
           this.hud.score += this.spec.scoring.events.bossHit;
           this.engine.sfx.play('hit');
-          this.engine.particles.burst(p.x, p.y, 5, { color: this.spec.palette[9], speed: 70, life: 0.3 });
+          this.engine.particles.burst(p.x, p.y, 5, {
+            color: this.spec.palette[9],
+            speed: 70,
+            life: 0.3,
+          });
           if (p.pierce) b.chargeSeq = p.seq;
           else p.active = false;
         }
@@ -1062,7 +1197,10 @@ class ShooterGame implements GameInstance {
           break;
       }
       this.engine.particles.burst(p.x, p.y, 10, {
-        color: this.spec.palette[13], speed: 60, life: 0.4, gravity: -20,
+        color: this.spec.palette[13],
+        speed: 60,
+        life: 0.4,
+        gravity: -20,
       });
     }
   }
@@ -1077,7 +1215,10 @@ class ShooterGame implements GameInstance {
       this.invulnT = 0.8;
       this.engine.sfx.play('hit');
       this.engine.particles.burst(this.px, this.py, 12, {
-        color: this.spec.palette[4], speed: 80, life: 0.4, gravity: 0,
+        color: this.spec.palette[4],
+        speed: 80,
+        life: 0.4,
+        gravity: 0,
       });
       return;
     }
@@ -1093,7 +1234,9 @@ class ShooterGame implements GameInstance {
     this.hud.lives--;
     this.engine.sfx.play('die');
     this.engine.particles.burst(this.px, this.py, 20, {
-      color: this.spec.palette[5], speed: 130, life: 0.7,
+      color: this.spec.palette[5],
+      speed: 130,
+      life: 0.7,
     });
     // death always clears every bullet in flight
     for (const p of this.pshots) p.active = false;
@@ -1152,8 +1295,14 @@ class ShooterGame implements GameInstance {
 
   /** Center-based AABB overlap — no per-frame allocations. */
   private overlap(
-    ax: number, ay: number, aw: number, ah: number,
-    bx: number, by: number, bw: number, bh: number,
+    ax: number,
+    ay: number,
+    aw: number,
+    ah: number,
+    bx: number,
+    by: number,
+    bw: number,
+    bh: number,
   ): boolean {
     return Math.abs(ax - bx) * 2 < aw + bw && Math.abs(ay - by) * 2 < ah + bh;
   }
@@ -1183,7 +1332,13 @@ class ShooterGame implements GameInstance {
       if (!p.active) continue;
       const img = this.engine.sprites.frame(projSprite, 'idle', p.t);
       if (p.pierce) {
-        r.drawScaled(img, p.x - projSprite.w, p.y - projSprite.h, projSprite.w * 2, projSprite.h * 2);
+        r.drawScaled(
+          img,
+          p.x - projSprite.w,
+          p.y - projSprite.h,
+          projSprite.w * 2,
+          projSprite.h * 2,
+        );
       } else {
         r.draw(img, p.x - projSprite.w / 2, p.y - projSprite.h / 2);
       }
@@ -1193,9 +1348,8 @@ class ShooterGame implements GameInstance {
     for (const e of this.foes) {
       if (!e.active) continue;
       const sprite = this.sprites[e.type]!;
-      const img = e.flashT > 0
-        ? sprite.flash[0]!
-        : this.engine.sprites.frame(sprite, 'fly', e.t, e.vx < 0);
+      const img =
+        e.flashT > 0 ? sprite.flash[0]! : this.engine.sprites.frame(sprite, 'fly', e.t, e.vx < 0);
       r.draw(img, e.x - sprite.w / 2, e.y - sprite.h / 2);
     }
 
@@ -1203,12 +1357,16 @@ class ShooterGame implements GameInstance {
     const b = this.boss;
     if (b && b.active) {
       const sprite = this.sprites['boss']!;
-      const img = b.flashT > 0 ? sprite.flash[0]! : this.engine.sprites.frame(sprite, 'idle', this.animT);
+      const img =
+        b.flashT > 0 ? sprite.flash[0]! : this.engine.sprites.frame(sprite, 'idle', this.animT);
       r.draw(img, b.x - sprite.w / 2, b.y - sprite.h / 2);
       const podSprite = this.sprites['pod']!;
       for (const pod of this.pods) {
         if (!pod.alive) continue;
-        const pimg = pod.flashT > 0 ? podSprite.flash[0]! : this.engine.sprites.frame(podSprite, 'fly', this.animT);
+        const pimg =
+          pod.flashT > 0
+            ? podSprite.flash[0]!
+            : this.engine.sprites.frame(podSprite, 'fly', this.animT);
         r.draw(pimg, b.x + pod.ox - podSprite.w / 2, b.y + pod.oy - podSprite.h / 2);
       }
     }
@@ -1234,9 +1392,10 @@ class ShooterGame implements GameInstance {
       }
       if (this.chargeT > 0.15) {
         const size = 10 + Math.min(1, this.chargeT / CHARGE_TIME) * 8;
-        const color = this.chargeReady && Math.floor(this.animT * 10) % 2 === 0
-          ? this.spec.palette[15]
-          : this.spec.palette[7];
+        const color =
+          this.chargeReady && Math.floor(this.animT * 10) % 2 === 0
+            ? this.spec.palette[15]
+            : this.spec.palette[7];
         r.frame(this.px - size / 2, this.py - size / 2, size, size, color ?? '#f4f4f4');
       }
     }

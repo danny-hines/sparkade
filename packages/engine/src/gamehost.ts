@@ -15,7 +15,14 @@ import { ChiptunePlayer } from './audio/music';
 import { SfxSynth } from './audio/sfx';
 import type { InputBroker } from './input';
 import { GameLoop } from './loop';
-import { HowToPlayCard, InitialsEntry, LeaderboardView, PauseOverlay, ScoreTally, type LeaderboardRow } from './overlays';
+import {
+  HowToPlayCard,
+  InitialsEntry,
+  LeaderboardView,
+  PauseOverlay,
+  ScoreTally,
+  type LeaderboardRow,
+} from './overlays';
 import { ParticleSystem } from './particles';
 import { makeWeather, type Weather } from './weather';
 import { Camera, Renderer } from './renderer';
@@ -49,6 +56,8 @@ export interface EngineContext {
   cards: StoryCards;
   hud: Hud;
   portrait: CanvasImageSource | null;
+  /** Image-generated player combat poses, when this game's asset set includes them. */
+  fighterPoses: Readonly<Record<string, CanvasImageSource>> | null;
   spec: GameSpec;
   /** True when the host runs as a self-playing library demo — archetypes can
    *  read this to drive themselves (e.g. the fighter runs both sides on AI). */
@@ -146,9 +155,14 @@ export class GameHost {
       particles: new ParticleSystem(),
       rng,
       camera: new Camera(),
-      cards: new StoryCards(),
+      cards: new StoryCards({
+        intro: opts.likeness?.storyIntro,
+        boss: opts.likeness?.storyBoss,
+        victory: opts.likeness?.storyVictory,
+      }),
       hud: new Hud(opts.spec.palette),
       portrait: opts.likeness?.portrait ?? null,
+      fighterPoses: opts.likeness?.fighterPoses ?? null,
       spec: opts.spec,
       attract: !!opts.attract,
       shake: (ms = FEEL.screenShakeMs, magnitude = 3) => this.renderer.shake(ms, magnitude),
@@ -164,7 +178,8 @@ export class GameHost {
         this.audio.setVolumes(v);
         opts.callbacks.onVolumesChanged(v);
       },
-      uiBlip: (k) => this.sfx.play(k === 'move' ? 'uiMove' : k === 'select' ? 'uiSelect' : 'uiBack'),
+      uiBlip: (k) =>
+        this.sfx.play(k === 'move' ? 'uiMove' : k === 'select' ? 'uiSelect' : 'uiBack'),
     });
 
     this.howto = new HowToPlayCard(opts.spec.meta.title, opts.archetype.controlHelp);
@@ -400,7 +415,9 @@ export class GameHost {
       const t = Math.min(1, this.startHeldMs / ESCAPE_HOLD_MS);
       r.rect(INTERNAL_WIDTH / 2 - 60, INTERNAL_HEIGHT - 22, 120, 12, '#10122b');
       r.rect(INTERNAL_WIDTH / 2 - 58, INTERNAL_HEIGHT - 20, Math.round(116 * t), 8, '#ffa300');
-      r.text('HOLD TO EXIT', INTERNAL_WIDTH / 2, INTERNAL_HEIGHT - 36, '#f4f4f4', { align: 'center' });
+      r.text('HOLD TO EXIT', INTERNAL_WIDTH / 2, INTERNAL_HEIGHT - 36, '#f4f4f4', {
+        align: 'center',
+      });
     }
 
     if (this.debug) {

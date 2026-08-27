@@ -127,7 +127,14 @@ class PlatformerGame implements GameInstance {
   private backdrop!: Backdrop;
   private ents: Ent[] = [];
   private projs: Proj[] = Array.from({ length: 16 }, () => ({
-    active: false, x: 0, y: 0, vx: 0, vy: 0, friendly: false, grav: false, t: 0,
+    active: false,
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    friendly: false,
+    grav: false,
+    t: 0,
   }));
 
   // player
@@ -151,7 +158,9 @@ class PlatformerGame implements GameInstance {
   private playT = 0;
 
   // boss
-  private boss: (Ent & { attack: BossAttackState; phaseIx: number; invulnT: number; maxHp: number }) | null = null;
+  private boss:
+    (Ent & { attack: BossAttackState; phaseIx: number; invulnT: number; maxHp: number }) | null =
+    null;
 
   private sprites: Record<string, ResolvedSprite> = {};
   private diff!: DifficultyScale;
@@ -200,6 +209,7 @@ class PlatformerGame implements GameInstance {
       title: this.spec.meta.title,
       lines: [line],
       portrait: this.engine.portrait,
+      artRole: 'intro' as const,
     }));
     this.engine.cards.show(cards, () => this.enterLevel(0));
   }
@@ -226,7 +236,13 @@ class PlatformerGame implements GameInstance {
     }
     this.engine.music.playJingle('levelIntro');
     this.engine.cards.show(
-      [{ title: this.spec.levels[ix]!.name, lines: [this.spec.story.levelIntros[ix] ?? '...'], portrait: this.engine.portrait }],
+      [
+        {
+          title: this.spec.levels[ix]!.name,
+          lines: [this.spec.story.levelIntros[ix] ?? '...'],
+          portrait: this.engine.portrait,
+        },
+      ],
       () => {
         this.loadLevel(ix);
         this.engine.music.playSong(this.spec.levels[ix]!.musicSong);
@@ -261,7 +277,14 @@ class PlatformerGame implements GameInstance {
     };
     if (withCard) {
       this.engine.cards.show(
-        [{ title: this.spec.boss.name, lines: [this.spec.story.bossIntro], portrait: this.engine.portrait }],
+        [
+          {
+            title: this.spec.boss.name,
+            lines: [this.spec.story.bossIntro],
+            portrait: this.engine.portrait,
+            artRole: 'boss',
+          },
+        ],
         build,
       );
     } else build();
@@ -277,7 +300,9 @@ class PlatformerGame implements GameInstance {
       for (let x = 0; x < cols; x++) {
         const wall = x === 0 || x === cols - 1;
         const floor = y >= rows - 2;
-        const plat = (y === rows - 6 && (x >= 4 && x <= 8)) || (y === rows - 6 && x >= cols - 9 && x <= cols - 5);
+        const plat =
+          (y === rows - 6 && x >= 4 && x <= 8) ||
+          (y === rows - 6 && x >= cols - 9 && x <= cols - 5);
         row += wall || floor ? '#' : plat ? '=' : '.';
       }
       tiles.push(row);
@@ -301,7 +326,11 @@ class PlatformerGame implements GameInstance {
     // published games without a `backdrop` field render identically; an explicit spec
     // backdrop now carries into the boss fight too. Do NOT drop the fallback to match
     // loadLevel — that would repaint every legacy game's boss arena.
-    this.backdrop = makeBackdrop(this.spec.palette, this.spec.seed + 777, this.spec.backdrop ?? 'caves');
+    this.backdrop = makeBackdrop(
+      this.spec.palette,
+      this.spec.seed + 777,
+      this.spec.backdrop ?? 'caves',
+    );
     this.ents = [];
     for (const p of this.projs) p.active = false;
     this.checkpoint = null;
@@ -367,7 +396,10 @@ class PlatformerGame implements GameInstance {
     for (const [kind, ref] of Object.entries(art)) {
       // Reskinnable terrain: assign role = the default lib id (e.g. "tile_solid":
       // "lib:ice_solid" or a custom 16x16). bob:false keeps tiles still.
-      this.tileCanvases.set(kind, this.engine.sprites.byRole(ref.slice(4), ref, { bob: false }).frames);
+      this.tileCanvases.set(
+        kind,
+        this.engine.sprites.byRole(ref.slice(4), ref, { bob: false }).frames,
+      );
     }
 
     const capRef = this.spec.sprites.assign['tile_solid'] ?? 'lib:tile_solid';
@@ -559,7 +591,11 @@ class PlatformerGame implements GameInstance {
       this.jumpBufT = 0;
       this.spinning = true;
       this.engine.sfx.play('jump');
-      this.engine.particles.burst(this.playerCenterX(), this.playerBottom(), 6, { color: this.spec.palette[7], gravity: 40, speed: 50 });
+      this.engine.particles.burst(this.playerCenterX(), this.playerBottom(), 6, {
+        color: this.spec.palette[7],
+        gravity: 40,
+        speed: 50,
+      });
     }
     // variable jump height
     if ((input.B.released || input.A.released) && this.pvy < -80) this.pvy = -80;
@@ -567,7 +603,12 @@ class PlatformerGame implements GameInstance {
     this.pvy = Math.min(MAX_FALL, this.pvy + this.grav * dt);
 
     const drop = input.DOWN.held && jumpPressed;
-    const grid = { cols: this.grid.cols, rows: this.grid.rows, tileSize: TILE_SIZE, solidityAt: (x: number, y: number) => this.solidity(x, y) };
+    const grid = {
+      cols: this.grid.cols,
+      rows: this.grid.rows,
+      tileSize: TILE_SIZE,
+      solidityAt: (x: number, y: number) => this.solidity(x, y),
+    };
     const box = this.playerBox();
     const moved = moveAABB(grid, box, this.pvx * dt, this.pvy * dt, { dropThrough: drop });
     this.px = moved.x;
@@ -587,7 +628,11 @@ class PlatformerGame implements GameInstance {
         if (!this.checkpoint || this.checkpoint.x !== c.tx) {
           this.checkpoint = { x: c.tx, y: c.ty };
           this.engine.sfx.play('powerup');
-          this.engine.particles.burst(c.tx * TILE_SIZE + 8, c.ty * TILE_SIZE + 4, 10, { color: this.spec.palette[13], gravity: -30, speed: 40 });
+          this.engine.particles.burst(c.tx * TILE_SIZE + 8, c.ty * TILE_SIZE + 4, 10, {
+            color: this.spec.palette[13],
+            gravity: -30,
+            speed: 40,
+          });
         }
       }
     }
@@ -606,7 +651,16 @@ class PlatformerGame implements GameInstance {
     // throw (projectile powerup)
     this.throwCooldown = Math.max(0, this.throwCooldown - dt);
     if (this.power.projectile && (input.X.pressed || input.Y.pressed) && this.throwCooldown <= 0) {
-      if (this.fireProj(this.playerCenterX(), this.playerCenterY(), this.facing * 230, -30, true, true)) {
+      if (
+        this.fireProj(
+          this.playerCenterX(),
+          this.playerCenterY(),
+          this.facing * 230,
+          -30,
+          true,
+          true,
+        )
+      ) {
         this.throwCooldown = 0.35;
         this.engine.sfx.play('shoot');
       }
@@ -629,7 +683,11 @@ class PlatformerGame implements GameInstance {
       this.power.shield = false;
       this.invulnT = 1;
       this.engine.sfx.play('hit');
-      this.engine.particles.burst(this.playerCenterX(), this.playerCenterY(), 10, { color: this.spec.palette[4], gravity: 0, speed: 70 });
+      this.engine.particles.burst(this.playerCenterX(), this.playerCenterY(), 10, {
+        color: this.spec.palette[4],
+        gravity: 0,
+        speed: 70,
+      });
       return;
     }
     this.hud.health--;
@@ -645,7 +703,10 @@ class PlatformerGame implements GameInstance {
   private killPlayer(): void {
     this.hud.lives--;
     this.engine.sfx.play('die');
-    this.engine.particles.burst(this.playerCenterX(), this.playerCenterY(), 18, { color: this.spec.palette[5], speed: 120 });
+    this.engine.particles.burst(this.playerCenterX(), this.playerCenterY(), 18, {
+      color: this.spec.palette[5],
+      speed: 120,
+    });
     if (this.hud.lives < 0) {
       this.phase = 'cards';
       this.engine.music.stopSong();
@@ -689,21 +750,35 @@ class PlatformerGame implements GameInstance {
         case 'chaser': {
           const speed = (e.props.speed ?? 1) * (e.type === 'chaser' ? 60 : 34);
           let dir = e.dir;
-          if (e.type === 'chaser' && Math.abs(this.playerCenterX() - (e.x + e.w / 2)) < TILE_SIZE * 8) {
+          if (
+            e.type === 'chaser' &&
+            Math.abs(this.playerCenterX() - (e.x + e.w / 2)) < TILE_SIZE * 8
+          ) {
             dir = Math.sign(this.playerCenterX() - (e.x + e.w / 2)) || dir;
           }
           const range = (e.props.range ?? 6) * TILE_SIZE;
-          if (e.type === 'walker' && Math.abs(e.x - e.homeX) > range) dir = Math.sign(e.homeX - e.x);
+          if (e.type === 'walker' && Math.abs(e.x - e.homeX) > range)
+            dir = Math.sign(e.homeX - e.x);
           // turn at walls/edges
           const aheadX = dir > 0 ? e.x + e.w + 1 : e.x - 1;
           const footY = Math.floor((e.y + e.h + 2) / TILE_SIZE);
-          const wall = this.solidity(Math.floor(aheadX / TILE_SIZE), Math.floor((e.y + e.h / 2) / TILE_SIZE)) === 'solid';
-          const cliff = this.solidity(Math.floor(aheadX / TILE_SIZE), footY) === 'empty' &&
+          const wall =
+            this.solidity(
+              Math.floor(aheadX / TILE_SIZE),
+              Math.floor((e.y + e.h / 2) / TILE_SIZE),
+            ) === 'solid';
+          const cliff =
+            this.solidity(Math.floor(aheadX / TILE_SIZE), footY) === 'empty' &&
             this.solidity(Math.floor(aheadX / TILE_SIZE), footY) !== 'platform';
           if (wall || (e.type === 'walker' && cliff)) dir = -dir;
           e.dir = dir;
           e.vy = Math.min(MAX_FALL, e.vy + GRAV * dt);
-          const grid = { cols: this.grid.cols, rows: this.grid.rows, tileSize: TILE_SIZE, solidityAt: (x: number, y: number) => this.solidity(x, y) };
+          const grid = {
+            cols: this.grid.cols,
+            rows: this.grid.rows,
+            tileSize: TILE_SIZE,
+            solidityAt: (x: number, y: number) => this.solidity(x, y),
+          };
           const moved = moveAABB(grid, e, dir * speed * dt, e.vy * dt);
           e.x = moved.x;
           e.y = moved.y;
@@ -722,15 +797,32 @@ class PlatformerGame implements GameInstance {
         case 'shooter': {
           e.fireT += dt;
           const interval = (e.props.fireIntervalMs ?? 2200) / 1000 / this.diff.fire;
-          if (e.fireT >= interval && Math.abs(this.playerCenterX() - (e.x + e.w / 2)) < INTERNAL_WIDTH * 0.6) {
+          if (
+            e.fireT >= interval &&
+            Math.abs(this.playerCenterX() - (e.x + e.w / 2)) < INTERNAL_WIDTH * 0.6
+          ) {
             e.fireT = 0;
             if (e.props.aim === 'arc') {
-              this.fireProj(e.x + e.w / 2, e.y, Math.sign(this.playerCenterX() - (e.x + e.w / 2)) * 80, -190, false, true);
+              this.fireProj(
+                e.x + e.w / 2,
+                e.y,
+                Math.sign(this.playerCenterX() - (e.x + e.w / 2)) * 80,
+                -190,
+                false,
+                true,
+              );
             } else {
               const dx = this.playerCenterX() - (e.x + e.w / 2);
               const dy = this.playerCenterY() - (e.y + e.h / 2);
               const len = Math.max(1, Math.hypot(dx, dy));
-              this.fireProj(e.x + e.w / 2, e.y + e.h / 2, (dx / len) * 120, (dy / len) * 120, false, false);
+              this.fireProj(
+                e.x + e.w / 2,
+                e.y + e.h / 2,
+                (dx / len) * 120,
+                (dy / len) * 120,
+                false,
+                false,
+              );
             }
             this.engine.sfx.play('shoot');
           }
@@ -745,8 +837,11 @@ class PlatformerGame implements GameInstance {
           const dym = ny - e.y;
           // carry the player when standing on it
           const onTop =
-            this.playerBottom() >= e.y - 2 && this.playerBottom() <= e.y + 6 &&
-            this.px + this.playerW > e.x && this.px < e.x + e.w && this.pvy >= 0;
+            this.playerBottom() >= e.y - 2 &&
+            this.playerBottom() <= e.y + 6 &&
+            this.px + this.playerW > e.x &&
+            this.px < e.x + e.w &&
+            this.pvy >= 0;
           if (onTop) {
             this.px += dxm;
             this.py = e.y + dym - this.playerH - 0.01;
@@ -771,7 +866,11 @@ class PlatformerGame implements GameInstance {
           e.active = false;
           this.hud.score += this.spec.scoring.events.pickup;
           this.engine.sfx.play('pickup');
-          this.engine.particles.burst(e.x + 6, e.y + 6, 5, { color: this.spec.palette[13], gravity: 60, speed: 45 });
+          this.engine.particles.burst(e.x + 6, e.y + 6, 5, {
+            color: this.spec.palette[13],
+            gravity: 60,
+            speed: 45,
+          });
           break;
         case 'heart':
           e.active = false;
@@ -785,7 +884,11 @@ class PlatformerGame implements GameInstance {
           this.power[kind] = true;
           this.hud.score += this.spec.scoring.events.pickup;
           this.engine.sfx.play('powerup');
-          this.engine.particles.burst(e.x + 6, e.y + 6, 14, { color: this.spec.palette[7], gravity: -20, speed: 60 });
+          this.engine.particles.burst(e.x + 6, e.y + 6, 14, {
+            color: this.spec.palette[7],
+            gravity: -20,
+            speed: 60,
+          });
           break;
         }
         case 'spring':
@@ -808,7 +911,10 @@ class PlatformerGame implements GameInstance {
             this.hud.score += this.spec.scoring.events.enemyKill;
             this.engine.sfx.play('hit');
             this.engine.hitStop(40);
-            this.engine.particles.burst(e.x + 7, e.y + 7, 10, { color: this.spec.palette[8], speed: 90 });
+            this.engine.particles.burst(e.x + 7, e.y + 7, 10, {
+              color: this.spec.palette[8],
+              speed: 90,
+            });
           } else {
             this.hurtPlayer();
           }
@@ -829,11 +935,19 @@ class PlatformerGame implements GameInstance {
     if (phaseIx !== b.phaseIx) {
       b.phaseIx = phaseIx;
       this.engine.shake(300, 4);
-      this.engine.particles.burst(b.x + b.w / 2, b.y + b.h / 2, 20, { color: this.spec.palette[11], speed: 130 });
+      this.engine.particles.burst(b.x + b.w / 2, b.y + b.h / 2, 20, {
+        color: this.spec.palette[11],
+        speed: 130,
+      });
     }
     const phase = this.spec.boss.phases[b.phaseIx]!;
     const tempo = phase.tempo;
-    const grid = { cols: this.grid.cols, rows: this.grid.rows, tileSize: TILE_SIZE, solidityAt: (x: number, y: number) => this.solidity(x, y) };
+    const grid = {
+      cols: this.grid.cols,
+      rows: this.grid.rows,
+      tileSize: TILE_SIZE,
+      solidityAt: (x: number, y: number) => this.solidity(x, y),
+    };
 
     const atk = b.attack;
     atk.t += dt;
@@ -887,11 +1001,20 @@ class PlatformerGame implements GameInstance {
         if (atk.t < atk.telegraph) break;
         const n = 3 + b.phaseIx;
         for (let i = 0; i < n; i++) {
-          const a = Math.atan2(
-            this.playerCenterY() - (b.y + b.h / 2),
-            this.playerCenterX() - (b.x + b.w / 2),
-          ) + ((i - (n - 1) / 2) * Math.PI) / 10;
-          this.fireProj(b.x + b.w / 2, b.y + b.h / 2, Math.cos(a) * 130 * tempo, Math.sin(a) * 130 * tempo, false, false);
+          const a =
+            Math.atan2(
+              this.playerCenterY() - (b.y + b.h / 2),
+              this.playerCenterX() - (b.x + b.w / 2),
+            ) +
+            ((i - (n - 1) / 2) * Math.PI) / 10;
+          this.fireProj(
+            b.x + b.w / 2,
+            b.y + b.h / 2,
+            Math.cos(a) * 130 * tempo,
+            Math.sin(a) * 130 * tempo,
+            false,
+            false,
+          );
         }
         this.engine.sfx.play('shoot');
         b.attack = { name: 'idle', t: 0, telegraph: 0 };
@@ -901,9 +1024,17 @@ class PlatformerGame implements GameInstance {
         if (atk.t < atk.telegraph) break;
         const minions = this.ents.filter((e) => e.active && e.type === 'walker').length;
         if (minions < 3) {
-          const m = this.makeEnt({ type: 'walker', x: Math.round(b.x / TILE_SIZE) - 2, y: Math.round(b.y / TILE_SIZE), props: { speed: 1.4 } });
+          const m = this.makeEnt({
+            type: 'walker',
+            x: Math.round(b.x / TILE_SIZE) - 2,
+            y: Math.round(b.y / TILE_SIZE),
+            props: { speed: 1.4 },
+          });
           this.ents.push(m);
-          this.engine.particles.burst(m.x + 7, m.y + 7, 8, { color: this.spec.palette[10], speed: 70 });
+          this.engine.particles.burst(m.x + 7, m.y + 7, 8, {
+            color: this.spec.palette[10],
+            speed: 70,
+          });
         }
         b.attack = { name: 'idle', t: 0, telegraph: 0 };
         break;
@@ -934,7 +1065,10 @@ class PlatformerGame implements GameInstance {
         this.engine.sfx.play('hit');
         this.engine.hitStop(70);
         this.engine.shake(150, 2);
-        this.engine.particles.burst(b.x + b.w / 2, b.y + 4, 12, { color: this.spec.palette[9], speed: 100 });
+        this.engine.particles.burst(b.x + b.w / 2, b.y + 4, 12, {
+          color: this.spec.palette[9],
+          speed: 100,
+        });
       } else if (!falling || !above) {
         this.hurtPlayer();
       }
@@ -945,12 +1079,20 @@ class PlatformerGame implements GameInstance {
       b.active = false;
       this.hud.boss = undefined;
       this.hud.score += this.spec.scoring.events.levelClear;
-      this.engine.particles.burst(b.x + b.w / 2, b.y + b.h / 2, 40, { color: this.spec.palette[12], speed: 160, life: 1 });
+      this.engine.particles.burst(b.x + b.w / 2, b.y + b.h / 2, 40, {
+        color: this.spec.palette[12],
+        speed: 160,
+        life: 1,
+      });
       this.engine.shake(500, 5);
       this.engine.music.stopSong();
       this.phase = 'cards';
       this.engine.cards.show(
-        this.spec.story.victory.map((line) => ({ lines: [line], portrait: this.engine.portrait })),
+        this.spec.story.victory.map((line) => ({
+          lines: [line],
+          portrait: this.engine.portrait,
+          artRole: 'victory' as const,
+        })),
         () => {
           const par = estimatePlatformerDurationS(this.spec) * 1.35;
           this.result = {
@@ -965,7 +1107,14 @@ class PlatformerGame implements GameInstance {
 
   // ------------------------------------------------------------- projectiles
 
-  private fireProj(x: number, y: number, vx: number, vy: number, friendly: boolean, grav: boolean): boolean {
+  private fireProj(
+    x: number,
+    y: number,
+    vx: number,
+    vy: number,
+    friendly: boolean,
+    grav: boolean,
+  ): boolean {
     for (const p of this.projs) {
       if (p.active) continue;
       p.active = true;
@@ -1005,13 +1154,24 @@ class PlatformerGame implements GameInstance {
       const box = { x: p.x - 3, y: p.y - 3, w: 6, h: 6 };
       if (p.friendly) {
         for (const e of this.ents) {
-          if (!e.active || e.type === 'coin' || e.type === 'heart' || e.type === 'powerup' || e.type === 'spring' || e.type === 'movingPlatform') continue;
+          if (
+            !e.active ||
+            e.type === 'coin' ||
+            e.type === 'heart' ||
+            e.type === 'powerup' ||
+            e.type === 'spring' ||
+            e.type === 'movingPlatform'
+          )
+            continue;
           if (aabbOverlap(box, e)) {
             e.active = false;
             p.active = false;
             this.hud.score += this.spec.scoring.events.enemyKill;
             this.engine.sfx.play('hit');
-            this.engine.particles.burst(e.x + 7, e.y + 7, 10, { color: this.spec.palette[8], speed: 90 });
+            this.engine.particles.burst(e.x + 7, e.y + 7, 10, {
+              color: this.spec.palette[8],
+              speed: 90,
+            });
             break;
           }
         }
@@ -1080,9 +1240,7 @@ class PlatformerGame implements GameInstance {
       const drawX = e.x - cam.x - (sprite.w - e.w) / 2;
       // A moving platform is a one-way top surface. Pin its normalized first
       // opaque row to that surface instead of bottom-aligning it like an actor.
-      const drawY = e.type === 'movingPlatform'
-        ? e.y - cam.y
-        : e.y - cam.y - (sprite.h - e.h);
+      const drawY = e.type === 'movingPlatform' ? e.y - cam.y : e.y - cam.y - (sprite.h - e.h);
       r.draw(img, drawX, drawY);
     }
 
@@ -1090,7 +1248,12 @@ class PlatformerGame implements GameInstance {
     const b = this.boss;
     if (b && b.active) {
       const sprite = this.sprites['boss']!;
-      const anim = b.attack.name !== 'idle' && b.attack.t < b.attack.telegraph + 0.3 ? 'attack' : b.invulnT > 0 ? 'hurt' : 'idle';
+      const anim =
+        b.attack.name !== 'idle' && b.attack.t < b.attack.telegraph + 0.3
+          ? 'attack'
+          : b.invulnT > 0
+            ? 'hurt'
+            : 'idle';
       const img = this.engine.sprites.frame(sprite, anim, this.animT, b.dir > 0);
       r.draw(img, b.x - cam.x - (sprite.w - b.w) / 2, b.y - cam.y - (sprite.h - b.h));
     }
@@ -1109,7 +1272,12 @@ class PlatformerGame implements GameInstance {
       const anim = !this.onGround ? 'jump' : Math.abs(this.pvx) > 8 ? 'walk' : 'idle';
       let img = this.engine.sprites.frame(hero, anim, this.animT, this.facing < 0);
       if (this.spinning && !this.onGround) {
-        img = this.engine.sprites.frame(hero, 'jump', this.animT, Math.floor(this.animT * 12) % 2 === 0);
+        img = this.engine.sprites.frame(
+          hero,
+          'jump',
+          this.animT,
+          Math.floor(this.animT * 12) % 2 === 0,
+        );
       }
       const heroWorldX = this.px - (hero.w - this.playerW) / 2;
       const heroWorldY = this.py - (hero.h - this.playerH);
@@ -1118,13 +1286,7 @@ class PlatformerGame implements GameInstance {
       r.draw(img, heroX, heroY);
       if (this.power.shield) {
         if (hero.appliedPresentation === 'tall-humanoid') {
-          r.frame(
-            heroX - 1,
-            heroY - 1,
-            hero.w + 2,
-            hero.h + 2,
-            this.spec.palette[4] ?? '#41a6f6',
-          );
+          r.frame(heroX - 1, heroY - 1, hero.w + 2, hero.h + 2, this.spec.palette[4] ?? '#41a6f6');
         } else {
           r.frame(
             this.px - cam.x - 4,

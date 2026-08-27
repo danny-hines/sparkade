@@ -3,7 +3,15 @@
 // job continues; a reload lands right back in the real job state.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import type { JobEvent, JobStage, PartialSpec, SpriteData, SpritesBlock, SystemInfo } from '@sparkade/shared';
+import {
+  DEFAULT_MODEL,
+  type JobEvent,
+  type JobStage,
+  type PartialSpec,
+  type SpriteData,
+  type SpritesBlock,
+  type SystemInfo,
+} from '@sparkade/shared';
 import { ChiptunePlayer, decodeSprite, LIBRARY } from '@sparkade/engine';
 import { api, subscribeJob, type GameDetail } from '../api';
 import { FooterLegend, fmtElapsed, usd, useNow } from '../components';
@@ -15,7 +23,10 @@ const nfmt = (n: number): string => n.toLocaleString('en-US');
 
 /** Resolve a `hero`/`walker`/… ref to its pixels: `custom:` art the model drew,
  *  or a `lib:` sprite from the built-in library. */
-function resolveRef(ref: string | undefined, custom: Record<string, SpriteData>): SpriteData | null {
+function resolveRef(
+  ref: string | undefined,
+  custom: Record<string, SpriteData>,
+): SpriteData | null {
   if (!ref) return null;
   if (ref.startsWith('custom:')) return custom[ref.slice(7)] ?? null;
   if (ref.startsWith('lib:')) return LIBRARY[ref.slice(4)]?.frames[0] ?? null;
@@ -27,7 +38,11 @@ function resolveRef(ref: string | undefined, custom: Record<string, SpriteData>)
 function castPreview(sprites: SpritesBlock, limit = 6): { key: string; data: SpriteData }[] {
   const out: { key: string; data: SpriteData }[] = [];
   const seen = new Set<string>();
-  const roles = ['hero', 'boss', ...Object.keys(sprites.assign).filter((k) => k !== 'hero' && k !== 'boss')];
+  const roles = [
+    'hero',
+    'boss',
+    ...Object.keys(sprites.assign).filter((k) => k !== 'hero' && k !== 'boss'),
+  ];
   for (const role of roles) {
     const ref = sprites.assign[role];
     if (!ref || seen.has(ref)) continue;
@@ -81,7 +96,7 @@ const STAGES: { id: JobStage; label: string }[] = [
   { id: 'writing-spec', label: 'Writing levels · entities · music' },
   { id: 'validating', label: 'Validating every rule' },
   { id: 'repairing', label: 'Repairing (only if needed)' },
-  { id: 'building-assets', label: 'Baking sprites & saving' },
+  { id: 'building-assets', label: 'Generating hero & story art' },
 ];
 
 const FLAVOR = [
@@ -92,6 +107,7 @@ const FLAVOR = [
   'Hiding a secret in level 2…',
   'Arguing about coyote time…',
   'Polishing the pixels one by one…',
+  'Painting the intro, boss, and victory scenes…',
   'Composing a hummable hook…',
   'Placing checkpoints kindly…',
   'Rolling the dice on a seed…',
@@ -132,7 +148,10 @@ export function GenerationScreen(props: {
 
   // Which model + provider is doing the work (for the "Meta Model API" credit).
   useEffect(() => {
-    void api.systemInfo().then(setInfo).catch(() => {});
+    void api
+      .systemInfo()
+      .then(setInfo)
+      .catch(() => {});
   }, []);
 
   // Poll the game detail so we can reveal the model's design (title/tagline/
@@ -140,7 +159,11 @@ export function GenerationScreen(props: {
   // existing endpoints — the SSE feed stays lean.
   useEffect(() => {
     let alive = true;
-    const fetchDetail = () => void api.getGame(props.gameId).then((d) => alive && setGd(d)).catch(() => {});
+    const fetchDetail = () =>
+      void api
+        .getGame(props.gameId)
+        .then((d) => alive && setGd(d))
+        .catch(() => {});
     // The partial holds the stable pieces the model has finished (palette, then
     // sprites, then music). Once published, staging is gone and the endpoint
     // returns null — keep the last good snapshot so the reveal doesn't blink out.
@@ -166,7 +189,10 @@ export function GenerationScreen(props: {
   // Final refresh once the job settles (accurate final token/cost numbers).
   useEffect(() => {
     if (event?.type === 'done' || event?.type === 'failed') {
-      void api.getGame(props.gameId).then(setGd).catch(() => {});
+      void api
+        .getGame(props.gameId)
+        .then(setGd)
+        .catch(() => {});
     }
   }, [event?.type, props.gameId]);
 
@@ -264,17 +290,23 @@ export function GenerationScreen(props: {
         : event?.type === 'failed'
           ? event.costSoFarUsd
           : 0;
-  const elapsed = baseElapsed.current + (event && event.type === 'progress' ? now - startClock - 0 : 0);
+  const elapsed =
+    baseElapsed.current + (event && event.type === 'progress' ? now - startClock - 0 : 0);
   // client clock keeps ticking between SSE frames
   const shownElapsed = Math.max(baseElapsed.current, now - startClock);
   const slow = event?.type === 'progress' && event.slow;
   const waiting = event?.type === 'progress' && event.waitingForNetwork;
   void elapsed;
 
-  // --- Muse Spark showcase (all derived from existing endpoints) ---
+  // --- Meta Model API showcase (all derived from existing endpoints) ---
   const isMock = info?.provider === 'mock' || info?.model === 'mock';
-  const modelName = info ? info.model : 'muse-spark-1.1'; // real model once loaded; 'mock' when mocked
-  const modelDisplay = isMock ? 'the mock model' : /muse-spark/i.test(modelName) ? 'Muse Spark' : modelName;
+  const modelName = info ? info.model : DEFAULT_MODEL; // real model once loaded; 'mock' when mocked
+  const imageModelName = info?.imageModel ?? 'muse-image-1.0';
+  const modelDisplay = isMock
+    ? 'the mock model'
+    : /muse-spark/i.test(modelName)
+      ? 'Muse Spark'
+      : modelName;
   const providerLabel = isMock ? 'MOCK PROVIDER' : 'META MODEL API';
   const idea = gd?.meta?.sourcePrompt ?? '';
   const gi = gd?.item;
@@ -290,7 +322,9 @@ export function GenerationScreen(props: {
   const modelByline = (
     <div class={`gen-byline${isMock ? ' mock' : ''}`}>
       <Icon name="sparkle" /> {providerLabel}
-      <span class="gen-model">{modelName}</span>
+      <span class="gen-model">
+        {modelName} + {imageModelName}
+      </span>
     </div>
   );
 
@@ -298,8 +332,12 @@ export function GenerationScreen(props: {
     return (
       <div class="screen">
         <div class="center-col">
-          <div style="font-size:56px"><Icon name="joystick" /></div>
-          <h1 class="pixel" style="color:var(--ok)">GAME READY!</h1>
+          <div style="font-size:56px">
+            <Icon name="joystick" />
+          </div>
+          <h1 class="pixel" style="color:var(--ok)">
+            GAME READY!
+          </h1>
           {gi && designLanded && (
             <div class="gen-done-card">
               <div class="reveal-title pixel">{gi.title}</div>
@@ -315,10 +353,18 @@ export function GenerationScreen(props: {
             </div>
           )}
           <div style="color:var(--text-dim);font-size:18px">
-            {isMock ? 'The mock model' : modelDisplay} built it in {fmtElapsed(event.elapsedMs)} · {usd(event.costUsd)}
+            {isMock ? 'The mock models' : `${modelDisplay} + Muse Image`} built it in{' '}
+            {fmtElapsed(event.elapsedMs)} · {usd(event.costUsd)}
             {tokens > 0 ? ` · ${nfmt(tokens)} tokens` : ''}
           </div>
-          {!isMock && <div class="gen-byline done"><Icon name="sparkle" /> META MODEL API<span class="gen-model">{modelName}</span></div>}
+          {!isMock && (
+            <div class="gen-byline done">
+              <Icon name="sparkle" /> META MODEL API
+              <span class="gen-model">
+                {modelName} + {imageModelName}
+              </span>
+            </div>
+          )}
           <div class="focusable focused" style="padding:16px 44px;font-size:24px;margin-top:16px">
             <Icon name="play" /> Play now
           </div>
@@ -337,12 +383,21 @@ export function GenerationScreen(props: {
     return (
       <div class="screen">
         <div class="center-col">
-          <div style="font-size:50px"><Icon name="warning" /></div>
-          <h1 class="pixel" style="color:var(--danger);font-size:22px">GENERATION FAILED</h1>
-          <div style="font-size:19px;max-width:640px;color:var(--text-dim)">{friendly(event.code, event.message)}</div>
-          <div class="error-code">CODE: {event.code.toUpperCase()} · STAGE: {event.stage.toUpperCase()}</div>
+          <div style="font-size:50px">
+            <Icon name="warning" />
+          </div>
+          <h1 class="pixel" style="color:var(--danger);font-size:22px">
+            GENERATION FAILED
+          </h1>
+          <div style="font-size:19px;max-width:640px;color:var(--text-dim)">
+            {friendly(event.code, event.message)}
+          </div>
+          <div class="error-code">
+            CODE: {event.code.toUpperCase()} · STAGE: {event.stage.toUpperCase()}
+          </div>
           <div style="color:var(--text-dim);font-size:17px">
-            Spent so far: {usd(event.costSoFarUsd)} — your idea and photo are saved; Retry won't re-record anything.
+            Spent so far: {usd(event.costSoFarUsd)} — your idea and photo are saved; Retry won't
+            re-record anything.
           </div>
           <div class="focusable focused" style="padding:14px 40px;font-size:22px;margin-top:10px">
             <Icon name="refresh" /> Go to Retry
@@ -363,8 +418,12 @@ export function GenerationScreen(props: {
       <div class="screen-title">
         <h2 class="pixel">GENERATING…</h2>
         <span class="status-chips">
-          <span class="chip"><Icon name="timer" /> {fmtElapsed(shownElapsed)}</span>
-          <span class="chip cost-ticker">{cost === null ? 'cost unavailable' : `$${(cost ?? 0).toFixed(3)}`}</span>
+          <span class="chip">
+            <Icon name="timer" /> {fmtElapsed(shownElapsed)}
+          </span>
+          <span class="chip cost-ticker">
+            {cost === null ? 'cost unavailable' : `$${(cost ?? 0).toFixed(3)}`}
+          </span>
         </span>
       </div>
       <div class="screen-body" style="display:flex;gap:40px;align-items:center">
@@ -376,8 +435,13 @@ export function GenerationScreen(props: {
               return null; // only appears when reached (honesty: it may be skipped)
             }
             return (
-              <div key={s.id} class={`genstage ${isDone ? 'done' : ''} ${isActive ? 'active' : ''}`}>
-                <span class="tick">{isDone ? <Icon name="check" /> : isActive ? <Icon name="dot" /> : null}</span>
+              <div
+                key={s.id}
+                class={`genstage ${isDone ? 'done' : ''} ${isActive ? 'active' : ''}`}
+              >
+                <span class="tick">
+                  {isDone ? <Icon name="check" /> : isActive ? <Icon name="dot" /> : null}
+                </span>
                 <span>
                   {s.label}
                   {isActive && event?.type === 'progress' && event.unitsTotal
@@ -393,7 +457,9 @@ export function GenerationScreen(props: {
           {idea && <div class="gen-idea">Your idea: “{idea}”</div>}
           {designLanded && gi ? (
             <div class="gen-reveal">
-              <div class="gen-reveal-label">{isMock ? 'The mock produced' : 'Muse Spark dreamed up'}</div>
+              <div class="gen-reveal-label">
+                {isMock ? 'The mock produced' : 'Muse Spark dreamed up'}
+              </div>
               <div class="reveal-title pixel">{gi.title}</div>
               <div class="reveal-tagline">{gi.tagline}</div>
               <div class="gen-reveal-meta">
@@ -406,7 +472,9 @@ export function GenerationScreen(props: {
           )}
           {cast.length > 0 && (
             <div class="gen-built">
-              <div class="gen-reveal-label">{isMock ? 'Sprites (mock)' : 'Sprites it just drew'}</div>
+              <div class="gen-reveal-label">
+                {isMock ? 'Sprites (mock)' : 'Sprites it just drew'}
+              </div>
               <div class="gen-sprites">
                 {cast.map((c) => (
                   <SpritePreview key={c.key} data={c.data} palette={palette} />
@@ -422,14 +490,19 @@ export function GenerationScreen(props: {
           <div style="font-size:19px">{detail || 'Warming up…'}</div>
           {tokens > 0 && (
             <div class="gen-tokens">
-              <Icon name="sparkle" /> {nfmt(tokens)} tokens processed{cached > 0 ? ` · ${nfmt(cached)} cached` : ''}
+              <Icon name="sparkle" /> {nfmt(tokens)} tokens processed
+              {cached > 0 ? ` · ${nfmt(cached)} cached` : ''}
             </div>
           )}
           {waiting && (
-            <div style="color:var(--danger);font-size:19px">Waiting for network — the job will continue automatically.</div>
+            <div style="color:var(--danger);font-size:19px">
+              Waiting for network — the job will continue automatically.
+            </div>
           )}
           {slow && !waiting && (
-            <div style="color:var(--gold);font-size:18px">Taking longer than usual — still working.</div>
+            <div style="color:var(--gold);font-size:18px">
+              Taking longer than usual — still working.
+            </div>
           )}
         </div>
       </div>
@@ -447,7 +520,7 @@ function friendly(code: string, message: string): string {
     case 'call-timeout':
       return 'The model took too long on one step (usually the levels). Retry — this run gives it a longer leash.';
     case 'timeout':
-      return 'Generation hit the 8 minute limit. Retry — a fresh run usually lands well under it.';
+      return 'Generation hit the time limit. Retry — cached stages and images make the next attempt faster.';
     case 'validation-failed':
       return 'The model kept producing a game that failed our safety and playability checks. Retry, or reword the idea a little.';
     case 'design-invalid':

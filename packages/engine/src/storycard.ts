@@ -11,8 +11,16 @@ export interface CardContent {
   title?: string;
   lines: string[];
   portrait?: CanvasImageSource | null;
+  /** Selects image-generated scene art supplied by the host. */
+  artRole?: 'intro' | 'boss' | 'victory';
   /** Auto-advance after this many seconds once fully revealed (0 = wait for input). */
   autoAdvanceS?: number;
+}
+
+export interface StoryArt {
+  intro?: CanvasImageSource | null;
+  boss?: CanvasImageSource | null;
+  victory?: CanvasImageSource | null;
 }
 
 export class StoryCards {
@@ -21,6 +29,8 @@ export class StoryCards {
   private fullyRevealedAt = -1;
   private t = 0;
   private onAllDone: (() => void) | null = null;
+
+  constructor(private art: StoryArt = {}) {}
 
   get active(): boolean {
     return this.queue.length > 0;
@@ -46,7 +56,8 @@ export class StoryCards {
       if (this.revealed >= total) this.fullyRevealedAt = this.t;
     } else {
       const auto = card.autoAdvanceS ?? 0;
-      const autoFire = auto > 0 && this.fullyRevealedAt >= 0 && this.t - this.fullyRevealedAt >= auto;
+      const autoFire =
+        auto > 0 && this.fullyRevealedAt >= 0 && this.t - this.fullyRevealedAt >= auto;
       if (input.A.pressed || input.START.pressed || autoFire) this.advance();
     }
     return true;
@@ -89,7 +100,18 @@ export class StoryCards {
     const panelH = 180;
     const px = (INTERNAL_WIDTH - panelW) / 2;
     const py = (INTERNAL_HEIGHT - panelH) / 2;
-    r.panel(px, py, panelW, panelH);
+    const scene = card.artRole ? this.art[card.artRole] : null;
+    if (scene) {
+      // Muse art remains visible as the card's setting while a dark wash keeps
+      // the small bitmap font readable against arbitrary generated imagery.
+      r.drawScaled(scene, px, py, panelW, panelH);
+      r.ctx.fillStyle = 'rgba(4, 6, 14, 0.64)';
+      r.ctx.fillRect(px, py, panelW, panelH);
+      r.frame(px, py, panelW, panelH, r.theme.panelBorder);
+      r.frame(px + 2, py + 2, panelW - 4, panelH - 4, '#00000055');
+    } else {
+      r.panel(px, py, panelW, panelH);
+    }
 
     let textX = px + 16;
     let textW = panelW - 32;

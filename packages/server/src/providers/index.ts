@@ -1,6 +1,11 @@
 // Provider factory + per-stage resolution. Pipeline code depends only on the
 // Provider interface — no provider checks scattered through business logic.
-import type { Provider, SparkadeConfig, StageName } from '@sparkade/shared';
+import {
+  DEFAULT_MODEL,
+  type Provider,
+  type SparkadeConfig,
+  type StageName,
+} from '@sparkade/shared';
 import { AnthropicProvider } from './anthropic';
 import { MetaProvider } from './meta';
 import { MockProvider } from './mock';
@@ -42,7 +47,7 @@ export function stageProvider(
     return {
       provider: buildProvider(override, config),
       providerName: override,
-      model: config.stages[stage]?.model ?? 'muse-spark-1.1',
+      model: config.stages[stage]?.model ?? DEFAULT_MODEL,
     };
   }
   const stageCfg = config.stages[stage];

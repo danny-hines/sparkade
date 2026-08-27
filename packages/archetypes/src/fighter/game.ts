@@ -28,6 +28,7 @@ import {
   type FighterSpec,
 } from '@sparkade/shared';
 import {
+  FIGHTER_POSES,
   drawFighter,
   fighterIdentitySeed,
   fighterColorsForPalette,
@@ -76,14 +77,76 @@ interface Move {
 }
 
 const MOVES: Record<MoveId, Move> = {
-  punchLow: { pose: 'punchLow', startup: 0.05, active: 0.04, recovery: 0.12, dmg: 5, reach: 24, hitY: -22, height: 'low', knockback: 24, hitstun: 0.24, blockstun: 0.14 },
-  punchHigh: { pose: 'punchHigh', startup: 0.07, active: 0.05, recovery: 0.16, dmg: 8, reach: 28, hitY: -30, height: 'high', knockback: 34, hitstun: 0.3, blockstun: 0.18 },
-  kickLow: { pose: 'kickLow', startup: 0.09, active: 0.06, recovery: 0.24, dmg: 9, reach: 30, hitY: -6, height: 'low', knockback: 48, hitstun: 0.32, blockstun: 0.2, knockdown: true },
-  kickHigh: { pose: 'kickHigh', startup: 0.11, active: 0.06, recovery: 0.22, dmg: 12, reach: 32, hitY: -24, height: 'high', knockback: 66, hitstun: 0.36, blockstun: 0.22 },
-  airKick: { pose: 'kickHigh', startup: 0.06, active: 0.16, recovery: 0.08, dmg: 9, reach: 26, hitY: -20, height: 'overhead', knockback: 30, hitstun: 0.3, blockstun: 0.18 },
+  punchLow: {
+    pose: 'punchLow',
+    startup: 0.05,
+    active: 0.04,
+    recovery: 0.12,
+    dmg: 5,
+    reach: 24,
+    hitY: -22,
+    height: 'low',
+    knockback: 24,
+    hitstun: 0.24,
+    blockstun: 0.14,
+  },
+  punchHigh: {
+    pose: 'punchHigh',
+    startup: 0.07,
+    active: 0.05,
+    recovery: 0.16,
+    dmg: 8,
+    reach: 28,
+    hitY: -30,
+    height: 'high',
+    knockback: 34,
+    hitstun: 0.3,
+    blockstun: 0.18,
+  },
+  kickLow: {
+    pose: 'kickLow',
+    startup: 0.09,
+    active: 0.06,
+    recovery: 0.24,
+    dmg: 9,
+    reach: 30,
+    hitY: -6,
+    height: 'low',
+    knockback: 48,
+    hitstun: 0.32,
+    blockstun: 0.2,
+    knockdown: true,
+  },
+  kickHigh: {
+    pose: 'kickHigh',
+    startup: 0.11,
+    active: 0.06,
+    recovery: 0.22,
+    dmg: 12,
+    reach: 32,
+    hitY: -24,
+    height: 'high',
+    knockback: 66,
+    hitstun: 0.36,
+    blockstun: 0.22,
+  },
+  airKick: {
+    pose: 'kickHigh',
+    startup: 0.06,
+    active: 0.16,
+    recovery: 0.08,
+    dmg: 9,
+    reach: 26,
+    hitY: -20,
+    height: 'overhead',
+    knockback: 30,
+    hitstun: 0.3,
+    blockstun: 0.18,
+  },
 };
 
-type State = 'idle' | 'walk' | 'crouch' | 'jump' | 'attack' | 'block' | 'hitstun' | 'blockstun' | 'ko';
+type State =
+  'idle' | 'walk' | 'crouch' | 'jump' | 'attack' | 'block' | 'hitstun' | 'blockstun' | 'ko';
 
 interface Actor {
   x: number;
@@ -121,6 +184,26 @@ interface Actor {
   aiRecoveryT: number;
   aiSeenFoeMove: number;
   aiGuardingFoeMove: number;
+}
+
+type GeneratedFighterPoses = Readonly<Record<FighterPose, CanvasImageSource>>;
+
+/**
+ * Take a stable snapshot only when every runtime pose is available. Generated
+ * art is deliberately all-or-nothing so an incomplete upload can never make
+ * the player alternate between generated and procedural identities mid-fight.
+ */
+function completeGeneratedFighterPoses(
+  poses: Readonly<Record<string, CanvasImageSource>> | null,
+): GeneratedFighterPoses | null {
+  if (!poses) return null;
+  const complete = {} as Record<FighterPose, CanvasImageSource>;
+  for (const pose of FIGHTER_POSES) {
+    const image = poses[pose];
+    if (!image) return null;
+    complete[pose] = image;
+  }
+  return complete;
 }
 
 /** Stable visual fallback for pre-outfit games; never consumes gameplay RNG. */
@@ -161,6 +244,7 @@ class FighterGame implements GameInstance {
   private p!: Actor;
   private o!: Actor;
   private playerLikenessHead: CanvasImageSource | null;
+  private playerGeneratedPoses: GeneratedFighterPoses | null;
   private backdrop: Backdrop;
   private bgVariant: BackdropVariant;
 
@@ -170,6 +254,7 @@ class FighterGame implements GameInstance {
   ) {
     this.diff = difficultyScale(this.spec.difficulty);
     this.playerLikenessHead = this.engine.sprites.likenessHead(16, 'side');
+    this.playerGeneratedPoses = completeGeneratedFighterPoses(this.engine.fighterPoses);
     this.bgVariant = pickVariant(this.spec.palette, this.spec.seed, this.spec.backdrop);
     this.backdrop = makeBackdrop(this.spec.palette, this.spec.seed, this.bgVariant);
     // Init both actors so render() is safe during the pre-fight story cards.
@@ -274,7 +359,12 @@ class FighterGame implements GameInstance {
   }
 
   start(): void {
-    const cards = this.spec.story.intro.map((line) => ({ title: this.spec.meta.title, lines: [line], portrait: this.engine.portrait }));
+    const cards = this.spec.story.intro.map((line) => ({
+      title: this.spec.meta.title,
+      lines: [line],
+      portrait: this.engine.portrait,
+      artRole: 'intro' as const,
+    }));
     this.engine.cards.show(cards, () => this.enterBout(0));
   }
 
@@ -293,15 +383,25 @@ class FighterGame implements GameInstance {
     this.oWins = 0;
     this.roundNum = 1;
     const boss = this.isBoss();
-    const line = boss ? this.spec.story.bossIntro : this.spec.story.levelIntros[ix] ?? '...';
+    const line = boss ? this.spec.story.bossIntro : (this.spec.story.levelIntros[ix] ?? '...');
     const name = boss ? this.spec.boss.name : this.spec.levels[ix]!.name;
     this.phase = 'cards';
     this.engine.music.playJingle('levelIntro');
-    this.engine.cards.show([{ title: name, lines: [line], portrait: this.engine.portrait }], () => {
-      this.engine.music.playSong(boss ? 'boss' : this.spec.levels[ix]!.musicSong);
-      this.startRound(true);
-      this.phase = 'fight';
-    });
+    this.engine.cards.show(
+      [
+        {
+          title: name,
+          lines: [line],
+          portrait: this.engine.portrait,
+          ...(boss ? { artRole: 'boss' as const } : {}),
+        },
+      ],
+      () => {
+        this.engine.music.playSong(boss ? 'boss' : this.spec.levels[ix]!.musicSong);
+        this.startRound(true);
+        this.phase = 'fight';
+      },
+    );
   }
 
   private startRound(fresh: boolean): void {
@@ -395,7 +495,7 @@ class FighterGame implements GameInstance {
     if (this.p.state !== 'ko' && this.o.state !== 'ko') {
       const dir = this.o.x >= this.p.x ? 1 : -1;
       if (this.p.state === 'idle' || this.p.state === 'walk') this.p.facing = dir;
-      if (this.o.state === 'idle' || this.o.state === 'walk') this.o.facing = (dir === 1 ? -1 : 1);
+      if (this.o.state === 'idle' || this.o.state === 'walk') this.o.facing = dir === 1 ? -1 : 1;
     }
   }
 
@@ -471,7 +571,10 @@ class FighterGame implements GameInstance {
     } else {
       // air: one attack per jump
       a.state = 'jump';
-      if (!a.airMove && (input.Y.pressed || input.X.pressed || input.A.pressed || input.B.pressed)) {
+      if (
+        !a.airMove &&
+        (input.Y.pressed || input.X.pressed || input.A.pressed || input.B.pressed)
+      ) {
         a.airMove = true;
         this.startMove(a, 'airKick');
       }
@@ -546,7 +649,11 @@ class FighterGame implements GameInstance {
       a.aiT = Math.max(0.14, this.engine.rng.range(0.18, 0.5) / Math.max(0.6, a.aggression));
       if (inRange) {
         const attackChance = Math.min(0.82, 0.15 + a.aggression * 0.4);
-        a.aiIntent = this.engine.rng.chance(attackChance) ? 'attack' : this.engine.rng.chance(0.3) ? 'retreat' : 'block';
+        a.aiIntent = this.engine.rng.chance(attackChance)
+          ? 'attack'
+          : this.engine.rng.chance(0.3)
+            ? 'retreat'
+            : 'block';
       } else if (dist < 120) {
         a.aiIntent = this.engine.rng.chance(0.8) ? 'approach' : 'jump';
       } else {
@@ -567,7 +674,16 @@ class FighterGame implements GameInstance {
       case 'attack':
         if (inRange) {
           const roll = this.engine.rng.range(0, 1);
-          this.startMove(a, roll < 0.35 ? 'punchLow' : roll < 0.6 ? 'punchHigh' : roll < 0.82 ? 'kickLow' : 'kickHigh');
+          this.startMove(
+            a,
+            roll < 0.35
+              ? 'punchLow'
+              : roll < 0.6
+                ? 'punchHigh'
+                : roll < 0.82
+                  ? 'kickLow'
+                  : 'kickHigh',
+          );
         } else {
           a.state = 'walk';
           a.vx = dir * WALK * a.speedScale;
@@ -689,7 +805,11 @@ class FighterGame implements GameInstance {
       def.vx = kbDir * 40;
       def.move = null;
       this.engine.sfx.play('uiBack');
-      this.engine.particles.burst(hx, hy, 3, { color: this.spec.palette[14], speed: 40, life: 0.2 });
+      this.engine.particles.burst(hx, hy, 3, {
+        color: this.spec.palette[14],
+        speed: 40,
+        life: 0.2,
+      });
     } else {
       def.hp -= dmg;
       def.state = 'hitstun';
@@ -704,7 +824,11 @@ class FighterGame implements GameInstance {
       this.engine.sfx.play('hit');
       this.engine.shake(FEEL.screenShakeMs, 3);
       this.engine.hitStop(FEEL.hitStopMs);
-      this.engine.particles.burst(hx, hy, 8, { color: this.spec.palette[11], speed: 90, life: 0.35 });
+      this.engine.particles.burst(hx, hy, 8, {
+        color: this.spec.palette[11],
+        speed: 90,
+        life: 0.35,
+      });
       this.hud.score += 20;
     }
     if (def.hp <= 0) {
@@ -759,10 +883,18 @@ class FighterGame implements GameInstance {
       this.phase = 'cards';
       this.engine.music.stopSong();
       this.engine.cards.show(
-        this.spec.story.victory.map((line) => ({ lines: [line], portrait: this.engine.portrait })),
+        this.spec.story.victory.map((line) => ({
+          lines: [line],
+          portrait: this.engine.portrait,
+          artRole: 'victory' as const,
+        })),
         () => {
           const par = estimateFighterDurationS(this.spec);
-          this.result = { outcome: 'won', score: this.hud.score, timeBonusSeconds: Math.max(0, Math.round(par - this.phaseT)) };
+          this.result = {
+            outcome: 'won',
+            score: this.hud.score,
+            timeBonusSeconds: Math.max(0, Math.round(par - this.phaseT)),
+          };
         },
       );
     } else {
@@ -804,6 +936,27 @@ class FighterGame implements GameInstance {
     return 'idle';
   }
 
+  private drawGeneratedPlayer(a: Actor, pose: FighterPose, flash: boolean): boolean {
+    const image = this.playerGeneratedPoses?.[pose];
+    if (a !== this.p || !image) return false;
+
+    const ctx = this.engine.renderer.ctx;
+    const x = Math.round(a.x) - 32;
+    const y = Math.round(a.y) - 60;
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    if (a.facing === -1) {
+      // Every source PNG is authored facing right. Mirror around the actor's
+      // combat center without changing any gameplay geometry.
+      ctx.translate(Math.round(a.x) * 2, 0);
+      ctx.scale(-1, 1);
+    }
+    if (flash) ctx.filter = 'brightness(0) invert(1)';
+    ctx.drawImage(image, x, y, 64, 64);
+    ctx.restore();
+    return true;
+  }
+
   render(): void {
     const r = this.engine.renderer;
     const pal = this.spec.palette;
@@ -831,11 +984,14 @@ class FighterGame implements GameInstance {
     const order = this.p.y >= this.o.y ? [this.o, this.p] : [this.p, this.o];
     for (const a of order) {
       const flick = a.state === 'hitstun' && Math.floor(this.phaseT * 30) % 2 === 0;
+      const pose = this.poseOf(a);
+      const flash = a.flashT > 0 || flick;
+      if (this.drawGeneratedPlayer(a, pose, flash)) continue;
       drawFighter(r.ctx, {
         cx: a.x,
         feetY: a.y,
         facing: a.facing,
-        pose: this.poseOf(a),
+        pose,
         t: a.moveT,
         anim: this.phaseT,
         scale: a.scale,
@@ -844,7 +1000,7 @@ class FighterGame implements GameInstance {
         colors: a.colors,
         avatarHead: a.avatarHead,
         likenessHead: a === this.p ? this.playerLikenessHead : null,
-        flash: a.flashT > 0 || flick,
+        flash,
       });
     }
 
@@ -871,16 +1027,27 @@ class FighterGame implements GameInstance {
     // round-win pips
     for (let i = 0; i < ROUNDS_TO_WIN; i++) {
       r.rect(8 + i * 8, y - 7, 5, 5, i < this.pWins ? (pal[13] ?? '#ffd75e') : (pal[3] ?? '#333'));
-      r.rect(W - 13 - i * 8, y - 7, 5, 5, i < this.oWins ? (pal[13] ?? '#ffd75e') : (pal[3] ?? '#333'));
+      r.rect(
+        W - 13 - i * 8,
+        y - 7,
+        5,
+        5,
+        i < this.oWins ? (pal[13] ?? '#ffd75e') : (pal[3] ?? '#333'),
+      );
     }
 
     // timer
-    r.text(String(Math.ceil(this.timer)).padStart(2, '0'), W / 2, y, r.theme.heading, { align: 'center' });
+    r.text(String(Math.ceil(this.timer)).padStart(2, '0'), W / 2, y, r.theme.heading, {
+      align: 'center',
+    });
 
     // banner (ROUND n / FIGHT! / K.O.)
     if (this.banner) {
       const big = this.banner === 'FIGHT!' || this.banner.startsWith('K.O');
-      r.text(this.banner, W / 2, H / 2 - 20, big ? (pal[13] ?? '#ffd75e') : r.theme.heading, { align: 'center', scale: big ? 2 : 1 });
+      r.text(this.banner, W / 2, H / 2 - 20, big ? (pal[13] ?? '#ffd75e') : r.theme.heading, {
+        align: 'center',
+        scale: big ? 2 : 1,
+      });
     }
   }
 }

@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   finished_at TEXT,
   error_json TEXT,
   attempt INTEGER NOT NULL DEFAULT 1,
-  price_snapshot_json TEXT NOT NULL DEFAULT '{}'
+  price_snapshot_json TEXT NOT NULL DEFAULT '{}',
+  image_price_snapshot_json TEXT
 );
 CREATE TABLE IF NOT EXISTS usage_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -155,7 +156,9 @@ export class Db {
     this.db.pragma('foreign_keys = ON');
     this.db.exec(SCHEMA);
     // Migration: cached-token accounting (added after launch; default 0 keeps history valid).
-    const usageCols = this.db.prepare(`PRAGMA table_info(usage_events)`).all() as { name: string }[];
+    const usageCols = this.db.prepare(`PRAGMA table_info(usage_events)`).all() as {
+      name: string;
+    }[];
     if (!usageCols.some((c) => c.name === 'cached_tokens')) {
       this.db.exec(`ALTER TABLE usage_events ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0`);
     }
@@ -164,6 +167,9 @@ export class Db {
     const jobCols = this.db.prepare(`PRAGMA table_info(jobs)`).all() as { name: string }[];
     if (!jobCols.some((c) => c.name === 'requested_archetype')) {
       this.db.exec(`ALTER TABLE jobs ADD COLUMN requested_archetype TEXT`);
+    }
+    if (!jobCols.some((c) => c.name === 'image_price_snapshot_json')) {
+      this.db.exec(`ALTER TABLE jobs ADD COLUMN image_price_snapshot_json TEXT`);
     }
   }
 
@@ -213,12 +219,16 @@ export class Db {
   }
 
   getGame(id: string): GameRow | null {
-    const r = this.db.prepare(`SELECT * FROM games WHERE id=?`).get(id) as Record<string, unknown> | undefined;
+    const r = this.db.prepare(`SELECT * FROM games WHERE id=?`).get(id) as
+      Record<string, unknown> | undefined;
     return r ? toGameRow(r) : null;
   }
 
   listGames(): GameRow[] {
-    const rows = this.db.prepare(`SELECT * FROM games ORDER BY created_at DESC`).all() as Record<string, unknown>[];
+    const rows = this.db.prepare(`SELECT * FROM games ORDER BY created_at DESC`).all() as Record<
+      string,
+      unknown
+    >[];
     return rows.map(toGameRow);
   }
 
@@ -251,11 +261,15 @@ export class Db {
 
   // ------------------------------------------------------------------- jobs
 
-  insertJob(job: JobRecord, priceSnapshot: Record<string, unknown>): void {
+  insertJob(
+    job: JobRecord,
+    priceSnapshot: Record<string, unknown>,
+    imagePriceSnapshot?: { model: string; perImageUsd: number | null },
+  ): void {
     this.db
       .prepare(
-        `INSERT INTO jobs (id, game_id, status, stage, detail, prompt_text, source_kind, requested_archetype, preset_id, seed, idempotency_key, has_photo, created_at, started_at, finished_at, error_json, attempt, price_snapshot_json)
-         VALUES (@id, @gameId, @status, @stage, @detail, @promptText, @sourceKind, @requestedArchetype, @presetId, @seed, @idempotencyKey, @hasPhoto, @createdAt, @startedAt, @finishedAt, @error, @attempt, @priceSnapshot)`,
+        `INSERT INTO jobs (id, game_id, status, stage, detail, prompt_text, source_kind, requested_archetype, preset_id, seed, idempotency_key, has_photo, created_at, started_at, finished_at, error_json, attempt, price_snapshot_json, image_price_snapshot_json)
+         VALUES (@id, @gameId, @status, @stage, @detail, @promptText, @sourceKind, @requestedArchetype, @presetId, @seed, @idempotencyKey, @hasPhoto, @createdAt, @startedAt, @finishedAt, @error, @attempt, @priceSnapshot, @imagePriceSnapshot)`,
       )
       .run({
         id: job.id,
@@ -276,6 +290,7 @@ export class Db {
         error: job.error ? JSON.stringify(job.error) : null,
         attempt: job.attempt,
         priceSnapshot: JSON.stringify(priceSnapshot),
+        imagePriceSnapshot: imagePriceSnapshot ? JSON.stringify(imagePriceSnapshot) : null,
       });
   }
 
@@ -326,14 +341,14 @@ export class Db {
   }
 
   getJob(id: string): JobRecord | null {
-    const r = this.db.prepare(`SELECT * FROM jobs WHERE id=?`).get(id) as Record<string, unknown> | undefined;
+    const r = this.db.prepare(`SELECT * FROM jobs WHERE id=?`).get(id) as
+      Record<string, unknown> | undefined;
     return r ? toJobRecord(r, this.jobCost(id)) : null;
   }
 
   getJobByIdempotencyKey(key: string): JobRecord | null {
     const r = this.db.prepare(`SELECT * FROM jobs WHERE idempotency_key=?`).get(key) as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     return r ? toJobRecord(r, this.jobCost(String(r.id))) : null;
   }
 
@@ -344,17 +359,46 @@ export class Db {
     return r ? toJobRecord(r, this.jobCost(String(r.id))) : null;
   }
 
+  /** Durable job rows for offline incident backfill and reliability analysis. */
+  listJobs(): JobRecord[] {
+    const rows = this.db.prepare(`SELECT * FROM jobs ORDER BY created_at, id`).all() as Record<
+      string,
+      unknown
+    >[];
+    return rows.map((row) => toJobRecord(row, this.jobCost(String(row.id))));
+  }
+
   jobPriceSnapshot(id: string): Record<string, import('@sparkade/shared').PriceRow> {
     const r = this.db.prepare(`SELECT price_snapshot_json FROM jobs WHERE id=?`).get(id) as
-      | { price_snapshot_json: string }
-      | undefined;
+      { price_snapshot_json: string } | undefined;
     return r ? JSON.parse(r.price_snapshot_json) : {};
+  }
+
+  jobImagePriceSnapshot(id: string): { model: string; perImageUsd: number | null } | null {
+    const row = this.db.prepare(`SELECT image_price_snapshot_json FROM jobs WHERE id=?`).get(id) as
+      { image_price_snapshot_json: string | null } | undefined;
+    if (!row?.image_price_snapshot_json) return null;
+    const parsed = JSON.parse(row.image_price_snapshot_json) as unknown;
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      typeof (parsed as { model?: unknown }).model !== 'string'
+    ) {
+      return null;
+    }
+    const price = (parsed as { perImageUsd?: unknown }).perImageUsd;
+    return {
+      model: (parsed as { model: string }).model,
+      perImageUsd: typeof price === 'number' && Number.isFinite(price) ? price : null,
+    };
   }
 
   /** Interrupted jobs (queued/running/waiting) found at boot → failed-retryable. */
   reconcileInterruptedJobs(): string[] {
     const rows = this.db
-      .prepare(`SELECT id, game_id FROM jobs WHERE status IN ('queued','running','waiting-network')`)
+      .prepare(
+        `SELECT id, game_id FROM jobs WHERE status IN ('queued','running','waiting-network')`,
+      )
       .all() as { id: string; game_id: string }[];
     for (const r of rows) {
       this.updateJob(r.id, {
@@ -406,9 +450,9 @@ export class Db {
 
   /** Sum for a job. null if ANY event has unknown cost (never pretend $0.00). */
   jobCost(jobId: string): number | null {
-    const rows = this.db
-      .prepare(`SELECT cost_usd FROM usage_events WHERE job_id=?`)
-      .all(jobId) as { cost_usd: number | null }[];
+    const rows = this.db.prepare(`SELECT cost_usd FROM usage_events WHERE job_id=?`).all(jobId) as {
+      cost_usd: number | null;
+    }[];
     if (rows.length === 0) return 0;
     let sum = 0;
     for (const r of rows) {
@@ -532,7 +576,9 @@ export class Db {
 
   topScores(gameId: string, limit = 10): ScoreRow[] {
     const rows = this.db
-      .prepare(`SELECT initials, score, at FROM scores WHERE game_id=? ORDER BY score DESC, at ASC LIMIT ?`)
+      .prepare(
+        `SELECT initials, score, at FROM scores WHERE game_id=? ORDER BY score DESC, at ASC LIMIT ?`,
+      )
       .all(gameId, limit) as { initials: string; score: number; at: string }[];
     return rows;
   }
@@ -555,8 +601,7 @@ export class Db {
 
   getSetting<T>(key: string): T | null {
     const r = this.db.prepare(`SELECT value_json FROM settings WHERE key=?`).get(key) as
-      | { value_json: string }
-      | undefined;
+      { value_json: string } | undefined;
     return r ? (JSON.parse(r.value_json) as T) : null;
   }
 

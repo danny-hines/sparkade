@@ -57,6 +57,10 @@ describe('prompt templates', () => {
     expect(t).toContain('invented cast roles such as `bruiser`');
     expect(t).toContain('NEVER truncate a string or cut off its final word');
     expect(t).toContain('target at most 28 characters for `title`');
+    expect(t).toContain('Choose camera framing and source-art detail independently');
+    expect(t).toContain(
+      'For `platformerArtDensity`, use `detailed` by default when a likeness photo exists',
+    );
   });
 
   it('golden excerpts are valid JSON slices of the goldens', () => {

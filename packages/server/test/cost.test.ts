@@ -13,7 +13,7 @@ const SNAPSHOT = { 'muse-spark-1.1': { inputPerM: 1.25, outputPerM: 4.25, cached
 describe('cost calculator', () => {
   it('uses the fighter image upper bound when a photographed voice idea has no known archetype', () => {
     expect(estimateImageCount(false)).toBe(5);
-    expect(estimateImageCount(true, 'platformer')).toBe(10);
+    expect(estimateImageCount(true, 'platformer')).toBe(14);
     expect(estimateImageCount(true, 'fighter')).toBe(21);
     expect(estimateImageCount(true)).toBe(21);
   });

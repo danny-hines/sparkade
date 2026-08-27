@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Camera, worldZoomRect } from '../src/renderer';
+import { Camera, worldTransform, worldZoomRect } from '../src/renderer';
 
 describe('worldZoomRect', () => {
   it('uses the requested integer crop inside the rendered world', () => {
@@ -23,6 +23,21 @@ describe('worldZoomRect', () => {
       sy: 150,
       sw: 256,
       sh: 150,
+    });
+  });
+});
+
+describe('worldTransform', () => {
+  it('maps a logical heroic viewport directly onto the full backing canvas', () => {
+    expect(worldTransform({ scale: 2 })).toEqual({
+      scale: 2,
+      translateX: 0,
+      translateY: 0,
+    });
+    expect(worldTransform({ scale: 2, sourceX: 96, sourceY: 48 })).toEqual({
+      scale: 2,
+      translateX: -192,
+      translateY: -96,
     });
   });
 });

@@ -141,11 +141,14 @@ embedded verbatim in the prompt templates (`packages/shared/src/schemas/`).
 **Generated art:** after the spec passes validation, Muse Image 1.0 authors landscape key art and
 four consistent story scenes (intro, boss, victory, defeat). Photo games additionally require
 neutral and story-aware defeat-expression portraits plus generated 12/16px player-head sprites;
-there is no quantized-photo fallback or UI toggle. Fighter photo games also attempt one complete
-11-pose player set. The runtime activates that
+there is no quantized-photo fallback or UI toggle. Detailed platformer photo games additionally
+attempt a native 48×64 four-pose player set (front idle, two side-walk frames and side jump), while
+fighter photo games attempt one complete 11-pose player set. Each runtime activates its generated
 set only if every pose passes green-screen, crop, size, and transparency checks—otherwise it keeps
-the procedural fighter for the whole match. Successful binaries carry model/prompt/hash provenance
-in `assets/manifest.json` and are reused across job retries.
+the stable procedural player for the whole session. Platformer camera scale (`compact`/`heroic`)
+and source-art density (`chunky`/`detailed`) are independent; the 1024×600 backing store preserves
+density-2 art without changing collision geometry. Successful binaries carry model/prompt/hash
+provenance in `assets/manifest.json` and are reused across job retries.
 
 **Durability:** jobs persist to SQLite before work starts; all output goes to
 `staging/<jobId>/` and is atomically renamed into `games/<gameId>/` only after every gate

@@ -95,6 +95,45 @@ interface BossAttackState {
   telegraph: number;
 }
 
+const PLATFORMER_PLAYER_POSES = ['idle', 'walk1', 'walk2', 'jump'] as const;
+type PlatformerPlayerPose = (typeof PLATFORMER_PLAYER_POSES)[number];
+type GeneratedPlatformerPoses = Readonly<Record<PlatformerPlayerPose, CanvasImageSource>>;
+const GENERATED_PLAYER_DRAW_W = 24;
+const GENERATED_PLAYER_DRAW_H = 32;
+const GENERATED_PLAYER_GROUND_OVERLAP = 2;
+
+/** Generated art overlaps the collision floor by two world pixels because the
+ * visible tile cap begins two pixels below its solid edge. This is presentation-only:
+ * physics continues to use the inset player body. */
+export function generatedPlatformerPlayerDrawRect(
+  playerX: number,
+  playerY: number,
+  playerW: number,
+  playerH: number,
+): { x: number; y: number; w: number; h: number } {
+  return {
+    x: playerX - (GENERATED_PLAYER_DRAW_W - playerW) / 2,
+    y: playerY - (GENERATED_PLAYER_DRAW_H - playerH) + GENERATED_PLAYER_GROUND_OVERLAP,
+    w: GENERATED_PLAYER_DRAW_W,
+    h: GENERATED_PLAYER_DRAW_H,
+  };
+}
+
+/** Generated player art is atomic so animation can never switch identities or
+ * pixel densities when one asset is missing or fails to load. */
+export function completeGeneratedPlatformerPoses(
+  poses: Readonly<Record<string, CanvasImageSource>> | null,
+): GeneratedPlatformerPoses | null {
+  if (!poses) return null;
+  const complete = {} as Record<PlatformerPlayerPose, CanvasImageSource>;
+  for (const pose of PLATFORMER_PLAYER_POSES) {
+    const image = poses[pose];
+    if (!image) return null;
+    complete[pose] = image;
+  }
+  return complete;
+}
+
 const ROLE_FALLBACK: Record<string, string> = {
   hero: 'lib:hero_squire',
   walker: 'lib:enemy_walker',
@@ -167,6 +206,7 @@ class PlatformerGame implements GameInstance {
     null;
 
   private sprites: Record<string, ResolvedSprite> = {};
+  private generatedPlayerPoses: GeneratedPlatformerPoses | null = null;
   private diff!: DifficultyScale;
   // Per-game hero feel, resolved (clamped) from spec.feel. Base constants when
   // feel is absent, so existing games are byte-identical. The clamp only ever
@@ -208,6 +248,10 @@ class PlatformerGame implements GameInstance {
     const body = platformerPlayerBody(this.spec.playerHeightTiles, this.spec.platformerScale);
     this.playerW = body.w;
     this.playerH = body.h;
+    this.generatedPlayerPoses =
+      this.spec.playerHeightTiles === 2 && this.spec.platformerArtDensity === 'detailed'
+        ? completeGeneratedPlatformerPoses(this.engine.platformerPoses)
+        : null;
   }
 
   get worldZoom() {
@@ -1291,23 +1335,42 @@ class PlatformerGame implements GameInstance {
     if (this.invulnT <= 0 || Math.floor(this.animT * 12) % 2 === 0) {
       const hero = this.sprites['hero']!;
       const anim = !this.onGround ? 'jump' : Math.abs(this.pvx) > 8 ? 'walk' : 'idle';
-      let img = this.engine.sprites.frame(hero, anim, this.animT, this.facing < 0);
-      if (this.spinning && !this.onGround) {
-        img = this.engine.sprites.frame(
-          hero,
-          'jump',
-          this.animT,
-          Math.floor(this.animT * 12) % 2 === 0,
-        );
+      const generatedPose: PlatformerPlayerPose =
+        anim === 'jump'
+          ? 'jump'
+          : anim === 'walk'
+            ? Math.floor(this.animT * 7) % 2 === 0
+              ? 'walk1'
+              : 'walk2'
+            : 'idle';
+      const generatedImage = this.generatedPlayerPoses?.[generatedPose];
+      let flip = generatedPose !== 'idle' && this.facing < 0;
+      let img: CanvasImageSource | null = generatedImage ?? null;
+      if (!img) {
+        img = this.engine.sprites.frame(hero, anim, this.animT, this.facing < 0);
+        flip = false;
       }
-      const heroWorldX = this.px - (hero.w - this.playerW) / 2;
-      const heroWorldY = this.py - (hero.h - this.playerH);
+      if (this.spinning && !this.onGround) {
+        flip = Math.floor(this.animT * 12) % 2 === 0;
+        if (!generatedImage) {
+          img = this.engine.sprites.frame(hero, 'jump', this.animT, flip);
+          flip = false;
+        }
+      }
+      const generatedRect = generatedImage
+        ? generatedPlatformerPlayerDrawRect(this.px, this.py, this.playerW, this.playerH)
+        : null;
+      const drawW = generatedRect?.w ?? hero.w;
+      const drawH = generatedRect?.h ?? hero.h;
+      const heroWorldX = generatedRect?.x ?? this.px - (drawW - this.playerW) / 2;
+      const heroWorldY = generatedRect?.y ?? this.py - (drawH - this.playerH);
       const heroX = heroWorldX - cam.x;
       const heroY = heroWorldY - cam.y;
-      r.draw(img, heroX, heroY);
+      if (generatedImage) r.drawScaledFlipped(img, heroX, heroY, drawW, drawH, flip);
+      else r.draw(img, heroX, heroY);
       if (this.power.shield) {
         if (hero.appliedPresentation === 'tall-humanoid') {
-          r.frame(heroX - 1, heroY - 1, hero.w + 2, hero.h + 2, this.spec.palette[4] ?? '#41a6f6');
+          r.frame(heroX - 1, heroY - 1, drawW + 2, drawH + 2, this.spec.palette[4] ?? '#41a6f6');
         } else {
           r.frame(
             this.px - cam.x - 4,
@@ -1324,9 +1387,9 @@ class PlatformerGame implements GameInstance {
       // marked games use the actual 16x32 visual as the collision body.
       if (hero.appliedPresentation === 'tall-humanoid' && this.playerH !== hero.h) {
         const minTx = Math.floor(heroWorldX / TILE_SIZE);
-        const maxTx = Math.ceil((heroWorldX + hero.w) / TILE_SIZE) - 1;
+        const maxTx = Math.ceil((heroWorldX + drawW) / TILE_SIZE) - 1;
         const minTy = Math.floor(heroWorldY / TILE_SIZE);
-        const maxTy = Math.ceil((heroWorldY + hero.h) / TILE_SIZE) - 1;
+        const maxTy = Math.ceil((heroWorldY + drawH) / TILE_SIZE) - 1;
         for (let ty = minTy; ty <= maxTy; ty++) {
           for (let tx = minTx; tx <= maxTx; tx++) {
             const solidity = this.solidity(tx, ty);

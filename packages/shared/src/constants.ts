@@ -21,6 +21,10 @@ export const TILE_SIZE = 16;
 export const PLATFORMER_SCALES = ['compact', 'heroic'] as const;
 export type PlatformerScale = (typeof PLATFORMER_SCALES)[number];
 
+/** Source-art resolution, independent from the platformer's camera framing. */
+export const PLATFORMER_ART_DENSITIES = ['chunky', 'detailed'] as const;
+export type PlatformerArtDensity = (typeof PLATFORMER_ART_DENSITIES)[number];
+
 // ---------------------------------------------------------------------------
 // Performance budgets (validators reject specs that exceed them; engine enforces at runtime)
 // ---------------------------------------------------------------------------
@@ -301,6 +305,10 @@ export const GENERATED_GAME_ASSET_FILES = {
   fighterBlock: 'fighter-player-block.png',
   fighterHit: 'fighter-player-hit.png',
   fighterKo: 'fighter-player-ko.png',
+  platformerIdle: 'platformer-player-idle.png',
+  platformerWalk1: 'platformer-player-walk-1.png',
+  platformerWalk2: 'platformer-player-walk-2.png',
+  platformerJump: 'platformer-player-jump.png',
 } as const;
 
 export type GeneratedGameAssetRole = keyof typeof GENERATED_GAME_ASSET_FILES;

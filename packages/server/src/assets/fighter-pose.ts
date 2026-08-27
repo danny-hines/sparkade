@@ -136,8 +136,10 @@ export interface FighterPoseImageOptions {
   /** Final transparent sprite canvas. Defaults to the current ~48-58px fighter scale. */
   width?: number;
   height?: number;
-  /** Transparent inset around the normalized subject. */
+  /** Transparent top and horizontal inset around the normalized subject. */
   padding?: number;
+  /** Transparent inset below the subject. Defaults to `padding`. */
+  bottomPadding?: number;
   /** Maximum indexed PNG palette size. */
   colors?: number;
   /** Validation thresholds are fractions of the decoded source canvas. */
@@ -174,6 +176,7 @@ interface ResolvedFighterPoseImageOptions {
   width: number;
   height: number;
   padding: number;
+  bottomPadding: number;
   colors: number;
   minGreenFraction: number;
   minSubjectFraction: number;
@@ -198,10 +201,12 @@ function integerOption(value: number | undefined, fallback: number, name: string
 }
 
 function resolveOptions(options: FighterPoseImageOptions): ResolvedFighterPoseImageOptions {
+  const padding = options.padding ?? GENERATED_FIGHTER_POSE_PADDING;
   const resolved = {
     width: integerOption(options.width, GENERATED_FIGHTER_POSE_SIZE, 'width'),
     height: integerOption(options.height, GENERATED_FIGHTER_POSE_SIZE, 'height'),
-    padding: options.padding ?? GENERATED_FIGHTER_POSE_PADDING,
+    padding,
+    bottomPadding: options.bottomPadding ?? padding,
     colors: integerOption(options.colors, 32, 'colors'),
     minGreenFraction: fractionOption(options.minGreenFraction, 0.05, 'minGreenFraction'),
     minSubjectFraction: fractionOption(options.minSubjectFraction, 0.005, 'minSubjectFraction'),
@@ -215,7 +220,16 @@ function resolveOptions(options: FighterPoseImageOptions): ResolvedFighterPoseIm
   if (!Number.isSafeInteger(resolved.padding) || resolved.padding < 0) {
     throw new FighterPoseImageError('invalid-options', 'padding must be a non-negative integer');
   }
-  if (resolved.padding * 2 >= resolved.width || resolved.padding * 2 >= resolved.height) {
+  if (!Number.isSafeInteger(resolved.bottomPadding) || resolved.bottomPadding < 0) {
+    throw new FighterPoseImageError(
+      'invalid-options',
+      'bottomPadding must be a non-negative integer',
+    );
+  }
+  if (
+    resolved.padding * 2 >= resolved.width ||
+    resolved.padding + resolved.bottomPadding >= resolved.height
+  ) {
     throw new FighterPoseImageError('invalid-options', 'padding leaves no room for the fighter');
   }
   if (resolved.colors < 2 || resolved.colors > 256) {
@@ -390,7 +404,7 @@ export async function processGeneratedFighterPose(
   }
 
   const availableWidth = cfg.width - cfg.padding * 2;
-  const availableHeight = cfg.height - cfg.padding * 2;
+  const availableHeight = cfg.height - cfg.padding - cfg.bottomPadding;
   const scale = Math.min(
     availableWidth / sourceBounds.width,
     availableHeight / sourceBounds.height,
@@ -402,7 +416,7 @@ export async function processGeneratedFighterPose(
   );
   const outputBounds: PixelBounds = {
     left: Math.floor((cfg.width - outputWidth) / 2),
-    top: cfg.height - cfg.padding - outputHeight,
+    top: cfg.height - cfg.bottomPadding - outputHeight,
     width: outputWidth,
     height: outputHeight,
   };

@@ -64,5 +64,6 @@ export function formatUsd(v: number | null): string {
  * never advertises a ten-image price for a twenty-one-image game. */
 export function estimateImageCount(hasPhoto: boolean, archetype?: ArchetypeId): number {
   if (!hasPhoto) return 5;
-  return archetype === undefined || archetype === 'fighter' ? 21 : 10;
+  if (archetype === undefined || archetype === 'fighter') return 21;
+  return archetype === 'platformer' ? 14 : 10;
 }

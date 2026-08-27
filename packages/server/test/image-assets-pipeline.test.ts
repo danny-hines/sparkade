@@ -52,6 +52,13 @@ const FIGHTER_ROLES = [
   'fighterKo',
 ] as const satisfies readonly GeneratedGameAssetRole[];
 
+const PLATFORMER_ROLES = [
+  'platformerIdle',
+  'platformerWalk1',
+  'platformerWalk2',
+  'platformerJump',
+] as const satisfies readonly GeneratedGameAssetRole[];
+
 interface Harness {
   root: string;
   db: Db;
@@ -196,7 +203,11 @@ describe.sequential('mock image asset pipeline', () => {
     });
 
     expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done' });
-    await expectPublishedPngs(files, gameId, [...PRESENTATION_ROLES, ...LIKENESS_ROLES]);
+    await expectPublishedPngs(files, gameId, [
+      ...PRESENTATION_ROLES,
+      ...LIKENESS_ROLES,
+      ...PLATFORMER_ROLES,
+    ]);
 
     const manifest = readGameAssetManifest(join(files.gameDir(gameId), 'assets'))!;
     const dimensions = Object.fromEntries(
@@ -216,10 +227,18 @@ describe.sequential('mock image asset pipeline', () => {
       generatedHead16: [16, 16],
       generatedHead16Side: [16, 16],
       generatedHead16Back: [16, 16],
+      platformerIdle: [48, 64],
+      platformerWalk1: [48, 64],
+      platformerWalk2: [48, 64],
+      platformerJump: [48, 64],
     });
     expect(
       db.usageForGame(gameId).filter((event) => event.stage.startsWith('image:') && !event.failed),
-    ).toHaveLength(10);
+    ).toHaveLength(14);
+    expect(files.readMeta(gameId)?.platformerPlayerArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+    });
     expect(existsSync(join(files.gameDir(gameId), 'photo.jpg'))).toBe(false);
   });
 

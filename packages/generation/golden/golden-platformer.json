@@ -4,6 +4,7 @@
   "seed": 20260710,
   "playerHeightTiles": 2,
   "platformerScale": "heroic",
+  "platformerArtDensity": "chunky",
   "meta": {
     "title": "Emberwick Ascent",
     "tagline": "Climb the clockwork lighthouse and relight the night."

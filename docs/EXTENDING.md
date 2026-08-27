@@ -65,8 +65,10 @@ Muse Image is live and deliberately separate from the text/audio `Provider` inte
 is `packages/server/src/providers/meta-image.ts`, its settings live under `imageGeneration` in
 `config.json`, and it uses Meta's image generation/edit endpoints. Every generated game receives
 key art plus intro, boss, victory and defeat scenes. Photo games additionally require neutral and
-story-aware defeat-expression portraits plus generated player-head sprites; Fighter photo games
-attempt an all-or-nothing 11-pose player set.
+story-aware defeat-expression portraits plus generated player-head sprites. Fighter photo games
+attempt an all-or-nothing 11-pose player set. Platformer photo games whose design selects
+`platformerArtDensity: "detailed"` attempt an all-or-nothing four-pose 48×64 player set. The
+platformer's `platformerScale` controls camera framing independently from source-art density.
 
 Generated binaries must be normalized and validated locally, written through the versioned asset
 workspace, and recorded in `assets/manifest.json` with model, prompt-version and content hashes.

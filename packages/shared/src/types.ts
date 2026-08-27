@@ -11,6 +11,7 @@ import type {
   JobStage,
   LightingMode,
   LogicalButton,
+  PlatformerArtDensity,
   PlatformerScale,
   SfxEvent,
   ShooterBackdropId,
@@ -432,6 +433,8 @@ export interface PlatformerSpec extends GameSpecBase {
   playerHeightTiles?: 2;
   /** Camera framing for platformer gameplay; omitted preserves the original wide view. */
   platformerScale?: PlatformerScale;
+  /** Source-art resolution; omitted saved games retain the original chunky sprites. */
+  platformerArtDensity?: PlatformerArtDensity;
   /** Horizontal side-scroll scene; omitted → seed-varied pick. */
   backdrop?: BackdropVariantId;
   levels: PlatformerLevel[];
@@ -482,6 +485,8 @@ export interface DesignDoc {
   difficulty: 'chill' | 'standard' | 'spicy';
   /** Platformer-only camera framing; heroic is the default for newly generated games. */
   platformerScale?: PlatformerScale;
+  /** Platformer-only source-art detail, independent from camera framing. */
+  platformerArtDensity?: PlatformerArtDensity;
   /** Platformer-only movement character; omitted → standard feel. */
   feel?: HeroFeel;
 }
@@ -562,6 +567,13 @@ export interface GameMetaFile {
   imagePriceSnapshot?: { model: string; perImageUsd: number | null };
   /** QA/readiness signal for the experimental generated fighter pose set. */
   fighterArt?: {
+    mode: 'generated' | 'procedural';
+    attempted: boolean;
+    /** Present when the generated set was skipped or rejected. */
+    reason?: string;
+  };
+  /** QA/readiness signal for the generated high-density platformer player. */
+  platformerPlayerArt?: {
     mode: 'generated' | 'procedural';
     attempted: boolean;
     /** Present when the generated set was skipped or rejected. */

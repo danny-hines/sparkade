@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GENERATED_GAME_ASSET_FILES, type GeneratedGameAssetRole } from '@sparkade/shared';
 import type { GameDetail } from '../src/api';
-import { FIGHTER_POSE_ASSETS, loadLikenessAssets } from '../src/likeness-assets';
+import {
+  FIGHTER_POSE_ASSETS,
+  PLATFORMER_POSE_ASSETS,
+  loadLikenessAssets,
+} from '../src/likeness-assets';
 
 const requested: string[] = [];
 const failing = new Set<string>();
@@ -153,5 +157,41 @@ describe('loadLikenessAssets', () => {
 
     expect(result?.fighterPoses).toBeNull();
     expect(requested.some((url) => url.includes('/assets/fighter-player-'))).toBe(false);
+  });
+
+  it('exposes platformer poses only after the complete four-frame set loads', async () => {
+    const availability = Object.fromEntries(
+      PLATFORMER_POSE_ASSETS.map(([, role]) => [role, true]),
+    );
+    const result = await loadLikenessAssets('platformer-game', {
+      ...legacyAssets,
+      ...availability,
+    });
+
+    expect(Object.keys(result?.platformerPoses ?? {})).toEqual(
+      PLATFORMER_POSE_ASSETS.map(([pose]) => pose),
+    );
+    for (const [, role] of PLATFORMER_POSE_ASSETS) {
+      expect(requested).toContain(
+        `/api/games/platformer-game/assets/${GENERATED_GAME_ASSET_FILES[role]}`,
+      );
+    }
+  });
+
+  it('rejects the entire platformer set when one pose fails to load', async () => {
+    const availability = Object.fromEntries(
+      PLATFORMER_POSE_ASSETS.map(([, role]) => [role, true]),
+    );
+    failing.add(
+      `/api/games/broken-platformer/assets/${GENERATED_GAME_ASSET_FILES.platformerWalk2}`,
+    );
+
+    const result = await loadLikenessAssets('broken-platformer', {
+      ...legacyAssets,
+      ...availability,
+    });
+
+    expect(result?.platformerPoses).toBeNull();
+    expect(requested.filter((url) => url.includes('/assets/platformer-player-'))).toHaveLength(4);
   });
 });

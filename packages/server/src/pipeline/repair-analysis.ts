@@ -526,6 +526,7 @@ function assembleCheckpointSpec(
       ? {
           playerHeightTiles: 2 as const,
           platformerScale: design.platformerScale ?? ('heroic' as const),
+          platformerArtDensity: design.platformerArtDensity ?? ('detailed' as const),
         }
       : {}),
     ...(archetype === 'platformer' && design.feel ? { feel: design.feel } : {}),

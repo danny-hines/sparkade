@@ -19,6 +19,10 @@
       "description": "Gameplay framing. 'compact' preserves the wide 32-tile view; 'heroic' uses a crisp 2x world camera so actors and terrain read at classic console scale. Omitted saved games stay compact.",
       "enum": ["compact", "heroic"]
     },
+    "platformerArtDensity": {
+      "description": "Source-art resolution independent from camera framing. 'chunky' keeps the original 16x32 player art; 'detailed' allows native 48x64 generated player art in a 24x32 visual footprint over the same collision body. Omitted saved games stay chunky.",
+      "enum": ["chunky", "detailed"]
+    },
     "backdrop": {
       "description": "Parallax backdrop scene drawn behind gameplay in your palette's background colors. Pick the scene that matches the premise; omit for a mood-based default.",
       "enum": [

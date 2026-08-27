@@ -1,6 +1,7 @@
-// Renderer: offscreen 512×300 canvas, blitted once per frame to the visible
-// canvas at 2× integer scale with smoothing off. Runtime drawing is drawImage
-// and rect fills only — no per-frame getImageData/putImageData anywhere.
+// Renderer: logical 512×300 coordinates on a 1024×600 backing store. Existing
+// art scales by the cabinet's 2× display factor; density-2 sources can retain
+// their native pixels inside the same logical footprint. Runtime drawing is
+// drawImage and rect fills only — no per-frame pixel reads.
 import { DISPLAY_SCALE, INTERNAL_HEIGHT, INTERNAL_WIDTH } from '@sparkade/shared';
 import { drawText, textWidth, wrapText, type TextOpts } from './font';
 import { DEFAULT_THEME, type UiTheme } from './theme';
@@ -11,6 +12,12 @@ export interface WorldZoomRect {
   sy: number;
   sw: number;
   sh: number;
+}
+
+export interface WorldTransform {
+  scale: number;
+  translateX: number;
+  translateY: number;
 }
 
 /** Pure crop calculation kept separate from canvas work for boundary tests. */
@@ -27,6 +34,23 @@ export function worldZoomRect(
   const sx = Math.max(0, Math.min(maxX, Math.round(zoom.sourceX ?? 0)));
   const sy = Math.max(0, Math.min(maxY, Math.round(zoom.sourceY ?? 0)));
   return { sx, sy, sw, sh };
+}
+
+/** Direct integer world transform. Unlike a post-render crop, this lets a
+ * high-density source retain all of its pixels while occupying the same
+ * logical world footprint as a lower-density fallback. */
+export function worldTransform(
+  zoom: WorldZoom,
+  width = INTERNAL_WIDTH,
+  height = INTERNAL_HEIGHT,
+): WorldTransform {
+  const { sx, sy } = worldZoomRect(zoom, width, height);
+  const scale = Math.max(1, Math.floor(zoom.scale));
+  return {
+    scale,
+    translateX: sx === 0 ? 0 : -sx * scale,
+    translateY: sy === 0 ? 0 : -sy * scale,
+  };
 }
 
 export class Camera {
@@ -69,8 +93,6 @@ export class Renderer {
   readonly ctx: CanvasRenderingContext2D;
   private visible: HTMLCanvasElement;
   private visibleCtx: CanvasRenderingContext2D;
-  private worldBuffer: HTMLCanvasElement;
-  private worldBufferCtx: CanvasRenderingContext2D;
 
   private shakeUntil = 0;
   private shakeMag = 0;
@@ -85,21 +107,20 @@ export class Renderer {
     this.visible.height = INTERNAL_HEIGHT * DISPLAY_SCALE;
     this.visibleCtx = this.visible.getContext('2d', { alpha: false })!;
     this.canvas = document.createElement('canvas');
-    this.canvas.width = INTERNAL_WIDTH;
-    this.canvas.height = INTERNAL_HEIGHT;
+    this.canvas.width = INTERNAL_WIDTH * DISPLAY_SCALE;
+    this.canvas.height = INTERNAL_HEIGHT * DISPLAY_SCALE;
     this.ctx = this.canvas.getContext('2d', { alpha: false })!;
-    this.worldBuffer = document.createElement('canvas');
-    this.worldBuffer.width = INTERNAL_WIDTH;
-    this.worldBuffer.height = INTERNAL_HEIGHT;
-    this.worldBufferCtx = this.worldBuffer.getContext('2d', { alpha: false })!;
+    this.ctx.setTransform(DISPLAY_SCALE, 0, 0, DISPLAY_SCALE, 0, 0);
     this.ctx.imageSmoothingEnabled = false;
-    this.worldBufferCtx.imageSmoothingEnabled = false;
     this.visibleCtx.imageSmoothingEnabled = false;
   }
 
   clear(color = '#000000'): void {
+    this.ctx.save();
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.ctx.fillStyle = color;
-    this.ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.restore();
   }
 
   /** One blit per frame. Screen shake is applied here as an integer offset. */
@@ -119,8 +140,8 @@ export class Renderer {
       this.canvas,
       ox,
       oy,
-      INTERNAL_WIDTH * DISPLAY_SCALE,
-      INTERNAL_HEIGHT * DISPLAY_SCALE,
+      this.canvas.width,
+      this.canvas.height,
     );
   }
 
@@ -137,17 +158,46 @@ export class Renderer {
     this.ctx.drawImage(img, Math.round(x), Math.round(y), w, h);
   }
 
-  /** Crop and integer-upscale the completed world before fixed-resolution HUD
-   * and overlays are drawn. A scratch canvas avoids reading and writing the
-   * same backing store in one drawImage call, which is browser-dependent. */
-  applyWorldZoom(zoom: WorldZoom): void {
-    if (zoom.scale <= 1) return;
-    const { sx, sy, sw, sh } = worldZoomRect(zoom);
-    this.worldBufferCtx.clearRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
-    this.worldBufferCtx.drawImage(this.canvas, 0, 0);
-    this.ctx.clearRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+  drawScaledFlipped(
+    img: CanvasImageSource,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    flip: boolean,
+  ): void {
+    if (!flip) {
+      this.drawScaled(img, x, y, w, h);
+      return;
+    }
+    const rx = Math.round(x);
+    const ry = Math.round(y);
+    this.ctx.save();
+    this.ctx.translate(rx * 2 + w, 0);
+    this.ctx.scale(-1, 1);
+    this.ctx.drawImage(img, rx, ry, w, h);
+    this.ctx.restore();
+  }
+
+  /** Begin direct integer world rendering. Low-density art is nearest-neighbor
+   * enlarged, while a source with matching physical dimensions renders 1:1. */
+  beginWorld(zoom?: WorldZoom): void {
+    this.ctx.save();
+    if (!zoom || zoom.scale <= 1) return;
+    const transform = worldTransform(zoom);
+    this.ctx.setTransform(
+      transform.scale * DISPLAY_SCALE,
+      0,
+      0,
+      transform.scale * DISPLAY_SCALE,
+      transform.translateX * DISPLAY_SCALE,
+      transform.translateY * DISPLAY_SCALE,
+    );
     this.ctx.imageSmoothingEnabled = false;
-    this.ctx.drawImage(this.worldBuffer, sx, sy, sw, sh, 0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+  }
+
+  endWorld(): void {
+    this.ctx.restore();
   }
 
   rect(x: number, y: number, w: number, h: number, color: string): void {

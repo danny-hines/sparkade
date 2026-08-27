@@ -92,6 +92,15 @@ describe('archetype schemas', () => {
     expect(schema.required).not.toContain('platformerScale');
   });
 
+  it('keeps platformer art density bounded and optional for saved-game compatibility', () => {
+    const schema = ARCHETYPE_SCHEMAS.platformer as {
+      properties: Record<string, { enum?: string[] }>;
+      required: string[];
+    };
+    expect(schema.properties['platformerArtDensity']?.enum).toEqual(['chunky', 'detailed']);
+    expect(schema.required).not.toContain('platformerArtDensity');
+  });
+
   it('music channels are exactly 16 steps with the documented syntax', () => {
     const defs = (ARCHETYPE_SCHEMAS.shooter as { $defs: Record<string, { minItems?: number; maxItems?: number; pattern?: string } > }).$defs;
     expect(defs.noteChannel!.minItems).toBe(16);

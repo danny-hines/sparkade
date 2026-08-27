@@ -98,6 +98,7 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
   const height = 256;
   const greenScreen = prompt.includes('#00ff00');
   const fighter = greenScreen && prompt.includes('fighting-game sprite');
+  const platformer = greenScreen && prompt.includes('platform-game sprite');
   const head = greenScreen && prompt.includes('HEAD sprite');
   let hash = 2166136261;
   for (const char of prompt) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
@@ -107,7 +108,7 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
       const offset = (y * width + x) * 4;
       const subject =
         greenScreen &&
-        (fighter
+        (fighter || platformer
           ? mockFighterSubject(x * 2, y * 2, prompt)
           : head
             ? mockHeadSubject(x * 2, y * 2, prompt)
@@ -151,7 +152,8 @@ function mockFighterSubject(x: number, y: number, prompt: string): boolean {
     );
   }
 
-  const airborne = prompt.includes('airborne fighting pose');
+  const airborne =
+    prompt.includes('airborne fighting pose') || prompt.includes('airborne platforming pose');
   const crouching = prompt.includes('low stationary crouching');
   const offsetY = airborne ? -70 : crouching ? 55 : 0;
   const headY = 105 + offsetY;

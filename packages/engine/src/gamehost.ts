@@ -60,6 +60,8 @@ export interface EngineContext {
   portraitDefeat: CanvasImageSource | null;
   /** Image-generated player combat poses, when this game's asset set includes them. */
   fighterPoses: Readonly<Record<string, CanvasImageSource>> | null;
+  /** Image-generated high-density platformer poses, when complete. */
+  platformerPoses: Readonly<Record<string, CanvasImageSource>> | null;
   spec: GameSpec;
   /** True when the host runs as a self-playing library demo — archetypes can
    *  read this to drive themselves (e.g. the fighter runs both sides on AI). */
@@ -173,6 +175,7 @@ export class GameHost {
       portrait: opts.likeness?.portrait ?? null,
       portraitDefeat: opts.likeness?.portraitDefeat ?? opts.likeness?.portrait ?? null,
       fighterPoses: opts.likeness?.fighterPoses ?? null,
+      platformerPoses: opts.likeness?.platformerPoses ?? null,
       spec: opts.spec,
       attract: !!opts.attract,
       shake: (ms = FEEL.screenShakeMs, magnitude = 3) => this.renderer.shake(ms, magnitude),
@@ -391,6 +394,10 @@ export class GameHost {
         break;
       case 'game':
       case 'paused':
+        // Render the world directly through its integer camera transform. This
+        // preserves native detail in higher-density sprite sources while the
+        // HUD and overlays below remain fixed at 512x300.
+        r.beginWorld(this.instance.worldZoom);
         this.instance.render();
         // Lighting wash tints the scene for mood; drawn under weather + HUD so
         // particles and chrome stay crisp and legible.
@@ -405,9 +412,7 @@ export class GameHost {
         // hit sparks stay crisp) and the HUD/story cards (always legible).
         this.weather.draw(r.ctx, this.engineCtx.camera.x, this.engineCtx.camera.y);
         this.engineCtx.particles.render(r, this.engineCtx.camera.x, this.engineCtx.camera.y);
-        // Archetypes may crop + integer-upscale the completed world, but HUD,
-        // cards and pause chrome always stay at the native 512x300 resolution.
-        if (this.instance.worldZoom) r.applyWorldZoom(this.instance.worldZoom);
+        r.endWorld();
         this.engineCtx.hud.render(r, this.instance.hud, {
           showKeys: this.opts.spec.archetype === 'adventure',
           showBombs: this.opts.spec.archetype === 'shooter',

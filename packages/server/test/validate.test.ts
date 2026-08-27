@@ -186,6 +186,22 @@ describe('platformer geometry schema migration', () => {
     const invalid = { ...current, platformerScale: 'cinematic' };
     expect(validateGameSchema('platformer', invalid)).not.toEqual([]);
   });
+
+  it('accepts bounded art-density modes while old saves remain valid', () => {
+    const current = golden('platformer') as PlatformerSpec;
+    expect(current.platformerArtDensity).toBe('chunky');
+    expect(validateGameSchema('platformer', current)).toEqual([]);
+
+    const detailed = { ...current, platformerArtDensity: 'detailed' };
+    expect(validateGameSchema('platformer', detailed)).toEqual([]);
+
+    const legacy = structuredClone(current);
+    delete legacy.platformerArtDensity;
+    expect(validateGameSchema('platformer', legacy)).toEqual([]);
+
+    const invalid = { ...current, platformerArtDensity: 'smooth' };
+    expect(validateGameSchema('platformer', invalid)).not.toEqual([]);
+  });
 });
 
 describe('custom sprite checks + repair-aware fallback', () => {

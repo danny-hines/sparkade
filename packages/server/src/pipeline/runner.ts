@@ -67,6 +67,14 @@ import {
   type GeneratedFighterPose,
 } from '../assets/fighter-pose';
 import {
+  GENERATED_PLATFORMER_POSES,
+  GENERATED_PLATFORMER_POSE_PROMPT_VERSION,
+  buildPlatformerPosePrompt,
+  prepareGeneratedPlatformerReference,
+  processGeneratedPlatformerPose,
+  type GeneratedPlatformerPose,
+} from '../assets/platformer-pose';
+import {
   GameAssetWorkspace,
   GeneratedAssetStorageError,
   imagePromptHash,
@@ -155,6 +163,13 @@ const FIGHTER_ASSET_ROLES = {
   hit: 'fighterHit',
   ko: 'fighterKo',
 } as const satisfies Record<GeneratedFighterPose, GeneratedGameAssetRole>;
+
+const PLATFORMER_ASSET_ROLES = {
+  idle: 'platformerIdle',
+  walk1: 'platformerWalk1',
+  walk2: 'platformerWalk2',
+  jump: 'platformerJump',
+} as const satisfies Record<GeneratedPlatformerPose, GeneratedGameAssetRole>;
 
 /** Surprise's structured genre is authoritative; the design model still gets
  * the instruction, but cannot silently relabel the job by returning another id. */
@@ -1309,7 +1324,10 @@ export class GenerationRunner {
       if (firstFailure) throw firstFailure.reason;
 
       // ---- Assemble + validate + repair ----------------------------------
-      let spec = ensureLikenessHeroBody(this.assemble(job.seed, archetype, design, parts), !!photo);
+      let spec = ensureLikenessHeroBody(
+        this.assemble(job.seed, archetype, design, parts, !!photo),
+        !!photo,
+      );
       emit('validating', 'Checking every rule…');
       spec = await this.validateAndRepair(
         spec,
@@ -1875,7 +1893,184 @@ export class GenerationRunner {
             })()
           : Promise.resolve();
 
-      const finishingAssets = await Promise.allSettled([storyTask, fighterTask]);
+      let platformerPlayerArtStatus: GameMetaFile['platformerPlayerArt'] =
+        spec.archetype === 'platformer'
+          ? spec.platformerArtDensity !== 'detailed'
+            ? {
+                mode: 'procedural',
+                attempted: false,
+                reason: 'The game selected chunky source art',
+              }
+            : photoReference
+              ? {
+                  mode: 'procedural',
+                  attempted: true,
+                  reason: 'Generated platformer player art did not complete',
+                }
+              : {
+                  mode: 'procedural',
+                  attempted: false,
+                  reason: 'No player photo was supplied',
+                }
+          : undefined;
+
+      const platformerPlayerTask =
+        photoReference &&
+        spec.archetype === 'platformer' &&
+        spec.platformerArtDensity === 'detailed'
+          ? (async (): Promise<void> => {
+              const generationStarted = Date.now();
+              let idleReference = photoReference;
+              const colors = spec.palette
+                .filter((hex) => {
+                  const r = Number.parseInt(hex.slice(1, 3), 16);
+                  const g = Number.parseInt(hex.slice(3, 5), 16);
+                  const b = Number.parseInt(hex.slice(5, 7), 16);
+                  return !(g > r * 1.15 && g > b * 1.15);
+                })
+                .join(', ');
+              const generatePose = async (pose: GeneratedPlatformerPose): Promise<Buffer> => {
+                const role = PLATFORMER_ASSET_ROLES[pose];
+                const basePrompt = buildPlatformerPosePrompt(pose, {
+                  heroConcept: design.heroConcept,
+                  colors,
+                });
+                const prompts = [
+                  basePrompt,
+                  `${basePrompt} RETRY CORRECTION: use one complete, uncropped silhouette on perfectly uniform #00ff00, preserve the exact identity and costume, and obey the requested pose exactly.`,
+                ];
+                const candidates = prompts.map((prompt) => ({
+                  prompt,
+                  promptSha: imagePromptHash(prompt, idleReference),
+                }));
+                for (const candidate of candidates) {
+                  const cached = assetWorkspace.load(
+                    role,
+                    GENERATED_PLATFORMER_POSE_PROMPT_VERSION,
+                    candidate.promptSha,
+                  );
+                  const cachedReference =
+                    pose === 'idle'
+                      ? assetWorkspace.loadPrivate(
+                          'platformerReference',
+                          GENERATED_PLATFORMER_POSE_PROMPT_VERSION,
+                          candidate.promptSha,
+                        )
+                      : null;
+                  if (cached && (pose !== 'idle' || cachedReference)) {
+                    if (cachedReference) idleReference = cachedReference;
+                    return cached;
+                  }
+                }
+                let lastError: unknown;
+                for (const { prompt, promptSha } of candidates) {
+                  const raw = await callImage({
+                    role,
+                    label: `Player platformer ${pose} pose`,
+                    prompt,
+                    reference: idleReference,
+                    size: '1024x1024',
+                  });
+                  try {
+                    const processed = await processGeneratedPlatformerPose(raw);
+                    if (pose === 'idle') {
+                      const reference = await prepareGeneratedPlatformerReference(raw);
+                      await Promise.all([
+                        assetWorkspace.store(
+                          role,
+                          processed.png,
+                          GENERATED_PLATFORMER_POSE_PROMPT_VERSION,
+                          promptSha,
+                        ),
+                        assetWorkspace.storePrivate(
+                          'platformerReference',
+                          reference,
+                          GENERATED_PLATFORMER_POSE_PROMPT_VERSION,
+                          promptSha,
+                        ),
+                      ]);
+                      idleReference = reference;
+                    } else {
+                      await assetWorkspace.store(
+                        role,
+                        processed.png,
+                        GENERATED_PLATFORMER_POSE_PROMPT_VERSION,
+                        promptSha,
+                      );
+                    }
+                    return processed.png;
+                  } catch (error) {
+                    if (error instanceof GeneratedAssetStorageError) {
+                      throw new PipelineError('storage', error.message, 'building-assets');
+                    }
+                    lastError = error;
+                    validationFailure(role);
+                    emit('building-assets', `Repainting the player ${pose} pose…`);
+                  }
+                }
+                throw lastError instanceof Error
+                  ? lastError
+                  : new Error(`player ${pose} pose failed validation`);
+              };
+
+              try {
+                const idle = await generatePose('idle');
+                const remaining = GENERATED_PLATFORMER_POSES.filter((pose) => pose !== 'idle');
+                const results = await Promise.allSettled(remaining.map(generatePose));
+                const failure = results.find(
+                  (result): result is PromiseRejectedResult => result.status === 'rejected',
+                );
+                if (failure) throw failure.reason;
+                const poseBytes = [
+                  idle,
+                  ...results.map((result) => (result as PromiseFulfilledResult<Buffer>).value),
+                ];
+                if (new Set(poseBytes.map(sha256)).size !== GENERATED_PLATFORMER_POSES.length) {
+                  throw new Error('generated platformer pose set contained duplicate frames');
+                }
+                platformerPlayerArtStatus = { mode: 'generated', attempted: true };
+              } catch (error) {
+                if (abort.signal.aborted || error instanceof PipelineError) throw error;
+                await Promise.all([
+                  assetWorkspace.discard(Object.values(PLATFORMER_ASSET_ROLES)),
+                  assetWorkspace.discardPrivate('platformerReference'),
+                ]);
+                const reason =
+                  error instanceof Error
+                    ? error.message.slice(0, 240)
+                    : 'Generated platformer pose set failed validation';
+                platformerPlayerArtStatus = {
+                  mode: 'procedural',
+                  attempted: true,
+                  reason,
+                };
+                recordEarlyRepairEvent(
+                  'entities',
+                  'platformer-player-art-fallback',
+                  [
+                    {
+                      code: 'PLATFORMER_PLAYER_ART_FALLBACK',
+                      path: '/assets/platformer-player',
+                      message: reason,
+                    },
+                  ],
+                  [],
+                  generationStarted,
+                  'downgraded',
+                );
+                emit(
+                  'building-assets',
+                  `Generated platformer player did not pass as a complete set; using the stable hero (${reason.slice(0, 120)})`,
+                );
+              }
+            })()
+          : Promise.resolve();
+
+      const finishingAssets = await Promise.allSettled([
+        storyTask,
+        fighterTask,
+        platformerPlayerTask,
+      ]);
       const finishingFailure = finishingAssets.find(
         (result): result is PromiseRejectedResult => result.status === 'rejected',
       );
@@ -1908,6 +2103,7 @@ export class GenerationRunner {
           perImageUsd: mockImages ? 0 : imagePrice,
         },
         ...(fighterArtStatus ? { fighterArt: fighterArtStatus } : {}),
+        ...(platformerPlayerArtStatus ? { platformerPlayerArt: platformerPlayerArtStatus } : {}),
       };
       writeFileSync(join(staging, 'meta.json'), JSON.stringify(meta, null, 2));
 
@@ -2100,6 +2296,7 @@ export class GenerationRunner {
     archetype: ArchetypeId,
     design: DesignDoc,
     parts: SpecParts,
+    hasPhoto: boolean,
   ): GameSpec {
     return {
       specVersion: 1,
@@ -2131,6 +2328,8 @@ export class GenerationRunner {
         ? {
             playerHeightTiles: 2 as const,
             platformerScale: design.platformerScale ?? ('heroic' as const),
+            platformerArtDensity:
+              design.platformerArtDensity ?? (hasPhoto ? ('detailed' as const) : ('chunky' as const)),
           }
         : {}),
       ...(archetype === 'platformer' && design.feel ? { feel: design.feel } : {}),

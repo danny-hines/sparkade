@@ -18,6 +18,15 @@ export const FIGHTER_POSE_ASSETS = [
 
 export type FighterPoseName = (typeof FIGHTER_POSE_ASSETS)[number][0];
 
+export const PLATFORMER_POSE_ASSETS = [
+  ['idle', 'platformerIdle'],
+  ['walk1', 'platformerWalk1'],
+  ['walk2', 'platformerWalk2'],
+  ['jump', 'platformerJump'],
+] as const satisfies readonly (readonly [string, GeneratedGameAssetRole])[];
+
+export type PlatformerPoseName = (typeof PLATFORMER_POSE_ASSETS)[number][0];
+
 function loadImage(url: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -37,6 +46,7 @@ export async function loadLikenessAssets(
   assets: GameDetail['assets'],
 ): Promise<LikenessAssets | null> {
   const hasCompleteFighterSet = FIGHTER_POSE_ASSETS.every(([, role]) => assets[role]);
+  const hasCompletePlatformerSet = PLATFORMER_POSE_ASSETS.every(([, role]) => assets[role]);
   if (
     !assets.head12 &&
     !assets.head16 &&
@@ -46,7 +56,8 @@ export async function loadLikenessAssets(
     !assets.storyBoss &&
     !assets.storyVictory &&
     !assets.storyDefeat &&
-    !hasCompleteFighterSet
+    !hasCompleteFighterSet &&
+    !hasCompletePlatformerSet
   ) {
     return null;
   }
@@ -88,12 +99,26 @@ export async function loadLikenessAssets(
           ) as Record<FighterPoseName, HTMLImageElement>;
         })
       : Promise.resolve(null);
+  const platformerPromise: Promise<Record<PlatformerPoseName, HTMLImageElement> | null> =
+    hasCompletePlatformerSet
+      ? Promise.all(
+          PLATFORMER_POSE_ASSETS.map(([, role]) =>
+            loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[role])),
+          ),
+        ).then((images) => {
+          if (images.some((image) => image === null)) return null;
+          return Object.fromEntries(
+            PLATFORMER_POSE_ASSETS.map(([pose], index) => [pose, images[index]!]),
+          ) as Record<PlatformerPoseName, HTMLImageElement>;
+        })
+      : Promise.resolve(null);
 
   const [
     [head12, head12Side, head12Back, head16, head16Side, head16Back, portrait, portraitDefeat],
     [storyIntro, storyBoss, storyVictory, storyDefeat],
     fighterPoses,
-  ] = await Promise.all([likenessPromise, storyPromise, fighterPromise]);
+    platformerPoses,
+  ] = await Promise.all([likenessPromise, storyPromise, fighterPromise, platformerPromise]);
 
   return {
     head12,
@@ -109,5 +134,6 @@ export async function loadLikenessAssets(
     storyVictory,
     storyDefeat,
     fighterPoses,
+    platformerPoses,
   };
 }

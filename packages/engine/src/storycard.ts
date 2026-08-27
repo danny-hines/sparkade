@@ -12,7 +12,7 @@ export interface CardContent {
   lines: string[];
   portrait?: CanvasImageSource | null;
   /** Selects image-generated scene art supplied by the host. */
-  artRole?: 'intro' | 'boss' | 'victory';
+  artRole?: 'intro' | 'boss' | 'victory' | 'defeat';
   /** Auto-advance after this many seconds once fully revealed (0 = wait for input). */
   autoAdvanceS?: number;
 }
@@ -21,6 +21,7 @@ export interface StoryArt {
   intro?: CanvasImageSource | null;
   boss?: CanvasImageSource | null;
   victory?: CanvasImageSource | null;
+  defeat?: CanvasImageSource | null;
 }
 
 export class StoryCards {

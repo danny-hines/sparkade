@@ -47,10 +47,13 @@ export interface LikenessAssets {
   head16Side?: CanvasImageSource | null;
   head16Back?: CanvasImageSource | null;
   portrait: CanvasImageSource | null;
-  /** Generated widescreen art used behind the three major story beats. */
+  /** Photo-conditioned expression used on defeat cards. */
+  portraitDefeat?: CanvasImageSource | null;
+  /** Generated widescreen art used behind the four major story beats. */
   storyIntro?: CanvasImageSource | null;
   storyBoss?: CanvasImageSource | null;
   storyVictory?: CanvasImageSource | null;
+  storyDefeat?: CanvasImageSource | null;
   /** Optional image-generated player poses. The fighter uses these when a
    * complete enough set is present and otherwise keeps its procedural figure. */
   fighterPoses?: Readonly<Record<string, CanvasImageSource>> | null;

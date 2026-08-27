@@ -139,9 +139,10 @@ A "game" is `engine + archetype(spec)`. Specs are validated by the same JSON Sch
 embedded verbatim in the prompt templates (`packages/shared/src/schemas/`).
 
 **Generated art:** after the spec passes validation, Muse Image 1.0 authors landscape key art and
-three consistent story scenes (intro, boss, victory). Photo games additionally require a generated
-story portrait and generated 12/16px player-head sprites; there is no quantized-photo fallback or UI
-toggle. Fighter photo games also attempt one complete 11-pose player set. The runtime activates that
+four consistent story scenes (intro, boss, victory, defeat). Photo games additionally require
+neutral and story-aware defeat-expression portraits plus generated 12/16px player-head sprites;
+there is no quantized-photo fallback or UI toggle. Fighter photo games also attempt one complete
+11-pose player set. The runtime activates that
 set only if every pose passes green-screen, crop, size, and transparency checks—otherwise it keeps
 the procedural fighter for the whole match. Successful binaries carry model/prompt/hash provenance
 in `assets/manifest.json` and are reused across job retries.

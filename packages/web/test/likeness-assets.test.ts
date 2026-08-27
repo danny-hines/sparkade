@@ -91,14 +91,20 @@ describe('loadLikenessAssets', () => {
       storyIntro: true,
       storyBoss: true,
       storyVictory: true,
+      storyDefeat: true,
+      generatedPortraitDefeat: true,
     });
 
     expect(result?.storyIntro).not.toBeNull();
     expect(result?.storyBoss).not.toBeNull();
     expect(result?.storyVictory).not.toBeNull();
+    expect(result?.storyDefeat).not.toBeNull();
+    expect(result?.portraitDefeat).not.toBeNull();
     expect(requested).toContain('/api/games/story-game/assets/story-intro.png');
     expect(requested).toContain('/api/games/story-game/assets/story-boss.png');
     expect(requested).toContain('/api/games/story-game/assets/story-victory.png');
+    expect(requested).toContain('/api/games/story-game/assets/story-defeat.png');
+    expect(requested).toContain('/api/games/story-game/assets/portrait-defeat.png');
   });
 
   it('exposes fighter poses only after the complete 11-pose set loads', async () => {

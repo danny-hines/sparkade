@@ -29,6 +29,7 @@ export interface LikenessImageGenerationOptions {
 }
 
 export const GENERATED_PORTRAIT_PROMPT_VERSION = 'generated-portrait-v1';
+export const GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION = 'generated-defeat-portrait-v1';
 
 export function describeVisibleTraits(feat: FaceFeatures | null): string {
   if (!feat) {
@@ -93,10 +94,42 @@ export async function generatePortrait(
     .toBuffer();
 }
 
+/** Generate a story-aware losing expression without changing the player's identity. */
+export async function generateDefeatPortrait(
+  photo: Buffer,
+  feat: FaceFeatures | null,
+  defeatContext: string,
+  edit: LikenessImageEdit,
+  options: LikenessImageGenerationOptions = {},
+): Promise<Buffer> {
+  const context = defeatContext.replace(/\s+/g, ' ').trim().slice(0, 800);
+  const accessoryInstruction = feat
+    ? feat.glasses
+      ? 'Preserve their glasses exactly.'
+      : 'The person is not wearing eyewear. Do not add glasses, sunglasses, goggles, lenses, or frames.'
+    : 'Preserve accessories exactly as visibly shown in the reference photo. Add no accessory that is absent.';
+  const prompt = [
+    'Redraw the exact person in this photo as a friendly 16-bit pixel-art arcade video-game character —',
+    'a front-facing head-and-shoulders portrait bust for a game defeat story card.',
+    `Defeat context: ${context || 'The hero has lost this round.'}`,
+    'Give them a clearly readable, natural expression of disappointment, worry, sadness, or concern that best fits this specific setback. Keep the emotion sympathetic and resilient, not comedic or exaggerated.',
+    `Preserve their recognizable likeness: ${describeVisibleTraits(feat)}, their skin tone, hair, facial proportions, and all visible identity cues. ${accessoryInstruction}`,
+    'Change only the expression; do not add injuries, wounds, bruises, gore, tears streaming down the face, or signs of death.',
+    'Clean flat colours, a bold dark outline, a simple plain dark background.',
+    'Polished retro SNES game art, stylised and characterful, NOT photorealistic. No text, caption, border, or watermark.',
+  ].join(' ');
+
+  const generated = await requestImageEdit(photo, prompt, edit, options);
+  return sharp(generated.image)
+    .resize(PORTRAIT_SIZE, PORTRAIT_SIZE, { fit: 'cover', kernel: 'lanczos3' })
+    .png()
+    .toBuffer();
+}
+
 export const GENERATED_HEAD_SIZES = [12, 16, 20, 24, 28] as const;
 export type GeneratedHeadSize = (typeof GENERATED_HEAD_SIZES)[number];
 export type GeneratedHeadDirection = 'front' | 'side' | 'back';
-export const GENERATED_HEAD_PROMPT_VERSION = 'generated-heads-v2';
+export const GENERATED_HEAD_PROMPT_VERSION = 'generated-heads-v3';
 
 export interface GeneratedHeadSprites {
   /** Full-resolution, square, transparent-background source for inspection. */
@@ -179,14 +212,24 @@ export async function generateHeadSprites(
   const direction = options.direction ?? 'front';
   const directionInstruction =
     direction === 'side'
-      ? 'Strict RIGHT-facing profile view: show exactly one eye, the nose and mouth silhouette, one ear when visible, the profile placement of facial hair, and one lens plus the temple arm for glasses. Do not show a three-quarter or front-facing face.'
+      ? 'Strict RIGHT-facing profile view: show exactly one eye, the nose and mouth silhouette, one ear when visible, and the profile placement of facial hair. Do not show a three-quarter or front-facing face.'
       : direction === 'back'
-        ? 'Strict view from directly BEHIND the head: show the back silhouette of hair, scalp, ears, glasses arms, and headwear as applicable. Show no eyes, nose, mouth, beard front, or front-facing facial features.'
-        : 'Strict FRONT-facing view with a symmetrical, clearly readable face. Glasses must frame two separate visible eyes, and facial hair must preserve upper-lip, chin, and jaw coverage separately.';
+        ? 'Strict view from directly BEHIND the head: show the back silhouette of hair, scalp, ears, and headwear as applicable. Show no eyes, nose, mouth, beard front, or front-facing facial features.'
+        : 'Strict FRONT-facing view with a symmetrical, clearly readable face. Facial hair must preserve upper-lip, chin, and jaw coverage separately.';
+  const accessoryInstruction = feat
+    ? feat.glasses
+      ? direction === 'side'
+        ? 'Preserve the reference glasses as exactly one visible lens and its temple arm.'
+        : direction === 'back'
+          ? 'Preserve only the reference glasses arms that are actually visible from behind.'
+          : 'Preserve the reference glasses shape around two separate visible eyes.'
+      : 'The person is not wearing eyewear. Do not add glasses, sunglasses, goggles, lenses, frames, or temple arms.'
+    : 'Preserve accessories exactly as visibly shown in the reference photo. Add no accessory that is absent.';
   const prompt = [
     `Redraw the exact person in the reference photo as one isolated ${direction}-view pixel-art HEAD sprite.`,
     directionInstruction,
-    `Preserve their recognizable visible identity, not a generic character: ${describeVisibleTraits(feat)}, their actual skin and hair colors, head proportions, glasses shape, headwear, and direction-appropriate identity cues.`,
+    accessoryInstruction,
+    `Preserve their recognizable visible identity, not a generic character: ${describeVisibleTraits(feat)}, their actual skin and hair colors, head proportions, headwear, and direction-appropriate identity cues.`,
     'Never invent hair hidden by headwear.',
     'HEAD ONLY from the top of hair/scalp/headwear through the bottom of the head, including ears. Absolutely no neck, shoulders, torso, collar, or clothing.',
     'Center the head and fill about 82 percent of the square without clipping.',

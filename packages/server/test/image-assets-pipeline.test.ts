@@ -5,12 +5,14 @@ import { setTimeout as delay } from 'node:timers/promises';
 import sharp from 'sharp';
 import {
   GENERATED_GAME_ASSET_FILES,
+  type GameSpec,
   type GeneratedGameAssetRole,
   type JobRecord,
 } from '@sparkade/shared';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { generatedAssetForRole, readGameAssetManifest, sha256 } from '../src/assets/manifest';
 import { GENERATED_FIGHTER_POSES } from '../src/assets/fighter-pose';
+import { buildStoryArtPrompt } from '../src/assets/game-art';
 import { GenerationRunner } from '../src/pipeline/runner';
 import { SseHub } from '../src/pipeline/sse';
 import { ConfigStore } from '../src/storage/config';
@@ -19,6 +21,7 @@ import { GameFiles } from '../src/storage/files';
 
 const LIKENESS_ROLES = [
   'generatedPortrait',
+  'generatedPortraitDefeat',
   'generatedHead12',
   'generatedHead12Side',
   'generatedHead12Back',
@@ -32,6 +35,7 @@ const PRESENTATION_ROLES = [
   'storyIntro',
   'storyBoss',
   'storyVictory',
+  'storyDefeat',
 ] as const satisfies readonly GeneratedGameAssetRole[];
 
 const FIGHTER_ROLES = [
@@ -162,8 +166,26 @@ class FailFirstPublishFiles extends GameFiles {
   }
 }
 
+describe('story art prompts', () => {
+  it('turns the authored defeat beat into a safe, emotionally specific scene', () => {
+    const spec = JSON.parse(
+      readFileSync(
+        join(process.cwd(), 'packages/generation/golden/golden-platformer.json'),
+        'utf8',
+      ),
+    ) as GameSpec;
+    spec.story.defeat = ['The moon gate closes and the hero worries for the village.'];
+
+    const prompt = buildStoryArtPrompt(spec, 'defeat');
+
+    expect(prompt).toContain('The moon gate closes and the hero worries for the village.');
+    expect(prompt).toMatch(/upset, worried, disappointed, or sad/);
+    expect(prompt).toContain('No wounds, gore, death');
+  });
+});
+
 describe.sequential('mock image asset pipeline', () => {
-  it('publishes decodable key/story art, a portrait, and all directional head pairs', async () => {
+  it('publishes decodable key/story art, two portraits, and all directional head pairs', async () => {
     const { db, files, runner } = createHarness();
     const { jobId, gameId } = runner.createJob({
       promptText: 'A brave climber restores the stars',
@@ -185,7 +207,9 @@ describe.sequential('mock image asset pipeline', () => {
       storyIntro: [420, 180],
       storyBoss: [420, 180],
       storyVictory: [420, 180],
+      storyDefeat: [420, 180],
       generatedPortrait: [64, 64],
+      generatedPortraitDefeat: [64, 64],
       generatedHead12: [12, 12],
       generatedHead12Side: [12, 12],
       generatedHead12Back: [12, 12],
@@ -195,7 +219,7 @@ describe.sequential('mock image asset pipeline', () => {
     });
     expect(
       db.usageForGame(gameId).filter((event) => event.stage.startsWith('image:') && !event.failed),
-    ).toHaveLength(8);
+    ).toHaveLength(10);
     expect(existsSync(join(files.gameDir(gameId), 'photo.jpg'))).toBe(false);
   });
 
@@ -245,7 +269,7 @@ describe.sequential('mock image asset pipeline', () => {
     const successfulImagesBeforeRetry = db
       .usageForGame(gameId)
       .filter((event) => event.stage.startsWith('image:') && !event.failed);
-    expect(successfulImagesBeforeRetry).toHaveLength(19);
+    expect(successfulImagesBeforeRetry).toHaveLength(21);
 
     expect(runner.retryJob(gameId)).toEqual({ jobId });
     expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done', attempt: 2 });

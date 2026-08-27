@@ -41,9 +41,11 @@ export async function loadLikenessAssets(
     !assets.head12 &&
     !assets.head16 &&
     !assets.portrait &&
+    !assets.generatedPortraitDefeat &&
     !assets.storyIntro &&
     !assets.storyBoss &&
     !assets.storyVictory &&
+    !assets.storyDefeat &&
     !hasCompleteFighterSet
   ) {
     return null;
@@ -57,6 +59,9 @@ export async function loadLikenessAssets(
     assets.head16Side ? loadImage(api.assetUrl(gameId, 'head16-side.png')) : null,
     assets.head16Back ? loadImage(api.assetUrl(gameId, 'head16-back.png')) : null,
     assets.portrait ? loadImage(api.assetUrl(gameId, 'portrait.png')) : null,
+    assets.generatedPortraitDefeat
+      ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES.generatedPortraitDefeat))
+      : null,
   ]);
   const storyPromise = Promise.all([
     assets.storyIntro
@@ -65,6 +70,9 @@ export async function loadLikenessAssets(
     assets.storyBoss ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES.storyBoss)) : null,
     assets.storyVictory
       ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES.storyVictory))
+      : null,
+    assets.storyDefeat
+      ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES.storyDefeat))
       : null,
   ]);
   const fighterPromise: Promise<Record<FighterPoseName, HTMLImageElement> | null> =
@@ -82,8 +90,8 @@ export async function loadLikenessAssets(
       : Promise.resolve(null);
 
   const [
-    [head12, head12Side, head12Back, head16, head16Side, head16Back, portrait],
-    [storyIntro, storyBoss, storyVictory],
+    [head12, head12Side, head12Back, head16, head16Side, head16Back, portrait, portraitDefeat],
+    [storyIntro, storyBoss, storyVictory, storyDefeat],
     fighterPoses,
   ] = await Promise.all([likenessPromise, storyPromise, fighterPromise]);
 
@@ -95,9 +103,11 @@ export async function loadLikenessAssets(
     head16Side,
     head16Back,
     portrait,
+    portraitDefeat,
     storyIntro,
     storyBoss,
     storyVictory,
+    storyDefeat,
     fighterPoses,
   };
 }

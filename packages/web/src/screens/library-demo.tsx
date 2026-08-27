@@ -1,8 +1,8 @@
-// A self-playing preview of a game, shown in the library's detail panel. After a
-// short dwell (so scrolling the list doesn't spin games up and down) it boots a
-// GameHost in attract mode driven by a PilotBroker: the game plays itself, loops
-// forever, and runs with soft music and no SFX. Falls back to the static cover
-// while dwelling/loading or for games that aren't ready.
+// A self-playing preview of a game, shown in the library's detail panel. It
+// deliberately holds on the cover art before booting a GameHost in attract mode
+// driven by a PilotBroker: the game plays itself, loops forever, and runs with
+// soft music and no SFX. Falls back to the static cover while dwelling/loading
+// or for games that aren't ready.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { GameHost } from '@sparkade/engine';
@@ -12,7 +12,7 @@ import { api } from '../api';
 import { PilotBroker } from '../demo-pilot';
 import { loadLikenessAssets } from '../likeness-assets';
 
-const DWELL_MS = 550; // settle time before a highlighted game starts playing
+const COVER_SHOWCASE_MS = 4_000;
 const DEMO_VOLUMES = { musicVol: 0.3, sfxVol: 0, uiVol: 0 }; // soft theme, no SFX
 
 // The banner is wider-than-tall, so `cover` crops the game vertically. Choose
@@ -41,7 +41,7 @@ export function LibraryDemo(props: {
     let host: GameHost | null = null;
     let disposed = false;
 
-    const dwell = setTimeout(() => {
+    const showcase = setTimeout(() => {
       void (async () => {
         try {
           const detail = await api.getGame(props.gameId);
@@ -73,11 +73,11 @@ export function LibraryDemo(props: {
           /* demo is optional — leave the static cover in place */
         }
       })();
-    }, DWELL_MS);
+    }, COVER_SHOWCASE_MS);
 
     return () => {
       disposed = true;
-      clearTimeout(dwell);
+      clearTimeout(showcase);
       host?.dispose();
     };
   }, [props.gameId, props.ready]);

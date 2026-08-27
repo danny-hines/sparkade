@@ -61,8 +61,8 @@ export function formatUsd(v: number | null): string {
 
 /** Happy-path returned image count. When a photographed free-voice request has
  * no selected archetype yet, use the fighter upper bound so the review screen
- * never advertises an eight-image price for a nineteen-image game. */
+ * never advertises a ten-image price for a twenty-one-image game. */
 export function estimateImageCount(hasPhoto: boolean, archetype?: ArchetypeId): number {
-  if (!hasPhoto) return 4;
-  return archetype === undefined || archetype === 'fighter' ? 19 : 8;
+  if (!hasPhoto) return 5;
+  return archetype === undefined || archetype === 'fighter' ? 21 : 10;
 }

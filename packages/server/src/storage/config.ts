@@ -80,7 +80,8 @@ Edit with \`sparkade config edit\` (or any editor; restart the service after).
   A model missing from this table shows "cost unavailable" (never $0.00).
 - imageGeneration: Muse Image configuration used by every generated game. The default is
   muse-image-1.0 through Meta's Model API at $0.01 per returned image. It authors library key art,
-  intro/boss/victory scenes, and—when a photo is supplied—the portrait and player sprites.
+  intro/boss/victory/defeat scenes, and—when a photo is supplied—the neutral and defeat-expression
+  portraits plus player sprites.
   There is intentionally no kiosk toggle or pixel-photo fallback: photo games require the generated
   portrait/player head to pass validation. Fighter pose art is a complete-set quality gate and falls
   back internally to the stable procedural fighter only if the full pose set cannot be validated.

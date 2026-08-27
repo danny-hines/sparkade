@@ -5,6 +5,7 @@ import {
   GENERATED_HEAD_SIZES,
   describeVisibleTraits,
   extractGeneratedHead,
+  generateDefeatPortrait,
   generateHeadSprites,
   generatePortrait,
   type LikenessImageEdit,
@@ -155,6 +156,47 @@ describe('generated likeness heads', () => {
     });
   });
 
+  it('authors a story-aware defeat expression while preserving photo identity', async () => {
+    const source = await sharp({
+      create: { width: 80, height: 80, channels: 3, background: '#ac7654' },
+    })
+      .png()
+      .toBuffer();
+    const generated = await sharp({
+      create: { width: 128, height: 128, channels: 3, background: '#4b365f' },
+    })
+      .png()
+      .toBuffer();
+    let prompt = '';
+    const edit: LikenessImageEdit = async (request) => {
+      prompt = request.prompt;
+      return {
+        image: generated,
+        usage: undefined,
+        outputFormat: 'png',
+        imageCount: 1,
+      };
+    };
+
+    const portrait = await generateDefeatPortrait(
+      source,
+      null,
+      'The storm scattered every rescued star and the tower went dark.',
+      edit,
+    );
+
+    expect(prompt).toContain('storm scattered every rescued star');
+    expect(prompt).toMatch(/disappointment, worry, sadness, or concern/);
+    expect(prompt).toContain('Change only the expression');
+    expect(prompt).toContain('Add no accessory that is absent');
+    expect(prompt).not.toMatch(/glasses|lens|temple arm/i);
+    await expect(sharp(portrait).metadata()).resolves.toMatchObject({
+      width: PORTRAIT_SIZE,
+      height: PORTRAIT_SIZE,
+      format: 'png',
+    });
+  });
+
   it('derives engine-sized 12px and 16px heads from one Muse edit', async () => {
     const source = await sharp({
       create: { width: 48, height: 64, channels: 3, background: '#7c4c34' },
@@ -205,14 +247,51 @@ describe('generated likeness heads', () => {
       };
     };
 
+    await generateHeadSprites(source, null, edit, { direction: 'front' });
     await generateHeadSprites(source, null, edit, { direction: 'side' });
     await generateHeadSprites(source, null, edit, { direction: 'back' });
 
-    expect(prompts[0]).toContain('show exactly one eye');
-    expect(prompts[0]).not.toContain('two separate visible eyes');
-    expect(prompts[1]).toContain('Show no eyes, nose, mouth');
-    expect(prompts[1]).not.toContain('symmetrical, clearly readable face');
+    expect(prompts[0]).toContain('symmetrical, clearly readable face');
+    expect(prompts[1]).toContain('show exactly one eye');
     expect(prompts[1]).not.toContain('two separate visible eyes');
+    expect(prompts[2]).toContain('Show no eyes, nose, mouth');
+    expect(prompts[2]).not.toContain('symmetrical, clearly readable face');
+    for (const prompt of prompts) {
+      expect(prompt).toContain('Add no accessory that is absent');
+      expect(prompt).not.toMatch(/glasses|lens|temple arm/i);
+    }
+  });
+
+  it('mentions eyewear geometry only when structured features confirm it', async () => {
+    const source = await sharp({
+      create: { width: 48, height: 64, channels: 3, background: '#7c4c34' },
+    })
+      .png()
+      .toBuffer();
+    const generated = await greenScreenHead();
+    const prompts: string[] = [];
+    const edit: LikenessImageEdit = async (request) => {
+      prompts.push(request.prompt);
+      return {
+        image: generated,
+        usage: undefined,
+        outputFormat: 'png',
+        imageCount: 1,
+      };
+    };
+    const base = {
+      hairStyle: 'short',
+      hairColor: '#2a2320',
+      headwear: false,
+      facialHair: 'none',
+    } as FaceFeatures;
+
+    await generateHeadSprites(source, { ...base, glasses: true }, edit, { direction: 'side' });
+    await generateHeadSprites(source, { ...base, glasses: false }, edit, { direction: 'side' });
+
+    expect(prompts[0]).toContain('exactly one visible lens and its temple arm');
+    expect(prompts[1]).toContain('not wearing eyewear');
+    expect(prompts[1]).toContain('Do not add glasses');
   });
 });
 

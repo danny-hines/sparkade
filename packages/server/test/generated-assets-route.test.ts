@@ -82,6 +82,8 @@ describe('published generated asset routes', () => {
     expect(assets.portrait).toBe(false);
     expect(assets.keyArt).toBe(true);
     expect(assets.storyIntro).toBe(false);
+    expect(assets.storyDefeat).toBe(false);
+    expect(assets.generatedPortraitDefeat).toBe(false);
     expect(Object.keys(assets).filter((name) => name.startsWith('fighter'))).toHaveLength(11);
     expect(
       Object.entries(assets)

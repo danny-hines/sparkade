@@ -8,7 +8,7 @@ export const STORY_ART_SIZE = { width: 420, height: 180 } as const;
 export const KEY_ART_ASPECT_HINT = '1792x1024';
 export const STORY_ART_ASPECT_HINT = '1792x768';
 
-export type StoryArtRole = 'intro' | 'boss' | 'victory';
+export type StoryArtRole = 'intro' | 'boss' | 'victory' | 'defeat';
 
 function clean(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
@@ -48,7 +48,9 @@ export function buildStoryArtPrompt(spec: GameSpec, role: StoryArtRole): string 
       ? `Opening scene: ${clean(spec.story.intro.join(' '))}`
       : role === 'boss'
         ? `Boss confrontation with ${clean(spec.boss.name)}: ${clean(spec.story.bossIntro)}`
-        : `Victory scene: ${clean(spec.story.victory.join(' '))}`;
+        : role === 'victory'
+          ? `Victory scene: ${clean(spec.story.victory.join(' '))}`
+          : `Defeat scene: ${clean(spec.story.defeat.join(' '))}`;
   return [
     'Using the reference key art as the immutable visual bible, create a new landscape story illustration from the same game.',
     `Preserve the exact same player hero identity, costume, villain design, palette, pixel-art technique, and world. ${beat}.`,
@@ -56,7 +58,9 @@ export function buildStoryArtPrompt(spec: GameSpec, role: StoryArtRole): string 
       ? 'Frame the player hero and villain facing one another with immediate danger and a strong scale contrast.'
       : role === 'victory'
         ? 'Make the outcome unmistakably triumphant and emotionally warm.'
-        : 'Establish the world and the player hero with a clear narrative focal point.',
+        : role === 'defeat'
+          ? 'Show a clear but family-friendly setback. The player hero should look upset, worried, disappointed, or sad in a way that fits the defeat beat, while still recognizably themselves. No wounds, gore, death, humiliation, or cruelty.'
+          : 'Establish the world and the player hero with a clear narrative focal point.',
     'Polished 16-bit console illustration with crisp deliberate pixel clusters and readable silhouettes. Keep faces and the main action away from the extreme edges.',
     'No text, letters, title, logo, caption, speech bubble, UI, watermark, signature, border, photorealism, blur, or 3D render.',
   ].join(' ');

@@ -28,9 +28,11 @@ import {
 } from '@sparkade/shared';
 import type { LikenessArtifacts } from '../likeness/likeness';
 import {
+  GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION,
   GENERATED_HEAD_PROMPT_VERSION,
   GENERATED_PORTRAIT_PROMPT_VERSION,
   describeVisibleTraits,
+  generateDefeatPortrait,
   generateHeadSprites,
   generatePortrait,
   type GeneratedHeadDirection,
@@ -1432,6 +1434,7 @@ export class GenerationRunner {
         ? (async (): Promise<void> => {
             const identityKey = JSON.stringify({
               portraitVersion: GENERATED_PORTRAIT_PROMPT_VERSION,
+              defeatPortraitVersion: GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION,
               headVersion: GENERATED_HEAD_PROMPT_VERSION,
               features: feat,
             });
@@ -1473,6 +1476,52 @@ export class GenerationRunner {
                 portrait,
                 GENERATED_PORTRAIT_PROMPT_VERSION,
                 portraitSha,
+              );
+            }
+
+            const defeatContext = [
+              `${spec.meta.title} is a ${spec.archetype} game.`,
+              spec.story.defeat.join(' '),
+            ].join(' ');
+            const defeatPortraitSha = imagePromptHash(
+              `${GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION}:${identityKey}:${defeatContext}`,
+              photo,
+            );
+            let portraitDefeat = assetWorkspace.load(
+              'generatedPortraitDefeat',
+              GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION,
+              defeatPortraitSha,
+            );
+            if (!portraitDefeat) {
+              let lastError: unknown;
+              for (let pass = 0; pass < 2 && !portraitDefeat; pass++) {
+                try {
+                  portraitDefeat = await generateDefeatPortrait(
+                    photo,
+                    feat,
+                    defeatContext,
+                    imageEditFor('portrait-defeat', 'Defeat portrait'),
+                    { size: '1024x1024', user: gameId },
+                  );
+                } catch (error) {
+                  if (error instanceof PipelineError) throw error;
+                  lastError = error;
+                  validationFailure('portrait-defeat');
+                  emit('building-assets', 'Repainting the defeat portrait…');
+                }
+              }
+              if (!portraitDefeat) {
+                throw new PipelineError(
+                  'image-invalid',
+                  `Defeat portrait failed validation: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+                  'building-assets',
+                );
+              }
+              await assetWorkspace.store(
+                'generatedPortraitDefeat',
+                portraitDefeat,
+                GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION,
+                defeatPortraitSha,
               );
             }
 
@@ -1608,6 +1657,13 @@ export class GenerationRunner {
                 'building-assets',
               );
             }
+            if (!portraitDefeat) {
+              throw new PipelineError(
+                'image-invalid',
+                'Muse defeat portrait was incomplete after generation',
+                'building-assets',
+              );
+            }
           })()
         : Promise.resolve();
 
@@ -1619,11 +1675,17 @@ export class GenerationRunner {
       const keyArt = (foundations[0] as PromiseFulfilledResult<Buffer>).value;
 
       const storyTask = (async (): Promise<void> => {
-        const roles: StoryArtRole[] = ['intro', 'boss', 'victory'];
+        const roles: StoryArtRole[] = ['intro', 'boss', 'victory', 'defeat'];
         const results = await Promise.allSettled(
           roles.map((role) => {
-            const assetRole =
-              role === 'intro' ? 'storyIntro' : role === 'boss' ? 'storyBoss' : 'storyVictory';
+            const assetRole: GeneratedGameAssetRole =
+              role === 'intro'
+                ? 'storyIntro'
+                : role === 'boss'
+                  ? 'storyBoss'
+                  : role === 'victory'
+                    ? 'storyVictory'
+                    : 'storyDefeat';
             return cachedGeneratedAsset({
               role: assetRole,
               promptVersion: STORY_ART_PROMPT_VERSION,

@@ -64,8 +64,9 @@ machine stays hand-written.
 Muse Image is live and deliberately separate from the text/audio `Provider` interface. Its adapter
 is `packages/server/src/providers/meta-image.ts`, its settings live under `imageGeneration` in
 `config.json`, and it uses Meta's image generation/edit endpoints. Every generated game receives
-key art plus intro, boss and victory scenes. Photo games additionally require a story portrait and
-generated player-head sprites; Fighter photo games attempt an all-or-nothing 11-pose player set.
+key art plus intro, boss, victory and defeat scenes. Photo games additionally require neutral and
+story-aware defeat-expression portraits plus generated player-head sprites; Fighter photo games
+attempt an all-or-nothing 11-pose player set.
 
 Generated binaries must be normalized and validated locally, written through the versioned asset
 workspace, and recorded in `assets/manifest.json` with model, prompt-version and content hashes.

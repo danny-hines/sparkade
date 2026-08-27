@@ -1240,7 +1240,11 @@ class AdventureGame implements GameInstance {
       this.phase = 'cards';
       this.engine.music.stopSong();
       this.engine.cards.show(
-        this.spec.story.defeat.map((line) => ({ lines: [line], portrait: this.engine.portrait })),
+        this.spec.story.defeat.map((line) => ({
+          lines: [line],
+          portrait: this.engine.portraitDefeat,
+          artRole: 'defeat' as const,
+        })),
         () => {
           this.result = { outcome: 'lost', score: this.hud.score, timeBonusSeconds: 0 };
         },

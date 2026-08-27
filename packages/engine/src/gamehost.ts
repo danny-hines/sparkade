@@ -56,6 +56,8 @@ export interface EngineContext {
   cards: StoryCards;
   hud: Hud;
   portrait: CanvasImageSource | null;
+  /** Emotionally appropriate photo-conditioned portrait for defeat cards. */
+  portraitDefeat: CanvasImageSource | null;
   /** Image-generated player combat poses, when this game's asset set includes them. */
   fighterPoses: Readonly<Record<string, CanvasImageSource>> | null;
   spec: GameSpec;
@@ -159,9 +161,11 @@ export class GameHost {
         intro: opts.likeness?.storyIntro,
         boss: opts.likeness?.storyBoss,
         victory: opts.likeness?.storyVictory,
+        defeat: opts.likeness?.storyDefeat,
       }),
       hud: new Hud(opts.spec.palette),
       portrait: opts.likeness?.portrait ?? null,
+      portraitDefeat: opts.likeness?.portraitDefeat ?? opts.likeness?.portrait ?? null,
       fighterPoses: opts.likeness?.fighterPoses ?? null,
       spec: opts.spec,
       attract: !!opts.attract,

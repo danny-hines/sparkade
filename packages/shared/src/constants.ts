@@ -274,6 +274,7 @@ export const DEFAULT_BIND = '127.0.0.1';
  * HTTP allowlist; a manifest can never escape a game's assets directory. */
 export const GENERATED_GAME_ASSET_FILES = {
   generatedPortrait: 'portrait.png',
+  generatedPortraitDefeat: 'portrait-defeat.png',
   generatedHead12: 'head12.png',
   generatedHead12Side: 'head12-side.png',
   generatedHead12Back: 'head12-back.png',
@@ -284,6 +285,7 @@ export const GENERATED_GAME_ASSET_FILES = {
   storyIntro: 'story-intro.png',
   storyBoss: 'story-boss.png',
   storyVictory: 'story-victory.png',
+  storyDefeat: 'story-defeat.png',
   fighterIdle: 'fighter-player-idle.png',
   fighterWalk: 'fighter-player-walk.png',
   fighterCrouch: 'fighter-player-crouch.png',

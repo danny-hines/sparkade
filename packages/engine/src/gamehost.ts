@@ -122,12 +122,18 @@ export class GameHost {
       /** Library demo: skip the how-to card, self-play, and loop forever
        *  instead of showing the score/initials flow. */
       attract?: boolean;
+      /** Library demos may reveal their music alongside a visual crossfade. */
+      attractMusicFadeInMs?: number;
     },
   ) {
     this.renderer = new Renderer(opts.canvas);
     this.renderer.theme = makeUiTheme(opts.spec.palette); // per-game chrome
     this.audio = new AudioSys();
-    this.audio.setVolumes(opts.volumes);
+    const fadeAttractMusic = !!opts.attract && (opts.attractMusicFadeInMs ?? 0) > 0;
+    this.audio.setVolumes({
+      ...opts.volumes,
+      ...(fadeAttractMusic ? { musicVol: 0 } : {}),
+    });
     this.music = new ChiptunePlayer(this.audio, opts.spec.music);
     const rng = new Rng(opts.spec.seed);
     this.sfx = new SfxSynth(this.audio, opts.spec.sfx ?? {}, rng.fork(7));
@@ -200,6 +206,9 @@ export class GameHost {
       // No how-to card in a library demo — jump straight into self-play.
       this.state = 'game';
       this.instance.start();
+      if ((this.opts.attractMusicFadeInMs ?? 0) > 0) {
+        this.audio.fadeMusicTo(this.opts.volumes.musicVol, this.opts.attractMusicFadeInMs!);
+      }
     }
     this.loop.start();
   }

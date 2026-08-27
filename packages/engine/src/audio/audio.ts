@@ -57,6 +57,22 @@ export class AudioSys {
     if (this.ctx) this.applyVolumes();
   }
 
+  /** Smoothly move both song and jingle buses to a new music volume. */
+  fadeMusicTo(musicVol: number, durationMs: number): void {
+    this.volumes.musicVol = musicVol;
+    const ctx = this.context();
+    const now = ctx.currentTime;
+    const end = now + Math.max(0, durationMs) / 1000;
+    for (const bus of [this.musicBus, this.jingleBus]) {
+      const gain = bus.gain;
+      const current = gain.value;
+      gain.cancelScheduledValues(now);
+      gain.setValueAtTime(current, now);
+      if (end > now) gain.linearRampToValueAtTime(musicVol, end);
+      else gain.setValueAtTime(musicVol, now);
+    }
+  }
+
   getVolumes() {
     return { ...this.volumes };
   }

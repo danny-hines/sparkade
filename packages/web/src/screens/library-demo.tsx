@@ -13,6 +13,7 @@ import { PilotBroker } from '../demo-pilot';
 import { loadLikenessAssets } from '../likeness-assets';
 
 const COVER_SHOWCASE_MS = 4_000;
+const CROSSFADE_MS = 2_400;
 const DEMO_VOLUMES = { musicVol: 0.3, sfxVol: 0, uiVol: 0 }; // soft theme, no SFX
 
 // The banner is wider-than-tall, so `cover` crops the game vertically. Choose
@@ -60,6 +61,7 @@ export function LibraryDemo(props: {
             likeness,
             volumes: DEMO_VOLUMES,
             attract: true,
+            attractMusicFadeInMs: CROSSFADE_MS,
             callbacks: {
               onQuit: () => {},
               onVolumesChanged: () => {},
@@ -83,13 +85,13 @@ export function LibraryDemo(props: {
   }, [props.gameId, props.ready]);
 
   return (
-    <div class="lib-demo">
+    <div class="lib-demo" style={`--lib-demo-crossfade:${CROSSFADE_MS}ms`}>
       <canvas
         ref={canvasRef}
         class={`lib-demo-canvas ${live ? 'on' : ''}`}
         style={`object-position:${CROP[props.archetype] ?? '50% 88%'}`}
       />
-      {!live && <div class="lib-demo-fallback">{props.fallback}</div>}
+      <div class={`lib-demo-fallback ${live ? 'off' : ''}`}>{props.fallback}</div>
     </div>
   );
 }

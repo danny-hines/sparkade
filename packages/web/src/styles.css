@@ -275,6 +275,7 @@ h2.pixel {
   inset: 0;
   width: 100%;
   height: 100%;
+  transition: opacity var(--lib-demo-crossfade) ease-in-out;
 }
 .lib-demo-canvas {
   object-fit: cover;
@@ -282,10 +283,16 @@ h2.pixel {
      pin to the bottom so the floor/hero stays in frame and the top is cropped. */
   image-rendering: pixelated;
   opacity: 0;
-  transition: opacity 400ms ease;
 }
 .lib-demo-canvas.on {
   opacity: 1;
+}
+.lib-demo-fallback {
+  opacity: 1;
+  pointer-events: none;
+}
+.lib-demo-fallback.off {
+  opacity: 0;
 }
 .home-detail-cover-full {
   width: 100%;
@@ -1726,8 +1733,7 @@ body.dev-gallery #root {
   color: var(--text);
   font-size: 13px;
   background:
-    radial-gradient(900px 360px at 80% -120px, rgba(53, 224, 255, 0.09), transparent 65%),
-    var(--bg);
+    radial-gradient(900px 360px at 80% -120px, rgba(53, 224, 255, 0.09), transparent 65%), var(--bg);
 }
 
 .fed-header {
@@ -2203,7 +2209,9 @@ body.dev-gallery #root {
   color: #fff;
   font: inherit;
   font-size: 10px;
-  text-shadow: 0 1px 3px #000, 0 0 2px #000;
+  text-shadow:
+    0 1px 3px #000,
+    0 0 2px #000;
   cursor: pointer;
 }
 
@@ -2392,9 +2400,12 @@ body.dev-gallery #root {
     linear-gradient(45deg, #0b0d1c 25%, transparent 25%),
     linear-gradient(-45deg, #0b0d1c 25%, transparent 25%),
     linear-gradient(45deg, transparent 75%, #0b0d1c 75%),
-    linear-gradient(-45deg, transparent 75%, #0b0d1c 75%),
-    #12162b;
-  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+    linear-gradient(-45deg, transparent 75%, #0b0d1c 75%), #12162b;
+  background-position:
+    0 0,
+    0 6px,
+    6px -6px,
+    -6px 0;
   background-size: 12px 12px;
 }
 

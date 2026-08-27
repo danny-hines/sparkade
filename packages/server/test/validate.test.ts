@@ -170,6 +170,22 @@ describe('platformer geometry schema migration', () => {
     const invalid = { ...current, playerHeightTiles: 1 } as unknown as PlatformerSpec;
     expect(validateGameSchema('platformer', invalid)).not.toEqual([]);
   });
+
+  it('accepts bounded scale modes while old saves remain valid', () => {
+    const current = golden('platformer') as PlatformerSpec;
+    expect(current.platformerScale).toBe('heroic');
+    expect(validateGameSchema('platformer', current)).toEqual([]);
+
+    const compact = { ...current, platformerScale: 'compact' };
+    expect(validateGameSchema('platformer', compact)).toEqual([]);
+
+    const legacy = structuredClone(current);
+    delete legacy.platformerScale;
+    expect(validateGameSchema('platformer', legacy)).toEqual([]);
+
+    const invalid = { ...current, platformerScale: 'cinematic' };
+    expect(validateGameSchema('platformer', invalid)).not.toEqual([]);
+  });
 });
 
 describe('custom sprite checks + repair-aware fallback', () => {

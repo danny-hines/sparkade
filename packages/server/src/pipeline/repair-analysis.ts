@@ -522,7 +522,12 @@ function assembleCheckpointSpec(
     ...(entities.lighting ? { lighting: entities.lighting as GameSpec['lighting'] } : {}),
     ...(entities.juice !== undefined ? { juice: entities.juice as GameSpec['juice'] } : {}),
     ...(design.difficulty ? { difficulty: design.difficulty } : {}),
-    ...(archetype === 'platformer' ? { playerHeightTiles: 2 as const } : {}),
+    ...(archetype === 'platformer'
+      ? {
+          playerHeightTiles: 2 as const,
+          platformerScale: design.platformerScale ?? ('heroic' as const),
+        }
+      : {}),
     ...(archetype === 'platformer' && design.feel ? { feel: design.feel } : {}),
     scoring: design.scoring,
   } as GameSpec;

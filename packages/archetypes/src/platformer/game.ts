@@ -43,6 +43,7 @@ import {
   platformerDoorRect,
   platformerHeroPresentation,
   platformerPlayerBody,
+  platformerWorldScale,
 } from './geometry';
 import { estimatePlatformerDurationS } from './lint';
 
@@ -142,6 +143,9 @@ class PlatformerGame implements GameInstance {
   private py = 0;
   private playerW = 10;
   private playerH = 14;
+  private worldScale: 1 | 2 = 1;
+  private viewW = INTERNAL_WIDTH;
+  private viewH = INTERNAL_HEIGHT;
   private pvx = 0;
   private pvy = 0;
   private facing = 1;
@@ -198,9 +202,17 @@ class PlatformerGame implements GameInstance {
             : {},
       );
     }
-    const body = platformerPlayerBody(this.spec.playerHeightTiles);
+    this.worldScale = platformerWorldScale(this.spec.playerHeightTiles, this.spec.platformerScale);
+    this.viewW = INTERNAL_WIDTH / this.worldScale;
+    this.viewH = INTERNAL_HEIGHT / this.worldScale;
+    const body = platformerPlayerBody(this.spec.playerHeightTiles, this.spec.platformerScale);
     this.playerW = body.w;
     this.playerH = body.h;
+  }
+
+  get worldZoom() {
+    if (this.worldScale === 1) return undefined;
+    return { scale: this.worldScale };
   }
 
   start(): void {
@@ -263,8 +275,8 @@ class PlatformerGame implements GameInstance {
     this.checkpoint = null;
     this.spawnPlayer(level.playerSpawn.x, level.playerSpawn.y);
     this.engine.camera.snap(
-      Math.max(0, this.playerCenterX() - INTERNAL_WIDTH / 2),
-      Math.max(0, this.playerCenterY() - INTERNAL_HEIGHT / 2),
+      Math.max(0, this.playerCenterX() - this.viewW / 2),
+      Math.max(0, this.playerCenterY() - this.viewH / 2),
     );
   }
 
@@ -291,8 +303,9 @@ class PlatformerGame implements GameInstance {
   }
 
   private defaultArenaTiles(): string[] {
-    // Hand-built arena: 34 tiles wide, walls, flat floor, two side platforms.
-    const cols = 34;
+    // Heroic framing needs both fighters in its 16-tile-wide view. Compact
+    // games retain the original 34-tile arena byte-for-byte.
+    const cols = this.worldScale === 2 ? 20 : 34;
     const rows = 17;
     const tiles: string[] = [];
     for (let y = 0; y < rows; y++) {
@@ -359,7 +372,7 @@ class PlatformerGame implements GameInstance {
       invulnT: 0,
     };
     this.hud.boss = { hp: this.boss.hp, maxHp: this.boss.maxHp, name: this.spec.boss.name };
-    this.engine.camera.snap(0, rows * TILE_SIZE - INTERNAL_HEIGHT);
+    this.engine.camera.snap(0, rows * TILE_SIZE - this.viewH);
   }
 
   private buildGrid(tiles: string[], legend: Record<string, string>): void {
@@ -555,7 +568,11 @@ class PlatformerGame implements GameInstance {
     this.updateProjectiles(dt);
 
     const bounds = { w: this.grid.cols * TILE_SIZE, h: this.grid.rows * TILE_SIZE };
-    this.engine.camera.follow(this.playerCenterX(), this.playerCenterY(), this.facing, bounds, dt);
+    this.engine.camera.follow(this.playerCenterX(), this.playerCenterY(), this.facing, bounds, dt, {
+      w: this.viewW,
+      h: this.viewH,
+      lookahead: 40 / this.worldScale,
+    });
   }
 
   private solidity(tx: number, ty: number): Solidity {
@@ -747,7 +764,7 @@ class PlatformerGame implements GameInstance {
     for (const e of this.ents) {
       if (!e.active) continue;
       // Activate only near the camera (budget); keep updating once seen.
-      if (e.x > camX + INTERNAL_WIDTH + 64 || e.x < camX - 96) continue;
+      if (e.x > camX + this.viewW + 64 || e.x < camX - 96) continue;
       e.t += dt;
       switch (e.type) {
         case 'walker':
@@ -803,7 +820,7 @@ class PlatformerGame implements GameInstance {
           const interval = (e.props.fireIntervalMs ?? 2200) / 1000 / this.diff.fire;
           if (
             e.fireT >= interval &&
-            Math.abs(this.playerCenterX() - (e.x + e.w / 2)) < INTERNAL_WIDTH * 0.6
+            Math.abs(this.playerCenterX() - (e.x + e.w / 2)) < this.viewW * 0.6
           ) {
             e.fireT = 0;
             if (e.props.aim === 'arc') {
@@ -1236,7 +1253,7 @@ class PlatformerGame implements GameInstance {
     // entities
     for (const e of this.ents) {
       if (!e.active) continue;
-      if (e.x - cam.x < -32 || e.x - cam.x > INTERNAL_WIDTH + 32) continue;
+      if (e.x - cam.x < -32 || e.x - cam.x > this.viewW + 32) continue;
       const sprite = this.entitySprite(e);
       if (!sprite) continue;
       const anim = e.type === 'spring' ? (e.t > 0 && e.t < 0.25 ? 'bounce' : 'idle') : 'walk';

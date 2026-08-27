@@ -11,6 +11,7 @@ import type {
   JobStage,
   LightingMode,
   LogicalButton,
+  PlatformerScale,
   SfxEvent,
   ShooterBackdropId,
   StageName,
@@ -429,6 +430,8 @@ export interface PlatformerSpec extends GameSpecBase {
   archetype: 'platformer';
   /** Collision/layout version for the 16x32 likeness hero; omitted means legacy 10x14 physics. */
   playerHeightTiles?: 2;
+  /** Camera framing for platformer gameplay; omitted preserves the original wide view. */
+  platformerScale?: PlatformerScale;
   /** Horizontal side-scroll scene; omitted → seed-varied pick. */
   backdrop?: BackdropVariantId;
   levels: PlatformerLevel[];
@@ -477,6 +480,8 @@ export interface DesignDoc {
   musicBrief: { key: string; bpm: number; themeMood: string; bossMood: string };
   scoring: ScoringBlock;
   difficulty: 'chill' | 'standard' | 'spicy';
+  /** Platformer-only camera framing; heroic is the default for newly generated games. */
+  platformerScale?: PlatformerScale;
   /** Platformer-only movement character; omitted → standard feel. */
   feel?: HeroFeel;
 }

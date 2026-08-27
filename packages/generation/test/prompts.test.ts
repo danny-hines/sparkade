@@ -103,6 +103,8 @@ describe('prompt templates', () => {
     expect(prompt).toContain('single semantic `solid` value');
     expect(prompt).toContain('never add separate cap/inner characters');
     expect(prompt).toContain('engine selects exposed cap art versus buried inner art');
+    expect(prompt).toContain('`"heroic"` uses a close 2x camera');
+    expect(prompt).toContain('≤ 8 near any heroic screen');
   });
 
   it('teaches platformer entity generation to pair themed cap and inner art', () => {

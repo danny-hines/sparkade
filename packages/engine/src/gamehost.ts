@@ -405,6 +405,9 @@ export class GameHost {
         // hit sparks stay crisp) and the HUD/story cards (always legible).
         this.weather.draw(r.ctx, this.engineCtx.camera.x, this.engineCtx.camera.y);
         this.engineCtx.particles.render(r, this.engineCtx.camera.x, this.engineCtx.camera.y);
+        // Archetypes may crop + integer-upscale the completed world, but HUD,
+        // cards and pause chrome always stay at the native 512x300 resolution.
+        if (this.instance.worldZoom) r.applyWorldZoom(this.instance.worldZoom);
         this.engineCtx.hud.render(r, this.instance.hud, {
           showKeys: this.opts.spec.archetype === 'adventure',
           showBombs: this.opts.spec.archetype === 'shooter',

@@ -20,7 +20,7 @@ export {
   type SpritePresentation,
   type SpriteResolveOptions,
 } from './sprites';
-export { Renderer, Camera, drawTileLayer, drawObstacleShadows, drawObstacleTile } from './renderer';
+export { Renderer, Camera, worldZoomRect, drawTileLayer, drawObstacleShadows, drawObstacleTile, type WorldZoomRect } from './renderer';
 export {
   BACKDROP_VARIANTS,
   makeBackdrop,

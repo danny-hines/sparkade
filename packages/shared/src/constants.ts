@@ -17,6 +17,10 @@ export const INTERNAL_HEIGHT = 300;
 export const DISPLAY_SCALE = 2;
 export const TILE_SIZE = 16;
 
+/** Bounded platformer framing modes. Raw tile/camera scale is never model-authored. */
+export const PLATFORMER_SCALES = ['compact', 'heroic'] as const;
+export type PlatformerScale = (typeof PLATFORMER_SCALES)[number];
+
 // ---------------------------------------------------------------------------
 // Performance budgets (validators reject specs that exceed them; engine enforces at runtime)
 // ---------------------------------------------------------------------------

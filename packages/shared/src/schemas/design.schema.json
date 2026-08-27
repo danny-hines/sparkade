@@ -120,6 +120,10 @@
       "additionalProperties": false
     },
     "difficulty": { "enum": ["chill", "standard", "spicy"] },
+    "platformerScale": {
+      "description": "Platformer only. 'heroic' is a close, actor-forward 2x view and the default choice; use 'compact' only when a tiny hero, swarms, speed, or broad traversal is central to the premise. Omit for other archetypes.",
+      "enum": ["compact", "heroic"]
+    },
     "feel": {
       "description": "Platformer-only movement character. Omit for standard feel, and omit entirely for non-platformer games. It only ever makes the hero float/jump/run MORE than normal, never less, so levels stay solvable. Match the premise: a moon / dream / balloon game floats; a speedster / hero-dash game runs fast.",
       "type": "object",

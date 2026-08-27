@@ -2127,7 +2127,12 @@ export class GenerationRunner {
         ? { juice: parts.entities.juice as GameSpec['juice'] }
         : {}),
       ...(design.difficulty ? { difficulty: design.difficulty } : {}),
-      ...(archetype === 'platformer' ? { playerHeightTiles: 2 as const } : {}),
+      ...(archetype === 'platformer'
+        ? {
+            playerHeightTiles: 2 as const,
+            platformerScale: design.platformerScale ?? ('heroic' as const),
+          }
+        : {}),
       ...(archetype === 'platformer' && design.feel ? { feel: design.feel } : {}),
       scoring: design.scoring,
     } as GameSpec;

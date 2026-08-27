@@ -15,6 +15,10 @@
       "description": "Collision/layout version for the 16x32 likeness hero. New games set 2; omitted legacy games retain their original compact collision body.",
       "const": 2
     },
+    "platformerScale": {
+      "description": "Gameplay framing. 'compact' preserves the wide 32-tile view; 'heroic' uses a crisp 2x world camera so actors and terrain read at classic console scale. Omitted saved games stay compact.",
+      "enum": ["compact", "heroic"]
+    },
     "backdrop": {
       "description": "Parallax backdrop scene drawn behind gameplay in your palette's background colors. Pick the scene that matches the premise; omit for a mood-based default.",
       "enum": [
@@ -538,7 +542,7 @@
               "type": "array",
               "minItems": 14,
               "maxItems": 20,
-              "items": { "type": "string", "minLength": 28, "maxLength": 48, "pattern": "^[ -~]+$" }
+              "items": { "type": "string", "minLength": 18, "maxLength": 48, "pattern": "^[ -~]+$" }
             },
             "legend": {
               "description": "Single character -> tile type. '.' is always empty and may be omitted.",

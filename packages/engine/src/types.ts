@@ -67,6 +67,15 @@ export interface GameResult {
   timeBonusSeconds: number;
 }
 
+/** Optional post-render crop used to present a world at an integer zoom while
+ * keeping HUD, cards, pause chrome, and the final 512x300 output unchanged. */
+export interface WorldZoom {
+  scale: number;
+  /** Top-left crop in the already-rendered world canvas; defaults to (0,0). */
+  sourceX?: number;
+  sourceY?: number;
+}
+
 /** Live HUD values the substrate draws every frame. */
 export interface HudState {
   score: number;
@@ -93,5 +102,7 @@ export interface GameInstance {
   readonly hud: HudState;
   /** Non-null once the run is over; host then takes over (tally → initials → leaderboard). */
   readonly result: GameResult | null;
+  /** Integer world-only presentation zoom; omitted leaves the original framing. */
+  readonly worldZoom?: WorldZoom;
   dispose(): void;
 }

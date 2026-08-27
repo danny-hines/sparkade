@@ -2,19 +2,29 @@ import { describe, expect, it } from 'vitest';
 import { moveAABB, type TileGrid } from '@sparkade/engine';
 import {
   LEGACY_PLATFORMER_PLAYER_BODY,
+  HEROIC_PLATFORMER_PLAYER_BODY,
   MOVING_PLATFORM_BODY,
   TALL_PLATFORMER_PLAYER_BODY,
   platformerDoorRect,
   platformerHeroPresentation,
   platformerPlayerBody,
+  platformerWorldScale,
 } from '../src/platformer/geometry';
 
 describe('platformer player geometry', () => {
   it('makes the explicit height marker authoritative while legacy saves stay native-sized', () => {
     expect(platformerPlayerBody(2)).toEqual(TALL_PLATFORMER_PLAYER_BODY);
+    expect(platformerPlayerBody(2, 'heroic')).toEqual(HEROIC_PLATFORMER_PLAYER_BODY);
     expect(platformerPlayerBody(undefined)).toEqual(LEGACY_PLATFORMER_PLAYER_BODY);
     expect(platformerHeroPresentation(2)).toBe('tall-humanoid');
     expect(platformerHeroPresentation(undefined)).toBe('native');
+  });
+
+  it('opts only explicit two-tile heroic games into the close camera', () => {
+    expect(platformerWorldScale(2, 'heroic')).toBe(2);
+    expect(platformerWorldScale(2, 'compact')).toBe(1);
+    expect(platformerWorldScale(2, undefined)).toBe(1);
+    expect(platformerWorldScale(undefined, 'heroic')).toBe(1);
   });
 
   it('treats an exit coordinate as the foot tile of a two-tile door', () => {

@@ -4,6 +4,30 @@
 import { DISPLAY_SCALE, INTERNAL_HEIGHT, INTERNAL_WIDTH } from '@sparkade/shared';
 import { drawText, textWidth, wrapText, type TextOpts } from './font';
 import { DEFAULT_THEME, type UiTheme } from './theme';
+import type { WorldZoom } from './types';
+
+export interface WorldZoomRect {
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
+}
+
+/** Pure crop calculation kept separate from canvas work for boundary tests. */
+export function worldZoomRect(
+  zoom: WorldZoom,
+  width = INTERNAL_WIDTH,
+  height = INTERNAL_HEIGHT,
+): WorldZoomRect {
+  const scale = Math.max(1, Math.floor(zoom.scale));
+  const sw = Math.max(1, Math.floor(width / scale));
+  const sh = Math.max(1, Math.floor(height / scale));
+  const maxX = Math.max(0, width - sw);
+  const maxY = Math.max(0, height - sh);
+  const sx = Math.max(0, Math.min(maxX, Math.round(zoom.sourceX ?? 0)));
+  const sy = Math.max(0, Math.min(maxY, Math.round(zoom.sourceY ?? 0)));
+  return { sx, sy, sw, sh };
+}
 
 export class Camera {
   x = 0;
@@ -17,16 +41,21 @@ export class Camera {
     facing: number,
     bounds: { w: number; h: number },
     dt: number,
+    viewport: { w: number; h: number; lookahead: number } = {
+      w: INTERNAL_WIDTH,
+      h: INTERNAL_HEIGHT,
+      lookahead: 40,
+    },
   ): void {
-    const lookTarget = facing * 40;
+    const lookTarget = facing * viewport.lookahead;
     this.lookX += (lookTarget - this.lookX) * Math.min(1, dt * 3);
-    const want = targetX - INTERNAL_WIDTH / 2 + this.lookX;
+    const want = targetX - viewport.w / 2 + this.lookX;
     this.x += (want - this.x) * Math.min(1, dt * 8);
-    const wantY = targetY - INTERNAL_HEIGHT * 0.55;
+    const wantY = targetY - viewport.h * 0.55;
     this.y += (wantY - this.y) * Math.min(1, dt * 6);
-    this.x = Math.max(0, Math.min(bounds.w - INTERNAL_WIDTH, this.x));
-    this.y = Math.max(0, Math.min(Math.max(0, bounds.h - INTERNAL_HEIGHT), this.y));
-    if (bounds.h <= INTERNAL_HEIGHT) this.y = bounds.h - INTERNAL_HEIGHT;
+    this.x = Math.max(0, Math.min(bounds.w - viewport.w, this.x));
+    this.y = Math.max(0, Math.min(Math.max(0, bounds.h - viewport.h), this.y));
+    if (bounds.h <= viewport.h) this.y = bounds.h - viewport.h;
   }
 
   snap(x: number, y: number): void {
@@ -40,6 +69,8 @@ export class Renderer {
   readonly ctx: CanvasRenderingContext2D;
   private visible: HTMLCanvasElement;
   private visibleCtx: CanvasRenderingContext2D;
+  private worldBuffer: HTMLCanvasElement;
+  private worldBufferCtx: CanvasRenderingContext2D;
 
   private shakeUntil = 0;
   private shakeMag = 0;
@@ -57,7 +88,12 @@ export class Renderer {
     this.canvas.width = INTERNAL_WIDTH;
     this.canvas.height = INTERNAL_HEIGHT;
     this.ctx = this.canvas.getContext('2d', { alpha: false })!;
+    this.worldBuffer = document.createElement('canvas');
+    this.worldBuffer.width = INTERNAL_WIDTH;
+    this.worldBuffer.height = INTERNAL_HEIGHT;
+    this.worldBufferCtx = this.worldBuffer.getContext('2d', { alpha: false })!;
     this.ctx.imageSmoothingEnabled = false;
+    this.worldBufferCtx.imageSmoothingEnabled = false;
     this.visibleCtx.imageSmoothingEnabled = false;
   }
 
@@ -99,6 +135,19 @@ export class Renderer {
 
   drawScaled(img: CanvasImageSource, x: number, y: number, w: number, h: number): void {
     this.ctx.drawImage(img, Math.round(x), Math.round(y), w, h);
+  }
+
+  /** Crop and integer-upscale the completed world before fixed-resolution HUD
+   * and overlays are drawn. A scratch canvas avoids reading and writing the
+   * same backing store in one drawImage call, which is browser-dependent. */
+  applyWorldZoom(zoom: WorldZoom): void {
+    if (zoom.scale <= 1) return;
+    const { sx, sy, sw, sh } = worldZoomRect(zoom);
+    this.worldBufferCtx.clearRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+    this.worldBufferCtx.drawImage(this.canvas, 0, 0);
+    this.ctx.clearRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+    this.ctx.imageSmoothingEnabled = false;
+    this.ctx.drawImage(this.worldBuffer, sx, sy, sw, sh, 0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
   }
 
   rect(x: number, y: number, w: number, h: number, color: string): void {

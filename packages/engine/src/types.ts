@@ -57,7 +57,7 @@ export interface LikenessAssets {
   /** Optional image-generated player poses. The fighter uses these when a
    * complete enough set is present and otherwise keeps its procedural figure. */
   fighterPoses?: Readonly<Record<string, CanvasImageSource>> | null;
-  /** Native 48x64 platformer poses. Activated only as one complete set. */
+  /** Native generated platformer poses. Activated only as one complete set. */
   platformerPoses?: Readonly<Record<string, CanvasImageSource>> | null;
 }
 

@@ -180,5 +180,8 @@ describe('generation incidents', () => {
     expect(hasSubstantiveRepair(REPAIRS)).toBe(true);
     expect(hasSubstantiveRepair([{ ...REPAIRS[0]!, action: 'normalize' }])).toBe(false);
     expect(hasSubstantiveRepair([{ ...REPAIRS[0]!, action: 'fighter-art-fallback' }])).toBe(true);
+    expect(
+      hasSubstantiveRepair([{ ...REPAIRS[0]!, action: 'platformer-player-art-fallback' }]),
+    ).toBe(true);
   });
 });

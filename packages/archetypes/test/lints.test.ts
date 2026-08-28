@@ -8,7 +8,11 @@ import type { AdventureSpec, FighterSpec, GameSpec, PlatformerSpec, ShooterSpec 
 import { MIN_DURATION_S } from '@sparkade/shared';
 import { archetypes } from '@sparkade/archetypes';
 import { checkKeyTopology, buildGraph, reconcileDoors } from '../src/adventure/lint';
-import { parseLevelGrid, reachableCells } from '../src/platformer/lint';
+import {
+  parseLevelGrid,
+  platformerReachabilityBlockage,
+  reachableCells,
+} from '../src/platformer/lint';
 
 /** First solid cell in a level, for placing deliberately-embedded fixtures. */
 function firstSolid(level: PlatformerSpec['levels'][number]): { x: number; y: number } {
@@ -175,14 +179,45 @@ describe('platformer lints', () => {
     level.entities = level.entities.filter(
       (e) => !(e.x >= gapStart - 5 && e.x <= gapStart + 13 && (e.type === 'spring' || e.type === 'movingPlatform')),
     );
-    const errs = codes(archetypes.platformer.lint(spec));
+    const diagnostics = archetypes.platformer.lint(spec);
+    const errs = codes(diagnostics);
     expect(errs).toContain('PLAT_EXIT_UNREACHABLE');
+    const blockage = platformerReachabilityBlockage(level);
+    expect(blockage).not.toBeNull();
+    const reach = reachableCells(level);
+    expect(reach.has(`${blockage!.frontier.x},${blockage!.frontier.y}`)).toBe(true);
+    expect(reach.has(`${blockage!.landing.x},${blockage!.landing.y}`)).toBe(false);
+    expect(
+      diagnostics.find((diagnostic) => diagnostic.code === 'PLAT_EXIT_UNREACHABLE')?.message,
+    ).toContain(
+      `reachable standing cell (${blockage!.frontier.x},${blockage!.frontier.y})`,
+    );
   });
 
   it('reachability flood fill covers the spawn area', () => {
     const level = golden<PlatformerSpec>('platformer').levels[0]!;
     const cells = reachableCells(level);
     expect(cells.size).toBeGreaterThan(10);
+  });
+
+  it('walks through a two-tile-high corridor without treating every step as a jump', () => {
+    const spec = golden<PlatformerSpec>('platformer');
+    const level = spec.levels[0]!;
+    const solid = Object.entries(level.legend).find(([, kind]) => kind === 'solid')![0];
+    const width = level.tiles[0]!.length;
+    const footY = level.tiles.length - 2;
+    level.tiles = level.tiles.map((row) => '.'.repeat(row.length));
+    level.tiles[footY + 1] = solid.repeat(width);
+    level.tiles[footY - 2] = solid.repeat(width);
+    level.playerSpawn = { x: 2, y: footY };
+    level.exit = { x: width - 3, y: footY };
+    const checkpoint = Object.entries(level.legend).find(
+      ([, kind]) => kind === 'checkpoint',
+    )![0];
+    setLevelCell(level, Math.floor(width / 2), footY, checkpoint);
+
+    expect(reachableCells(level).has(`${level.exit.x},${level.exit.y}`)).toBe(true);
+    expect(codes(archetypes.platformer.lint(spec))).not.toContain('PLAT_EXIT_UNREACHABLE');
   });
 
   it('missing checkpoint → PLAT_NO_CHECKPOINT; content floors enforced', () => {

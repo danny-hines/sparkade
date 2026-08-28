@@ -120,6 +120,38 @@ export class GameFiles {
     return readJson<RawStageCheckpoint<T>>(join(dir, selected.filename));
   }
 
+  /** Persist the canonical spec after every validation and repair gate passes. */
+  writeValidatedSpecCheckpoint<TDesign>(
+    jobId: string,
+    attempt: number,
+    checkpoint: Omit<ValidatedSpecCheckpoint<TDesign>, 'jobId' | 'attempt' | 'at'>,
+  ): ValidatedSpecCheckpoint<TDesign> {
+    const stored: ValidatedSpecCheckpoint<TDesign> = {
+      jobId,
+      attempt,
+      at: nowIso(),
+      ...checkpoint,
+    };
+    const json = JSON.stringify(stored, null, 2);
+    if (json === undefined) {
+      throw new TypeError('validated spec checkpoint must be JSON-serializable');
+    }
+    atomicWriteFile(
+      join(this.rawCheckpointAttemptDir(jobId, attempt), 'validated-spec.json'),
+      `${json}\n`,
+    );
+    return stored;
+  }
+
+  readValidatedSpecCheckpoint<TDesign = unknown>(
+    jobId: string,
+    attempt: number,
+  ): ValidatedSpecCheckpoint<TDesign> | null {
+    const dir = this.rawCheckpointAttemptDir(jobId, attempt, false);
+    if (!dir) return null;
+    return readJson<ValidatedSpecCheckpoint<TDesign>>(join(dir, 'validated-spec.json'));
+  }
+
   /** All raw responses for an attempt, ordered by write time. */
   listRawStageCheckpoints(jobId: string, attempt: number): RawStageCheckpoint[] {
     const dir = this.rawCheckpointAttemptDir(jobId, attempt, false);
@@ -245,6 +277,17 @@ export interface RawStageCheckpoint<T = unknown> {
   revision: number;
   at: string;
   document: T;
+}
+
+export interface ValidatedSpecCheckpoint<TDesign = unknown> {
+  jobId: string;
+  attempt: number;
+  at: string;
+  engineVersion: string;
+  specVersion: number;
+  archetypeVersion: string;
+  design: TDesign;
+  spec: GameSpec;
 }
 
 function rawCheckpointFilename(stage: RawStageName, revision: number): string {

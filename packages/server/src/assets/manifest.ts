@@ -14,6 +14,7 @@ export const GAME_ASSET_MANIFEST_FILE = 'manifest.json';
 const PRIVATE_GENERATED_ASSET_FILES = {
   fighterReference: '.fighter-player-reference.png',
   platformerReference: '.platformer-player-reference.png',
+  platformerSideReference: '.platformer-player-side-reference.png',
 } as const;
 export const PRIVATE_GENERATED_ASSET_FILENAMES = Object.freeze(
   Object.values(PRIVATE_GENERATED_ASSET_FILES),

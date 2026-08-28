@@ -74,6 +74,133 @@ export interface SettingsPayload {
   imageGeneration: { model: string; baseUrl: string; pricePerImageUsd: number };
 }
 
+export type PlatformerPoseLabStage =
+  'source' | 'idle' | 'idle-judge' | 'side-anchor' | 'candidates' | 'judge' | 'complete';
+
+export interface PlatformerPoseLabEvent {
+  seq: number;
+  runId: string;
+  at: string;
+  type:
+    | 'stage'
+    | 'asset'
+    | 'idle-judge-response'
+    | 'idle-selection'
+    | 'judge-response'
+    | 'selection'
+    | 'human-verdict'
+    | 'done'
+    | 'failed';
+  stage: PlatformerPoseLabStage;
+  status: 'started' | 'complete' | 'rejected' | 'failed';
+  message: string;
+  elapsedMs?: number;
+  data?: Record<string, unknown>;
+}
+
+export interface PlatformerPoseScore {
+  identity: number;
+  costume: number;
+  pose: number;
+  technical: number;
+}
+
+export type PlatformerEyewearState = 'present' | 'absent' | 'uncertain';
+
+export interface PlatformerIdleCandidateReview {
+  id: string;
+  eyewear: PlatformerEyewearState;
+  eyewearMatch: boolean;
+  scores: {
+    identity: number;
+    faceAndHair: number;
+    accessories: number;
+    costume: number;
+    proportions: number;
+    pose: number;
+    technical: number;
+  };
+  fatalIssues: string[];
+  summary: string;
+}
+
+export interface PlatformerIdleJudgeDecision {
+  sourceReview: {
+    eyewear: PlatformerEyewearState;
+    summary: string;
+  };
+  candidateReviews: PlatformerIdleCandidateReview[];
+  selection: {
+    accepted: boolean;
+    candidateId: string;
+    confidence: number;
+    rationale: string;
+    retryGuidance: string;
+  };
+}
+
+export interface PlatformerPoseCandidateReview {
+  id: string;
+  kind: 'phase-a' | 'phase-b';
+  scores: PlatformerPoseScore;
+  fatalIssues: string[];
+  summary: string;
+}
+
+export interface PlatformerPosePairReview {
+  phaseAId: string;
+  phaseBId: string;
+  legAlternation: number;
+  armAlternation: number;
+  pairConsistency: number;
+  fatalIssues: string[];
+  summary: string;
+}
+
+export interface PlatformerPoseHumanVerdict {
+  accepted: boolean;
+  phaseAId: string;
+  phaseBId: string;
+  notes: string;
+  at: string;
+}
+
+export interface PlatformerPoseJudgeDecision {
+  anchorReview: {
+    identity: number;
+    sideView: number;
+    costume: number;
+    fatalIssues: string[];
+    summary: string;
+  };
+  candidateReviews: PlatformerPoseCandidateReview[];
+  pairReviews: PlatformerPosePairReview[];
+  selection: {
+    accepted: boolean;
+    phaseAId: string;
+    phaseBId: string;
+    legAlternation: number;
+    armAlternation: number;
+    pairConsistency: number;
+    confidence: number;
+    rationale: string;
+    retryGuidance: string;
+  };
+}
+
+export interface PlatformerPoseLabStatus {
+  runId: string;
+  status: 'running' | 'done' | 'failed';
+  events: PlatformerPoseLabEvent[];
+  imageCalls: number;
+  imageCostUsd: number;
+  judgeCostUsd: number | null;
+  idleDecision?: PlatformerIdleJudgeDecision;
+  decision?: PlatformerPoseJudgeDecision;
+  humanVerdict?: PlatformerPoseHumanVerdict;
+  error?: string;
+}
+
 export const api = {
   listGames: () => fetch('/api/games').then((r) => json<GameListItem[]>(r)),
   getGame: (id: string) => fetch(`/api/games/${id}`).then((r) => json<GameDetail>(r)),
@@ -116,6 +243,36 @@ export const api = {
     const res = await fetch('/api/games', { method: 'POST', body: form });
     return json(res);
   },
+  startPlatformerPoseLab: async (opts: {
+    photo: Blob;
+    heroConcept?: string;
+    colors?: string;
+  }): Promise<{ runId: string }> => {
+    const form = new FormData();
+    form.append('photo', opts.photo, 'player-reference.png');
+    if (opts.heroConcept) form.append('heroConcept', opts.heroConcept);
+    if (opts.colors) form.append('colors', opts.colors);
+    const response = await fetch('/api/dev/platformer-poses/runs', {
+      method: 'POST',
+      body: form,
+    });
+    return json(response);
+  },
+  platformerPoseLabStatus: (runId: string) =>
+    fetch(`/api/dev/platformer-poses/runs/${encodeURIComponent(runId)}`).then((response) =>
+      json<PlatformerPoseLabStatus>(response),
+    ),
+  savePlatformerPoseHumanVerdict: (
+    runId: string,
+    input: { accepted: boolean; phaseAId?: string; phaseBId?: string; notes?: string },
+  ) =>
+    fetch(`/api/dev/platformer-poses/runs/${encodeURIComponent(runId)}/human-verdict`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    }).then((response) =>
+      json<{ humanVerdict: PlatformerPoseHumanVerdict; event: PlatformerPoseLabEvent }>(response),
+    ),
   estimate: (opts: { photo?: boolean; archetype?: ArchetypeId } = {}) => {
     const query = new URLSearchParams();
     if (opts.photo) query.set('photo', '1');
@@ -195,5 +352,26 @@ export function subscribeJob(jobId: string, onEvent: (e: JobEvent) => void): () 
       /* malformed frame — ignore */
     }
   };
+  return () => source.close();
+}
+
+/** Subscribe to a dev pose-lab run. The server replays every prior event, so
+ * opening after the multipart upload still shows the complete pipeline. */
+export function subscribePlatformerPoseLab(
+  runId: string,
+  onEvent: (event: PlatformerPoseLabEvent) => void,
+  onDisconnect?: () => void,
+): () => void {
+  const source = new EventSource(
+    `/api/dev/platformer-poses/runs/${encodeURIComponent(runId)}/events`,
+  );
+  source.onmessage = (message) => {
+    try {
+      onEvent(JSON.parse(message.data) as PlatformerPoseLabEvent);
+    } catch {
+      /* malformed dev frame — ignore */
+    }
+  };
+  source.onerror = () => onDisconnect?.();
   return () => source.close();
 }

@@ -556,9 +556,7 @@ export function WizardScreen(props: {
           <div class="center-col">
             <div style="font-size:24px">Want to be in the game?</div>
             <div style="color:var(--text-dim);font-size:18px;max-width:560px">
-              Your photo is sent to Muse Image through Meta's Model API to create your hero, then
-              deleted after the game publishes. Game text uses Muse Spark's Contributor tier by
-              default; Contributor inputs and responses may be used by Meta for model training.
+              Your photo helps create your hero and is deleted after the game publishes.
             </div>
             <div class="menu-list" style="width:480px;margin-top:10px">
               <div class={`focusable menu-item ${cursor === 0 ? 'focused' : ''}`}>

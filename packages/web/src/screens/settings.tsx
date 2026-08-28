@@ -471,8 +471,9 @@ export function SettingsScreen(props: {
                     </div>
                     <div style="font-size:13px;color:var(--text-dim);margin:0 0 6px 4px;max-width:440px;line-height:1.5">
                       Photos accepted in the game wizard are sent to Meta's Model API to create
-                      personalized hero sprites and story art. The source photo is removed after the
-                      game is successfully published.
+                      personalized hero art and, for detailed platformers, to select the best
+                      identity and run animation. The source photo is removed after the game is
+                      successfully published.
                     </div>
                     {inputs.cameras.length === 0 && inputs.mics.length === 0 && (
                       <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line,#333)">

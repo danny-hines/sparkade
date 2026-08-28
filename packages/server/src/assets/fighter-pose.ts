@@ -120,7 +120,9 @@ export type FighterPoseImageErrorCode =
   | 'empty-subject'
   | 'multiple-subjects'
   | 'subject-too-small'
-  | 'subject-too-large';
+  | 'subject-too-large'
+  | 'inconsistent-scale'
+  | 'insufficient-pose-change';
 
 export class FighterPoseImageError extends Error {
   constructor(
@@ -140,6 +142,8 @@ export interface FighterPoseImageOptions {
   padding?: number;
   /** Transparent inset below the subject. Defaults to `padding`. */
   bottomPadding?: number;
+  /** Remove green chroma spill connected to the keyed background at source and output scale. */
+  removeGreenSpill?: boolean;
   /** Maximum indexed PNG palette size. */
   colors?: number;
   /** Validation thresholds are fractions of the decoded source canvas. */
@@ -177,6 +181,7 @@ interface ResolvedFighterPoseImageOptions {
   height: number;
   padding: number;
   bottomPadding: number;
+  removeGreenSpill: boolean;
   colors: number;
   minGreenFraction: number;
   minSubjectFraction: number;
@@ -207,6 +212,7 @@ function resolveOptions(options: FighterPoseImageOptions): ResolvedFighterPoseIm
     height: integerOption(options.height, GENERATED_FIGHTER_POSE_SIZE, 'height'),
     padding,
     bottomPadding: options.bottomPadding ?? padding,
+    removeGreenSpill: options.removeGreenSpill ?? false,
     colors: integerOption(options.colors, 32, 'colors'),
     minGreenFraction: fractionOption(options.minGreenFraction, 0.05, 'minGreenFraction'),
     minSubjectFraction: fractionOption(options.minSubjectFraction, 0.005, 'minSubjectFraction'),
@@ -251,6 +257,173 @@ function resolveOptions(options: FighterPoseImageOptions): ResolvedFighterPoseIm
  */
 function isGreenScreenPixel(r: number, g: number, b: number): boolean {
   return g >= 190 && r <= 90 && b <= 90 && g - r >= 120 && g - b >= 120;
+}
+
+/** Muse can darken the green screen at silhouette edges. Remove only nearly
+ * pure-green pixels that are spatially connected to transparency; blue-green
+ * hair or clothing remains because it is not chroma-key spill. */
+function removeConnectedGreenSpill(data: Buffer, width: number, height: number): number {
+  const queued = new Uint8Array(width * height);
+  const queue: number[] = [];
+  const isSpill = (pixel: number): boolean => {
+    const offset = pixel * 4;
+    const r = data[offset]!;
+    const g = data[offset + 1]!;
+    const b = data[offset + 2]!;
+    return (
+      data[offset + 3]! > 8 &&
+      g >= 72 &&
+      r <= g * 0.25 &&
+      b <= g * 0.25 &&
+      g - r >= 60 &&
+      g - b >= 60
+    );
+  };
+  const touchesTransparency = (pixel: number): boolean => {
+    const x = pixel % width;
+    const y = Math.floor(pixel / width);
+    if (x === 0 || y === 0 || x === width - 1 || y === height - 1) return true;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const neighbor = (y + dy) * width + x + dx;
+        if (data[neighbor * 4 + 3]! <= 8) return true;
+      }
+    }
+    return false;
+  };
+  for (let pixel = 0; pixel < width * height; pixel++) {
+    if (!isSpill(pixel) || !touchesTransparency(pixel)) continue;
+    queued[pixel] = 1;
+    queue.push(pixel);
+  }
+  let removed = 0;
+  for (let cursor = 0; cursor < queue.length; cursor++) {
+    const pixel = queue[cursor]!;
+    const offset = pixel * 4;
+    if (data[offset + 3]! <= 8) continue;
+    data[offset] = 0;
+    data[offset + 1] = 0;
+    data[offset + 2] = 0;
+    data[offset + 3] = 0;
+    removed++;
+    const x = pixel % width;
+    const y = Math.floor(pixel / width);
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (
+          (dx === 0 && dy === 0) ||
+          x + dx < 0 ||
+          x + dx >= width ||
+          y + dy < 0 ||
+          y + dy >= height
+        ) {
+          continue;
+        }
+        const neighbor = (y + dy) * width + x + dx;
+        if (queued[neighbor] || !isSpill(neighbor)) continue;
+        queued[neighbor] = 1;
+        queue.push(neighbor);
+      }
+    }
+  }
+  return removed;
+}
+
+/** Downscaling can preserve a few dark green edge samples that are too mixed
+ * with the subject color for the conservative source-scale key above. At the
+ * final sprite scale those isolated pixels are conspicuous, so remove only
+ * small green-dominant components that still touch transparency. A real green
+ * garment or hairstyle forms a larger component and remains intact. */
+function removeSmallOutputGreenSpill(data: Buffer, width: number, height: number): number {
+  const maxComponentPixels = Math.max(12, Math.round((12 * width * height) / (56 * 64)));
+  const candidate = new Uint8Array(width * height);
+  for (let pixel = 0; pixel < width * height; pixel++) {
+    const offset = pixel * 4;
+    const r = data[offset]!;
+    const g = data[offset + 1]!;
+    const b = data[offset + 2]!;
+    if (
+      data[offset + 3]! > 8 &&
+      g >= 56 &&
+      r <= g * 0.45 &&
+      b <= g * 0.4 &&
+      g - r >= 40 &&
+      g - b >= 40
+    ) {
+      candidate[pixel] = 1;
+    }
+  }
+
+  const seen = new Uint8Array(width * height);
+  const stack: number[] = [];
+  const component: number[] = [];
+  let removed = 0;
+  for (let start = 0; start < width * height; start++) {
+    if (!candidate[start] || seen[start]) continue;
+    seen[start] = 1;
+    stack.push(start);
+    component.length = 0;
+    let touchesTransparency = false;
+    while (stack.length) {
+      const pixel = stack.pop()!;
+      component.push(pixel);
+      const x = pixel % width;
+      const y = Math.floor(pixel / width);
+      if (x === 0 || y === 0 || x === width - 1 || y === height - 1) {
+        touchesTransparency = true;
+      }
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+          const neighbor = ny * width + nx;
+          if (data[neighbor * 4 + 3]! <= 8) touchesTransparency = true;
+          if (!candidate[neighbor] || seen[neighbor]) continue;
+          seen[neighbor] = 1;
+          stack.push(neighbor);
+        }
+      }
+    }
+    if (!touchesTransparency || component.length > maxComponentPixels) continue;
+    for (const pixel of component) {
+      const offset = pixel * 4;
+      data[offset] = 0;
+      data[offset + 1] = 0;
+      data[offset + 2] = 0;
+      data[offset + 3] = 0;
+      removed++;
+    }
+  }
+  return removed;
+}
+
+/** Nearest-neighbor resampling does not guarantee that the last opaque source
+ * row is sampled, even when the requested output rectangle reaches the ground
+ * line. Re-anchor from the pixels that actually survived processing so feet do
+ * not float by one or two pixels in the final sprite. */
+function bottomAlignOpaquePixels(
+  data: Buffer,
+  width: number,
+  height: number,
+  bottomPadding: number,
+): number {
+  let maxY = -1;
+  for (let pixel = 0; pixel < width * height; pixel++) {
+    if (data[pixel * 4 + 3]! > 8) maxY = Math.floor(pixel / width);
+  }
+  if (maxY < 0) return 0;
+
+  const targetBottom = height - bottomPadding - 1;
+  const shift = targetBottom - maxY;
+  if (shift <= 0) return 0;
+
+  const stride = width * 4;
+  data.copyWithin(shift * stride, 0, (height - shift) * stride);
+  data.fill(0, 0, shift * stride);
+  return shift;
 }
 
 function subjectComponentSizes(data: Buffer, width: number, height: number): number[] {
@@ -322,11 +495,6 @@ export async function processGeneratedFighterPose(
   const { width: sourceWidth, height: sourceHeight } = info;
   const pixelCount = sourceWidth * sourceHeight;
   let greenCount = 0;
-  let subjectCount = 0;
-  let minX = sourceWidth;
-  let minY = sourceHeight;
-  let maxX = -1;
-  let maxY = -1;
 
   for (let pixel = 0; pixel < pixelCount; pixel++) {
     const offset = pixel * 4;
@@ -346,6 +514,19 @@ export async function processGeneratedFighterPose(
       data[offset + 3] = 0;
       continue;
     }
+  }
+
+  if (cfg.removeGreenSpill) {
+    greenCount += removeConnectedGreenSpill(data, sourceWidth, sourceHeight);
+  }
+
+  let subjectCount = 0;
+  let minX = sourceWidth;
+  let minY = sourceHeight;
+  let maxX = -1;
+  let maxY = -1;
+  for (let pixel = 0; pixel < pixelCount; pixel++) {
+    if (data[pixel * 4 + 3]! <= 8) continue;
     subjectCount++;
     const x = pixel % sourceWidth;
     const y = Math.floor(pixel / sourceWidth);
@@ -421,7 +602,7 @@ export async function processGeneratedFighterPose(
     height: outputHeight,
   };
 
-  const png = await sharp(data, {
+  const resized = await sharp(data, {
     raw: { width: sourceWidth, height: sourceHeight, channels: 4 },
   })
     .extract(sourceBounds)
@@ -436,6 +617,16 @@ export async function processGeneratedFighterPose(
       bottom: cfg.height - outputBounds.top - outputBounds.height,
       background: { r: 0, g: 0, b: 0, alpha: 0 },
     })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  if (cfg.removeGreenSpill) {
+    removeSmallOutputGreenSpill(resized.data, cfg.width, cfg.height);
+  }
+  bottomAlignOpaquePixels(resized.data, cfg.width, cfg.height, cfg.bottomPadding);
+
+  const png = await sharp(resized.data, {
+    raw: { width: cfg.width, height: cfg.height, channels: 4 },
+  })
     .png({
       palette: true,
       colours: cfg.colors,

@@ -16,7 +16,12 @@ export const archetypes: Record<ArchetypeId, Archetype> = {
 };
 
 export type { Archetype } from './types';
-export { lintPlatformer, estimatePlatformerDurationS, reachableCells } from './platformer/lint';
+export {
+  lintPlatformer,
+  estimatePlatformerDurationS,
+  platformerReachabilityBlockage,
+  reachableCells,
+} from './platformer/lint';
 export {
   inferSolidInnerRef,
   PlatformerSolidAutotiles,

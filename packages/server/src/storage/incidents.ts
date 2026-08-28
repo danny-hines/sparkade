@@ -118,6 +118,7 @@ const SUBSTANTIVE_REPAIR_ACTIONS = new Set([
   'fallback',
   'fighter-art-fallback',
   'model-repair',
+  'platformer-player-art-fallback',
   'regenerate',
 ]);
 

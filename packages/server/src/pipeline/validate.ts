@@ -443,6 +443,7 @@ export interface NormalizationFix {
     | 'PLATFORMER_MOVING_PLATFORM_COORD'
     | 'PLATFORMER_MOVING_PLATFORM_STATIONARY'
     | 'PLATFORMER_ARENA_HEADROOM'
+    | 'PLATFORMER_ROUTE_FALLBACK'
     | 'ADVENTURE_COORD'
     | 'ADVENTURE_CONTENT'
     | 'SHOOTER_TIMING';
@@ -453,6 +454,78 @@ export interface NormalizationFix {
 export interface NormalizedGeneratedSpec {
   spec: GameSpec;
   fixes: NormalizationFix[];
+}
+
+/**
+ * Last-resort topology repair for otherwise healthy platformer levels. It
+ * creates a low, continuous two-tile-high route from spawn to exit, retaining
+ * the authored level above it. This is intentionally more invasive than the
+ * ordinary normalizer and must only run after model repair/regeneration has
+ * exhausted its useful work.
+ */
+export function repairPlatformerExitRoutes(
+  spec: GameSpec,
+  levelIndexes: readonly number[],
+): NormalizedGeneratedSpec {
+  const out = structuredClone(spec);
+  const fixes: NormalizationFix[] = [];
+  if (out.archetype !== 'platformer') return { spec: out, fixes };
+  const targets = new Set(levelIndexes);
+  const playerHeight = out.playerHeightTiles === 2 ? 2 : 1;
+
+  out.levels.forEach((level, levelIndex) => {
+    if (!targets.has(levelIndex)) return;
+    const height = level.tiles.length;
+    const width = level.tiles[0]?.length ?? 0;
+    if (
+      width < 2 ||
+      height < playerHeight + 2 ||
+      level.tiles.some((row) => row.length !== width)
+    ) {
+      return;
+    }
+    const solidChar = Object.entries(level.legend).find(([, kind]) => kind === 'solid')?.[0];
+    if (!solidChar) return;
+    const checkpointChar = Object.entries(level.legend).find(
+      ([, kind]) => kind === 'checkpoint',
+    )?.[0];
+    const routeY = height - 2;
+    const startX = Math.max(0, Math.min(width - 1, Math.round(level.playerSpawn.x)));
+    const exitX = Math.max(0, Math.min(width - 1, Math.round(level.exit.x)));
+    const left = Math.min(startX, exitX);
+    const right = Math.max(startX, exitX);
+    const setCell = (x: number, y: number, value: string): void => {
+      const row = level.tiles[y];
+      if (row === undefined) return;
+      level.tiles[y] = row.slice(0, x) + value + row.slice(x + 1);
+    };
+
+    for (let x = left; x <= right; x++) {
+      setCell(x, routeY + 1, solidChar);
+      for (let bodyRow = 0; bodyRow < playerHeight; bodyRow++) {
+        setCell(x, routeY - bodyRow, '.');
+      }
+    }
+    level.playerSpawn = { x: startX, y: routeY };
+    level.exit = { x: exitX, y: routeY };
+
+    if (checkpointChar && right - left >= 4) {
+      let checkpointX = Math.round((left + right) / 2);
+      if (checkpointX === startX) checkpointX += startX < exitX ? 1 : -1;
+      if (checkpointX === exitX) checkpointX += startX < exitX ? -1 : 1;
+      checkpointX = Math.max(left + 1, Math.min(right - 1, checkpointX));
+      setCell(checkpointX, routeY, checkpointChar);
+    }
+
+    addFix(
+      fixes,
+      'PLATFORMER_ROUTE_FALLBACK',
+      `/levels/${levelIndex}/tiles`,
+      `built a continuous grounded route from (${startX},${routeY}) to (${exitX},${routeY}) after generated topology remained unreachable`,
+    );
+  });
+
+  return { spec: out, fixes };
 }
 
 const PLATFORMER_ASSIGN_ROLES = new Set([

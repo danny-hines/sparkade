@@ -26,7 +26,6 @@ import {
   type SparkadeConfig,
   type StageName,
 } from '@sparkade/shared';
-import type { LikenessArtifacts } from '../likeness/likeness';
 import {
   GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION,
   GENERATED_HEAD_PROMPT_VERSION,
@@ -47,7 +46,9 @@ import {
 import { MetaImageAdapter, META_IMAGE_DEFAULT_API_KEY_ENV } from '../providers/meta-image';
 import {
   buildKeyArtPrompt,
+  buildKeyArtPolicyFallbackPrompt,
   buildStoryArtPrompt,
+  buildStoryArtPolicyFallbackPrompt,
   KEY_ART_ASPECT_HINT,
   KEY_ART_PROMPT_VERSION,
   mockGeneratedImage,
@@ -69,11 +70,36 @@ import {
 import {
   GENERATED_PLATFORMER_POSES,
   GENERATED_PLATFORMER_POSE_PROMPT_VERSION,
-  buildPlatformerPosePrompt,
   prepareGeneratedPlatformerReference,
   processGeneratedPlatformerPose,
+  recoverGeneratedPlatformerGreenPanel,
+  validateGeneratedPlatformerPoseSet,
   type GeneratedPlatformerPose,
 } from '../assets/platformer-pose';
+import {
+  PLATFORMER_IDLE_JUDGE_PROMPT_VERSION,
+  bestPlatformerIdleCandidateId,
+  buildPlatformerIdleCandidatePrompt,
+  buildPlatformerIdleJudgeBoard,
+  buildPlatformerIdleJudgePrompt,
+  buildPlatformerIdleJudgeSchema,
+  normalizePlatformerIdleJudgeDecision,
+  type PlatformerIdleCandidateDescriptor,
+} from '../assets/platformer-idle-judge';
+import {
+  PLATFORMER_PLAYER_PIPELINE_PROMPT_VERSION,
+  PLATFORMER_POSE_JUDGE_PROMPT_VERSION,
+  bestPlatformerPosePair,
+  buildPlatformerPhaseACandidatePrompt,
+  buildPlatformerPhaseBCandidatePrompt,
+  buildPlatformerJumpCandidatePrompt,
+  buildPlatformerPoseJudgeBoard,
+  buildPlatformerPoseJudgePrompt,
+  buildPlatformerPoseJudgeSchema,
+  buildPlatformerSideAnchorPrompt,
+  normalizePlatformerPoseJudgeDecision,
+  type PlatformerPoseCandidateDescriptor,
+} from '../assets/platformer-pose-judge';
 import {
   GameAssetWorkspace,
   GeneratedAssetStorageError,
@@ -122,6 +148,7 @@ import {
   ensureLikenessHeroBody,
   normalizeGeneratedSpec,
   normalizeTileGrids,
+  repairPlatformerExitRoutes,
   securityScan,
   tooSimilar,
   validateDesignSchema,
@@ -138,6 +165,21 @@ export class PipelineError extends Error {
   ) {
     super(message);
   }
+}
+
+function isOptionalGeneratedArtProviderFailure(error: unknown): boolean {
+  return (
+    error instanceof PipelineError &&
+    (error.code === 'image-provider-error' || error.code === 'image-content-policy')
+  );
+}
+
+function isImageContentPolicyViolation(error: unknown): boolean {
+  return (
+    error instanceof ProviderHttpError &&
+    error.status === 400 &&
+    /content_policy_violation|content management policy/i.test(`${error.body} ${error.message}`)
+  );
 }
 
 export interface NewJobInputs {
@@ -166,6 +208,7 @@ const FIGHTER_ASSET_ROLES = {
 
 const PLATFORMER_ASSET_ROLES = {
   idle: 'platformerIdle',
+  sideIdle: 'platformerSideIdle',
   walk1: 'platformerWalk1',
   walk2: 'platformerWalk2',
   jump: 'platformerJump',
@@ -861,8 +904,15 @@ export class GenerationRunner {
             continue;
           }
           const timedOut = error instanceof ProviderHttpError && error.status === 408;
+          const contentPolicy = isImageContentPolicyViolation(error);
           throw new PipelineError(
-            timedOut ? 'call-timeout' : transient ? 'provider-unavailable' : 'image-provider-error',
+            timedOut
+              ? 'call-timeout'
+              : transient
+                ? 'provider-unavailable'
+                : contentPolicy
+                  ? 'image-content-policy'
+                  : 'image-provider-error',
             error instanceof Error ? error.message : String(error),
             'building-assets',
           );
@@ -1183,163 +1233,213 @@ export class GenerationRunner {
       };
       pushPartial({});
 
-      // ---- Spec passes (parallel) ----------------------------------------
-      emit('writing-spec', 'Writing levels, entities and music…', { unitsDone: 0, unitsTotal: 3 });
-      let unitsDone = 0;
-      const tick = (what: string) => {
-        unitsDone++;
-        emit('writing-spec', `${what} done (${unitsDone}/3)`, { unitsDone, unitsTotal: 3 });
-      };
-      const parts: SpecParts = {};
-      const resumeStage = (stage: Exclude<RawStageName, 'design'>): unknown | undefined => {
-        if (!priorAttempt || !designMatchesResumedCheckpoint) return undefined;
+      let resumedValidatedSpec: GameSpec | undefined;
+      if (priorAttempt && designMatchesResumedCheckpoint) {
         for (let attempt = priorAttempt; attempt >= 1; attempt--) {
-          const failedOwners = failedOwnersByAttempt.get(attempt);
-          if (failedOwners?.has('document') || failedOwners?.has(stage)) continue;
-          const attemptDesign = this.files.readRawStageCheckpoint(
-            jobId,
-            attempt,
-            'design',
-          )?.document;
-          if (JSON.stringify(attemptDesign) !== JSON.stringify(design)) continue;
-          const checkpoints = this.files
-            .listRawStageCheckpoints(jobId, attempt)
-            .filter((checkpoint) => checkpoint.stage === stage)
-            .reverse();
-          for (const checkpoint of checkpoints) {
-            try {
-              const candidate =
-                stage === 'levels'
-                  ? compileGeneratedLevels(archetype, checkpoint.document)
-                  : structuredClone(checkpoint.document);
-              if (
-                validateAgainst(
-                  `resume:${archetype}:${stage}`,
-                  stageSchema(archetype, stage),
-                  candidate,
-                ).length
-              ) {
+          const checkpoint = this.files.readValidatedSpecCheckpoint<DesignDoc>(jobId, attempt);
+          if (
+            !checkpoint ||
+            checkpoint.engineVersion !== ENGINE_VERSION ||
+            checkpoint.specVersion !== SPEC_VERSION ||
+            checkpoint.archetypeVersion !== archetypes[archetype].version ||
+            JSON.stringify(checkpoint.design) !== JSON.stringify(design) ||
+            checkpoint.spec.archetype !== archetype ||
+            checkpoint.spec.seed !== job.seed
+          ) {
+            continue;
+          }
+          const candidate = ensureLikenessHeroBody(structuredClone(checkpoint.spec), !!photo);
+          if (this.collectDiagnostics(candidate, archetype).length === 0) {
+            resumedValidatedSpec = candidate;
+            break;
+          }
+        }
+      }
+
+      let spec: GameSpec;
+      if (resumedValidatedSpec) {
+        spec = resumedValidatedSpec;
+        pushPartial({ sprites: spec.sprites, music: spec.music });
+        emit('validating', 'Restored the validated game…');
+      } else {
+        // ---- Spec passes (parallel) --------------------------------------
+        emit('writing-spec', 'Writing levels, entities and music…', {
+          unitsDone: 0,
+          unitsTotal: 3,
+        });
+        let unitsDone = 0;
+        const tick = (what: string) => {
+          unitsDone++;
+          emit('writing-spec', `${what} done (${unitsDone}/3)`, { unitsDone, unitsTotal: 3 });
+        };
+        const parts: SpecParts = {};
+        const resumeStage = (stage: Exclude<RawStageName, 'design'>): unknown | undefined => {
+          if (!priorAttempt || !designMatchesResumedCheckpoint) return undefined;
+          for (let attempt = priorAttempt; attempt >= 1; attempt--) {
+            const failedOwners = failedOwnersByAttempt.get(attempt);
+            if (failedOwners?.has('document') || failedOwners?.has(stage)) continue;
+            const attemptDesign = this.files.readRawStageCheckpoint(
+              jobId,
+              attempt,
+              'design',
+            )?.document;
+            if (JSON.stringify(attemptDesign) !== JSON.stringify(design)) continue;
+            const checkpoints = this.files
+              .listRawStageCheckpoints(jobId, attempt)
+              .filter((checkpoint) => checkpoint.stage === stage)
+              .reverse();
+            for (const checkpoint of checkpoints) {
+              try {
+                const candidate =
+                  stage === 'levels'
+                    ? compileGeneratedLevels(archetype, checkpoint.document)
+                    : structuredClone(checkpoint.document);
+                if (
+                  validateAgainst(
+                    `resume:${archetype}:${stage}`,
+                    stageSchema(archetype, stage),
+                    candidate,
+                  ).length
+                ) {
+                  continue;
+                }
+                this.files.writeRawStageCheckpoint(jobId, job.attempt, stage, checkpoint.document);
+                return candidate;
+              } catch {
                 continue;
               }
-              this.files.writeRawStageCheckpoint(jobId, job.attempt, stage, checkpoint.document);
-              return candidate;
-            } catch {
-              continue;
             }
           }
-        }
-        return undefined;
-      };
-      const resumedLevels = resumeStage('levels');
-      const resumedEntities = resumeStage('entities');
-      const resumedMusic = resumeStage('music');
-      const loadLevels = async (): Promise<unknown> => {
-        if (resumedLevels !== undefined) return resumedLevels;
-        const raw = await callLlm('levels', buildLevelsPrompt(archetype, design), {
-          stage: 'writing-spec',
-          checkpoint: 'levels',
-          label: 'Building levels…',
-        });
-        try {
-          return compileGeneratedLevels(archetype, raw, true);
-        } catch (error) {
-          if (!(error instanceof TileRunsError)) throw error;
-          const diagnostic = tileRunsDiagnostic(error);
-          const retryStarted = Date.now();
+          return undefined;
+        };
+        const resumedLevels = resumeStage('levels');
+        const resumedEntities = resumeStage('entities');
+        const resumedMusic = resumeStage('music');
+        const loadLevels = async (): Promise<unknown> => {
+          if (resumedLevels !== undefined) return resumedLevels;
+          const raw = await callLlm('levels', buildLevelsPrompt(archetype, design), {
+            stage: 'writing-spec',
+            checkpoint: 'levels',
+            label: 'Building levels…',
+          });
           try {
-            const retryRaw = await callLlm(
-              'levels',
-              buildLevelsPrompt(archetype, design, [diagnostic]),
-              {
-                stage: 'writing-spec',
-                checkpoint: 'levels',
-                label: 'Correcting compact level rows…',
-                reasoningEffort: 'minimal',
-              },
-            );
-            let compiled: unknown;
+            return compileGeneratedLevels(archetype, raw, true);
+          } catch (error) {
+            if (!(error instanceof TileRunsError)) throw error;
+            const diagnostic = tileRunsDiagnostic(error);
+            const retryStarted = Date.now();
             try {
-              compiled = compileGeneratedLevels(archetype, retryRaw, true);
+              const retryRaw = await callLlm(
+                'levels',
+                buildLevelsPrompt(archetype, design, [diagnostic]),
+                {
+                  stage: 'writing-spec',
+                  checkpoint: 'levels',
+                  label: 'Correcting compact level rows…',
+                  reasoningEffort: 'minimal',
+                },
+              );
+              let compiled: unknown;
+              try {
+                compiled = compileGeneratedLevels(archetype, retryRaw, true);
+              } catch (retryError) {
+                if (!(retryError instanceof TileRunsError)) throw retryError;
+                compiled = canonicalLevelsFallback(archetype, retryRaw, retryError);
+              }
+              recordEarlyRepairEvent(
+                'levels',
+                'compile-retry',
+                [diagnostic],
+                [],
+                retryStarted,
+                'fixed',
+              );
+              return compiled;
             } catch (retryError) {
-              if (!(retryError instanceof TileRunsError)) throw retryError;
-              compiled = canonicalLevelsFallback(archetype, retryRaw, retryError);
+              const after =
+                retryError instanceof TileRunsError
+                  ? [tileRunsDiagnostic(retryError)]
+                  : [diagnostic];
+              recordEarlyRepairEvent(
+                'levels',
+                'compile-retry',
+                [diagnostic],
+                after,
+                retryStarted,
+                'failed',
+              );
+              throw retryError;
             }
-            recordEarlyRepairEvent(
-              'levels',
-              'compile-retry',
-              [diagnostic],
-              [],
-              retryStarted,
-              'fixed',
-            );
-            return compiled;
-          } catch (retryError) {
-            const after =
-              retryError instanceof TileRunsError ? [tileRunsDiagnostic(retryError)] : [diagnostic];
-            recordEarlyRepairEvent(
-              'levels',
-              'compile-retry',
-              [diagnostic],
-              after,
-              retryStarted,
-              'failed',
-            );
-            throw retryError;
           }
-        }
-      };
-      const results = await Promise.allSettled([
-        loadLevels().then((canonical) => {
-          const roster = isRecord(canonical) ? canonical : null;
-          parts.levels = roster?.['levels'] ?? canonical;
-          if (archetype === 'fighter') parts.player = roster?.['player'];
-          tick(resumedLevels !== undefined ? 'Levels restored' : 'Levels');
-        }),
-        (resumedEntities !== undefined
-          ? Promise.resolve(resumedEntities)
-          : callLlm('entities', buildEntitiesPrompt(archetype, design, !!photo, recentUse), {
-              stage: 'writing-spec',
-              checkpoint: 'entities',
-              label: 'Casting entities…',
-            })
-        ).then((r) => {
-          parts.entities = r as SpecParts['entities'];
-          pushPartial({ sprites: parts.entities?.sprites as PartialSpec['sprites'] });
-          tick(resumedEntities !== undefined ? 'Entities restored' : 'Entities');
-        }),
-        (resumedMusic !== undefined
-          ? Promise.resolve(resumedMusic)
-          : callLlm('music', buildMusicPrompt(archetype, design), {
-              stage: 'writing-spec',
-              checkpoint: 'music',
-              label: 'Composing music…',
-            })
-        ).then((r) => {
-          parts.music = isRecord(r) ? (r['music'] ?? r) : r;
-          pushPartial({ music: parts.music as PartialSpec['music'] });
-          tick(resumedMusic !== undefined ? 'Music restored' : 'Music');
-        }),
-      ]);
-      const firstFailure = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
-      if (firstFailure) throw firstFailure.reason;
+        };
+        const results = await Promise.allSettled([
+          loadLevels().then((canonical) => {
+            const roster = isRecord(canonical) ? canonical : null;
+            parts.levels = roster?.['levels'] ?? canonical;
+            if (archetype === 'fighter') parts.player = roster?.['player'];
+            tick(resumedLevels !== undefined ? 'Levels restored' : 'Levels');
+          }),
+          (resumedEntities !== undefined
+            ? Promise.resolve(resumedEntities)
+            : callLlm('entities', buildEntitiesPrompt(archetype, design, !!photo, recentUse), {
+                stage: 'writing-spec',
+                checkpoint: 'entities',
+                label: 'Casting entities…',
+              })
+          ).then((r) => {
+            parts.entities = r as SpecParts['entities'];
+            pushPartial({ sprites: parts.entities?.sprites as PartialSpec['sprites'] });
+            tick(resumedEntities !== undefined ? 'Entities restored' : 'Entities');
+          }),
+          (resumedMusic !== undefined
+            ? Promise.resolve(resumedMusic)
+            : callLlm('music', buildMusicPrompt(archetype, design), {
+                stage: 'writing-spec',
+                checkpoint: 'music',
+                label: 'Composing music…',
+              })
+          ).then((r) => {
+            parts.music = isRecord(r) ? (r['music'] ?? r) : r;
+            pushPartial({ music: parts.music as PartialSpec['music'] });
+            tick(resumedMusic !== undefined ? 'Music restored' : 'Music');
+          }),
+        ]);
+        const firstFailure = results.find(
+          (r): r is PromiseRejectedResult => r.status === 'rejected',
+        );
+        if (firstFailure) throw firstFailure.reason;
 
-      // ---- Assemble + validate + repair ----------------------------------
-      let spec = ensureLikenessHeroBody(
-        this.assemble(job.seed, archetype, design, parts, !!photo),
-        !!photo,
-      );
-      emit('validating', 'Checking every rule…');
-      spec = await this.validateAndRepair(
-        spec,
-        archetype,
-        design,
-        callLlm,
-        emit,
-        !!photo,
-        recentUse,
-        { jobId, gameId, attempt: job.attempt },
-      );
-      spec = ensureLikenessHeroBody(spec, !!photo);
+        // ---- Assemble + validate + repair ----------------------------------
+        spec = ensureLikenessHeroBody(
+          this.assemble(job.seed, archetype, design, parts, !!photo),
+          !!photo,
+        );
+        emit('validating', 'Checking every rule…');
+        spec = await this.validateAndRepair(
+          spec,
+          archetype,
+          design,
+          callLlm,
+          emit,
+          !!photo,
+          recentUse,
+          { jobId, gameId, attempt: job.attempt },
+        );
+        spec = ensureLikenessHeroBody(spec, !!photo);
+      }
+
+      try {
+        this.files.writeValidatedSpecCheckpoint(jobId, job.attempt, {
+          engineVersion: ENGINE_VERSION,
+          specVersion: SPEC_VERSION,
+          archetypeVersion: archetypes[archetype].version,
+          design,
+          spec,
+        });
+      } catch {
+        // A valid in-memory spec can still publish if checkpoint storage is
+        // unavailable; a future retry will fall back to raw-stage restoration.
+      }
 
       // ---- Build Muse Image assets + atomic publish -----------------------
       emit('building-assets', 'Painting the game art…');
@@ -1347,10 +1447,10 @@ export class GenerationRunner {
       const assetsDir = ensureDir(join(staging, 'assets'));
       const assetWorkspace = new GameAssetWorkspace(assetsDir, imageModel);
 
-      // Production personalization deliberately relies on Muse Image's direct
+      // Production personalization deliberately relies on the models' direct
       // view of the photo instead of squeezing identity through the legacy,
-      // finite FaceFeatures taxonomy. This is both more inclusive and keeps the
-      // photo away from the configured text provider unless describeInStory is on.
+      // finite FaceFeatures taxonomy. Muse Image authors the hero; detailed
+      // platformers also give the design-stage provider labeled review boards.
       const feat = null;
 
       const validationFailure = (role: string): void => {
@@ -1389,30 +1489,41 @@ export class GenerationRunner {
         role: GeneratedGameAssetRole;
         promptVersion: string;
         prompt: string;
+        policyFallbackPrompt?: string;
         label: string;
         reference?: Buffer;
         size?: string;
         normalize(image: Buffer): Promise<Buffer>;
       }): Promise<Buffer> => {
-        const prompts = [
+        const correctionPrompt = (prompt: string) =>
+          `${prompt} RETRY CORRECTION: obey every composition, format, and no-text constraint exactly.`;
+        const cachePrompts = [
           opts.prompt,
-          `${opts.prompt} RETRY CORRECTION: obey every composition, format, and no-text constraint exactly.`,
+          correctionPrompt(opts.prompt),
+          ...(opts.policyFallbackPrompt
+            ? [opts.policyFallbackPrompt, correctionPrompt(opts.policyFallbackPrompt)]
+            : []),
         ];
-        const candidates = prompts.map((prompt) => ({
-          prompt,
-          promptSha: imagePromptHash(prompt, opts.reference),
-        }));
-        for (const candidate of candidates) {
-          const cached = assetWorkspace.load(opts.role, opts.promptVersion, candidate.promptSha);
+        for (const prompt of new Set(cachePrompts)) {
+          const cached = assetWorkspace.load(
+            opts.role,
+            opts.promptVersion,
+            imagePromptHash(prompt, opts.reference),
+          );
           if (cached) return cached;
         }
+
         let lastError: unknown;
-        for (const { prompt, promptSha } of candidates) {
+        let activePrompt = opts.prompt;
+        let usedPolicyFallback = false;
+        let usedValidationRetry = false;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const promptSha = imagePromptHash(activePrompt, opts.reference);
           try {
             const raw = await callImage({
               role: opts.role,
               label: opts.label,
-              prompt,
+              prompt: activePrompt,
               ...(opts.reference ? { reference: opts.reference } : {}),
               ...(opts.size ? { size: opts.size } : {}),
             });
@@ -1420,13 +1531,32 @@ export class GenerationRunner {
             await assetWorkspace.store(opts.role, normalized, opts.promptVersion, promptSha);
             return normalized;
           } catch (error) {
-            if (error instanceof PipelineError) throw error;
+            if (error instanceof PipelineError) {
+              if (
+                error.code === 'image-content-policy' &&
+                opts.policyFallbackPrompt &&
+                !usedPolicyFallback
+              ) {
+                lastError = error;
+                usedPolicyFallback = true;
+                activePrompt = opts.policyFallbackPrompt;
+                emit('building-assets', `Rephrasing ${opts.label.toLowerCase()} safely…`);
+                continue;
+              }
+              throw error;
+            }
             if (error instanceof GeneratedAssetStorageError) {
               throw new PipelineError('storage', error.message, 'building-assets');
             }
             lastError = error;
             validationFailure(opts.role);
-            emit('building-assets', `Repainting ${opts.label.toLowerCase()}…`);
+            if (!usedValidationRetry) {
+              usedValidationRetry = true;
+              activePrompt = correctionPrompt(activePrompt);
+              emit('building-assets', `Repainting ${opts.label.toLowerCase()}…`);
+              continue;
+            }
+            break;
           }
         }
         throw new PipelineError(
@@ -1442,20 +1572,21 @@ export class GenerationRunner {
         role: 'keyArt',
         promptVersion: KEY_ART_PROMPT_VERSION,
         prompt: keyArtPrompt,
+        policyFallbackPrompt: buildKeyArtPolicyFallbackPrompt(spec, !!photo),
         label: 'Key art',
         ...(photoReference ? { reference: photoReference } : {}),
         size: KEY_ART_ASPECT_HINT,
         normalize: normalizeKeyArt,
       });
 
-      const likenessTask = photo
-        ? (async (): Promise<void> => {
-            const identityKey = JSON.stringify({
-              portraitVersion: GENERATED_PORTRAIT_PROMPT_VERSION,
-              defeatPortraitVersion: GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION,
-              headVersion: GENERATED_HEAD_PROMPT_VERSION,
-              features: feat,
-            });
+      const identityKey = JSON.stringify({
+        portraitVersion: GENERATED_PORTRAIT_PROMPT_VERSION,
+        defeatPortraitVersion: GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION,
+        headVersion: GENERATED_HEAD_PROMPT_VERSION,
+        features: feat,
+      });
+      const portraitTask: Promise<Buffer | null> = photo
+        ? (async () => {
             const portraitSha = imagePromptHash(
               `${GENERATED_PORTRAIT_PROMPT_VERSION}:${identityKey}`,
               photo,
@@ -1496,7 +1627,12 @@ export class GenerationRunner {
                 portraitSha,
               );
             }
+            return portrait;
+          })()
+        : Promise.resolve(null);
 
+      const portraitDefeatTask: Promise<Buffer | null> = photo
+        ? (async () => {
             const defeatContext = [
               `${spec.meta.title} is a ${spec.archetype} game.`,
               spec.story.defeat.join(' '),
@@ -1542,157 +1678,98 @@ export class GenerationRunner {
                 defeatPortraitSha,
               );
             }
-
-            const headDirections = [
-              {
-                direction: 'front',
-                role12: 'generatedHead12',
-                role16: 'generatedHead16',
-                label: 'front player sprite',
-              },
-              {
-                direction: 'side',
-                role12: 'generatedHead12Side',
-                role16: 'generatedHead16Side',
-                label: 'profile player sprite',
-              },
-              {
-                direction: 'back',
-                role12: 'generatedHead12Back',
-                role16: 'generatedHead16Back',
-                label: 'rear player sprite',
-              },
-            ] as const satisfies readonly {
-              direction: GeneratedHeadDirection;
-              role12: GeneratedGameAssetRole;
-              role16: GeneratedGameAssetRole;
-              label: string;
-            }[];
-            const headShas = Object.fromEntries(
-              headDirections.map(({ direction }) => [
-                direction,
-                imagePromptHash(
-                  `${GENERATED_HEAD_PROMPT_VERSION}:${direction}:${identityKey}`,
-                  photo,
-                ),
-              ]),
-            ) as Record<GeneratedHeadDirection, string>;
-
-            await Promise.all(
-              headDirections.map(async ({ direction, role12, role16, label }) => {
-                const headSha = headShas[direction];
-                if (
-                  assetWorkspace.load(role12, GENERATED_HEAD_PROMPT_VERSION, headSha) &&
-                  assetWorkspace.load(role16, GENERATED_HEAD_PROMPT_VERSION, headSha)
-                ) {
-                  return;
-                }
-                let generatedHeads: Awaited<ReturnType<typeof generateHeadSprites>> | null = null;
-                let lastError: unknown;
-                for (let pass = 0; pass < 2 && !generatedHeads; pass++) {
-                  try {
-                    generatedHeads = await generateHeadSprites(
-                      photo,
-                      feat,
-                      imageEditFor(`player-head-${direction}`, label),
-                      { size: '1024x1024', user: gameId, direction },
-                    );
-                  } catch (error) {
-                    if (
-                      error instanceof PipelineError ||
-                      error instanceof GeneratedAssetStorageError
-                    ) {
-                      throw error;
-                    }
-                    lastError = error;
-                    validationFailure(`player-head-${direction}`);
-                    emit('building-assets', `Repainting the ${label}…`);
-                  }
-                }
-                if (!generatedHeads) {
-                  throw new PipelineError(
-                    'image-invalid',
-                    `${label} failed validation: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
-                    'building-assets',
-                  );
-                }
-                await Promise.all([
-                  assetWorkspace.store(
-                    role12,
-                    generatedHeads.heads[12],
-                    GENERATED_HEAD_PROMPT_VERSION,
-                    headSha,
-                  ),
-                  assetWorkspace.store(
-                    role16,
-                    generatedHeads.heads[16],
-                    GENERATED_HEAD_PROMPT_VERSION,
-                    headSha,
-                  ),
-                ]);
-              }),
-            );
-
-            // Compile-time assertion that every legacy runtime slot is now fed
-            // by Muse-authored bytes; there is no local pixel-photo fallback.
-            const baked: LikenessArtifacts = {
-              head12: assetWorkspace.load(
-                'generatedHead12',
-                GENERATED_HEAD_PROMPT_VERSION,
-                headShas.front,
-              )!,
-              head12Side: assetWorkspace.load(
-                'generatedHead12Side',
-                GENERATED_HEAD_PROMPT_VERSION,
-                headShas.side,
-              )!,
-              head12Back: assetWorkspace.load(
-                'generatedHead12Back',
-                GENERATED_HEAD_PROMPT_VERSION,
-                headShas.back,
-              )!,
-              head16: assetWorkspace.load(
-                'generatedHead16',
-                GENERATED_HEAD_PROMPT_VERSION,
-                headShas.front,
-              )!,
-              head16Side: assetWorkspace.load(
-                'generatedHead16Side',
-                GENERATED_HEAD_PROMPT_VERSION,
-                headShas.side,
-              )!,
-              head16Back: assetWorkspace.load(
-                'generatedHead16Back',
-                GENERATED_HEAD_PROMPT_VERSION,
-                headShas.back,
-              )!,
-              portrait,
-            };
-            if (Object.values(baked).some((asset) => !asset)) {
-              throw new PipelineError(
-                'image-invalid',
-                'Muse player assets were incomplete after generation',
-                'building-assets',
-              );
-            }
-            if (!portraitDefeat) {
-              throw new PipelineError(
-                'image-invalid',
-                'Muse defeat portrait was incomplete after generation',
-                'building-assets',
-              );
-            }
+            return portraitDefeat;
           })()
-        : Promise.resolve();
+        : Promise.resolve(null);
 
-      const foundations = await Promise.allSettled([keyArtTask, likenessTask] as const);
-      const foundationFailure = foundations.find(
-        (result): result is PromiseRejectedResult => result.status === 'rejected',
-      );
-      if (foundationFailure) throw foundationFailure.reason;
-      const keyArt = (foundations[0] as PromiseFulfilledResult<Buffer>).value;
+      const headDirections = [
+        {
+          direction: 'front',
+          role12: 'generatedHead12',
+          role16: 'generatedHead16',
+          label: 'front player sprite',
+        },
+        {
+          direction: 'side',
+          role12: 'generatedHead12Side',
+          role16: 'generatedHead16Side',
+          label: 'profile player sprite',
+        },
+        {
+          direction: 'back',
+          role12: 'generatedHead12Back',
+          role16: 'generatedHead16Back',
+          label: 'rear player sprite',
+        },
+      ] as const satisfies readonly {
+        direction: GeneratedHeadDirection;
+        role12: GeneratedGameAssetRole;
+        role16: GeneratedGameAssetRole;
+        label: string;
+      }[];
+      const generateHeads = async (): Promise<void> => {
+        if (!photo) return;
+        const headShas = Object.fromEntries(
+          headDirections.map(({ direction }) => [
+            direction,
+            imagePromptHash(`${GENERATED_HEAD_PROMPT_VERSION}:${direction}:${identityKey}`, photo),
+          ]),
+        ) as Record<GeneratedHeadDirection, string>;
 
-      const storyTask = (async (): Promise<void> => {
+        await Promise.all(
+          headDirections.map(async ({ direction, role12, role16, label }) => {
+            const headSha = headShas[direction];
+            if (
+              assetWorkspace.load(role12, GENERATED_HEAD_PROMPT_VERSION, headSha) &&
+              assetWorkspace.load(role16, GENERATED_HEAD_PROMPT_VERSION, headSha)
+            ) {
+              return;
+            }
+            let generatedHeads: Awaited<ReturnType<typeof generateHeadSprites>> | null = null;
+            let lastError: unknown;
+            for (let pass = 0; pass < 2 && !generatedHeads; pass++) {
+              try {
+                generatedHeads = await generateHeadSprites(
+                  photo,
+                  feat,
+                  imageEditFor(`player-head-${direction}`, label),
+                  { size: '1024x1024', user: gameId, direction },
+                );
+              } catch (error) {
+                if (error instanceof PipelineError || error instanceof GeneratedAssetStorageError) {
+                  throw error;
+                }
+                lastError = error;
+                validationFailure(`player-head-${direction}`);
+                emit('building-assets', `Repainting the ${label}…`);
+              }
+            }
+            if (!generatedHeads) {
+              throw new PipelineError(
+                'image-invalid',
+                `${label} failed validation: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+                'building-assets',
+              );
+            }
+            await Promise.all([
+              assetWorkspace.store(
+                role12,
+                generatedHeads.heads[12],
+                GENERATED_HEAD_PROMPT_VERSION,
+                headSha,
+              ),
+              assetWorkspace.store(
+                role16,
+                generatedHeads.heads[16],
+                GENERATED_HEAD_PROMPT_VERSION,
+                headSha,
+              ),
+            ]);
+          }),
+        );
+      };
+
+      const storyTask = keyArtTask.then(async (keyArt): Promise<void> => {
         const roles: StoryArtRole[] = ['intro', 'boss', 'victory', 'defeat'];
         const results = await Promise.allSettled(
           roles.map((role) => {
@@ -1708,6 +1785,7 @@ export class GenerationRunner {
               role: assetRole,
               promptVersion: STORY_ART_PROMPT_VERSION,
               prompt: buildStoryArtPrompt(spec, role),
+              policyFallbackPrompt: buildStoryArtPolicyFallbackPrompt(spec, role),
               label: `${role} scene`,
               reference: keyArt,
               size: STORY_ART_ASPECT_HINT,
@@ -1719,7 +1797,7 @@ export class GenerationRunner {
           (result): result is PromiseRejectedResult => result.status === 'rejected',
         );
         if (failure) throw failure.reason;
-      })();
+      });
 
       let fighterArtStatus: GameMetaFile['fighterArt'] =
         spec.archetype === 'fighter'
@@ -1850,7 +1928,10 @@ export class GenerationRunner {
                 }
                 fighterArtStatus = { mode: 'generated', attempted: true };
               } catch (error) {
-                if (abort.signal.aborted || error instanceof PipelineError) {
+                if (
+                  abort.signal.aborted ||
+                  (error instanceof PipelineError && !isOptionalGeneratedArtProviderFailure(error))
+                ) {
                   throw error;
                 }
                 await Promise.all([
@@ -1920,7 +2001,6 @@ export class GenerationRunner {
         spec.platformerArtDensity === 'detailed'
           ? (async (): Promise<void> => {
               const generationStarted = Date.now();
-              let idleReference = photoReference;
               const colors = spec.palette
                 .filter((hex) => {
                   const r = Number.parseInt(hex.slice(1, 3), 16);
@@ -1929,111 +2009,413 @@ export class GenerationRunner {
                   return !(g > r * 1.15 && g > b * 1.15);
                 })
                 .join(', ');
-              const generatePose = async (pose: GeneratedPlatformerPose): Promise<Buffer> => {
-                const role = PLATFORMER_ASSET_ROLES[pose];
-                const basePrompt = buildPlatformerPosePrompt(pose, {
+              try {
+                const pipelineFingerprint = JSON.stringify({
+                  promptVersions: {
+                    pose: GENERATED_PLATFORMER_POSE_PROMPT_VERSION,
+                    idleJudge: PLATFORMER_IDLE_JUDGE_PROMPT_VERSION,
+                    poseJudge: PLATFORMER_POSE_JUDGE_PROMPT_VERSION,
+                  },
                   heroConcept: design.heroConcept,
                   colors,
                 });
-                const prompts = [
-                  basePrompt,
-                  `${basePrompt} RETRY CORRECTION: use one complete, uncropped silhouette on perfectly uniform #00ff00, preserve the exact identity and costume, and obey the requested pose exactly.`,
-                ];
-                const candidates = prompts.map((prompt) => ({
-                  prompt,
-                  promptSha: imagePromptHash(prompt, idleReference),
-                }));
-                for (const candidate of candidates) {
-                  const cached = assetWorkspace.load(
-                    role,
-                    GENERATED_PLATFORMER_POSE_PROMPT_VERSION,
-                    candidate.promptSha,
-                  );
-                  const cachedReference =
-                    pose === 'idle'
-                      ? assetWorkspace.loadPrivate(
-                          'platformerReference',
-                          GENERATED_PLATFORMER_POSE_PROMPT_VERSION,
-                          candidate.promptSha,
-                        )
-                      : null;
-                  if (cached && (pose !== 'idle' || cachedReference)) {
-                    if (cachedReference) idleReference = cachedReference;
-                    return cached;
-                  }
+                const pipelineSha = imagePromptHash(pipelineFingerprint, photoReference);
+                const cached = Object.fromEntries(
+                  GENERATED_PLATFORMER_POSES.map((pose) => [
+                    pose,
+                    assetWorkspace.load(
+                      PLATFORMER_ASSET_ROLES[pose],
+                      PLATFORMER_PLAYER_PIPELINE_PROMPT_VERSION,
+                      pipelineSha,
+                    ),
+                  ]),
+                ) as Record<GeneratedPlatformerPose, Buffer | null>;
+                if (GENERATED_PLATFORMER_POSES.every((pose) => cached[pose])) {
+                  const restored = cached as Record<GeneratedPlatformerPose, Buffer>;
+                  await validateGeneratedPlatformerPoseSet(restored, { strictMotion: false });
+                  emit('building-assets', 'Restored the selected platformer player animation');
+                  platformerPlayerArtStatus = { mode: 'generated', attempted: true };
+                  return;
                 }
-                let lastError: unknown;
-                for (const { prompt, promptSha } of candidates) {
-                  const raw = await callImage({
-                    role,
-                    label: `Player platformer ${pose} pose`,
-                    prompt,
-                    reference: idleReference,
-                    size: '1024x1024',
-                  });
-                  try {
-                    const processed = await processGeneratedPlatformerPose(raw);
-                    if (pose === 'idle') {
-                      const reference = await prepareGeneratedPlatformerReference(raw);
-                      await Promise.all([
-                        assetWorkspace.store(
-                          role,
-                          processed.png,
-                          GENERATED_PLATFORMER_POSE_PROMPT_VERSION,
-                          promptSha,
-                        ),
-                        assetWorkspace.storePrivate(
-                          'platformerReference',
-                          reference,
-                          GENERATED_PLATFORMER_POSE_PROMPT_VERSION,
-                          promptSha,
-                        ),
-                      ]);
-                      idleReference = reference;
-                    } else {
-                      await assetWorkspace.store(
-                        role,
-                        processed.png,
-                        GENERATED_PLATFORMER_POSE_PROMPT_VERSION,
-                        promptSha,
-                      );
-                    }
-                    return processed.png;
-                  } catch (error) {
-                    if (error instanceof GeneratedAssetStorageError) {
-                      throw new PipelineError('storage', error.message, 'building-assets');
-                    }
-                    lastError = error;
-                    validationFailure(role);
-                    emit('building-assets', `Repainting the player ${pose} pose…`);
-                  }
-                }
-                throw lastError instanceof Error
-                  ? lastError
-                  : new Error(`player ${pose} pose failed validation`);
-              };
 
-              try {
-                const idle = await generatePose('idle');
-                const remaining = GENERATED_PLATFORMER_POSES.filter((pose) => pose !== 'idle');
-                const results = await Promise.allSettled(remaining.map(generatePose));
-                const failure = results.find(
-                  (result): result is PromiseRejectedResult => result.status === 'rejected',
-                );
-                if (failure) throw failure.reason;
-                const poseBytes = [
-                  idle,
-                  ...results.map((result) => (result as PromiseFulfilledResult<Buffer>).value),
-                ];
-                if (new Set(poseBytes.map(sha256)).size !== GENERATED_PLATFORMER_POSES.length) {
-                  throw new Error('generated platformer pose set contained duplicate frames');
+                type CandidateKind = 'idle' | 'side-anchor' | 'phase-a' | 'phase-b' | 'jump';
+                interface Candidate {
+                  id: string;
+                  kind: CandidateKind;
+                  reference: Buffer;
+                  png: Buffer;
                 }
+                const generateCandidate = async (
+                  id: string,
+                  kind: CandidateKind,
+                  label: string,
+                  prompt: string,
+                  reference: Buffer,
+                ): Promise<Candidate | null> => {
+                  let raw: Buffer;
+                  try {
+                    raw = await callImage({
+                      role: `platformer-${id}`,
+                      label,
+                      prompt,
+                      reference,
+                      size: '1024x1024',
+                    });
+                  } catch (error) {
+                    if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
+                    validationFailure(`platformer-${id}`);
+                    emit(
+                      'building-assets',
+                      `${label} was rejected; continuing the candidate pool…`,
+                    );
+                    return null;
+                  }
+                  try {
+                    let normalizedReference = raw;
+                    let processed;
+                    try {
+                      processed = await processGeneratedPlatformerPose(raw);
+                    } catch (initialError) {
+                      const recovery = await recoverGeneratedPlatformerGreenPanel(raw);
+                      if (!recovery.recovered) throw initialError;
+                      normalizedReference = recovery.image;
+                      processed = await processGeneratedPlatformerPose(normalizedReference);
+                    }
+                    return { id, kind, reference: normalizedReference, png: processed.png };
+                  } catch (_error) {
+                    validationFailure(`platformer-${id}`);
+                    emit('building-assets', `${label} failed local sprite validation`);
+                    return null;
+                  }
+                };
+
+                const judge = async (
+                  prompt: { system: string; user: string },
+                  jsonSchema: Record<string, unknown>,
+                  image: Buffer,
+                  maxTokens: number,
+                  label: string,
+                  mockDecision: unknown,
+                ): Promise<unknown> => {
+                  if (mockImages) return mockDecision;
+                  try {
+                    return await callLlm(
+                      'design',
+                      {
+                        ...prompt,
+                        jsonSchema,
+                        maxTokens,
+                        timeoutMs: 120_000,
+                      },
+                      {
+                        stage: 'building-assets',
+                        label,
+                        image,
+                        reasoningEffort: 'low',
+                      },
+                    );
+                  } catch (error) {
+                    if (abort.signal.aborted) throw error;
+                    throw new Error(
+                      `platformer art review failed: ${error instanceof Error ? error.message : String(error)}`,
+                    );
+                  }
+                };
+
+                let idle: Candidate | undefined;
+                let retryGuidance = '';
+                let idleRetried = false;
+                const idleRetryStarted = Date.now();
+                for (let round = 1; round <= 2 && !idle; round++) {
+                  emit(
+                    'building-assets',
+                    round === 1
+                      ? 'Painting three player identity foundations…'
+                      : 'Repainting the player identity foundations with Spark guidance…',
+                  );
+                  const offset = (round - 1) * 3;
+                  const idleCandidates = (
+                    await Promise.all(
+                      [1, 2, 3].map((index) => {
+                        const id = `I${offset + index}`;
+                        return generateCandidate(
+                          id,
+                          'idle',
+                          `Player identity candidate ${id}`,
+                          buildPlatformerIdleCandidatePrompt(id, {
+                            heroConcept: design.heroConcept,
+                            colors,
+                            ...(retryGuidance ? { retryGuidance } : {}),
+                          }),
+                          photoReference,
+                        );
+                      }),
+                    )
+                  ).filter((candidate): candidate is Candidate => candidate !== null);
+                  if (idleCandidates.length === 0) {
+                    idleRetried = true;
+                    retryGuidance =
+                      'Return exactly one centered, uncropped adult character on a completely flat #00ff00 background.';
+                    continue;
+                  }
+                  const descriptors: PlatformerIdleCandidateDescriptor[] = idleCandidates.map(
+                    ({ id }) => ({ id }),
+                  );
+                  const board = await buildPlatformerIdleJudgeBoard({
+                    source: photoReference,
+                    candidates: idleCandidates.map(({ id, reference: raw, png: processed }) => ({
+                      id,
+                      raw,
+                      processed,
+                    })),
+                  });
+                  const judgePrompt = buildPlatformerIdleJudgePrompt(descriptors);
+                  const mockDecision = {
+                    sourceReview: { eyewear: 'absent', summary: 'Mock source identity.' },
+                    candidateReviews: descriptors.map(({ id }) => ({
+                      id,
+                      eyewear: 'absent',
+                      eyewearMatch: true,
+                      scores: {
+                        identity: 5,
+                        faceAndHair: 5,
+                        accessories: 5,
+                        costume: 5,
+                        proportions: 5,
+                        pose: 5,
+                        technical: 5,
+                      },
+                      fatalIssues: [],
+                      summary: 'Mock identity-safe foundation.',
+                    })),
+                    selection: {
+                      accepted: true,
+                      candidateId: descriptors[0]!.id,
+                      confidence: 1,
+                      rationale: 'Mock selection.',
+                      retryGuidance: '',
+                    },
+                  };
+                  const decision = normalizePlatformerIdleJudgeDecision(
+                    await judge(
+                      judgePrompt,
+                      buildPlatformerIdleJudgeSchema(descriptors),
+                      board,
+                      2600,
+                      'Spark selected the player identity foundation',
+                      mockDecision,
+                    ),
+                    descriptors,
+                  );
+                  const selectedId = decision.selection.accepted
+                    ? decision.selection.candidateId
+                    : bestPlatformerIdleCandidateId(decision);
+                  idle = idleCandidates.find(({ id }) => id === selectedId);
+                  emit(
+                    'building-assets',
+                    decision.selection.accepted
+                      ? `Spark selected ${selectedId} as the player identity foundation`
+                      : `Spark selected ${selectedId} as the best available player identity foundation`,
+                  );
+                }
+                if (!idle) {
+                  throw new Error('no locally valid front-idle identity foundation was available');
+                }
+                if (idleRetried) {
+                  recordEarlyRepairEvent(
+                    'entities',
+                    'platformer-idle-candidate-retry',
+                    [
+                      {
+                        code: 'PLATFORMER_IDLE_FOUNDATION_REJECTED',
+                        path: '/assets/platformer-player/idle',
+                        message: retryGuidance.slice(0, 240),
+                      },
+                    ],
+                    [],
+                    idleRetryStarted,
+                    'fixed',
+                  );
+                }
+                const idleReference = await prepareGeneratedPlatformerReference(idle.reference);
+
+                const sideAnchor = await generateCandidate(
+                  'side-anchor',
+                  'side-anchor',
+                  'Player neutral side identity anchor',
+                  buildPlatformerSideAnchorPrompt({ colors }),
+                  idleReference,
+                );
+                if (!sideAnchor) {
+                  throw new Error('the neutral side identity anchor failed local validation');
+                }
+                const sideReference = await prepareGeneratedPlatformerReference(
+                  sideAnchor.reference,
+                );
+
+                emit('building-assets', 'Painting six run candidates and three jump poses…');
+                const runTasks: Array<Promise<Candidate | null>> = [];
+                for (let index = 1; index <= 3; index++) {
+                  runTasks.push(
+                    generateCandidate(
+                      `A${index}`,
+                      'phase-a',
+                      `Player run Phase A candidate ${index}`,
+                      buildPlatformerPhaseACandidatePrompt(index, { colors }),
+                      sideReference,
+                    ),
+                    generateCandidate(
+                      `B${index}`,
+                      'phase-b',
+                      `Player run Phase B candidate ${index}`,
+                      buildPlatformerPhaseBCandidatePrompt(index, { colors }),
+                      sideReference,
+                    ),
+                  );
+                }
+                const [runResults, jumpResults] = await Promise.all([
+                  Promise.all(runTasks),
+                  Promise.all(
+                    [1, 2, 3].map((index) =>
+                      generateCandidate(
+                        `J${index}`,
+                        'jump',
+                        `Player jump candidate ${index}`,
+                        buildPlatformerJumpCandidatePrompt(index, { colors }),
+                        sideReference,
+                      ),
+                    ),
+                  ),
+                ]);
+                const jumpCandidates = jumpResults.filter(
+                  (candidate): candidate is Candidate => candidate !== null,
+                );
+                const jump = jumpCandidates[0]?.png ?? sideAnchor.png;
+                if (jumpCandidates.length === 0) {
+                  emit(
+                    'building-assets',
+                    'Jump candidates were unusable; keeping the generated side pose for jumping',
+                  );
+                }
+                const runCandidates = runResults.filter(
+                  (candidate): candidate is Candidate & { kind: 'phase-a' | 'phase-b' } =>
+                    candidate?.kind === 'phase-a' || candidate?.kind === 'phase-b',
+                );
+                const descriptors: PlatformerPoseCandidateDescriptor[] = runCandidates.map(
+                  ({ id, kind }) => ({ id, kind }),
+                );
+                if (!descriptors.some(({ kind }) => kind === 'phase-a')) {
+                  throw new Error('all Phase A run candidates failed local validation');
+                }
+                if (!descriptors.some(({ kind }) => kind === 'phase-b')) {
+                  throw new Error('all Phase B run candidates failed local validation');
+                }
+                const pairBoard = await buildPlatformerPoseJudgeBoard({
+                  source: photoReference,
+                  idle: idle.png,
+                  sideAnchor: sideAnchor.png,
+                  candidates: runCandidates.map(({ id, kind, png: processed }) => ({
+                    id,
+                    kind,
+                    processed,
+                  })),
+                });
+                const pairPrompt = buildPlatformerPoseJudgePrompt(descriptors);
+                const firstA = descriptors.find(({ kind }) => kind === 'phase-a')!.id;
+                const firstB = descriptors.find(({ kind }) => kind === 'phase-b')!.id;
+                const mockPairDecision = {
+                  anchorReview: {
+                    identity: 5,
+                    sideView: 5,
+                    costume: 5,
+                    fatalIssues: [],
+                    summary: 'Mock side anchor.',
+                  },
+                  candidateReviews: descriptors.map(({ id, kind }) => ({
+                    id,
+                    kind,
+                    scores: { identity: 5, costume: 5, pose: 5, technical: 5 },
+                    fatalIssues: [],
+                    summary: 'Mock usable run candidate.',
+                  })),
+                  pairReviews: descriptors
+                    .filter(({ kind }) => kind === 'phase-a')
+                    .flatMap(({ id: phaseAId }) =>
+                      descriptors
+                        .filter(({ kind }) => kind === 'phase-b')
+                        .map(({ id: phaseBId }) => ({
+                          phaseAId,
+                          phaseBId,
+                          legAlternation: 5,
+                          armAlternation: 5,
+                          pairConsistency: 5,
+                          fatalIssues: [],
+                          summary: 'Mock visibly alternating pair.',
+                        })),
+                    ),
+                  selection: {
+                    accepted: true,
+                    phaseAId: firstA,
+                    phaseBId: firstB,
+                    confidence: 1,
+                    rationale: 'Mock selection.',
+                    retryGuidance: '',
+                  },
+                };
+                const pairDecision = normalizePlatformerPoseJudgeDecision(
+                  await judge(
+                    pairPrompt,
+                    buildPlatformerPoseJudgeSchema(descriptors),
+                    pairBoard,
+                    4000,
+                    'Spark selected the player run animation',
+                    mockPairDecision,
+                  ),
+                  descriptors,
+                );
+                const selectedPair = pairDecision.selection.accepted
+                  ? pairDecision.selection
+                  : bestPlatformerPosePair(pairDecision);
+                if (!selectedPair) throw new Error('Spark did not return any run-pair reviews');
+                const walk1 = runCandidates.find(({ id }) => id === selectedPair.phaseAId)!;
+                const walk2 = runCandidates.find(({ id }) => id === selectedPair.phaseBId)!;
+                emit(
+                  'building-assets',
+                  pairDecision.selection.accepted
+                    ? `Spark selected ${walk1.id} + ${walk2.id} for the player run animation`
+                    : `Spark selected ${walk1.id} + ${walk2.id} as the best available run animation`,
+                );
+
+                const generated: Record<GeneratedPlatformerPose, Buffer> = {
+                  idle: idle.png,
+                  sideIdle: sideAnchor.png,
+                  walk1: walk1.png,
+                  walk2: walk2.png,
+                  jump,
+                };
+                await validateGeneratedPlatformerPoseSet(generated, { strictMotion: false });
+                await Promise.all(
+                  GENERATED_PLATFORMER_POSES.map((pose) =>
+                    assetWorkspace.store(
+                      PLATFORMER_ASSET_ROLES[pose],
+                      generated[pose],
+                      PLATFORMER_PLAYER_PIPELINE_PROMPT_VERSION,
+                      pipelineSha,
+                    ),
+                  ),
+                );
                 platformerPlayerArtStatus = { mode: 'generated', attempted: true };
               } catch (error) {
-                if (abort.signal.aborted || error instanceof PipelineError) throw error;
+                if (
+                  abort.signal.aborted ||
+                  (error instanceof PipelineError && !isOptionalGeneratedArtProviderFailure(error))
+                ) {
+                  throw error;
+                }
                 await Promise.all([
                   assetWorkspace.discard(Object.values(PLATFORMER_ASSET_ROLES)),
                   assetWorkspace.discardPrivate('platformerReference'),
+                  assetWorkspace.discardPrivate('platformerSideReference'),
                 ]);
                 const reason =
                   error instanceof Error
@@ -2066,10 +2448,28 @@ export class GenerationRunner {
             })()
           : Promise.resolve();
 
+      const deferHeadsUntilFullBodyResult =
+        !!photo &&
+        (spec.archetype === 'fighter' ||
+          (spec.archetype === 'platformer' && spec.platformerArtDensity === 'detailed'));
+      const fullBodyTask = spec.archetype === 'fighter' ? fighterTask : platformerPlayerTask;
+      const headsTask = deferHeadsUntilFullBodyResult
+        ? fullBodyTask.then(async () => {
+            const generated =
+              spec.archetype === 'fighter'
+                ? fighterArtStatus?.mode === 'generated'
+                : platformerPlayerArtStatus?.mode === 'generated';
+            if (!generated) await generateHeads();
+          })
+        : generateHeads();
+
       const finishingAssets = await Promise.allSettled([
         storyTask,
         fighterTask,
         platformerPlayerTask,
+        portraitTask,
+        portraitDefeatTask,
+        headsTask,
       ]);
       const finishingFailure = finishingAssets.find(
         (result): result is PromiseRejectedResult => result.status === 'rejected',
@@ -2329,7 +2729,8 @@ export class GenerationRunner {
             playerHeightTiles: 2 as const,
             platformerScale: design.platformerScale ?? ('heroic' as const),
             platformerArtDensity:
-              design.platformerArtDensity ?? (hasPhoto ? ('detailed' as const) : ('chunky' as const)),
+              design.platformerArtDensity ??
+              (hasPhoto ? ('detailed' as const) : ('chunky' as const)),
           }
         : {}),
       ...(archetype === 'platformer' && design.feel ? { feel: design.feel } : {}),
@@ -2493,10 +2894,23 @@ export class GenerationRunner {
     let modelRepairCalls = 0;
     // Owner fairness without an unbounded 4 owners × 2 passes × cleanup bill.
     // Regeneration remains available after this surgical-call ceiling.
-    const maxModelRepairCalls = 5;
+    const maxModelRepairCalls = GENERATION.maxRepairCallsPerAttempt;
+    const repairBudgetAvailable = (): boolean => {
+      if (!repairContext) return true;
+      try {
+        return (this.db.gameCost(repairContext.gameId) ?? 0) < GENERATION.repairCostBudgetUsd;
+      } catch {
+        // A telemetry read must not disable validation recovery.
+        return true;
+      }
+    };
     const tryOwnerRepairs = async (owner: RepairOwner, budget: number): Promise<void> => {
       if (stalledRepairOwners.has(owner)) return;
-      for (let i = 0; i < budget && modelRepairCalls < maxModelRepairCalls; i++) {
+      for (
+        let i = 0;
+        i < budget && modelRepairCalls < maxModelRepairCalls && repairBudgetAvailable();
+        i++
+      ) {
         const before = diagnosticsForOwner(diagnostics, owner);
         if (!before.length) return;
         emit('repairing', `Repairing ${owner} (${i + 1}/${budget}) — ${before.length} issue(s)…`);
@@ -2554,9 +2968,13 @@ export class GenerationRunner {
     };
     const repairOwners = async (budget: number): Promise<void> => {
       const priority: RepairOwner[] = ['document', 'entities', 'music', 'levels'];
-      for (let round = 0; round < budget && modelRepairCalls < maxModelRepairCalls; round++) {
+      for (
+        let round = 0;
+        round < budget && modelRepairCalls < maxModelRepairCalls && repairBudgetAvailable();
+        round++
+      ) {
         for (const owner of priority) {
-          if (modelRepairCalls >= maxModelRepairCalls) return;
+          if (modelRepairCalls >= maxModelRepairCalls || !repairBudgetAvailable()) return;
           await tryOwnerRepairs(owner, 1);
         }
       }
@@ -2593,6 +3011,7 @@ export class GenerationRunner {
     // inspect before. Each owner gets at most one regeneration in this pass.
     const regeneratedOwners = new Set<RepairOwner>();
     for (;;) {
+      if (!repairBudgetAvailable()) break;
       const owner = (['levels', 'entities', 'music'] as const).find(
         (candidate) =>
           !regeneratedOwners.has(candidate) &&
@@ -2612,7 +3031,7 @@ export class GenerationRunner {
             before.every((diagnostic) =>
               indexes.some((index) => diagnostic.path.startsWith(`/levels/${index}`)),
             );
-          if (onlyIndexedFailures && (indexes.length < levelCount || levelCount === 1)) {
+          if (onlyIndexedFailures) {
             const currentLevels = structuredClone(spec.levels) as unknown[];
             const replacements = await Promise.all(
               indexes.map(async (index) => {
@@ -2809,10 +3228,10 @@ export class GenerationRunner {
     }
     if (!diagnostics.length) return spec;
 
-    // A fresh stage gets one surgical cleanup. A second attempt is deliberately
-    // avoided here: if a regeneration plus one patch still cannot satisfy the
-    // same owner, historical data shows another identical repair is poor value.
-    await repairOwners(1);
+    // A fresh stage gets the normal repair allowance. Productive patches keep
+    // going; tryOwnerRepairs stops immediately on a no-op/stall, while the
+    // per-attempt call cap and cumulative cost ceiling bound the work.
+    await repairOwners(GENERATION.maxRepairAttemptsPerStage);
     if (!diagnostics.length) return spec;
 
     const finalFallbackBefore = diagnostics;
@@ -2835,6 +3254,46 @@ export class GenerationRunner {
     );
     if (regeneratedBossDowngrade) {
       emit('validating', `Authored boss could not be repaired; ${regeneratedBossDowngrade}.`);
+    }
+    if (!diagnostics.length) return spec;
+
+    // Generated platformer topology is uniquely amenable to a safe mechanical
+    // fallback: if the document is otherwise valid, lay one continuous low
+    // route through each still-disconnected level. This is preferable to
+    // throwing away the complete game (and all of its later image work) over a
+    // map-model mistake that repeated repair prompts could not localize.
+    const routeCodes = new Set(['PLAT_EXIT_UNREACHABLE', 'PLAT_NO_CHECKPOINT']);
+    const routeIndexes = failingLevelIndexes(diagnostics);
+    const onlyRouteTopologyDiagnostics =
+      archetype === 'platformer' &&
+      routeIndexes.length > 0 &&
+      diagnostics.every(
+        (diagnostic) =>
+          routeCodes.has(diagnostic.code) &&
+          routeIndexes.some(
+            (index) =>
+              diagnostic.path === `/levels/${index}` ||
+              diagnostic.path.startsWith(`/levels/${index}/`),
+          ),
+      );
+    if (onlyRouteTopologyDiagnostics) {
+      const before = diagnostics;
+      const started = Date.now();
+      const routeFallback = repairPlatformerExitRoutes(spec, routeIndexes);
+      if (routeFallback.fixes.length) {
+        const preparedRoute = prepareForRepair(routeFallback.spec);
+        spec = preparedRoute.spec;
+        diagnostics = this.collectDiagnostics(spec, archetype);
+        record(
+          'levels',
+          'fallback',
+          diagnosticsForOwner(before, 'levels'),
+          diagnosticsForOwner(diagnostics, 'levels'),
+          { normalizationFixes: [...routeFallback.fixes, ...preparedRoute.fixes] },
+          started,
+        );
+        emit('validating', 'Connected the remaining unreachable platformer route(s).');
+      }
     }
     if (!diagnostics.length) return spec;
 

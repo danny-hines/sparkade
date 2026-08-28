@@ -20,7 +20,7 @@
       "enum": ["compact", "heroic"]
     },
     "platformerArtDensity": {
-      "description": "Source-art resolution independent from camera framing. 'chunky' keeps the original 16x32 player art; 'detailed' allows native 48x64 generated player art in a 24x32 visual footprint over the same collision body. Omitted saved games stay chunky.",
+      "description": "Source-art resolution independent from camera framing. 'chunky' keeps the original 16x32 player art; 'detailed' allows native 112x128 generated player art in a 28x32 visual footprint over the same collision body. Omitted saved games stay chunky.",
       "enum": ["chunky", "detailed"]
     },
     "backdrop": {
@@ -42,8 +42,18 @@
     "weather": {
       "description": "Ambient weather/particle overlay drawn over gameplay in your palette colors. Match the premise (rain, snow, embers, fog, fireflies, …); keep it subtle; omit or 'none' for clear.",
       "enum": [
-        "none", "rain", "storm", "snow", "embers", "ash",
-        "leaves", "petals", "fog", "bubbles", "fireflies", "dust"
+        "none",
+        "rain",
+        "storm",
+        "snow",
+        "embers",
+        "ash",
+        "leaves",
+        "petals",
+        "fog",
+        "bubbles",
+        "fireflies",
+        "dust"
       ]
     },
     "lighting": {
@@ -138,7 +148,12 @@
             "type": "array",
             "minItems": 4,
             "maxItems": 48,
-            "items": { "type": "string", "minLength": 4, "maxLength": 48, "pattern": "^[0-9a-f.]+$" }
+            "items": {
+              "type": "string",
+              "minLength": 4,
+              "maxLength": 48,
+              "pattern": "^[0-9a-f.]+$"
+            }
           }
         },
         "headSlot": {
@@ -183,8 +198,18 @@
           "items": { "$ref": "#/$defs/text" }
         },
         "bossIntro": { "$ref": "#/$defs/text" },
-        "victory": { "type": "array", "minItems": 1, "maxItems": 3, "items": { "$ref": "#/$defs/text" } },
-        "defeat": { "type": "array", "minItems": 1, "maxItems": 3, "items": { "$ref": "#/$defs/text" } }
+        "victory": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/text" }
+        },
+        "defeat": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/text" }
+        }
       },
       "required": ["intro", "levelIntros", "bossIntro", "victory", "defeat"],
       "additionalProperties": false

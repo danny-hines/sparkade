@@ -833,6 +833,13 @@ export interface CompleteResponse {
   usage: ProviderUsage;
 }
 
+export interface TranscriptionResult {
+  text: string;
+  usage: ProviderUsage;
+  /** The model that actually served the request when a provider used a fallback. */
+  model?: string;
+}
+
 export interface Provider {
   readonly name: string;
   readonly kind: ProviderKind;
@@ -845,5 +852,5 @@ export interface Provider {
     audio: Buffer,
     mime: string,
     opts?: { model?: string; signal?: AbortSignal },
-  ): Promise<{ text: string; usage: ProviderUsage }>;
+  ): Promise<TranscriptionResult>;
 }

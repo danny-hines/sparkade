@@ -39,7 +39,11 @@ export function sumCosts(costs: (number | null)[]): number | null {
  * passes). Labeled an estimate in the UI; returns null when the model has no
  * pricing row.
  */
-export function estimateGenerationCost(model: string, snapshot: PriceSnapshot): number | null {
+export function estimateGenerationCost(
+  model: string,
+  snapshot: PriceSnapshot,
+  options: { platformerPoseJudges?: boolean } = {},
+): number | null {
   const price = snapshot[model];
   if (!price) return null;
   const typical: ProviderUsage[] = [
@@ -47,6 +51,12 @@ export function estimateGenerationCost(model: string, snapshot: PriceSnapshot): 
     { input: 7400, output: 4200 }, // levels
     { input: 6800, output: 3200 }, // entities
     { input: 5600, output: 2600 }, // music
+    ...(options.platformerPoseJudges
+      ? [
+          { input: 900, output: 350 }, // front-idle identity selection
+          { input: 1200, output: 500 }, // run-pair selection
+        ]
+      : []),
   ];
   let total = 0;
   for (const u of typical)
@@ -60,10 +70,10 @@ export function formatUsd(v: number | null): string {
 }
 
 /** Happy-path returned image count. When a photographed free-voice request has
- * no selected archetype yet, use the fighter upper bound so the review screen
- * never advertises a ten-image price for a twenty-one-image game. */
+ * no selected archetype yet, use the shared platformer/fighter upper bound so
+ * the review screen never advertises a ten-image price for a 21-image game. */
 export function estimateImageCount(hasPhoto: boolean, archetype?: ArchetypeId): number {
   if (!hasPhoto) return 5;
   if (archetype === undefined || archetype === 'fighter') return 21;
-  return archetype === 'platformer' ? 14 : 10;
+  return archetype === 'platformer' ? 21 : 10;
 }

@@ -21,11 +21,12 @@
 //   (a) sends reasoning_effort (default "low"; config providers.meta.reasoningEffort)
 //   (b) adds effort-scaled reasoning headroom on top of the caller's output budget.
 //
-// AUDIO (verified live): /audio/transcriptions returns 404 — it does not
-// exist on the preview. An OpenAI-style `input_audio` chat content part DOES
-// work and transcribes accurately. transcribe() still tries the endpoint
-// first (cheap 404) so it lights up automatically if Meta ships it, then
-// falls back to the chat route. If Meta changes shapes, fix it HERE only.
+// AUDIO (verified live): /audio/transcriptions is not a reliable supported
+// route on the preview (it has returned both 404 and 5xx). An OpenAI-style
+// `input_audio` chat content part DOES work and transcribes accurately.
+// transcribe() probes the endpoint, treats an absent/transient response as a
+// fallback signal, then retries transient chat-audio failures with backoff.
+// If Meta changes shapes, fix it HERE only.
 // ---------------------------------------------------------------------------
 import type {
   CompleteRequest,
@@ -34,10 +35,12 @@ import type {
   ProviderCapabilities,
   ProviderConfig,
   ProviderUsage,
+  TranscriptionResult,
 } from '@sparkade/shared';
 import { DEFAULT_MODEL, GENERATION } from '@sparkade/shared';
+import { sleep } from '../util';
 import { needsWavTranscode, transcodeToWav } from './audio';
-import { apiKeyFor, httpJson, ProviderHttpError } from './base';
+import { apiKeyFor, httpJson, ProviderHttpError, ProviderNetworkError } from './base';
 
 interface ChatCompletionResponse {
   choices?: { message?: { content?: string | null } }[];
@@ -48,7 +51,7 @@ interface ChatCompletionResponse {
   };
 }
 
-interface TranscriptionResponse {
+interface TranscriptionEndpointResponse {
   text?: string;
   usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
 }
@@ -56,6 +59,14 @@ interface TranscriptionResponse {
 const DEFAULT_BASE_URL = 'https://api.meta.ai/v1';
 
 const DEFAULT_REASONING_EFFORT = 'low';
+const TRANSCRIPTION_PRIMARY_MODEL = 'muse-spark-1.2-contributor';
+const TRANSCRIPTION_FALLBACK_MODEL = 'muse-spark-1.1';
+const TRANSCRIPTION_LEGACY_PROBE_TIMEOUT_MS = 3_000;
+const TRANSCRIPTION_PRIMARY_TIMEOUT_MS = 12_000;
+const TRANSCRIPTION_FALLBACK_TIMEOUT_MS = 20_000;
+const TRANSCRIPTION_TOTAL_BUDGET_MS = 35_000;
+const TRANSCRIPTION_RETRY_DELAYS_MS = [750, 2_000] as const;
+const MAX_TRANSCRIPTION_RETRY_AFTER_MS = 5_000;
 /** Internal reasoning bills as completion tokens. A fixed 4k surcharge made a
  * tiny minimal-effort repair as expensive as a generation pass, so reserve
  * headroom in proportion to the requested effort. */
@@ -146,8 +157,9 @@ export class MetaProvider implements Provider {
     audio: Buffer,
     mime: string,
     opts: { model?: string; signal?: AbortSignal } = {},
-  ): Promise<{ text: string; usage: ProviderUsage }> {
+  ): Promise<TranscriptionResult> {
     const model = opts.model ?? DEFAULT_MODEL;
+    const startedAt = Date.now();
 
     // input_audio accepts only wav/mp3 (format:"webm" → 400, verified live).
     // Browsers record webm/opus, so transcode first. Done before strategy 1 too
@@ -163,12 +175,15 @@ export class MetaProvider implements Provider {
       const ext = mime.includes('webm') ? 'webm' : mime.includes('wav') ? 'wav' : 'ogg';
       form.append('model', model);
       form.append('file', new Blob([new Uint8Array(audio)], { type: mime }), `recording.${ext}`);
-      const res = await httpJson<TranscriptionResponse>(`${this.baseUrl}/audio/transcriptions`, {
-        headers: { Authorization: `Bearer ${this.key()}` },
-        body: form,
-        timeoutMs: GENERATION.perCallTimeoutMs,
-        signal: opts.signal,
-      });
+      const res = await httpJson<TranscriptionEndpointResponse>(
+        `${this.baseUrl}/audio/transcriptions`,
+        {
+          headers: { Authorization: `Bearer ${this.key()}` },
+          body: form,
+          timeoutMs: TRANSCRIPTION_LEGACY_PROBE_TIMEOUT_MS,
+          signal: opts.signal,
+        },
+      );
       if (typeof res.text === 'string') {
         return {
           text: res.text.trim(),
@@ -176,24 +191,25 @@ export class MetaProvider implements Provider {
             input: res.usage?.prompt_tokens ?? Math.ceil(audio.length / 320),
             output: res.usage?.completion_tokens ?? Math.ceil((res.text.length + 3) / 4),
           },
+          model,
         };
       }
       // fall through to strategy 2 on an unexpected shape
     } catch (e) {
-      // 404/405 → the endpoint doesn't exist (yet); try the chat-content route.
-      if (!(e instanceof ProviderHttpError && (e.status === 404 || e.status === 405))) throw e;
+      // The preview has returned both 404 and 5xx for this unsupported route.
+      // A transient probe failure must not prevent the supported chat-audio
+      // route from getting its own chance.
+      const canFallBack =
+        e instanceof ProviderHttpError && (e.status === 404 || e.status === 405 || e.transient);
+      if (!canFallBack) throw e;
     }
 
     // Strategy 2: audio as an OpenAI-style input_audio chat content part.
     const format = mime.includes('wav') ? 'wav' : 'mp3';
     const reasoningEffort = this.cfg.reasoningEffort ?? DEFAULT_REASONING_EFFORT;
-    const res = await httpJson<ChatCompletionResponse>(`${this.baseUrl}/chat/completions`, {
-      headers: {
-        Authorization: `Bearer ${this.key()}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
+    const buildBody = (candidateModel: string) =>
+      JSON.stringify({
+        model: candidateModel,
         messages: [
           {
             role: 'system',
@@ -213,15 +229,67 @@ export class MetaProvider implements Provider {
         max_completion_tokens: 500 + REASONING_HEADROOM_TOKENS[reasoningEffort],
         temperature: 0,
         reasoning_effort: reasoningEffort,
-      }),
-      timeoutMs: GENERATION.perCallTimeoutMs,
-      signal: opts.signal,
-    });
-    return {
-      text: (res.choices?.[0]?.message?.content ?? '').trim(),
-      usage: normalizeUsage(res.usage),
-    };
+      });
+    const candidateModels =
+      model === TRANSCRIPTION_PRIMARY_MODEL ? [model, TRANSCRIPTION_FALLBACK_MODEL] : [model];
+    let lastTransientError: unknown;
+    for (const [candidateIndex, candidateModel] of candidateModels.entries()) {
+      const hasNextCandidate = candidateIndex < candidateModels.length - 1;
+      const perCallCapMs = hasNextCandidate
+        ? TRANSCRIPTION_PRIMARY_TIMEOUT_MS
+        : TRANSCRIPTION_FALLBACK_TIMEOUT_MS;
+
+      for (let attempt = 0; attempt <= GENERATION.maxTransientRetriesPerCall; attempt++) {
+        const remainingMs = TRANSCRIPTION_TOTAL_BUDGET_MS - (Date.now() - startedAt);
+        if (remainingMs <= 0) throw lastTransientError ?? transcriptionBudgetError();
+
+        try {
+          const res = await httpJson<ChatCompletionResponse>(`${this.baseUrl}/chat/completions`, {
+            headers: {
+              Authorization: `Bearer ${this.key()}`,
+              'Content-Type': 'application/json',
+            },
+            body: buildBody(candidateModel),
+            timeoutMs: Math.min(perCallCapMs, remainingMs),
+            signal: opts.signal,
+          });
+          return {
+            text: (res.choices?.[0]?.message?.content ?? '').trim(),
+            usage: normalizeUsage(res.usage),
+            model: candidateModel,
+          };
+        } catch (e) {
+          if (!isTransientTranscriptionError(e)) throw e;
+          lastTransientError = e;
+
+          // Do not spend the interactive voice budget retrying an unhealthy
+          // preferred model when the known-good fallback is still available.
+          if (hasNextCandidate) break;
+          if (attempt >= GENERATION.maxTransientRetriesPerCall) throw e;
+
+          const retryAfterMs =
+            e instanceof ProviderHttpError && e.retryAfterS
+              ? Math.min(e.retryAfterS * 1_000, MAX_TRANSCRIPTION_RETRY_AFTER_MS)
+              : 0;
+          const delayMs = Math.max(retryAfterMs, TRANSCRIPTION_RETRY_DELAYS_MS[attempt] ?? 2_000);
+          const remainingAfterCall = TRANSCRIPTION_TOTAL_BUDGET_MS - (Date.now() - startedAt);
+          if (remainingAfterCall <= delayMs + 1_000) throw e;
+          await sleep(delayMs, opts.signal);
+        }
+      }
+    }
+    throw lastTransientError ?? transcriptionBudgetError();
   }
+}
+
+function isTransientTranscriptionError(error: unknown): boolean {
+  return (
+    (error instanceof ProviderHttpError && error.transient) || error instanceof ProviderNetworkError
+  );
+}
+
+function transcriptionBudgetError(): ProviderHttpError {
+  return new ProviderHttpError('transcription timed out', 408, null, '');
 }
 
 function normalizeUsage(u?: ChatCompletionResponse['usage']): ProviderUsage {

@@ -924,8 +924,11 @@ export function LikenessLabScreen(): ComponentChildren {
       <div class="lab-header">
         <h1>Likeness Lab</h1>
         <span class="lab-sub">dev · Muse features → deterministic game avatar</span>
-        <a href="/?dev=assets" class="lab-link">
-          → asset gallery
+        <a href="/?dev=platformer-poses" class="lab-link">
+          → platformer poses
+        </a>
+        <a href="/?dev=assets" class="lab-link" style="margin-left:0">
+          → assets
         </a>
       </div>
       {err && <div class="lab-err">{err}</div>}

@@ -12,16 +12,23 @@ import {
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { generatedAssetForRole, readGameAssetManifest, sha256 } from '../src/assets/manifest';
 import { GENERATED_FIGHTER_POSES } from '../src/assets/fighter-pose';
-import { buildStoryArtPrompt } from '../src/assets/game-art';
+import {
+  buildKeyArtPolicyFallbackPrompt,
+  buildStoryArtPolicyFallbackPrompt,
+  buildStoryArtPrompt,
+} from '../src/assets/game-art';
 import { GenerationRunner } from '../src/pipeline/runner';
 import { SseHub } from '../src/pipeline/sse';
 import { ConfigStore } from '../src/storage/config';
 import { Db } from '../src/storage/db';
 import { GameFiles } from '../src/storage/files';
 
-const LIKENESS_ROLES = [
+const PORTRAIT_ROLES = [
   'generatedPortrait',
   'generatedPortraitDefeat',
+] as const satisfies readonly GeneratedGameAssetRole[];
+
+const HEAD_ROLES = [
   'generatedHead12',
   'generatedHead12Side',
   'generatedHead12Back',
@@ -54,6 +61,7 @@ const FIGHTER_ROLES = [
 
 const PLATFORMER_ROLES = [
   'platformerIdle',
+  'platformerSideIdle',
   'platformerWalk1',
   'platformerWalk2',
   'platformerJump',
@@ -189,10 +197,27 @@ describe('story art prompts', () => {
     expect(prompt).toMatch(/upset, worried, disappointed, or sad/);
     expect(prompt).toContain('No wounds, gore, death');
   });
+
+  it('provides policy-safe presentation prompts without replaying authored danger text', () => {
+    const spec = JSON.parse(
+      readFileSync(
+        join(process.cwd(), 'packages/generation/golden/golden-platformer.json'),
+        'utf8',
+      ),
+    ) as GameSpec;
+    spec.story.defeat = ['The vines draw you down into the abyss.'];
+
+    const keyArt = buildKeyArtPolicyFallbackPrompt(spec, true);
+    const defeat = buildStoryArtPolicyFallbackPrompt(spec, 'defeat');
+
+    expect(keyArt).toContain('adult person');
+    expect(defeat).toContain('resting safely');
+    expect(`${keyArt} ${defeat}`).not.toMatch(/abyss|danger|wounds|gore|death/i);
+  });
 });
 
 describe.sequential('mock image asset pipeline', () => {
-  it('publishes decodable key/story art, two portraits, and all directional head pairs', async () => {
+  it('publishes key/story art and portraits without redundant heads when full-body art succeeds', async () => {
     const { db, files, runner } = createHarness();
     const { jobId, gameId } = runner.createJob({
       promptText: 'A brave climber restores the stars',
@@ -203,9 +228,13 @@ describe.sequential('mock image asset pipeline', () => {
     });
 
     expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done' });
+    expect(files.readMeta(gameId)?.platformerPlayerArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+    });
     await expectPublishedPngs(files, gameId, [
       ...PRESENTATION_ROLES,
-      ...LIKENESS_ROLES,
+      ...PORTRAIT_ROLES,
       ...PLATFORMER_ROLES,
     ]);
 
@@ -221,25 +250,51 @@ describe.sequential('mock image asset pipeline', () => {
       storyDefeat: [420, 180],
       generatedPortrait: [64, 64],
       generatedPortraitDefeat: [64, 64],
-      generatedHead12: [12, 12],
-      generatedHead12Side: [12, 12],
-      generatedHead12Back: [12, 12],
-      generatedHead16: [16, 16],
-      generatedHead16Side: [16, 16],
-      generatedHead16Back: [16, 16],
-      platformerIdle: [48, 64],
-      platformerWalk1: [48, 64],
-      platformerWalk2: [48, 64],
-      platformerJump: [48, 64],
+      platformerIdle: [112, 128],
+      platformerSideIdle: [112, 128],
+      platformerWalk1: [112, 128],
+      platformerWalk2: [112, 128],
+      platformerJump: [112, 128],
     });
+    expect(HEAD_ROLES.some((role) => role in dimensions)).toBe(false);
     expect(
       db.usageForGame(gameId).filter((event) => event.stage.startsWith('image:') && !event.failed),
-    ).toHaveLength(14);
-    expect(files.readMeta(gameId)?.platformerPlayerArt).toEqual({
-      mode: 'generated',
-      attempted: true,
-    });
+    ).toHaveLength(20);
     expect(existsSync(join(files.gameDir(gameId), 'photo.jpg'))).toBe(false);
+  });
+
+  it('reuses the Spark-selected five-frame platformer set on retry after a late failure', async () => {
+    const { db, files, runner } = createHarness((root) => new FailFirstPublishFiles(root));
+    const { jobId, gameId } = runner.createJob({
+      promptText: 'A brave climber restores the stars',
+      sourceKind: 'surprise',
+      requestedArchetype: 'platformer',
+      photo: await testPhoto(),
+      idempotencyKey: 'mock-photo-platformer-retry-cache',
+    });
+
+    const firstAttempt = await waitForTerminal(db, jobId);
+    expect(firstAttempt).toMatchObject({ status: 'failed', attempt: 1 });
+    expect(firstAttempt.error?.message).toContain('synthetic late publish failure');
+    expect(files.readValidatedSpecCheckpoint(jobId, 1)?.spec.meta.title).toBeTruthy();
+    const successfulImagesBeforeRetry = db
+      .usageForGame(gameId)
+      .filter((event) => event.stage.startsWith('image:') && !event.failed);
+    expect(successfulImagesBeforeRetry).toHaveLength(20);
+
+    expect(runner.retryJob(gameId)).toEqual({ jobId });
+    expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done', attempt: 2 });
+    expect(files.listRawStageCheckpoints(jobId, 2).map(({ stage }) => stage)).toEqual(['design']);
+    expect(files.readValidatedSpecCheckpoint(jobId, 2)?.spec.meta.title).toBeTruthy();
+    const successfulImagesAfterRetry = db
+      .usageForGame(gameId)
+      .filter((event) => event.stage.startsWith('image:') && !event.failed);
+    expect(successfulImagesAfterRetry).toHaveLength(successfulImagesBeforeRetry.length);
+    await expectPublishedPngs(files, gameId, [
+      ...PRESENTATION_ROLES,
+      ...PORTRAIT_ROLES,
+      ...PLATFORMER_ROLES,
+    ]);
   });
 
   it('publishes the complete, distinct 11-pose generated fighter set', async () => {
@@ -255,7 +310,7 @@ describe.sequential('mock image asset pipeline', () => {
     expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done' });
     await expectPublishedPngs(files, gameId, [
       ...PRESENTATION_ROLES,
-      ...LIKENESS_ROLES,
+      ...PORTRAIT_ROLES,
       ...FIGHTER_ROLES,
     ]);
 
@@ -288,7 +343,7 @@ describe.sequential('mock image asset pipeline', () => {
     const successfulImagesBeforeRetry = db
       .usageForGame(gameId)
       .filter((event) => event.stage.startsWith('image:') && !event.failed);
-    expect(successfulImagesBeforeRetry).toHaveLength(21);
+    expect(successfulImagesBeforeRetry).toHaveLength(18);
 
     expect(runner.retryJob(gameId)).toEqual({ jobId });
     expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done', attempt: 2 });
@@ -298,7 +353,7 @@ describe.sequential('mock image asset pipeline', () => {
     expect(successfulImagesAfterRetry).toHaveLength(successfulImagesBeforeRetry.length);
     await expectPublishedPngs(files, gameId, [
       ...PRESENTATION_ROLES,
-      ...LIKENESS_ROLES,
+      ...PORTRAIT_ROLES,
       ...FIGHTER_ROLES,
     ]);
   });

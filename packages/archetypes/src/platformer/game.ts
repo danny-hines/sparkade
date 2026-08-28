@@ -95,12 +95,70 @@ interface BossAttackState {
   telegraph: number;
 }
 
-const PLATFORMER_PLAYER_POSES = ['idle', 'walk1', 'walk2', 'jump'] as const;
+const PLATFORMER_PLAYER_POSES = ['idle', 'sideIdle', 'walk1', 'walk2', 'jump'] as const;
 type PlatformerPlayerPose = (typeof PLATFORMER_PLAYER_POSES)[number];
 type GeneratedPlatformerPoses = Readonly<Record<PlatformerPlayerPose, CanvasImageSource>>;
-const GENERATED_PLAYER_DRAW_W = 24;
-const GENERATED_PLAYER_DRAW_H = 32;
+const GENERATED_PLAYER_FALLBACK_DRAW_W = 24;
+const GENERATED_PLAYER_FALLBACK_DRAW_H = 32;
 const GENERATED_PLAYER_GROUND_OVERLAP = 2;
+const GENERATED_PLAYER_GAIT_SPEEDUP = 1.12;
+const LEGACY_GENERATED_PLAYER_WIDTH = 56;
+const LEGACY_GENERATED_PLAYER_HEIGHT = 64;
+const LEGACY_GENERATED_PLAYER_DENSITY = 2;
+const DETAILED_GENERATED_PLAYER_WIDTH = 112;
+const DETAILED_GENERATED_PLAYER_HEIGHT = 128;
+const DETAILED_GENERATED_PLAYER_DENSITY = 4;
+
+export function generatedPlatformerGaitRate(speed: number): number {
+  // The six timing beats below preserve the old four-beat cycle duration while
+  // holding each contact twice as long as its neutral side separator. The small
+  // multiplier keeps the runtime cadence close to the pose lab's balanced timing.
+  return Math.max(6, Math.min(13.5, Math.abs(speed) / 12)) * GENERATED_PLAYER_GAIT_SPEEDUP;
+}
+
+export function generatedPlatformerGaitFrame(phase: number): {
+  pose: 'sideIdle' | 'walk1' | 'walk2';
+  compression: 0;
+} {
+  const frame = ((Math.floor(phase) % 6) + 6) % 6;
+  if (frame < 2) return { pose: 'walk1', compression: 0 };
+  if (frame === 2 || frame === 5) return { pose: 'sideIdle', compression: 0 };
+  return { pose: 'walk2', compression: 0 };
+}
+
+export function generatedPlatformerPoseDrawSize(
+  sourceWidth: number,
+  sourceHeight: number,
+): { w: number; h: number } {
+  const density =
+    sourceWidth >= DETAILED_GENERATED_PLAYER_WIDTH &&
+    sourceHeight >= DETAILED_GENERATED_PLAYER_HEIGHT
+      ? DETAILED_GENERATED_PLAYER_DENSITY
+      : LEGACY_GENERATED_PLAYER_DENSITY;
+  return {
+    w:
+      Number.isFinite(sourceWidth) && sourceWidth > 0
+        ? sourceWidth / density
+        : LEGACY_GENERATED_PLAYER_WIDTH / LEGACY_GENERATED_PLAYER_DENSITY,
+    h:
+      Number.isFinite(sourceHeight) && sourceHeight > 0
+        ? sourceHeight / density
+        : LEGACY_GENERATED_PLAYER_HEIGHT / LEGACY_GENERATED_PLAYER_DENSITY,
+  };
+}
+
+function generatedImageDrawSize(image: CanvasImageSource): { w: number; h: number } {
+  const dimensions = image as unknown as {
+    naturalWidth?: number;
+    naturalHeight?: number;
+    width?: number;
+    height?: number;
+  };
+  return generatedPlatformerPoseDrawSize(
+    dimensions.naturalWidth || dimensions.width || GENERATED_PLAYER_FALLBACK_DRAW_W * 2,
+    dimensions.naturalHeight || dimensions.height || GENERATED_PLAYER_FALLBACK_DRAW_H * 2,
+  );
+}
 
 /** Generated art overlaps the collision floor by two world pixels because the
  * visible tile cap begins two pixels below its solid edge. This is presentation-only:
@@ -110,12 +168,16 @@ export function generatedPlatformerPlayerDrawRect(
   playerY: number,
   playerW: number,
   playerH: number,
+  drawW = GENERATED_PLAYER_FALLBACK_DRAW_W,
+  drawH = GENERATED_PLAYER_FALLBACK_DRAW_H,
+  compression: 0 | 1 = 0,
 ): { x: number; y: number; w: number; h: number } {
+  const renderedHeight = drawH - compression;
   return {
-    x: playerX - (GENERATED_PLAYER_DRAW_W - playerW) / 2,
-    y: playerY - (GENERATED_PLAYER_DRAW_H - playerH) + GENERATED_PLAYER_GROUND_OVERLAP,
-    w: GENERATED_PLAYER_DRAW_W,
-    h: GENERATED_PLAYER_DRAW_H,
+    x: playerX - (drawW - playerW) / 2,
+    y: playerY + playerH + GENERATED_PLAYER_GROUND_OVERLAP - renderedHeight,
+    w: drawW,
+    h: renderedHeight,
   };
 }
 
@@ -198,6 +260,7 @@ class PlatformerGame implements GameInstance {
   private power = { doubleJump: false, projectile: false, shield: false };
   private checkpoint: { x: number; y: number } | null = null;
   private animT = 0;
+  private generatedGaitT = 0;
   private playT = 0;
 
   // boss
@@ -597,6 +660,7 @@ class PlatformerGame implements GameInstance {
     this.pvy = 0;
     this.onGround = false;
     this.spinning = false;
+    this.generatedGaitT = 0;
     this.invulnT = 0;
   }
 
@@ -680,6 +744,11 @@ class PlatformerGame implements GameInstance {
     if (!this.onGround && moved.onGround) this.spinning = false;
     this.onGround = moved.onGround;
     if (this.onGround) this.airJumpUsed = false;
+    if (this.generatedPlayerPoses && this.onGround && Math.abs(this.pvx) > 8) {
+      this.generatedGaitT += dt * generatedPlatformerGaitRate(this.pvx);
+    } else {
+      this.generatedGaitT = 0;
+    }
 
     // tile interactions
     for (const c of cellsUnder(this.playerBox(), TILE_SIZE)) {
@@ -1335,14 +1404,9 @@ class PlatformerGame implements GameInstance {
     if (this.invulnT <= 0 || Math.floor(this.animT * 12) % 2 === 0) {
       const hero = this.sprites['hero']!;
       const anim = !this.onGround ? 'jump' : Math.abs(this.pvx) > 8 ? 'walk' : 'idle';
+      const gait = anim === 'walk' ? generatedPlatformerGaitFrame(this.generatedGaitT) : null;
       const generatedPose: PlatformerPlayerPose =
-        anim === 'jump'
-          ? 'jump'
-          : anim === 'walk'
-            ? Math.floor(this.animT * 7) % 2 === 0
-              ? 'walk1'
-              : 'walk2'
-            : 'idle';
+        anim === 'jump' ? 'jump' : anim === 'walk' ? gait!.pose : 'idle';
       const generatedImage = this.generatedPlayerPoses?.[generatedPose];
       let flip = generatedPose !== 'idle' && this.facing < 0;
       let img: CanvasImageSource | null = generatedImage ?? null;
@@ -1357,9 +1421,19 @@ class PlatformerGame implements GameInstance {
           flip = false;
         }
       }
-      const generatedRect = generatedImage
-        ? generatedPlatformerPlayerDrawRect(this.px, this.py, this.playerW, this.playerH)
-        : null;
+      const generatedSize = generatedImage ? generatedImageDrawSize(generatedImage) : null;
+      const generatedRect =
+        generatedImage && generatedSize
+          ? generatedPlatformerPlayerDrawRect(
+              this.px,
+              this.py,
+              this.playerW,
+              this.playerH,
+              generatedSize.w,
+              generatedSize.h,
+              gait?.compression ?? 0,
+            )
+          : null;
       const drawW = generatedRect?.w ?? hero.w;
       const drawH = generatedRect?.h ?? hero.h;
       const heroWorldX = generatedRect?.x ?? this.px - (drawW - this.playerW) / 2;

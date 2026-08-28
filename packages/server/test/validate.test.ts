@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { archetypes } from '@sparkade/archetypes';
 import {
   LIB_BOSSES_PLATFORMER,
   type DesignDoc,
@@ -17,6 +18,7 @@ import {
   customBossSpriteDiagnostics,
   ensureLikenessHeroBody,
   platformerBossFallback,
+  repairPlatformerExitRoutes,
   securityScan,
   spriteProblem,
   titleSimilarity,
@@ -51,6 +53,24 @@ function compactLevelStage(levels: readonly unknown[]): { levels: unknown[] } {
   };
 }
 
+function compactSingleLevel(level: PlatformerSpec['levels'][number]): unknown {
+  return compactLevelStage([level]).levels[0];
+}
+
+function carveChasm(level: PlatformerSpec['levels'][number], start: number, width = 8): void {
+  level.tiles = level.tiles.map(
+    (row) => row.slice(0, start) + '.'.repeat(width) + row.slice(start + width),
+  );
+  level.entities = level.entities.filter(
+    (entity) =>
+      !(
+        entity.x >= start - 5 &&
+        entity.x <= start + width + 5 &&
+        (entity.type === 'spring' || entity.type === 'movingPlatform')
+      ),
+  );
+}
+
 type RepairCall = (
   stage: StageName,
   prompt: BuiltPrompt,
@@ -66,8 +86,12 @@ async function validateAndRepairForTest(
   spec: GameSpec,
   callLlm: RepairCall,
   recentUse?: RecentUse,
+  repairCostUsd?: number,
 ): Promise<GameSpec> {
   const runner = Object.create(GenerationRunner.prototype) as GenerationRunner;
+  if (repairCostUsd !== undefined) {
+    Object.assign(runner, { db: { gameCost: () => repairCostUsd } });
+  }
   const validateAndRepair = (
     runner as unknown as {
       validateAndRepair(
@@ -78,6 +102,7 @@ async function validateAndRepairForTest(
         emit: (stage: JobStage, detail: string) => void,
         hasPhoto: boolean,
         recent?: RecentUse,
+        repairContext?: { jobId: string; gameId: string; attempt: number },
       ): Promise<GameSpec>;
     }
   ).validateAndRepair.bind(runner);
@@ -89,6 +114,9 @@ async function validateAndRepairForTest(
     () => undefined,
     false,
     recentUse,
+    repairCostUsd === undefined
+      ? undefined
+      : { jobId: 'j-route-budget', gameId: 'g-route-budget', attempt: 1 },
   );
 }
 
@@ -503,6 +531,103 @@ describe('custom sprite checks + repair-aware fallback', () => {
     expect(fixed.sprites.custom['animated_solid']).toBeDefined();
     expect(fixed.sprites.custom['animated_solid']!.frames).toBeUndefined();
     expect(fixed.sprites.assign['tile_solid']).toBe('custom:animated_solid');
+  });
+});
+
+describe('platformer route recovery', () => {
+  it('builds a deterministic final route only through affected levels', () => {
+    const spec = golden('platformer') as PlatformerSpec;
+    const untouched = structuredClone(spec.levels[1]);
+    carveChasm(spec.levels[0]!, 40);
+    expect(archetypes.platformer.lint(spec).map((error) => error.code)).toContain(
+      'PLAT_EXIT_UNREACHABLE',
+    );
+
+    const repaired = repairPlatformerExitRoutes(spec, [0]);
+    expect(repaired.fixes).toEqual([
+      expect.objectContaining({ code: 'PLATFORMER_ROUTE_FALLBACK', path: '/levels/0/tiles' }),
+    ]);
+    expect(
+      archetypes.platformer
+        .lint(repaired.spec as PlatformerSpec)
+        .map((error) => error.code),
+    ).not.toContain('PLAT_EXIT_UNREACHABLE');
+    expect((repaired.spec as PlatformerSpec).levels[1]).toEqual(untouched);
+  });
+
+  it('regenerates every failing level independently even when all levels fail', async () => {
+    const valid = golden('platformer') as PlatformerSpec;
+    const broken = structuredClone(valid);
+    broken.levels.forEach((level, index) => carveChasm(level, 35 + index * 8));
+    const stages: StageName[] = [];
+    const regeneratedIndexes: number[] = [];
+
+    const fixed = await validateAndRepairForTest(broken, async (stage, prompt) => {
+      stages.push(stage);
+      if (stage === 'repair') return [];
+      if (stage === 'levels') {
+        const match = /zero-based level (\d+)/.exec(prompt.system);
+        expect(match).not.toBeNull();
+        const index = Number(match![1]);
+        regeneratedIndexes.push(index);
+        return { level: compactSingleLevel(valid.levels[index]!) };
+      }
+      throw new Error(`unexpected ${stage} call`);
+    });
+
+    expect(stages).toEqual(['repair', 'levels', 'levels', 'levels']);
+    expect(regeneratedIndexes.sort((left, right) => left - right)).toEqual([0, 1, 2]);
+    expect(fixed.levels).toEqual(valid.levels);
+  });
+
+  it('keeps applying post-regeneration repairs while each patch advances the frontier', async () => {
+    const valid = golden('platformer') as PlatformerSpec;
+    const twoGaps = structuredClone(valid.levels[0]!);
+    carveChasm(twoGaps, 40);
+    carveChasm(twoGaps, 100);
+    const oneGap = structuredClone(valid.levels[0]!);
+    carveChasm(oneGap, 100);
+    const broken = structuredClone(valid);
+    broken.levels[0] = twoGaps;
+    const stages: StageName[] = [];
+    let repairCalls = 0;
+
+    const fixed = await validateAndRepairForTest(broken, async (stage) => {
+      stages.push(stage);
+      if (stage === 'levels') return { level: compactSingleLevel(twoGaps) };
+      if (stage === 'repair') {
+        repairCalls++;
+        if (repairCalls === 1) return [];
+        if (repairCalls === 2) {
+          return [{ op: 'replace', path: '/levels/0', value: oneGap }];
+        }
+        return [{ op: 'replace', path: '/levels/0', value: valid.levels[0] }];
+      }
+      throw new Error(`unexpected ${stage} call`);
+    });
+
+    expect(stages).toEqual(['repair', 'levels', 'repair', 'repair']);
+    expect(repairCalls).toBe(3);
+    expect(fixed.levels[0]).toEqual(valid.levels[0]);
+  });
+
+  it('stops paid repair and regeneration calls at the cost ceiling, then uses route fallback', async () => {
+    const broken = golden('platformer') as PlatformerSpec;
+    carveChasm(broken.levels[0]!, 40);
+    let modelCalls = 0;
+
+    const fixed = await validateAndRepairForTest(
+      broken,
+      async () => {
+        modelCalls++;
+        throw new Error('model should not be called after the repair budget is exhausted');
+      },
+      undefined,
+      0.25,
+    );
+
+    expect(modelCalls).toBe(0);
+    expect(archetypes.platformer.lint(fixed as PlatformerSpec)).toEqual([]);
   });
 });
 

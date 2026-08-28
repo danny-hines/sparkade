@@ -1,6 +1,6 @@
 // Renderer: logical 512×300 coordinates on a 1024×600 backing store. Existing
-// art scales by the cabinet's 2× display factor; density-2 sources can retain
-// their native pixels inside the same logical footprint. Runtime drawing is
+// art scales by the cabinet's 2× display factor; matching-density sources can
+// retain native pixels inside the same logical footprint. Runtime drawing is
 // drawImage and rect fills only — no per-frame pixel reads.
 import { DISPLAY_SCALE, INTERNAL_HEIGHT, INTERNAL_WIDTH } from '@sparkade/shared';
 import { drawText, textWidth, wrapText, type TextOpts } from './font';
@@ -136,13 +136,7 @@ export class Renderer {
       this.visibleCtx.fillRect(0, 0, this.visible.width, this.visible.height);
     }
     this.visibleCtx.imageSmoothingEnabled = false;
-    this.visibleCtx.drawImage(
-      this.canvas,
-      ox,
-      oy,
-      this.canvas.width,
-      this.canvas.height,
-    );
+    this.visibleCtx.drawImage(this.canvas, ox, oy, this.canvas.width, this.canvas.height);
   }
 
   shake(ms: number, magnitude = 3): void {
@@ -220,7 +214,14 @@ export class Renderer {
   wrapText = wrapText;
 
   /** Bordered panel used by overlays (pause, cards, initials). */
-  panel(x: number, y: number, w: number, h: number, bg = this.theme.panelBg, border = this.theme.panelBorder): void {
+  panel(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    bg = this.theme.panelBg,
+    border = this.theme.panelBorder,
+  ): void {
     this.rect(x, y, w, h, bg);
     this.frame(x, y, w, h, border);
     this.frame(x + 2, y + 2, w - 4, h - 4, '#00000055' as string);
@@ -329,7 +330,8 @@ export function drawObstacleShadows(
       const s = floorAt(tx, ty + 1);
       const e = floorAt(tx + 1, ty);
       const w = floorAt(tx - 1, ty);
-      if (n || s || e || w) drawObstacleTile(r, tx * tileSize - cam.x, ty * tileSize - cam.y, tileSize, n, s, e, w);
+      if (n || s || e || w)
+        drawObstacleTile(r, tx * tileSize - cam.x, ty * tileSize - cam.y, tileSize, n, s, e, w);
     }
   }
 }

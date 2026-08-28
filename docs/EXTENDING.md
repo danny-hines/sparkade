@@ -67,8 +67,13 @@ is `packages/server/src/providers/meta-image.ts`, its settings live under `image
 key art plus intro, boss, victory and defeat scenes. Photo games additionally require neutral and
 story-aware defeat-expression portraits plus generated player-head sprites. Fighter photo games
 attempt an all-or-nothing 11-pose player set. Platformer photo games whose design selects
-`platformerArtDensity: "detailed"` attempt an all-or-nothing four-pose 48×64 player set. The
-platformer's `platformerScale` controls camera framing independently from source-art density.
+`platformerArtDensity: "detailed"` attempt an all-or-nothing five-pose 112×128 player set. The
+neutral side view anchors two opposing run contacts and the jump, while the runtime uses a
+speed-driven gait from those coherent key frames. Pair validation measures the
+lower-body alpha silhouette, rejects arm/prop drift without an opposing stride, and regenerates only
+the second contact with a targeted legs-only edit. Hero concepts are costume guidance only for
+player poses; held story objects must not leak into a single animation frame. The platformer's
+`platformerScale` controls camera framing independently from source-art density.
 
 Generated binaries must be normalized and validated locally, written through the versioned asset
 workspace, and recorded in `assets/manifest.json` with model, prompt-version and content hashes.
@@ -76,8 +81,40 @@ Do not silently substitute local placeholder art in a real-provider run. The det
 path is only for `SPARKADE_PROVIDER=mock`; documented runtime fallbacks must stay visually stable
 and activate atomically rather than mixing partial generated sets.
 
-An accepted player photo is sent to Muse Image. The configured design-stage provider sees it only
-when the separately disclosed `likeness.describeInStory` option is enabled; production does not
-reduce identity to the old finite face-feature taxonomy. The source photo remains in staging only
-while the job is retryable and is removed before a successful game is published; photos and audio
-must never be logged.
+### Platformer pose experiments
+
+Run `npm run dev` and open `/?dev=platformer-poses` before changing the production pose graph. The
+lab executes an isolated photo → three parallel front-idle foundations → Spark identity selection →
+neutral right-facing anchor pipeline, then branches three Phase A edits with the camera-side leg
+leading and three inverse Phase B edits with the far-side leg leading from the exact same side
+anchor. Mechanical image requirements (decoding, green-screen keying, crop, scale and ground
+anchoring) remain deterministic. Symmetric opaque panels surrounding a full-height/full-width green
+screen can be recovered locally; irregular extra subjects still fail closed. Spark compares each
+surviving idle's raw high-resolution edit seed and normalized sprite directly with the source,
+including an explicit eyewear/artifact gate, before that identity can propagate downstream. One
+bounded three-candidate retry incorporates its guidance when the first idle batch is rejected.
+Semantic requirements—identity and apparent-age preservation, hair/accessories, costume, visible
+leading-leg motion, arm reversal and pair coherence—are scored by the configured design-stage model
+from labeled review boards. Action-candidate quality is judged independently, then all nine possible A+B
+combinations are compared directly; generation labels are never treated as proof of limb depth. A
+pair cannot pass unless its legs visibly alternate, even when the model returns `accepted`; the
+judge may reject every pair, and its result is normalized fail-closed.
+
+The page streams every stage, exposes the exact Muse Image and Muse Spark prompts, and shows the raw
+Spark response and final pair selection. Accepted pairs animate as
+`A → neutral side idle → B → neutral side idle`; this reuses the shared anchor as a third unique
+frame to make small foreground/background limb changes more legible. Each of the four beats has an
+independent live timing control, plus starting-point presets. Complete experiment evidence is stored under
+`data/experiments/platformer-poses/<run-id>/`, including the source image, raw and normalized
+candidates, judge board, event log and manifest. The page also records a human-selected pair or
+reject-all verdict in `human-verdict.json` and the manifest without replacing Spark's raw or
+normalized decision. This directory is local and gitignored; it is intentionally separate from
+published game assets and generation incidents.
+Append `&run=<run-id>` to the lab URL to reopen any persisted run after a dev-server restart.
+
+An accepted player photo is sent to Muse Image. For detailed platformers, the source photo also
+appears in the locally assembled identity and pose review boards sent to the configured design-stage
+provider. The separately disclosed `likeness.describeInStory` option controls whether the earlier
+design pass itself sees the photo. Production does not reduce identity to the old finite face-feature
+taxonomy. The source photo remains in staging only while the job is retryable and is removed before
+a successful game is published; photos and audio must never be logged.

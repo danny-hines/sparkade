@@ -230,6 +230,10 @@ export const GENERATION = {
   softBudgetMs: 6 * 60 * 1000, // "taking longer than usual"
   hardBudgetMs: 12 * 60 * 1000, // image-aware fail timeout (retryable)
   maxRepairAttemptsPerStage: 2,
+  /** Surgical patches are cheap on Contributor tier. Keep following useful
+   * progress, but cap both calls and cumulative job spend before falling back. */
+  maxRepairCallsPerAttempt: 8,
+  repairCostBudgetUsd: 0.25,
   maxTransientRetriesPerCall: 2,
   maxRecordingSeconds: 45,
   /** Anti-collision block includes the last N local games. */
@@ -306,6 +310,7 @@ export const GENERATED_GAME_ASSET_FILES = {
   fighterHit: 'fighter-player-hit.png',
   fighterKo: 'fighter-player-ko.png',
   platformerIdle: 'platformer-player-idle.png',
+  platformerSideIdle: 'platformer-player-side-idle.png',
   platformerWalk1: 'platformer-player-walk-1.png',
   platformerWalk2: 'platformer-player-walk-2.png',
   platformerJump: 'platformer-player-jump.png',

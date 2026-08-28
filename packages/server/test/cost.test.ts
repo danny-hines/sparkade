@@ -13,7 +13,7 @@ const SNAPSHOT = { 'muse-spark-1.1': { inputPerM: 1.25, outputPerM: 4.25, cached
 describe('cost calculator', () => {
   it('uses the fighter image upper bound when a photographed voice idea has no known archetype', () => {
     expect(estimateImageCount(false)).toBe(5);
-    expect(estimateImageCount(true, 'platformer')).toBe(14);
+    expect(estimateImageCount(true, 'platformer')).toBe(21);
     expect(estimateImageCount(true, 'fighter')).toBe(21);
     expect(estimateImageCount(true)).toBe(21);
   });
@@ -71,7 +71,11 @@ describe('cost calculator', () => {
 
   it('review-screen estimate is labeled and null-safe', () => {
     const est = estimateGenerationCost('muse-spark-1.1', SNAPSHOT);
+    const platformer = estimateGenerationCost('muse-spark-1.1', SNAPSHOT, {
+      platformerPoseJudges: true,
+    });
     expect(est).not.toBeNull();
+    expect(platformer).toBeGreaterThan(est!);
     expect(est!).toBeGreaterThan(0.01);
     expect(est!).toBeLessThan(1);
     expect(estimateGenerationCost('unknown', SNAPSHOT)).toBeNull();

@@ -20,6 +20,7 @@ export type FighterPoseName = (typeof FIGHTER_POSE_ASSETS)[number][0];
 
 export const PLATFORMER_POSE_ASSETS = [
   ['idle', 'platformerIdle'],
+  ['sideIdle', 'platformerSideIdle'],
   ['walk1', 'platformerWalk1'],
   ['walk2', 'platformerWalk2'],
   ['jump', 'platformerJump'],

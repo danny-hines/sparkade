@@ -21,6 +21,26 @@ export type RawInputId = string;
 
 const AXIS_THRESHOLD = 0.5;
 
+/**
+ * The broker is attached to window, so keyboard events from ordinary form
+ * controls reach it too. Those controls must keep ownership of their keys:
+ * preventing a mapped KeyA/KeyS/etc. event also prevents the character from
+ * being entered, while swallowing arrows breaks selects and range inputs.
+ *
+ * Keep this structural so it is safe to exercise in the engine's Node tests
+ * without requiring a browser DOM implementation.
+ */
+export function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!target || typeof target !== 'object') return false;
+  const element = target as EventTarget & {
+    tagName?: unknown;
+    isContentEditable?: unknown;
+  };
+  if (element.isContentEditable === true) return true;
+  if (typeof element.tagName !== 'string') return false;
+  return ['INPUT', 'SELECT', 'TEXTAREA'].includes(element.tagName.toUpperCase());
+}
+
 function emptySnapshot(): InputSnapshot {
   const s = {} as InputSnapshot;
   for (const b of LOGICAL_BUTTONS) s[b] = { held: false, pressed: false, released: false };
@@ -43,6 +63,13 @@ export class InputBroker {
   private swallowedRaw = new Set<RawInputId>();
 
   private keydownHandler = (e: KeyboardEvent) => {
+    if (isTextEntryTarget(e.target)) {
+      // A repeat event can arrive after focus moves while a game key is held.
+      // Clear both stores so editing a field can never leave gameplay input stuck.
+      this.keysDown.delete(e.code);
+      this.keysLatched.delete(e.code);
+      return;
+    }
     // Never let the browser scroll/act on game keys.
     if (this.keyboardMap[e.code] || e.code.startsWith('Arrow')) e.preventDefault();
     this.keysDown.add(e.code);

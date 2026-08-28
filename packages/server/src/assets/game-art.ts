@@ -42,6 +42,24 @@ export function buildKeyArtPrompt(spec: GameSpec, hasPlayerPhoto: boolean): stri
   ].join(' ');
 }
 
+/**
+ * Conservative second-chance prompt for a provider policy rejection. It
+ * deliberately excludes authored story prose and combat language: generated
+ * copy can be perfectly appropriate for the game while still combining with
+ * a real-person reference in a way that trips an image policy classifier.
+ */
+export function buildKeyArtPolicyFallbackPrompt(spec: GameSpec, hasPlayerPhoto: boolean): string {
+  return [
+    hasPlayerPhoto
+      ? 'Render the adult person in the reference image as the friendly player character. Preserve their recognizable face, skin tone, hair, eyewear, headwear, accessories, and proportions.'
+      : 'Create one friendly original player character.',
+    `Create polished landscape key art for a colorful ${spec.archetype} game world using this limited palette: ${spec.palette.join(', ')}.`,
+    'Use a calm, adventurous composition with the player character centered safely in the environment.',
+    'Premium 16-bit console illustration with crisp pixel clusters, clear silhouettes, and rich environmental detail.',
+    'No text, letters, title, logo, caption, UI, watermark, signature, border, photorealism, blur, or 3D render.',
+  ].join(' ');
+}
+
 export function buildStoryArtPrompt(spec: GameSpec, role: StoryArtRole): string {
   const beat =
     role === 'intro'
@@ -62,6 +80,25 @@ export function buildStoryArtPrompt(spec: GameSpec, role: StoryArtRole): string 
           ? 'Show a clear but family-friendly setback. The player hero should look upset, worried, disappointed, or sad in a way that fits the defeat beat, while still recognizably themselves. No wounds, gore, death, humiliation, or cruelty.'
           : 'Establish the world and the player hero with a clear narrative focal point.',
     'Polished 16-bit console illustration with crisp deliberate pixel clusters and readable silhouettes. Keep faces and the main action away from the extreme edges.',
+    'No text, letters, title, logo, caption, speech bubble, UI, watermark, signature, border, photorealism, blur, or 3D render.',
+  ].join(' ');
+}
+
+/** A story-role-specific prompt that is safe to use after a policy rejection. */
+export function buildStoryArtPolicyFallbackPrompt(spec: GameSpec, role: StoryArtRole): string {
+  const scene =
+    role === 'intro'
+      ? 'Show the player character arriving safely in the world with a curious, hopeful expression.'
+      : role === 'boss'
+        ? 'Show the player character and a large fantasy rival at a respectful distance before a friendly arcade challenge.'
+        : role === 'victory'
+          ? 'Show the player character celebrating a successful adventure in warm, welcoming surroundings.'
+          : 'Show the player character resting safely after a difficult challenge, looking tired and disappointed while the peaceful world waits for another try.';
+  return [
+    'Using the reference key art as the visual guide, create a new family-friendly landscape story illustration from the same game.',
+    `Preserve the same adult player character identity, costume, palette, pixel-art technique, and world. ${scene}`,
+    `Use this limited color direction: ${spec.palette.join(', ')}.`,
+    'Polished 16-bit console illustration with crisp pixel clusters, readable silhouettes, and the main subject away from the extreme edges.',
     'No text, letters, title, logo, caption, speech bubble, UI, watermark, signature, border, photorealism, blur, or 3D render.',
   ].join(' ');
 }
@@ -118,9 +155,17 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
         raw[offset + 1] = 255;
         raw[offset + 2] = 0;
       } else {
-        raw[offset] = (48 + (hash & 127) + Math.floor((x / width) * 45)) % 256;
-        raw[offset + 1] = (36 + ((hash >>> 8) & 127) + Math.floor((y / height) * 35)) % 256;
-        raw[offset + 2] = (72 + ((hash >>> 16) & 127)) % 256;
+        const red = (48 + (hash & 127) + Math.floor((x / width) * 45)) % 256;
+        const green = (36 + ((hash >>> 8) & 127) + Math.floor((y / height) * 35)) % 256;
+        const blue = (72 + ((hash >>> 16) & 127)) % 256;
+        // Green-screen fixtures must honor the same no-green subject contract
+        // as the live prompt or spill cleanup can correctly mistake the mock
+        // costume for its background. Swap the dominant channels while keeping
+        // deterministic prompt-derived colors and pose silhouettes.
+        const greenDominant = greenScreen && green > red * 1.15 && green > blue * 1.15;
+        raw[offset] = greenDominant ? green : red;
+        raw[offset + 1] = greenDominant ? red : green;
+        raw[offset + 2] = blue;
       }
       raw[offset + 3] = 255;
     }
@@ -207,6 +252,28 @@ function mockFighterSubject(x: number, y: number, prompt: string): boolean {
     legs =
       thickSegment(x, y, 228, hipY - 4, 205, 444, 22) ||
       thickSegment(x, y, 272, hipY - 4, 430, 405, 24);
+  } else if (prompt.includes('PASSING/COMPRESSION')) {
+    legs =
+      thickSegment(x, y, 228, hipY - 4, 232, 444, 22) ||
+      thickSegment(x, y, 272, hipY - 4, 315, 350, 22) ||
+      thickSegment(x, y, 315, 350, 280, 402, 20);
+  } else if (
+    prompt.includes('run-cycle PHASE A') ||
+    prompt.includes('left foot reaching forward') ||
+    prompt.includes('extended running CONTACT')
+  ) {
+    legs =
+      thickSegment(x, y, 228, hipY - 4, 145, 446, 22) ||
+      thickSegment(x, y, 272, hipY - 4, 335, 355, 22) ||
+      thickSegment(x, y, 335, 355, 390, 420, 20);
+  } else if (
+    prompt.includes('run-cycle PHASE B') ||
+    prompt.includes('right foot reaching forward')
+  ) {
+    legs =
+      thickSegment(x, y, 228, hipY - 4, 175, 355, 22) ||
+      thickSegment(x, y, 175, 355, 120, 420, 20) ||
+      thickSegment(x, y, 272, hipY - 4, 410, 446, 22);
   } else if (prompt.includes('mid-stride')) {
     legs =
       thickSegment(x, y, 228, hipY - 4, 150, 446, 22) ||

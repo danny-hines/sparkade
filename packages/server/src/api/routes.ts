@@ -21,7 +21,7 @@ import {
   generatedAssetForRole,
 } from '../assets/manifest';
 import { costOf, estimateGenerationCost, estimateImageCount, formatUsd } from '../pipeline/cost';
-import { stageProvider } from '../providers/index';
+import { ProviderHttpError, ProviderNetworkError, stageProvider } from '../providers/index';
 import type { GenerationRunner } from '../pipeline/runner';
 import type { SseHub } from '../pipeline/sse';
 import type { ConfigStore } from '../storage/config';
@@ -36,6 +36,7 @@ import { registerDevLikenessRoutes } from './dev-likeness';
 import { registerDevSpriteRoutes } from './dev-sprite';
 import { registerDevFighterRoutes } from './dev-fighter';
 import { registerDevFighterOutfitRoutes } from './dev-fighter-outfits';
+import { registerDevPlatformerPoseRoutes } from './dev-platformer-poses';
 import { isSameHttpOrigin } from './origin';
 
 export interface ApiContext {
@@ -65,6 +66,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     registerDevSpriteRoutes(app);
     registerDevFighterRoutes(app, files, db);
     registerDevFighterOutfitRoutes(app);
+    registerDevPlatformerPoseRoutes(app, configStore, files.dir);
   }
 
   // ---- same-origin gate on mutating requests ------------------------------
@@ -128,16 +130,17 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     }
     try {
       const res = await provider.transcribe(audio, file.mimetype || 'audio/webm', { model });
+      const usageModel = res.model ?? model;
       db.insertUsage({
         jobId: 'transcribe',
         gameId: '',
         stage: 'stt',
-        model,
+        model: usageModel,
         provider: providerName,
         inputTokens: res.usage.input,
         outputTokens: res.usage.output,
         cachedTokens: res.usage.cachedInput ?? 0,
-        costUsd: costOf(model, res.usage, config.pricing),
+        costUsd: costOf(usageModel, res.usage, config.pricing),
         failed: false,
         repair: false,
       });
@@ -148,7 +151,15 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       return { text: res.text };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      req.log.warn({ msg: 'transcription failed' });
+      req.log.warn({ err: e }, 'transcription failed');
+      const transient =
+        (e instanceof ProviderHttpError && e.transient) || e instanceof ProviderNetworkError;
+      if (transient) {
+        reply.header('retry-after', '3');
+        return reply
+          .code(503)
+          .send({ error: 'Transcription is temporarily unavailable. Please try again.' });
+      }
       return reply.code(502).send({ error: `transcription failed: ${msg.slice(0, 200)}` });
     }
   });
@@ -446,10 +457,12 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     const c = configStore.get();
     const model = c.stages.design.model;
     const query = (req.query ?? {}) as { photo?: string; archetype?: string };
-    const textUsd = estimateGenerationCost(model, c.pricing);
     const hasPhoto = query.photo === '1';
     const archetype =
       query.archetype && isArchetypeId(query.archetype) ? query.archetype : undefined;
+    const textUsd = estimateGenerationCost(model, c.pricing, {
+      platformerPoseJudges: hasPhoto && (archetype === undefined || archetype === 'platformer'),
+    });
     const conservativeUpperBound = hasPhoto && archetype === undefined;
     const happyPathImages = estimateImageCount(hasPhoto, archetype);
     const imageUsd = happyPathImages * Math.max(0, c.imageGeneration.pricePerImageUsd);

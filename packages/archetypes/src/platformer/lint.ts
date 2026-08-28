@@ -70,7 +70,14 @@ export function reachableCells(level: PlatformerLevel, playerHeightTiles: 1 | 2 
     maxRise: number,
   ): boolean => {
     const steps = Math.max(Math.abs(to.x - from.x), Math.abs(to.y - from.y)) * 2;
-    const arc = Math.min(maxRise, Math.max(1, Math.abs(to.x - from.x) * 0.5));
+    // Adjacent cells on the same supported surface are ordinary walking, not
+    // a miniature jump. Giving that step a one-tile arc falsely demanded
+    // three clear rows from a two-tile player and marked low-ceiling corridors
+    // unreachable even though the runtime can simply walk through them.
+    const walking = to.y === from.y && Math.abs(to.x - from.x) <= 1;
+    const arc = walking
+      ? 0
+      : Math.min(maxRise, Math.max(1, Math.abs(to.x - from.x) * 0.5));
     for (let step = 1; step < steps; step++) {
       const t = step / steps;
       const x = Math.round(from.x + (to.x - from.x) * t);
@@ -107,6 +114,87 @@ export function reachableCells(level: PlatformerLevel, playerHeightTiles: 1 | 2 
     }
   }
   return seen;
+}
+
+export interface PlatformerReachabilityBlockage {
+  frontier: { x: number; y: number };
+  landing: { x: number; y: number };
+  horizontalGap: number;
+  rise: number;
+}
+
+/**
+ * Describe the most useful edge of a disconnected route. A bare
+ * "exit unreachable" diagnostic makes a repair model inspect an entire tile
+ * grid and guess where connectivity broke; these two coordinates give it a
+ * concrete bridge/carve target while keeping the reachability check itself
+ * deterministic.
+ */
+export function platformerReachabilityBlockage(
+  level: PlatformerLevel,
+  playerHeightTiles: 1 | 2 = 2,
+): PlatformerReachabilityBlockage | null {
+  const reachable = reachableCells(level, playerHeightTiles);
+  const exitKey = `${level.exit.x},${level.exit.y}`;
+  if (reachable.has(exitKey) || reachable.size === 0) return null;
+
+  const grid = parseLevelGrid(level, playerHeightTiles);
+  const parseKey = (value: string): { x: number; y: number } => {
+    const [x, y] = value.split(',').map(Number);
+    return { x: x!, y: y! };
+  };
+  const distanceToExit = (cell: { x: number; y: number }): number =>
+    Math.abs(cell.x - level.exit.x) + Math.abs(cell.y - level.exit.y);
+  const direction = Math.sign(level.exit.x - level.playerSpawn.x);
+  const directionPenalty = (cell: { x: number; y: number }): number =>
+    direction === 0 || (cell.x - level.playerSpawn.x) * direction >= 0 ? 0 : 1;
+  const compareScores = (left: readonly number[], right: readonly number[]): number => {
+    for (let index = 0; index < left.length; index++) {
+      if (left[index] !== right[index]) return left[index]! - right[index]!;
+    }
+    return 0;
+  };
+
+  const reachableCellsByProgress = [...reachable].map(parseKey).sort((left, right) =>
+    compareScores(
+      [directionPenalty(left), distanceToExit(left), Math.abs(left.y - level.exit.y), left.y, left.x],
+      [
+        directionPenalty(right),
+        distanceToExit(right),
+        Math.abs(right.y - level.exit.y),
+        right.y,
+        right.x,
+      ],
+    ),
+  );
+  const frontier = reachableCellsByProgress[0];
+  if (!frontier) return null;
+
+  const disconnected: { x: number; y: number }[] = [];
+  for (let y = playerHeightTiles - 1; y < grid.h - 1; y++) {
+    for (let x = 0; x < grid.w; x++) {
+      if (!grid.standable(x, y) || reachable.has(`${x},${y}`)) continue;
+      disconnected.push({ x, y });
+    }
+  }
+  disconnected.sort((left, right) => {
+    const score = (cell: { x: number; y: number }): readonly number[] => [
+      direction === 0 || (cell.x - frontier.x) * direction >= 0 ? 0 : 1,
+      Math.abs(cell.x - frontier.x) + Math.abs(cell.y - frontier.y),
+      distanceToExit(cell),
+      Math.abs(cell.y - frontier.y),
+      cell.y,
+      cell.x,
+    ];
+    return compareScores(score(left), score(right));
+  });
+  const landing = disconnected[0] ?? { ...level.exit };
+  return {
+    frontier,
+    landing,
+    horizontalGap: Math.abs(landing.x - frontier.x),
+    rise: frontier.y - landing.y,
+  };
 }
 
 export function lintPlatformer(spec: PlatformerSpec): LintError[] {
@@ -184,8 +272,16 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
     if (spawnCell && exitCell) {
       const reach = reachableCells(level, playerHeightTiles);
       if (!reach.has(exitCell)) {
+        const blockage = platformerReachabilityBlockage(level, playerHeightTiles);
+        const actionable = blockage
+          ? `route is blocked after reachable standing cell (${blockage.frontier.x},${blockage.frontier.y}); nearest disconnected landing toward the exit is (${blockage.landing.x},${blockage.landing.y}) (horizontal gap ${blockage.horizontalGap}, rise ${blockage.rise}) — bridge or carve terrain between those coordinates`
+          : 'reshape terrain along the main route';
         out.push(
-          err('PLAT_EXIT_UNREACHABLE', `${path}/exit`, 'exit is not reachable from spawn (a gap or wall exceeds the max jump: 4 tiles across, 3 up) — reshape terrain along the main route'),
+          err(
+            'PLAT_EXIT_UNREACHABLE',
+            `${path}/exit`,
+            `exit is not reachable from spawn; ${actionable} (normal jump: at most 4 tiles across and 3 tiles up)`,
+          ),
         );
       }
     }

@@ -159,10 +159,8 @@ describe('loadLikenessAssets', () => {
     expect(requested.some((url) => url.includes('/assets/fighter-player-'))).toBe(false);
   });
 
-  it('exposes platformer poses only after the complete four-frame set loads', async () => {
-    const availability = Object.fromEntries(
-      PLATFORMER_POSE_ASSETS.map(([, role]) => [role, true]),
-    );
+  it('exposes platformer poses only after the complete five-frame set loads', async () => {
+    const availability = Object.fromEntries(PLATFORMER_POSE_ASSETS.map(([, role]) => [role, true]));
     const result = await loadLikenessAssets('platformer-game', {
       ...legacyAssets,
       ...availability,
@@ -179,9 +177,7 @@ describe('loadLikenessAssets', () => {
   });
 
   it('rejects the entire platformer set when one pose fails to load', async () => {
-    const availability = Object.fromEntries(
-      PLATFORMER_POSE_ASSETS.map(([, role]) => [role, true]),
-    );
+    const availability = Object.fromEntries(PLATFORMER_POSE_ASSETS.map(([, role]) => [role, true]));
     failing.add(
       `/api/games/broken-platformer/assets/${GENERATED_GAME_ASSET_FILES.platformerWalk2}`,
     );
@@ -192,6 +188,6 @@ describe('loadLikenessAssets', () => {
     });
 
     expect(result?.platformerPoses).toBeNull();
-    expect(requested.filter((url) => url.includes('/assets/platformer-player-'))).toHaveLength(4);
+    expect(requested.filter((url) => url.includes('/assets/platformer-player-'))).toHaveLength(5);
   });
 });

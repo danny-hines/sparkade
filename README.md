@@ -44,6 +44,28 @@ hero head-slots, and reroll backdrop/weather seeds. Rendered by the real engine 
 review is what ships (`scripts/check-art.mts` and `scripts/check-palettes.mts` validate the data;
 this page is for taste).
 
+**Platformer poses lab (dev only):** `http://localhost:5173/?dev=platformer-poses` runs the paid
+player-animation experiment separately from full game generation. Upload a reference image to see
+three front-idle foundations arrive in parallel before Muse Spark compares their raw high-resolution
+edit seeds and normalized sprites directly with the source photo. Eyewear, face/hair, apparent age,
+accessories, costume, proportions, pose and technical quality are explicit fail-closed gates; one
+bounded three-candidate retry uses Spark's guidance when no foundation passes. A narrowly detected
+symmetric white border around an otherwise valid green panel is recovered locally and recorded.
+The selected idle seeds a shared neutral side anchor, three camera-side-leg-forward candidates and
+three inverse far-side-leg-forward candidates. The page shows every exact generation prompt, both
+labeled review boards and judging prompts sent to Muse Spark, its complete structured scoring
+responses, all nine A+B pair comparisons, its selected pair (or reject-all decision), and an `A →
+side idle → B → side idle` winner preview. The neutral side anchor acts as the third unique animation
+frame so subtle limb-depth changes do not read as a stationary wiggle. Four live timing controls
+independently tune A, idle-after-A, B, and idle-after-B, with presets for quick comparison. Clear leg
+reversal is a fail-closed pairwise requirement; arm reversal is scored separately. A human verdict
+can be saved without overwriting Spark's answer, providing
+ground truth for false-accept/false-reject analysis. Every prompt, raw/processed image, event and
+verdict is retained under the gitignored
+`data/experiments/platformer-poses/` directory for comparison. Use
+`SPARKADE_PROVIDER=mock SPARKADE_MOCK_FAST=1 npm run dev` for a zero-cost UI pass.
+Completed runs can be reopened after a server restart by adding `&run=<run-id>` to the lab URL.
+
 To hit the real models, copy `.env.example` to `.env`, set `META_API_KEY`, and use `npm run dev`.
 The same key is used for Muse Spark 1.2 Contributor and Muse Image 1.0.
 
@@ -142,12 +164,16 @@ embedded verbatim in the prompt templates (`packages/shared/src/schemas/`).
 four consistent story scenes (intro, boss, victory, defeat). Photo games additionally require
 neutral and story-aware defeat-expression portraits plus generated 12/16px player-head sprites;
 there is no quantized-photo fallback or UI toggle. Detailed platformer photo games additionally
-attempt a native 48×64 four-pose player set (front idle, two side-walk frames and side jump), while
+attempt a native 112×128 five-pose player set (front idle, side idle, two chained side-run contacts,
+and side jump), while
 fighter photo games attempt one complete 11-pose player set. Each runtime activates its generated
-set only if every pose passes green-screen, crop, size, and transparency checks—otherwise it keeps
-the stable procedural player for the whole session. Platformer camera scale (`compact`/`heroic`)
+set only if every pose passes green-screen, crop, size, and transparency checks. Platformer run
+contacts must also show substantial lower-body silhouette motion; an arm-only or prop-only change
+regenerates just the opposing stride. A rejected optional pose set keeps the stable procedural
+player rather than failing an otherwise complete game. Platformer camera scale (`compact`/`heroic`)
 and source-art density (`chunky`/`detailed`) are independent; the 1024×600 backing store preserves
-density-2 art without changing collision geometry. Successful binaries carry model/prompt/hash
+density-4 detailed art without changing collision geometry; existing density-2 game assets remain
+compatible. Successful binaries carry model/prompt/hash
 provenance in `assets/manifest.json` and are reused across job retries.
 
 **Durability:** jobs persist to SQLite before work starts; all output goes to
@@ -159,11 +185,12 @@ no half-written game is ever visible as playable, and existing games/scores can'
 
 - The player's photo is kept only while a job is retryable and deleted the moment a game publishes.
   Photos and audio never appear in logs.
-- An accepted photo is sent to Meta's Model API (Muse Image) to create the hero. Sparkade also
-  sends it to the configured design-stage provider only when `likeness.describeInStory` is enabled
-  (it ships **off**) so the story can reference visible traits; there is no production face-taxonomy
-  analysis step. Recorded ideas go to the configured transcription provider. The story setting does
-  not disable Muse Image personalization.
+- An accepted photo is sent to Meta's Model API (Muse Image) to create the hero. For detailed
+  platformers, the source photo is also included in two locally assembled review boards sent to the
+  configured design-stage provider so it can select the safest identity foundation and run pair.
+  Separately, `likeness.describeInStory` controls whether the design pass itself sees the photo so
+  story text may reference visible traits; it ships **off**. There is no production face-taxonomy
+  analysis step. Recorded ideas go to the configured transcription provider.
 - The default text model uses the Muse Spark 1.2 Contributor tier. Inputs and responses sent through
   this tier may be used by Meta for model training; choose another configured model/provider if that
   is unsuitable for your use case.
@@ -178,6 +205,7 @@ no half-written game is ever visible as playable, and existing games/scores can'
 ├── sparkade.db        # games index, jobs, scores, settings, immutable cost ledger
 ├── checkpoints/       # versioned raw model stages; retained across retries and successful publish
 ├── incidents/         # structured failures/recoveries + editable lifecycle notes (gitignored)
+├── experiments/       # dev-lab prompts, generated assets, model verdicts and manifests (gitignored)
 ├── staging/<jobId>/   # in-flight generation (atomically renamed on success)
 └── games/<gameId>/    # game.json · meta.json · assets/ (manifest, key/story art, player sprites)
 ```

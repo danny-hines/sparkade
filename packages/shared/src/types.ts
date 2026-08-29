@@ -586,6 +586,15 @@ export interface GameMetaFile {
     /** Present when every generated candidate was unavailable or unusable. */
     reason?: string;
   };
+  /** QA/readiness signal for the four image-generated platformer enemy roles. */
+  platformerEnemyArt?: {
+    mode: 'generated' | 'partial' | 'procedural';
+    attempted: boolean;
+    /** Roles whose generated art passed local processing and was published. */
+    generatedRoles?: Array<'walker' | 'flyer' | 'shooter' | 'chaser'>;
+    /** Present when at least one role retained its stable library fallback. */
+    reason?: string;
+  };
   golden?: boolean;
   failure?: { code: string; message: string; stage: string };
 }

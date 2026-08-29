@@ -42,7 +42,11 @@ export function sumCosts(costs: (number | null)[]): number | null {
 export function estimateGenerationCost(
   model: string,
   snapshot: PriceSnapshot,
-  options: { platformerPoseJudges?: boolean; platformerBossJudge?: boolean } = {},
+  options: {
+    platformerPoseJudges?: boolean;
+    platformerBossJudge?: boolean;
+    platformerEnemyJudge?: boolean;
+  } = {},
 ): number | null {
   const price = snapshot[model];
   if (!price) return null;
@@ -60,6 +64,9 @@ export function estimateGenerationCost(
     ...(options.platformerBossJudge
       ? [{ input: 1600, output: 1900 }] // story-art-to-gameplay boss selection + reasoning
       : []),
+    ...(options.platformerEnemyJudge
+      ? [{ input: 2200, output: 2800 }] // one board selects two candidates for all four enemies
+      : []),
   ];
   let total = 0;
   for (const u of typical)
@@ -73,12 +80,12 @@ export function formatUsd(v: number | null): string {
 }
 
 /** Happy-path returned image count. When a photographed free-voice request has
- * no selected archetype yet, use the shared platformer/fighter upper bound so
- * the review screen never advertises a ten-image price for a 21-image game. */
+ * no selected archetype yet, use the image-rich platformer upper bound so the
+ * review screen never advertises a ten-image price for a 31-image game. */
 export function estimateImageCount(hasPhoto: boolean, archetype?: ArchetypeId): number {
-  if (archetype === 'platformer') return hasPhoto ? 24 : 8;
-  if (!hasPhoto) return archetype === undefined ? 8 : 5;
-  if (archetype === undefined) return 24;
+  if (archetype === 'platformer') return hasPhoto ? 31 : 16;
+  if (!hasPhoto) return archetype === undefined ? 16 : 5;
+  if (archetype === undefined) return 31;
   if (archetype === 'fighter') return 21;
   return 10;
 }

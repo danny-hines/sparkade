@@ -463,6 +463,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     const textUsd = estimateGenerationCost(model, c.pricing, {
       platformerPoseJudges: hasPhoto && (archetype === undefined || archetype === 'platformer'),
       platformerBossJudge: archetype === undefined || archetype === 'platformer',
+      platformerEnemyJudge: archetype === undefined || archetype === 'platformer',
     });
     const conservativeUpperBound = hasPhoto && archetype === undefined;
     const happyPathImages = estimateImageCount(hasPhoto, archetype);

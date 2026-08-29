@@ -71,6 +71,13 @@ const PLATFORMER_BOSS_ROLES = [
   'platformerBoss',
 ] as const satisfies readonly GeneratedGameAssetRole[];
 
+const PLATFORMER_ENEMY_ROLES = [
+  'platformerEnemyWalker',
+  'platformerEnemyFlyer',
+  'platformerEnemyShooter',
+  'platformerEnemyChaser',
+] as const satisfies readonly GeneratedGameAssetRole[];
+
 interface Harness {
   root: string;
   db: Db;
@@ -240,11 +247,17 @@ describe.sequential('mock image asset pipeline', () => {
       mode: 'generated',
       attempted: true,
     });
+    expect(files.readMeta(gameId)?.platformerEnemyArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+      generatedRoles: ['walker', 'flyer', 'shooter', 'chaser'],
+    });
     await expectPublishedPngs(files, gameId, [
       ...PRESENTATION_ROLES,
       ...PORTRAIT_ROLES,
       ...PLATFORMER_ROLES,
       ...PLATFORMER_BOSS_ROLES,
+      ...PLATFORMER_ENEMY_ROLES,
     ]);
 
     const manifest = readGameAssetManifest(join(files.gameDir(gameId), 'assets'))!;
@@ -265,11 +278,15 @@ describe.sequential('mock image asset pipeline', () => {
       platformerWalk2: [112, 128],
       platformerJump: [112, 128],
       platformerBoss: [192, 192],
+      platformerEnemyWalker: [96, 96],
+      platformerEnemyFlyer: [96, 96],
+      platformerEnemyShooter: [96, 96],
+      platformerEnemyChaser: [96, 96],
     });
     expect(HEAD_ROLES.some((role) => role in dimensions)).toBe(false);
     expect(
       db.usageForGame(gameId).filter((event) => event.stage.startsWith('image:') && !event.failed),
-    ).toHaveLength(23);
+    ).toHaveLength(31);
     expect(existsSync(join(files.gameDir(gameId), 'photo.jpg'))).toBe(false);
   });
 
@@ -290,7 +307,7 @@ describe.sequential('mock image asset pipeline', () => {
     const successfulImagesBeforeRetry = db
       .usageForGame(gameId)
       .filter((event) => event.stage.startsWith('image:') && !event.failed);
-    expect(successfulImagesBeforeRetry).toHaveLength(23);
+    expect(successfulImagesBeforeRetry).toHaveLength(31);
 
     expect(runner.retryJob(gameId)).toEqual({ jobId });
     expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done', attempt: 2 });
@@ -305,6 +322,7 @@ describe.sequential('mock image asset pipeline', () => {
       ...PORTRAIT_ROLES,
       ...PLATFORMER_ROLES,
       ...PLATFORMER_BOSS_ROLES,
+      ...PLATFORMER_ENEMY_ROLES,
     ]);
   });
 

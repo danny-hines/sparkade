@@ -286,6 +286,39 @@ export function platformerBossFallback(seed: number, recentBosses: readonly stri
 }
 
 /**
+ * Newly generated platformers render these character roles from Muse Image.
+ * Keep only cheap library assignments underneath them for runtime resilience;
+ * authored custom pixels remain available to terrain and object roles that are
+ * still visible. Published legacy specs are never passed through this helper.
+ */
+export function ensurePlatformerImageCharacterFallbacks(
+  spec: GameSpec,
+  recentBosses: readonly string[] = [],
+): GameSpec {
+  if (spec.archetype !== 'platformer') return spec;
+  const out = structuredClone(spec);
+  const fallbacks = {
+    boss: platformerBossFallback(out.seed, recentBosses),
+    walker: 'lib:enemy_walker',
+    flyer: 'lib:enemy_flyer',
+    shooter: 'lib:enemy_shooter',
+    chaser: 'lib:enemy_chaser',
+  } as const;
+  for (const [role, fallback] of Object.entries(fallbacks)) {
+    if (!out.sprites.assign[role]?.startsWith('lib:')) out.sprites.assign[role] = fallback;
+  }
+  const referencedCustom = new Set(
+    Object.values(out.sprites.assign)
+      .filter((ref) => ref.startsWith('custom:'))
+      .map((ref) => ref.slice(7)),
+  );
+  for (const id of Object.keys(out.sprites.custom)) {
+    if (!referencedCustom.has(id)) delete out.sprites.custom[id];
+  }
+  return out;
+}
+
+/**
  * Pixel-shape diagnostics intentionally target only an authored platformer
  * boss. Other malformed custom sprites retain the cheap silent-downgrade
  * behavior; a bespoke boss is important enough to spend the repair budget on.
@@ -477,11 +510,7 @@ export function repairPlatformerExitRoutes(
     if (!targets.has(levelIndex)) return;
     const height = level.tiles.length;
     const width = level.tiles[0]?.length ?? 0;
-    if (
-      width < 2 ||
-      height < playerHeight + 2 ||
-      level.tiles.some((row) => row.length !== width)
-    ) {
+    if (width < 2 || height < playerHeight + 2 || level.tiles.some((row) => row.length !== width)) {
       return;
     }
     const solidChar = Object.entries(level.legend).find(([, kind]) => kind === 'solid')?.[0];
@@ -1035,12 +1064,7 @@ function normalizePlatformerContent(out: GameSpec, fixes: NormalizationFix[]): v
         const t = step / steps;
         const platformX = Math.round(startX + dx * t);
         const platformY = Math.round(startY + dy * t);
-        if (
-          platformX < 0 ||
-          platformX + 1 >= w ||
-          platformY < playerHeight ||
-          platformY >= h
-        ) {
+        if (platformX < 0 || platformX + 1 >= w || platformY < playerHeight || platformY >= h) {
           return false;
         }
         for (const x of [platformX, platformX + 1]) {

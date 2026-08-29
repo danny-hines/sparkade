@@ -315,6 +315,10 @@ export const GENERATED_GAME_ASSET_FILES = {
   platformerWalk2: 'platformer-player-walk-2.png',
   platformerJump: 'platformer-player-jump.png',
   platformerBoss: 'platformer-boss.png',
+  platformerEnemyWalker: 'platformer-enemy-walker.png',
+  platformerEnemyFlyer: 'platformer-enemy-flyer.png',
+  platformerEnemyShooter: 'platformer-enemy-shooter.png',
+  platformerEnemyChaser: 'platformer-enemy-chaser.png',
 } as const;
 
 export type GeneratedGameAssetRole = keyof typeof GENERATED_GAME_ASSET_FILES;

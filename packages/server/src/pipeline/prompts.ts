@@ -313,6 +313,8 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
     archetype === 'platformer'
       ? `
 PLATFORMER SOLID PAIR: \`tile_solid\` is the exposed cap and \`tile_solid_inner\` is the buried fill. Assign both from the SAME family (for example \`"tile_solid": "lib:ice_solid"\` plus \`"tile_solid_inner": "lib:ice_solid_inner"\`) or draw a matching custom pair. Each custom cap and inner sprite must be EXACTLY 16×16 and fully opaque. The cap must tile seamlessly left-to-right; the inner must tile seamlessly on both axes, and the cap's bottom edge must join the inner's top edge. Level generation still authors only semantic \`solid\` cells; the engine selects the cap when no solid is directly above and the inner sprite when another solid is above. Never invent separate cap/inner level characters or legend values.
+
+IMAGE-FIRST CHARACTER FALLBACKS: a later Muse Image stage authors the visible platformer boss and all four ordinary enemies. Set \`boss\`, \`walker\`, \`flyer\`, \`shooter\`, and \`chaser\` to appropriate \`lib:\` sprites as stable fallbacks; do NOT draw custom sprites for those roles. For platformer, this overrides the generic signature-sprite examples above. Spend any bespoke custom-pixel budget on terrain or a gameplay object that remains visible after generated character art loads.
 `
       : '';
   const familyKinds =
@@ -380,7 +382,7 @@ export function buildEntitiesPrompt(
     : '';
   const likenessBodyNote =
     hasPhoto && archetype === 'platformer'
-      ? '\n\nLIKENESS BODY REQUIREMENT: Set sprites.assign.hero to one of the built-in lib:hero_* bodies listed above. The 16x32 likeness presentation needs that body and its 16px generated-head slot. Put bespoke signature art on the boss, an enemy, or an object instead of the hero.'
+      ? '\n\nLIKENESS BODY REQUIREMENT: Set sprites.assign.hero to one of the built-in lib:hero_* bodies listed above. The stable fallback needs that body and its 16px generated-head slot. Muse Image supplies the visible hero, boss, and ordinary enemies; put any bespoke custom-pixel budget into terrain or a gameplay object instead.'
       : '';
   return {
     system,

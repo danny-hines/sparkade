@@ -18,6 +18,7 @@ import {
   customBossSpriteDiagnostics,
   ensureLikenessHeroBody,
   platformerBossFallback,
+  ensurePlatformerImageCharacterFallbacks,
   repairPlatformerExitRoutes,
   securityScan,
   spriteProblem,
@@ -29,7 +30,10 @@ import { repoRoot } from '../src/util';
 
 function golden(archetype: string): GameSpec {
   return JSON.parse(
-    readFileSync(join(repoRoot(), 'packages/generation/golden', `golden-${archetype}.json`), 'utf8'),
+    readFileSync(
+      join(repoRoot(), 'packages/generation/golden', `golden-${archetype}.json`),
+      'utf8',
+    ),
   );
 }
 
@@ -251,14 +255,16 @@ describe('custom sprite checks + repair-aware fallback', () => {
   });
 
   it('flags dimension, charset and coverage problems', () => {
-    expect(spriteProblem({ w: 8, h: 8, rows: new Array(7).fill('11111111') })).toMatch(/rows.length/);
+    expect(spriteProblem({ w: 8, h: 8, rows: new Array(7).fill('11111111') })).toMatch(
+      /rows.length/,
+    );
     expect(spriteProblem({ w: 8, h: 2, rows: ['1111111', '11111111'] })).toMatch(/row 0 length/);
-    expect(spriteProblem({ w: 8, h: 2, rows: ['1111111Z', '11111111'] })).toMatch(/invalid characters/);
+    expect(spriteProblem({ w: 8, h: 2, rows: ['1111111Z', '11111111'] })).toMatch(
+      /invalid characters/,
+    );
     expect(spriteProblem({ w: 8, h: 8, rows: new Array(8).fill('........') })).toMatch(/opaque/);
     expect(spriteProblem({ w: 8, h: 8, rows: new Array(8).fill('ffffffff') })).toMatch(/opaque/);
-    expect(
-      spriteProblem({ w: 4, h: 4, rows: ['.ff.', 'f11f', 'f11f', '.ff.'] }),
-    ).toBeNull();
+    expect(spriteProblem({ w: 4, h: 4, rows: ['.ff.', 'f11f', 'f11f', '.ff.'] })).toBeNull();
   });
 
   it('falls back silently to the assigned library sprite (a downgrade, not an error)', () => {
@@ -345,6 +351,33 @@ describe('custom sprite checks + repair-aware fallback', () => {
     expect(result.downgraded).toContain(
       `assign.boss fell back from "custom:broken_boss" to "lib:${onlyUnused}"`,
     );
+  });
+
+  it('reduces newly image-generated platformer characters to lightweight library fallbacks', () => {
+    const spec = golden('platformer');
+    const sprite = { w: 4, h: 4, rows: ['.11.', '1111', '1111', '.11.'] };
+    spec.sprites.custom['old_boss'] = structuredClone(sprite);
+    spec.sprites.custom['old_walker'] = structuredClone(sprite);
+    spec.sprites.custom['visible_object'] = structuredClone(sprite);
+    spec.sprites.assign['boss'] = 'custom:old_boss';
+    spec.sprites.assign['walker'] = 'custom:old_walker';
+    spec.sprites.assign['obj_spring'] = 'custom:visible_object';
+
+    const normalized = ensurePlatformerImageCharacterFallbacks(spec, ['lib:boss_knight']);
+
+    expect(normalized.sprites.assign['boss']).toMatch(/^lib:boss_/);
+    expect(normalized.sprites.assign['boss']).not.toBe('lib:boss_knight');
+    expect(normalized.sprites.assign).toMatchObject({
+      walker: 'lib:enemy_walker',
+      flyer: expect.stringMatching(/^lib:/),
+      shooter: expect.stringMatching(/^lib:/),
+      chaser: expect.stringMatching(/^lib:/),
+      obj_spring: 'custom:visible_object',
+    });
+    expect(normalized.sprites.custom['old_boss']).toBeUndefined();
+    expect(normalized.sprites.custom['old_walker']).toBeUndefined();
+    expect(normalized.sprites.custom['visible_object']).toEqual(sprite);
+    expect(spec.sprites.assign['boss']).toBe('custom:old_boss');
   });
 
   it('repairs malformed boss pixels before considering a library fallback', async () => {
@@ -548,9 +581,7 @@ describe('platformer route recovery', () => {
       expect.objectContaining({ code: 'PLATFORMER_ROUTE_FALLBACK', path: '/levels/0/tiles' }),
     ]);
     expect(
-      archetypes.platformer
-        .lint(repaired.spec as PlatformerSpec)
-        .map((error) => error.code),
+      archetypes.platformer.lint(repaired.spec as PlatformerSpec).map((error) => error.code),
     ).not.toContain('PLAT_EXIT_UNREACHABLE');
     expect((repaired.spec as PlatformerSpec).levels[1]).toEqual(untouched);
   });
@@ -637,7 +668,9 @@ describe('title similarity (anti-duplicate)', () => {
     expect(titleSimilarity('Emberwick Ascent', 'emberwick ascent!')).toBeGreaterThan(0.9);
     expect(titleSimilarity('Emberwick Ascent', 'Emberwick Ascent II')).toBeGreaterThanOrEqual(0.9);
     expect(titleSimilarity('Emberwick Ascent', 'Void Petal')).toBeLessThan(0.5);
-    expect(tooSimilar('The Hollow Bell', ['Void Petal', 'The Hollow Bell'])).toBe('The Hollow Bell');
+    expect(tooSimilar('The Hollow Bell', ['Void Petal', 'The Hollow Bell'])).toBe(
+      'The Hollow Bell',
+    );
     expect(tooSimilar('Garden Defense Orbit', ['Void Petal'])).toBeNull();
   });
 });

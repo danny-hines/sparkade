@@ -61,6 +61,8 @@ export interface LikenessAssets {
   platformerPoses?: Readonly<Record<string, CanvasImageSource>> | null;
   /** High-density signature boss generated from the platformer's story art. */
   platformerBoss?: CanvasImageSource | null;
+  /** Independently generated platformer enemy bodies, keyed by behavior role. */
+  platformerEnemies?: Readonly<Record<string, CanvasImageSource>> | null;
 }
 
 /** What a finished run reports back to the host. */

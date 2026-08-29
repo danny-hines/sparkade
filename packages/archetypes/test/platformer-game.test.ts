@@ -4,6 +4,7 @@ import {
   generatedPlatformerGaitFrame,
   generatedPlatformerGaitRate,
   generatedPlatformerBossDrawRect,
+  generatedPlatformerEnemyDrawRect,
   generatedPlatformerPlayerDrawRect,
   generatedPlatformerPoseDrawSize,
 } from '../src/platformer/game';
@@ -56,5 +57,14 @@ describe('generated platformer player poses', () => {
     const rect = generatedPlatformerBossDrawRect(200, 90, 26, 30);
     expect(rect).toEqual({ x: 189, y: 74, w: 48, h: 48 });
     expect(rect.y + rect.h).toBe(90 + 30 + 2);
+  });
+
+  it('centers generated enemies over their stable behavior colliders', () => {
+    const walker = generatedPlatformerEnemyDrawRect('walker', 100, 50, 14, 14);
+    expect(walker).toEqual({ x: 95, y: 41, w: 24, h: 24 });
+    expect(walker.y + walker.h).toBe(50 + 14 + 1);
+
+    const flyer = generatedPlatformerEnemyDrawRect('flyer', 100, 50, 14, 14);
+    expect(flyer).toEqual({ x: 94, y: 43, w: 26, h: 22 });
   });
 });

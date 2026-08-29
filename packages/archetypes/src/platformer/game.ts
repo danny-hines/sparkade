@@ -111,6 +111,22 @@ const DETAILED_GENERATED_PLAYER_DENSITY = 4;
 const GENERATED_BOSS_DRAW_W = 48;
 const GENERATED_BOSS_DRAW_H = 48;
 const GENERATED_BOSS_GROUND_OVERLAP = 2;
+const GENERATED_ENEMY_GROUND_OVERLAP = 1;
+
+const GENERATED_ENEMY_DRAW_SIZE = {
+  walker: { w: 24, h: 24 },
+  flyer: { w: 26, h: 22 },
+  shooter: { w: 24, h: 24 },
+  chaser: { w: 22, h: 22 },
+} as const;
+
+type GeneratedPlatformerEnemyRole = keyof typeof GENERATED_ENEMY_DRAW_SIZE;
+
+function isGeneratedPlatformerEnemyRole(
+  role: PlatformerEntity['type'],
+): role is GeneratedPlatformerEnemyRole {
+  return Object.prototype.hasOwnProperty.call(GENERATED_ENEMY_DRAW_SIZE, role);
+}
 
 export function generatedPlatformerGaitRate(speed: number): number {
   // The six timing beats below preserve the old four-beat cycle duration while
@@ -195,6 +211,22 @@ export function generatedPlatformerBossDrawRect(
     y: bossY + bossH + GENERATED_BOSS_GROUND_OVERLAP - GENERATED_BOSS_DRAW_H,
     w: GENERATED_BOSS_DRAW_W,
     h: GENERATED_BOSS_DRAW_H,
+  };
+}
+
+export function generatedPlatformerEnemyDrawRect(
+  role: GeneratedPlatformerEnemyRole,
+  enemyX: number,
+  enemyY: number,
+  enemyW: number,
+  enemyH: number,
+): { x: number; y: number; w: number; h: number } {
+  const size = GENERATED_ENEMY_DRAW_SIZE[role];
+  return {
+    x: enemyX - (size.w - enemyW) / 2,
+    y: enemyY + enemyH + GENERATED_ENEMY_GROUND_OVERLAP - size.h,
+    w: size.w,
+    h: size.h,
   };
 }
 
@@ -288,6 +320,7 @@ class PlatformerGame implements GameInstance {
   private sprites: Record<string, ResolvedSprite> = {};
   private generatedPlayerPoses: GeneratedPlatformerPoses | null = null;
   private generatedBoss: CanvasImageSource | null = null;
+  private generatedEnemies: Readonly<Record<string, CanvasImageSource>> | null = null;
   private diff!: DifficultyScale;
   // Per-game hero feel, resolved (clamped) from spec.feel. Base constants when
   // feel is absent, so existing games are byte-identical. The clamp only ever
@@ -334,6 +367,7 @@ class PlatformerGame implements GameInstance {
         ? completeGeneratedPlatformerPoses(this.engine.platformerPoses)
         : null;
     this.generatedBoss = this.engine.platformerBoss;
+    this.generatedEnemies = this.engine.platformerEnemies;
   }
 
   get worldZoom() {
@@ -1386,6 +1420,22 @@ class PlatformerGame implements GameInstance {
     for (const e of this.ents) {
       if (!e.active) continue;
       if (e.x - cam.x < -32 || e.x - cam.x > this.viewW + 32) continue;
+      const generatedEnemyRole = isGeneratedPlatformerEnemyRole(e.type) ? e.type : null;
+      const generatedEnemy = generatedEnemyRole
+        ? this.generatedEnemies?.[generatedEnemyRole]
+        : null;
+      if (generatedEnemy && generatedEnemyRole) {
+        const rect = generatedPlatformerEnemyDrawRect(generatedEnemyRole, e.x, e.y, e.w, e.h);
+        r.drawScaledFlipped(
+          generatedEnemy,
+          rect.x - cam.x,
+          rect.y - cam.y,
+          rect.w,
+          rect.h,
+          e.dir > 0,
+        );
+        continue;
+      }
       const sprite = this.entitySprite(e);
       if (!sprite) continue;
       const anim = e.type === 'spring' ? (e.t > 0 && e.t < 0.25 ? 'bounce' : 'idle') : 'walk';

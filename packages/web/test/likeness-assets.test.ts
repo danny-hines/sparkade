@@ -3,6 +3,7 @@ import { GENERATED_GAME_ASSET_FILES, type GeneratedGameAssetRole } from '@sparka
 import type { GameDetail } from '../src/api';
 import {
   FIGHTER_POSE_ASSETS,
+  PLATFORMER_ENEMY_ASSETS,
   PLATFORMER_POSE_ASSETS,
   loadLikenessAssets,
 } from '../src/likeness-assets';
@@ -206,5 +207,29 @@ describe('loadLikenessAssets', () => {
 
     expect(result?.platformerBoss).not.toBeNull();
     expect(requested).toEqual(['/api/games/boss-game/assets/platformer-boss.png']);
+  });
+
+  it('loads each available generated platformer enemy independently', async () => {
+    const result = await loadLikenessAssets('enemy-game', {
+      head12: false,
+      head12Side: false,
+      head12Back: false,
+      head16: false,
+      head16Side: false,
+      head16Back: false,
+      portrait: false,
+      ...unavailableGeneratedAssets,
+      platformerEnemyWalker: true,
+      platformerEnemyChaser: true,
+    });
+
+    expect(Object.keys(result?.platformerEnemies ?? {})).toEqual(['walker', 'chaser']);
+    expect(result?.platformerEnemies?.walker).not.toBeNull();
+    expect(result?.platformerEnemies?.flyer).toBeUndefined();
+    expect(requested).toEqual(
+      PLATFORMER_ENEMY_ASSETS.filter(([role]) => role === 'walker' || role === 'chaser').map(
+        ([, assetRole]) => `/api/games/enemy-game/assets/${GENERATED_GAME_ASSET_FILES[assetRole]}`,
+      ),
+    );
   });
 });

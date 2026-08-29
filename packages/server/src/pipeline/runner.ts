@@ -114,6 +114,20 @@ import {
   type PlatformerBossCandidateDescriptor,
 } from '../assets/platformer-boss';
 import {
+  GENERATED_PLATFORMER_ENEMIES,
+  PLATFORMER_ENEMY_JUDGE_PROMPT_VERSION,
+  PLATFORMER_ENEMY_PIPELINE_PROMPT_VERSION,
+  PLATFORMER_ENEMY_PROMPT_VERSION,
+  buildPlatformerEnemyCandidatePrompt,
+  buildPlatformerEnemyJudgeBoard,
+  buildPlatformerEnemyJudgePrompt,
+  buildPlatformerEnemyJudgeSchema,
+  normalizePlatformerEnemyJudgeDecision,
+  processGeneratedPlatformerEnemy,
+  type GeneratedPlatformerEnemy,
+  type PlatformerEnemyCandidateDescriptor,
+} from '../assets/platformer-enemy';
+import {
   GameAssetWorkspace,
   GeneratedAssetStorageError,
   imagePromptHash,
@@ -159,6 +173,7 @@ import {
   applySpriteFallbacksForRepair,
   customBossSpriteDiagnostics,
   ensureLikenessHeroBody,
+  ensurePlatformerImageCharacterFallbacks,
   normalizeGeneratedSpec,
   normalizeTileGrids,
   repairPlatformerExitRoutes,
@@ -226,6 +241,13 @@ const PLATFORMER_ASSET_ROLES = {
   walk2: 'platformerWalk2',
   jump: 'platformerJump',
 } as const satisfies Record<GeneratedPlatformerPose, GeneratedGameAssetRole>;
+
+const PLATFORMER_ENEMY_ASSET_ROLES = {
+  walker: 'platformerEnemyWalker',
+  flyer: 'platformerEnemyFlyer',
+  shooter: 'platformerEnemyShooter',
+  chaser: 'platformerEnemyChaser',
+} as const satisfies Record<GeneratedPlatformerEnemy, GeneratedGameAssetRole>;
 
 /** Surprise's structured genre is authoritative; the design model still gets
  * the instruction, but cannot silently relabel the job by returning another id. */
@@ -1423,9 +1445,12 @@ export class GenerationRunner {
         if (firstFailure) throw firstFailure.reason;
 
         // ---- Assemble + validate + repair ----------------------------------
-        spec = ensureLikenessHeroBody(
-          this.assemble(job.seed, archetype, design, parts, !!photo),
-          !!photo,
+        spec = ensurePlatformerImageCharacterFallbacks(
+          ensureLikenessHeroBody(
+            this.assemble(job.seed, archetype, design, parts, !!photo),
+            !!photo,
+          ),
+          recentUse.bosses,
         );
         emit('validating', 'Checking every rule…');
         spec = await this.validateAndRepair(
@@ -1440,6 +1465,8 @@ export class GenerationRunner {
         );
         spec = ensureLikenessHeroBody(spec, !!photo);
       }
+
+      spec = ensurePlatformerImageCharacterFallbacks(spec, recentUse.bosses);
 
       try {
         this.files.writeValidatedSpecCheckpoint(jobId, job.attempt, {
@@ -2004,6 +2031,312 @@ export class GenerationRunner {
                 emit(
                   'building-assets',
                   `Generated boss was unavailable; using the stable library boss (${reason.slice(0, 120)})`,
+                );
+              }
+            })
+          : Promise.resolve();
+
+      let platformerEnemyArtStatus: GameMetaFile['platformerEnemyArt'] =
+        spec.archetype === 'platformer'
+          ? {
+              mode: 'procedural',
+              attempted: true,
+              reason: 'Generated platformer enemy art did not complete',
+            }
+          : undefined;
+      const platformerEnemyTask =
+        spec.archetype === 'platformer'
+          ? keyArtTask.then(async (keyArt): Promise<void> => {
+              const generationStarted = Date.now();
+              const colors = spec.palette
+                .filter((hex) => {
+                  const r = Number.parseInt(hex.slice(1, 3), 16);
+                  const g = Number.parseInt(hex.slice(3, 5), 16);
+                  const b = Number.parseInt(hex.slice(5, 7), 16);
+                  return !(g > r * 1.15 && g > b * 1.15);
+                })
+                .join(', ');
+              const concepts = Object.fromEntries(
+                GENERATED_PLATFORMER_ENEMIES.map((role) => [
+                  role,
+                  design.cast.find((member) => member.role === role)?.concept ??
+                    `A distinctive ${role} enemy from ${spec.meta.title}`,
+                ]),
+              ) as Record<GeneratedPlatformerEnemy, string>;
+              const promptHashes = Object.fromEntries(
+                GENERATED_PLATFORMER_ENEMIES.map((role) => [
+                  role,
+                  imagePromptHash(
+                    JSON.stringify({
+                      promptVersions: {
+                        candidate: PLATFORMER_ENEMY_PROMPT_VERSION,
+                        judge: PLATFORMER_ENEMY_JUDGE_PROMPT_VERSION,
+                      },
+                      gameTitle: spec.meta.title,
+                      tagline: spec.meta.tagline,
+                      role,
+                      concept: concepts[role],
+                      colors,
+                    }),
+                    keyArt,
+                  ),
+                ]),
+              ) as Record<GeneratedPlatformerEnemy, string>;
+              const generated = new Set<GeneratedPlatformerEnemy>();
+              try {
+                for (const role of GENERATED_PLATFORMER_ENEMIES) {
+                  if (
+                    assetWorkspace.load(
+                      PLATFORMER_ENEMY_ASSET_ROLES[role],
+                      PLATFORMER_ENEMY_PIPELINE_PROMPT_VERSION,
+                      promptHashes[role],
+                    )
+                  ) {
+                    generated.add(role);
+                  }
+                }
+                if (generated.size === GENERATED_PLATFORMER_ENEMIES.length) {
+                  platformerEnemyArtStatus = {
+                    mode: 'generated',
+                    attempted: true,
+                    generatedRoles: [...GENERATED_PLATFORMER_ENEMIES],
+                  };
+                  emit('building-assets', 'Restored the selected platformer enemy cast');
+                  return;
+                }
+
+                interface EnemyCandidate extends PlatformerEnemyCandidateDescriptor {
+                  png: Buffer;
+                }
+                const missing = GENERATED_PLATFORMER_ENEMIES.filter((role) => !generated.has(role));
+                emit(
+                  'building-assets',
+                  `Painting ${missing.length * 2} enemy candidates in parallel…`,
+                );
+                const candidates = (
+                  await Promise.all(
+                    missing.flatMap((role) =>
+                      [1, 2].map(async (index): Promise<EnemyCandidate | null> => {
+                        const id = `${role[0]!.toUpperCase()}${index}`;
+                        let raw: Buffer;
+                        try {
+                          raw = await callImage({
+                            role: `platformer-enemy-${role}-${id}`,
+                            label: `${role} candidate ${id}`,
+                            prompt: buildPlatformerEnemyCandidatePrompt({
+                              gameTitle: spec.meta.title,
+                              tagline: spec.meta.tagline,
+                              role,
+                              concept: concepts[role],
+                              colors,
+                              candidateId: id,
+                            }),
+                            reference: keyArt,
+                            size: '1024x1024',
+                          });
+                        } catch (error) {
+                          if (abort.signal.aborted) throw error;
+                          if (!(error instanceof PipelineError)) throw error;
+                          validationFailure(`platformer-enemy-${role}-${id}`);
+                          emit(
+                            'building-assets',
+                            `${role} candidate ${id} was unavailable; continuing the cast…`,
+                          );
+                          return null;
+                        }
+                        try {
+                          let processed;
+                          try {
+                            processed = await processGeneratedPlatformerEnemy(raw, role);
+                          } catch (initialError) {
+                            const recovery = await recoverGeneratedPlatformerGreenPanel(raw);
+                            if (!recovery.recovered) throw initialError;
+                            processed = await processGeneratedPlatformerEnemy(recovery.image, role);
+                          }
+                          return {
+                            id,
+                            role,
+                            concept: concepts[role],
+                            png: processed.png,
+                          };
+                        } catch {
+                          validationFailure(`platformer-enemy-${role}-${id}`);
+                          emit(
+                            'building-assets',
+                            `${role} candidate ${id} failed local sprite validation`,
+                          );
+                          return null;
+                        }
+                      }),
+                    ),
+                  )
+                ).filter((candidate): candidate is EnemyCandidate => candidate !== null);
+
+                if (candidates.length > 0) {
+                  const descriptors: PlatformerEnemyCandidateDescriptor[] = candidates.map(
+                    ({ id, role, concept }) => ({ id, role, concept }),
+                  );
+                  const board = await buildPlatformerEnemyJudgeBoard({
+                    keyArt,
+                    candidates: candidates.map(({ id, role, concept, png: processed }) => ({
+                      id,
+                      role,
+                      concept,
+                      processed,
+                    })),
+                  });
+                  const judgePrompt = buildPlatformerEnemyJudgePrompt(descriptors);
+                  const localDecision = {
+                    candidateReviews: descriptors.map(({ id, role }) => ({
+                      id,
+                      role,
+                      scores: {
+                        conceptMatch: 5,
+                        worldStyle: 5,
+                        silhouette: 5,
+                        roleReadability: 5,
+                        technical: 5,
+                      },
+                      issues: [],
+                      summary: 'Locally valid enemy candidate.',
+                    })),
+                    selections: GENERATED_PLATFORMER_ENEMIES.flatMap((role) => {
+                      const candidate = descriptors.find((item) => item.role === role);
+                      return candidate
+                        ? [
+                            {
+                              role,
+                              candidateId: candidate.id,
+                              confidence: mockImages ? 1 : 0,
+                              rationale: mockImages
+                                ? 'Mock selection.'
+                                : 'Spark review was unavailable; retained a locally valid candidate.',
+                            },
+                          ]
+                        : [];
+                    }),
+                  };
+                  let rawDecision: unknown = localDecision;
+                  if (!mockImages) {
+                    try {
+                      rawDecision = await callLlm(
+                        'design',
+                        {
+                          ...judgePrompt,
+                          jsonSchema: buildPlatformerEnemyJudgeSchema(descriptors),
+                          maxTokens: 3600,
+                          timeoutMs: 120_000,
+                        },
+                        {
+                          stage: 'building-assets',
+                          label: 'Spark selected the platformer enemy cast',
+                          image: board,
+                          reasoningEffort: 'low',
+                        },
+                      );
+                    } catch (error) {
+                      if (abort.signal.aborted) throw error;
+                      emit(
+                        'building-assets',
+                        'Enemy art review was unavailable; retaining locally valid candidates',
+                      );
+                    }
+                  }
+                  const decision = normalizePlatformerEnemyJudgeDecision(rawDecision, descriptors);
+                  await Promise.all(
+                    decision.selections.map(async ({ role, candidateId }) => {
+                      const selected = candidates.find(
+                        (candidate) => candidate.role === role && candidate.id === candidateId,
+                      );
+                      if (!selected) return;
+                      await assetWorkspace.store(
+                        PLATFORMER_ENEMY_ASSET_ROLES[role],
+                        selected.png,
+                        PLATFORMER_ENEMY_PIPELINE_PROMPT_VERSION,
+                        promptHashes[role],
+                      );
+                      generated.add(role);
+                    }),
+                  );
+                }
+
+                const generatedRoles = GENERATED_PLATFORMER_ENEMIES.filter((role) =>
+                  generated.has(role),
+                );
+                const missingRoles = GENERATED_PLATFORMER_ENEMIES.filter(
+                  (role) => !generated.has(role),
+                );
+                if (missingRoles.length === 0) {
+                  platformerEnemyArtStatus = {
+                    mode: 'generated',
+                    attempted: true,
+                    generatedRoles,
+                  };
+                  emit('building-assets', 'Spark selected the complete platformer enemy cast');
+                  return;
+                }
+
+                const reason = `No valid generated art for ${missingRoles.join(', ')}`;
+                platformerEnemyArtStatus = {
+                  mode: generatedRoles.length ? 'partial' : 'procedural',
+                  attempted: true,
+                  ...(generatedRoles.length ? { generatedRoles } : {}),
+                  reason,
+                };
+                recordEarlyRepairEvent(
+                  'entities',
+                  'platformer-enemy-art-fallback',
+                  missingRoles.map((role) => ({
+                    code: 'PLATFORMER_ENEMY_ART_FALLBACK',
+                    path: `/assets/platformer-enemy-${role}`,
+                    message: reason,
+                  })),
+                  [],
+                  generationStarted,
+                  'downgraded',
+                );
+                emit(
+                  'building-assets',
+                  `Using stable library art for ${missingRoles.join(', ')}; the remaining enemies are generated`,
+                );
+              } catch (error) {
+                if (
+                  abort.signal.aborted ||
+                  error instanceof GeneratedAssetStorageError ||
+                  (error instanceof PipelineError && error.code === 'storage')
+                ) {
+                  throw error;
+                }
+                const generatedRoles = GENERATED_PLATFORMER_ENEMIES.filter((role) =>
+                  generated.has(role),
+                );
+                const reason =
+                  error instanceof Error
+                    ? error.message.slice(0, 240)
+                    : 'Generated platformer enemy art failed';
+                platformerEnemyArtStatus = {
+                  mode: generatedRoles.length ? 'partial' : 'procedural',
+                  attempted: true,
+                  ...(generatedRoles.length ? { generatedRoles } : {}),
+                  reason,
+                };
+                recordEarlyRepairEvent(
+                  'entities',
+                  'platformer-enemy-art-fallback',
+                  [
+                    {
+                      code: 'PLATFORMER_ENEMY_ART_FALLBACK',
+                      path: '/assets/platformer-enemies',
+                      message: reason,
+                    },
+                  ],
+                  [],
+                  generationStarted,
+                  'downgraded',
+                );
+                emit(
+                  'building-assets',
+                  `Generated enemy cast was incomplete; using stable fallbacks where needed (${reason.slice(0, 120)})`,
                 );
               }
             })
@@ -2676,6 +3009,7 @@ export class GenerationRunner {
       const finishingAssets = await Promise.allSettled([
         storyTask,
         platformerBossTask,
+        platformerEnemyTask,
         fighterTask,
         platformerPlayerTask,
         portraitTask,
@@ -2716,6 +3050,7 @@ export class GenerationRunner {
         ...(fighterArtStatus ? { fighterArt: fighterArtStatus } : {}),
         ...(platformerPlayerArtStatus ? { platformerPlayerArt: platformerPlayerArtStatus } : {}),
         ...(platformerBossArtStatus ? { platformerBossArt: platformerBossArtStatus } : {}),
+        ...(platformerEnemyArtStatus ? { platformerEnemyArt: platformerEnemyArtStatus } : {}),
       };
       writeFileSync(join(staging, 'meta.json'), JSON.stringify(meta, null, 2));
 

@@ -57,6 +57,15 @@ describe('entities prompt likeness casting', () => {
     expect(system).toContain('the engine selects the cap');
   });
 
+  it('keeps image-generated platformer characters on lightweight library fallbacks', () => {
+    const system = buildEntitiesPrompt('platformer', design, false).system;
+
+    expect(system).toContain('IMAGE-FIRST CHARACTER FALLBACKS');
+    expect(system).toContain('`boss`, `walker`, `flyer`, `shooter`, and `chaser`');
+    expect(system).toContain('do NOT draw custom sprites for those roles');
+    expect(system).toContain('custom-pixel budget on terrain or a gameplay object');
+  });
+
   it('uses compact run rows for large generated tile grids', () => {
     const prompt = buildLevelsPrompt('platformer', design);
     const level = (prompt.jsonSchema as { $defs: Record<string, { required: string[] }> }).$defs[

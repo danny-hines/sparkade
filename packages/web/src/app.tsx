@@ -19,6 +19,7 @@ import { SpriteEditorScreen } from './screens/sprite-editor';
 import { FighterEditorScreen } from './screens/fighter-editor';
 import { PlaytestScreen } from './screens/playtest';
 import { PlatformerPosesLabScreen } from './screens/platformer-poses-lab';
+import { PlatformerLevelsLabScreen } from './screens/platformer-levels-lab';
 
 export type Screen =
   | { name: 'attract' }
@@ -44,6 +45,7 @@ export function App(): ComponentChildren {
     if (dev === 'fighter-editor') return <FighterEditorScreen />;
     if (dev === 'playtest') return <PlaytestScreen />;
     if (dev === 'platformer-poses') return <PlatformerPosesLabScreen />;
+    if (dev === 'platformer-levels') return <PlatformerLevelsLabScreen />;
   }
   return <KioskApp />;
 }

@@ -201,6 +201,67 @@ export interface PlatformerPoseLabStatus {
   error?: string;
 }
 
+export type PlatformerLevelLabStage =
+  | 'layouts'
+  | 'parse'
+  | 'repair'
+  | 'selection'
+  | 'hydrate';
+
+export interface PlatformerLevelLabEvent {
+  seq: number;
+  runId: string;
+  at: string;
+  type:
+    | 'stage'
+    | 'candidate'
+    | 'selection'
+    | 'hydration'
+    | 'hydration-candidate'
+    | 'hydration-judge-response'
+    | 'hydration-selection'
+    | 'mask'
+    | 'ready'
+    | 'failed';
+  stage: PlatformerLevelLabStage;
+  status: 'started' | 'complete' | 'rejected' | 'failed';
+  message: string;
+  elapsedMs?: number;
+  data?: Record<string, unknown>;
+}
+
+export interface PlatformerLevelLabMetrics {
+  registration: 'frame' | 'content';
+  crop: { left: number; top: number; width: number; height: number };
+  confidentCellRatio: number;
+  meanWinnerShare: number;
+  meanColorDistance: number;
+  changedCells: number;
+  repairs: string[];
+  issuesBefore: string[];
+  issuesAfter: string[];
+  reachableStandingCells: number;
+  markerCounts: Record<'spawn' | 'exit' | 'checkpoint', number>;
+  tileCounts: Record<string, number>;
+  score: number;
+}
+
+export interface PlatformerLevelLabStatus {
+  runId: string;
+  status: 'running' | 'ready' | 'hydrating' | 'failed';
+  concept: string;
+  events: PlatformerLevelLabEvent[];
+  recommendedId?: string;
+  hydratedId?: string;
+  hydrationWinnerId?: string;
+  hydrationMetrics?: Record<string, unknown>;
+  imageCalls: number;
+  imageCostUsd: number;
+  judgeCalls: number;
+  judgeCostUsd: number | null;
+  error?: string;
+}
+
 export const api = {
   listGames: () => fetch('/api/games').then((r) => json<GameListItem[]>(r)),
   getGame: (id: string) => fetch(`/api/games/${id}`).then((r) => json<GameDetail>(r)),
@@ -273,6 +334,32 @@ export const api = {
     }).then((response) =>
       json<{ humanVerdict: PlatformerPoseHumanVerdict; event: PlatformerPoseLabEvent }>(response),
     ),
+  startPlatformerLevelLab: (concept: string) =>
+    fetch('/api/dev/platformer-levels/runs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ concept }),
+    }).then((response) => json<{ runId: string }>(response)),
+  platformerLevelLabStatus: (runId: string) =>
+    fetch(`/api/dev/platformer-levels/runs/${encodeURIComponent(runId)}`).then((response) =>
+      json<PlatformerLevelLabStatus>(response),
+    ),
+  hydratePlatformerLevelLab: (runId: string, candidateId: string) =>
+    fetch(`/api/dev/platformer-levels/runs/${encodeURIComponent(runId)}/hydrate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ candidateId }),
+    }).then((response) => json<{ runId: string; candidateId: string }>(response)),
+  reprocessPlatformerLevelLab: (
+    runId: string,
+    candidateId: string,
+    fringe: { topPx: number; sidePx: number; bottomPx: number },
+  ) =>
+    fetch(`/api/dev/platformer-levels/runs/${encodeURIComponent(runId)}/reprocess`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ candidateId, fringe }),
+    }).then((response) => json<{ runId: string; candidateId: string }>(response)),
   estimate: (opts: { photo?: boolean; archetype?: ArchetypeId } = {}) => {
     const query = new URLSearchParams();
     if (opts.photo) query.set('photo', '1');
@@ -368,6 +455,28 @@ export function subscribePlatformerPoseLab(
   source.onmessage = (message) => {
     try {
       onEvent(JSON.parse(message.data) as PlatformerPoseLabEvent);
+    } catch {
+      /* malformed dev frame — ignore */
+    }
+  };
+  source.onerror = () => onDisconnect?.();
+  return () => source.close();
+}
+
+/** Subscribe to the level-design lab. The connection intentionally stays open
+ * while a candidate batch is ready so a later user-triggered hydration streams
+ * into the same page. */
+export function subscribePlatformerLevelLab(
+  runId: string,
+  onEvent: (event: PlatformerLevelLabEvent) => void,
+  onDisconnect?: () => void,
+): () => void {
+  const source = new EventSource(
+    `/api/dev/platformer-levels/runs/${encodeURIComponent(runId)}/events`,
+  );
+  source.onmessage = (message) => {
+    try {
+      onEvent(JSON.parse(message.data) as PlatformerLevelLabEvent);
     } catch {
       /* malformed dev frame — ignore */
     }

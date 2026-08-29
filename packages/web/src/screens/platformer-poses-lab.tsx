@@ -722,6 +722,7 @@ export function PlatformerPosesLabScreen(): ComponentChildren {
           <p>Muse Image candidates → Spark identity gate → Spark animation selection</p>
         </div>
         <nav>
+          <a href="/?dev=platformer-levels">Level lab</a>
           <a href="/?dev=likeness">Likeness lab</a>
           <a href="/?dev=assets">Asset gallery</a>
         </nav>

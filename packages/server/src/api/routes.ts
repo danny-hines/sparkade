@@ -37,6 +37,7 @@ import { registerDevSpriteRoutes } from './dev-sprite';
 import { registerDevFighterRoutes } from './dev-fighter';
 import { registerDevFighterOutfitRoutes } from './dev-fighter-outfits';
 import { registerDevPlatformerPoseRoutes } from './dev-platformer-poses';
+import { registerDevPlatformerLevelRoutes } from './dev-platformer-levels';
 import { isSameHttpOrigin } from './origin';
 
 export interface ApiContext {
@@ -67,6 +68,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     registerDevFighterRoutes(app, files, db);
     registerDevFighterOutfitRoutes(app);
     registerDevPlatformerPoseRoutes(app, configStore, files.dir);
+    registerDevPlatformerLevelRoutes(app, configStore, files.dir);
   }
 
   // ---- same-origin gate on mutating requests ------------------------------

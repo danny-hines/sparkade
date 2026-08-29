@@ -67,6 +67,10 @@ const PLATFORMER_ROLES = [
   'platformerJump',
 ] as const satisfies readonly GeneratedGameAssetRole[];
 
+const PLATFORMER_BOSS_ROLES = [
+  'platformerBoss',
+] as const satisfies readonly GeneratedGameAssetRole[];
+
 interface Harness {
   root: string;
   db: Db;
@@ -232,10 +236,15 @@ describe.sequential('mock image asset pipeline', () => {
       mode: 'generated',
       attempted: true,
     });
+    expect(files.readMeta(gameId)?.platformerBossArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+    });
     await expectPublishedPngs(files, gameId, [
       ...PRESENTATION_ROLES,
       ...PORTRAIT_ROLES,
       ...PLATFORMER_ROLES,
+      ...PLATFORMER_BOSS_ROLES,
     ]);
 
     const manifest = readGameAssetManifest(join(files.gameDir(gameId), 'assets'))!;
@@ -255,11 +264,12 @@ describe.sequential('mock image asset pipeline', () => {
       platformerWalk1: [112, 128],
       platformerWalk2: [112, 128],
       platformerJump: [112, 128],
+      platformerBoss: [192, 192],
     });
     expect(HEAD_ROLES.some((role) => role in dimensions)).toBe(false);
     expect(
       db.usageForGame(gameId).filter((event) => event.stage.startsWith('image:') && !event.failed),
-    ).toHaveLength(20);
+    ).toHaveLength(23);
     expect(existsSync(join(files.gameDir(gameId), 'photo.jpg'))).toBe(false);
   });
 
@@ -280,7 +290,7 @@ describe.sequential('mock image asset pipeline', () => {
     const successfulImagesBeforeRetry = db
       .usageForGame(gameId)
       .filter((event) => event.stage.startsWith('image:') && !event.failed);
-    expect(successfulImagesBeforeRetry).toHaveLength(20);
+    expect(successfulImagesBeforeRetry).toHaveLength(23);
 
     expect(runner.retryJob(gameId)).toEqual({ jobId });
     expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done', attempt: 2 });
@@ -294,6 +304,7 @@ describe.sequential('mock image asset pipeline', () => {
       ...PRESENTATION_ROLES,
       ...PORTRAIT_ROLES,
       ...PLATFORMER_ROLES,
+      ...PLATFORMER_BOSS_ROLES,
     ]);
   });
 

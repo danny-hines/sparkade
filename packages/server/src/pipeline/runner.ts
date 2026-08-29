@@ -101,6 +101,19 @@ import {
   type PlatformerPoseCandidateDescriptor,
 } from '../assets/platformer-pose-judge';
 import {
+  PLATFORMER_BOSS_JUDGE_PROMPT_VERSION,
+  PLATFORMER_BOSS_PIPELINE_PROMPT_VERSION,
+  PLATFORMER_BOSS_PROMPT_VERSION,
+  bestPlatformerBossCandidateId,
+  buildPlatformerBossCandidatePrompt,
+  buildPlatformerBossJudgeBoard,
+  buildPlatformerBossJudgePrompt,
+  buildPlatformerBossJudgeSchema,
+  normalizePlatformerBossJudgeDecision,
+  processGeneratedPlatformerBoss,
+  type PlatformerBossCandidateDescriptor,
+} from '../assets/platformer-boss';
+import {
   GameAssetWorkspace,
   GeneratedAssetStorageError,
   imagePromptHash,
@@ -1769,35 +1782,232 @@ export class GenerationRunner {
         );
       };
 
-      const storyTask = keyArtTask.then(async (keyArt): Promise<void> => {
-        const roles: StoryArtRole[] = ['intro', 'boss', 'victory', 'defeat'];
-        const results = await Promise.allSettled(
-          roles.map((role) => {
-            const assetRole: GeneratedGameAssetRole =
-              role === 'intro'
-                ? 'storyIntro'
-                : role === 'boss'
-                  ? 'storyBoss'
-                  : role === 'victory'
-                    ? 'storyVictory'
-                    : 'storyDefeat';
-            return cachedGeneratedAsset({
-              role: assetRole,
-              promptVersion: STORY_ART_PROMPT_VERSION,
-              prompt: buildStoryArtPrompt(spec, role),
-              policyFallbackPrompt: buildStoryArtPolicyFallbackPrompt(spec, role),
-              label: `${role} scene`,
-              reference: keyArt,
-              size: STORY_ART_ASPECT_HINT,
-              normalize: normalizeStoryArt,
-            });
+      const storyAssetTask = (
+        role: StoryArtRole,
+        assetRole: GeneratedGameAssetRole,
+      ): Promise<Buffer> =>
+        keyArtTask.then((keyArt) =>
+          cachedGeneratedAsset({
+            role: assetRole,
+            promptVersion: STORY_ART_PROMPT_VERSION,
+            prompt: buildStoryArtPrompt(spec, role),
+            policyFallbackPrompt: buildStoryArtPolicyFallbackPrompt(spec, role),
+            label: `${role} scene`,
+            reference: keyArt,
+            size: STORY_ART_ASPECT_HINT,
+            normalize: normalizeStoryArt,
           }),
         );
-        const failure = results.find(
-          (result): result is PromiseRejectedResult => result.status === 'rejected',
-        );
-        if (failure) throw failure.reason;
-      });
+      const storyAssets = {
+        intro: storyAssetTask('intro', 'storyIntro'),
+        boss: storyAssetTask('boss', 'storyBoss'),
+        victory: storyAssetTask('victory', 'storyVictory'),
+        defeat: storyAssetTask('defeat', 'storyDefeat'),
+      } satisfies Record<StoryArtRole, Promise<Buffer>>;
+      const storyTask = Promise.all(Object.values(storyAssets)).then(() => undefined);
+
+      let platformerBossArtStatus: GameMetaFile['platformerBossArt'] =
+        spec.archetype === 'platformer'
+          ? {
+              mode: 'procedural',
+              attempted: true,
+              reason: 'Generated platformer boss art did not complete',
+            }
+          : undefined;
+      const platformerBossTask =
+        spec.archetype === 'platformer'
+          ? storyAssets.boss.then(async (storyBoss): Promise<void> => {
+              const generationStarted = Date.now();
+              const colors = spec.palette
+                .filter((hex) => {
+                  const r = Number.parseInt(hex.slice(1, 3), 16);
+                  const g = Number.parseInt(hex.slice(3, 5), 16);
+                  const b = Number.parseInt(hex.slice(5, 7), 16);
+                  return !(g > r * 1.15 && g > b * 1.15);
+                })
+                .join(', ');
+              try {
+                const pipelineFingerprint = JSON.stringify({
+                  promptVersions: {
+                    candidate: PLATFORMER_BOSS_PROMPT_VERSION,
+                    judge: PLATFORMER_BOSS_JUDGE_PROMPT_VERSION,
+                  },
+                  bossName: spec.boss.name,
+                  bossIntro: spec.story.bossIntro,
+                  colors,
+                });
+                const pipelineSha = imagePromptHash(pipelineFingerprint, storyBoss);
+                const cached = assetWorkspace.load(
+                  'platformerBoss',
+                  PLATFORMER_BOSS_PIPELINE_PROMPT_VERSION,
+                  pipelineSha,
+                );
+                if (cached) {
+                  platformerBossArtStatus = { mode: 'generated', attempted: true };
+                  emit('building-assets', 'Restored the selected platformer boss');
+                  return;
+                }
+
+                interface BossCandidate {
+                  id: string;
+                  png: Buffer;
+                }
+                emit('building-assets', 'Painting three signature boss candidates…');
+                const candidates = (
+                  await Promise.all(
+                    [1, 2, 3].map(async (index): Promise<BossCandidate | null> => {
+                      const id = `B${index}`;
+                      let raw: Buffer;
+                      try {
+                        raw = await callImage({
+                          role: `platformer-boss-${id}`,
+                          label: `Boss candidate ${id}`,
+                          prompt: buildPlatformerBossCandidatePrompt({
+                            bossName: spec.boss.name,
+                            bossIntro: spec.story.bossIntro,
+                            colors,
+                            candidateId: id,
+                          }),
+                          reference: storyBoss,
+                          size: '1024x1024',
+                        });
+                      } catch (error) {
+                        if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
+                        validationFailure(`platformer-boss-${id}`);
+                        emit(
+                          'building-assets',
+                          `Boss candidate ${id} was rejected; continuing the candidate pool…`,
+                        );
+                        return null;
+                      }
+                      try {
+                        let processed;
+                        try {
+                          processed = await processGeneratedPlatformerBoss(raw);
+                        } catch (initialError) {
+                          const recovery = await recoverGeneratedPlatformerGreenPanel(raw);
+                          if (!recovery.recovered) throw initialError;
+                          processed = await processGeneratedPlatformerBoss(recovery.image);
+                        }
+                        return { id, png: processed.png };
+                      } catch {
+                        validationFailure(`platformer-boss-${id}`);
+                        emit(
+                          'building-assets',
+                          `Boss candidate ${id} failed local sprite validation`,
+                        );
+                        return null;
+                      }
+                    }),
+                  )
+                ).filter((candidate): candidate is BossCandidate => candidate !== null);
+                if (candidates.length === 0) {
+                  throw new Error('no locally valid platformer boss candidate was available');
+                }
+
+                const descriptors: PlatformerBossCandidateDescriptor[] = candidates.map(
+                  ({ id }) => ({ id }),
+                );
+                const board = await buildPlatformerBossJudgeBoard({
+                  storyBoss,
+                  candidates: candidates.map(({ id, png: processed }) => ({ id, processed })),
+                });
+                const judgePrompt = buildPlatformerBossJudgePrompt(descriptors);
+                const mockDecision = {
+                  candidateReviews: descriptors.map(({ id }) => ({
+                    id,
+                    scores: {
+                      villainMatch: 5,
+                      silhouette: 5,
+                      pose: 5,
+                      technical: 5,
+                      gameplayReadability: 5,
+                    },
+                    issues: [],
+                    summary: 'Mock story-faithful boss candidate.',
+                  })),
+                  selection: {
+                    candidateId: descriptors[0]!.id,
+                    confidence: 1,
+                    rationale: 'Mock selection.',
+                  },
+                };
+                let rawDecision: unknown = mockDecision;
+                if (!mockImages) {
+                  try {
+                    rawDecision = await callLlm(
+                      'design',
+                      {
+                        ...judgePrompt,
+                        jsonSchema: buildPlatformerBossJudgeSchema(descriptors),
+                        maxTokens: 2200,
+                        timeoutMs: 120_000,
+                      },
+                      {
+                        stage: 'building-assets',
+                        label: 'Spark selected the signature boss',
+                        image: board,
+                        reasoningEffort: 'low',
+                      },
+                    );
+                  } catch (error) {
+                    if (abort.signal.aborted) throw error;
+                    throw new Error(
+                      `platformer boss art review failed: ${error instanceof Error ? error.message : String(error)}`,
+                    );
+                  }
+                }
+                const decision = normalizePlatformerBossJudgeDecision(rawDecision, descriptors);
+                const selectedId =
+                  decision.selection.candidateId || bestPlatformerBossCandidateId(decision);
+                const selected = candidates.find(({ id }) => id === selectedId) ?? candidates[0]!;
+                await assetWorkspace.store(
+                  'platformerBoss',
+                  selected.png,
+                  PLATFORMER_BOSS_PIPELINE_PROMPT_VERSION,
+                  pipelineSha,
+                );
+                platformerBossArtStatus = { mode: 'generated', attempted: true };
+                emit('building-assets', `Spark selected ${selected.id} as the signature boss`);
+              } catch (error) {
+                if (
+                  abort.signal.aborted ||
+                  error instanceof GeneratedAssetStorageError ||
+                  (error instanceof PipelineError && !isOptionalGeneratedArtProviderFailure(error))
+                ) {
+                  throw error;
+                }
+                await assetWorkspace.discard(['platformerBoss']);
+                const reason =
+                  error instanceof Error
+                    ? error.message.slice(0, 240)
+                    : 'Generated platformer boss failed validation';
+                platformerBossArtStatus = {
+                  mode: 'procedural',
+                  attempted: true,
+                  reason,
+                };
+                recordEarlyRepairEvent(
+                  'entities',
+                  'platformer-boss-art-fallback',
+                  [
+                    {
+                      code: 'PLATFORMER_BOSS_ART_FALLBACK',
+                      path: '/assets/platformer-boss',
+                      message: reason,
+                    },
+                  ],
+                  [],
+                  generationStarted,
+                  'downgraded',
+                );
+                emit(
+                  'building-assets',
+                  `Generated boss was unavailable; using the stable library boss (${reason.slice(0, 120)})`,
+                );
+              }
+            })
+          : Promise.resolve();
 
       let fighterArtStatus: GameMetaFile['fighterArt'] =
         spec.archetype === 'fighter'
@@ -2465,6 +2675,7 @@ export class GenerationRunner {
 
       const finishingAssets = await Promise.allSettled([
         storyTask,
+        platformerBossTask,
         fighterTask,
         platformerPlayerTask,
         portraitTask,
@@ -2504,6 +2715,7 @@ export class GenerationRunner {
         },
         ...(fighterArtStatus ? { fighterArt: fighterArtStatus } : {}),
         ...(platformerPlayerArtStatus ? { platformerPlayerArt: platformerPlayerArtStatus } : {}),
+        ...(platformerBossArtStatus ? { platformerBossArt: platformerBossArtStatus } : {}),
       };
       writeFileSync(join(staging, 'meta.json'), JSON.stringify(meta, null, 2));
 

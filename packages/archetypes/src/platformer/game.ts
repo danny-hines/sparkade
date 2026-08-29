@@ -108,6 +108,9 @@ const LEGACY_GENERATED_PLAYER_DENSITY = 2;
 const DETAILED_GENERATED_PLAYER_WIDTH = 112;
 const DETAILED_GENERATED_PLAYER_HEIGHT = 128;
 const DETAILED_GENERATED_PLAYER_DENSITY = 4;
+const GENERATED_BOSS_DRAW_W = 48;
+const GENERATED_BOSS_DRAW_H = 48;
+const GENERATED_BOSS_GROUND_OVERLAP = 2;
 
 export function generatedPlatformerGaitRate(speed: number): number {
   // The six timing beats below preserve the old four-beat cycle duration while
@@ -178,6 +181,20 @@ export function generatedPlatformerPlayerDrawRect(
     y: playerY + playerH + GENERATED_PLAYER_GROUND_OVERLAP - renderedHeight,
     w: drawW,
     h: renderedHeight,
+  };
+}
+
+export function generatedPlatformerBossDrawRect(
+  bossX: number,
+  bossY: number,
+  bossW: number,
+  bossH: number,
+): { x: number; y: number; w: number; h: number } {
+  return {
+    x: bossX - (GENERATED_BOSS_DRAW_W - bossW) / 2,
+    y: bossY + bossH + GENERATED_BOSS_GROUND_OVERLAP - GENERATED_BOSS_DRAW_H,
+    w: GENERATED_BOSS_DRAW_W,
+    h: GENERATED_BOSS_DRAW_H,
   };
 }
 
@@ -270,6 +287,7 @@ class PlatformerGame implements GameInstance {
 
   private sprites: Record<string, ResolvedSprite> = {};
   private generatedPlayerPoses: GeneratedPlatformerPoses | null = null;
+  private generatedBoss: CanvasImageSource | null = null;
   private diff!: DifficultyScale;
   // Per-game hero feel, resolved (clamped) from spec.feel. Base constants when
   // feel is absent, so existing games are byte-identical. The clamp only ever
@@ -315,6 +333,7 @@ class PlatformerGame implements GameInstance {
       this.spec.playerHeightTiles === 2 && this.spec.platformerArtDensity === 'detailed'
         ? completeGeneratedPlatformerPoses(this.engine.platformerPoses)
         : null;
+    this.generatedBoss = this.engine.platformerBoss;
   }
 
   get worldZoom() {
@@ -1388,8 +1407,25 @@ class PlatformerGame implements GameInstance {
           : b.invulnT > 0
             ? 'hurt'
             : 'idle';
-      const img = this.engine.sprites.frame(sprite, anim, this.animT, b.dir > 0);
-      r.draw(img, b.x - cam.x - (sprite.w - b.w) / 2, b.y - cam.y - (sprite.h - b.h));
+      if (this.generatedBoss) {
+        // The generated foundation is intentionally one excellent signature
+        // silhouette. Movement, telegraphs, particles, hit-stop, and a brief
+        // damage flicker provide animation without risking identity drift.
+        if (b.invulnT <= 0 || Math.floor(this.animT * 16) % 2 === 0) {
+          const rect = generatedPlatformerBossDrawRect(b.x, b.y, b.w, b.h);
+          r.drawScaledFlipped(
+            this.generatedBoss,
+            rect.x - cam.x,
+            rect.y - cam.y,
+            rect.w,
+            rect.h,
+            b.dir > 0,
+          );
+        }
+      } else {
+        const img = this.engine.sprites.frame(sprite, anim, this.animT, b.dir > 0);
+        r.draw(img, b.x - cam.x - (sprite.w - b.w) / 2, b.y - cam.y - (sprite.h - b.h));
+      }
     }
 
     // projectiles (friendly and hostile can be cast separately)

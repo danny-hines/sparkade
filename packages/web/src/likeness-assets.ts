@@ -57,6 +57,7 @@ export async function loadLikenessAssets(
     !assets.storyBoss &&
     !assets.storyVictory &&
     !assets.storyDefeat &&
+    !assets.platformerBoss &&
     !hasCompleteFighterSet &&
     !hasCompletePlatformerSet
   ) {
@@ -113,13 +114,23 @@ export async function loadLikenessAssets(
           ) as Record<PlatformerPoseName, HTMLImageElement>;
         })
       : Promise.resolve(null);
+  const platformerBossPromise = assets.platformerBoss
+    ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES.platformerBoss))
+    : Promise.resolve(null);
 
   const [
     [head12, head12Side, head12Back, head16, head16Side, head16Back, portrait, portraitDefeat],
     [storyIntro, storyBoss, storyVictory, storyDefeat],
     fighterPoses,
     platformerPoses,
-  ] = await Promise.all([likenessPromise, storyPromise, fighterPromise, platformerPromise]);
+    platformerBoss,
+  ] = await Promise.all([
+    likenessPromise,
+    storyPromise,
+    fighterPromise,
+    platformerPromise,
+    platformerBossPromise,
+  ]);
 
   return {
     head12,
@@ -136,5 +147,6 @@ export async function loadLikenessAssets(
     storyDefeat,
     fighterPoses,
     platformerPoses,
+    platformerBoss,
   };
 }

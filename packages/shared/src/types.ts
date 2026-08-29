@@ -579,6 +579,13 @@ export interface GameMetaFile {
     /** Present when the generated set was skipped or rejected. */
     reason?: string;
   };
+  /** QA/readiness signal for the image-generated platformer finale boss. */
+  platformerBossArt?: {
+    mode: 'generated' | 'procedural';
+    attempted: boolean;
+    /** Present when every generated candidate was unavailable or unusable. */
+    reason?: string;
+  };
   golden?: boolean;
   failure?: { code: string; message: string; stage: string };
 }

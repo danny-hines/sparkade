@@ -62,6 +62,8 @@ export interface EngineContext {
   fighterPoses: Readonly<Record<string, CanvasImageSource>> | null;
   /** Image-generated high-density platformer poses, when complete. */
   platformerPoses: Readonly<Record<string, CanvasImageSource>> | null;
+  /** Image-generated platformer finale boss, when available. */
+  platformerBoss: CanvasImageSource | null;
   spec: GameSpec;
   /** True when the host runs as a self-playing library demo — archetypes can
    *  read this to drive themselves (e.g. the fighter runs both sides on AI). */
@@ -176,6 +178,7 @@ export class GameHost {
       portraitDefeat: opts.likeness?.portraitDefeat ?? opts.likeness?.portrait ?? null,
       fighterPoses: opts.likeness?.fighterPoses ?? null,
       platformerPoses: opts.likeness?.platformerPoses ?? null,
+      platformerBoss: opts.likeness?.platformerBoss ?? null,
       spec: opts.spec,
       attract: !!opts.attract,
       shake: (ms = FEEL.screenShakeMs, magnitude = 3) => this.renderer.shake(ms, magnitude),

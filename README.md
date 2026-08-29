@@ -161,7 +161,10 @@ A "game" is `engine + archetype(spec)`. Specs are validated by the same JSON Sch
 embedded verbatim in the prompt templates (`packages/shared/src/schemas/`).
 
 **Generated art:** after the spec passes validation, Muse Image 1.0 authors landscape key art and
-four consistent story scenes (intro, boss, victory, defeat). Photo games additionally require
+four consistent story scenes (intro, boss, victory, defeat). Every platformer also derives three
+isolated 192×192 boss candidates from its boss story scene; Muse Spark selects the most faithful
+locally valid candidate, which renders as a 48×48 signature finale actor over the stable hand-written
+AI and collision body. Photo games additionally require
 neutral and story-aware defeat-expression portraits plus generated 12/16px player-head sprites;
 there is no quantized-photo fallback or UI toggle. Detailed platformer photo games additionally
 attempt a native 112×128 five-pose player set (front idle, side idle, two chained side-run contacts,

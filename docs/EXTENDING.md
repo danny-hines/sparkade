@@ -64,7 +64,10 @@ machine stays hand-written.
 Muse Image is live and deliberately separate from the text/audio `Provider` interface. Its adapter
 is `packages/server/src/providers/meta-image.ts`, its settings live under `imageGeneration` in
 `config.json`, and it uses Meta's image generation/edit endpoints. Every generated game receives
-key art plus intro, boss, victory and defeat scenes. Photo games additionally require neutral and
+key art plus intro, boss, victory and defeat scenes. Platformers branch three isolated 192×192
+boss candidates from the boss story scene, then use a labeled Muse Spark review board to select the
+strongest story-faithful silhouette; the density-4 winner renders at 48×48 without changing the
+runtime's boss AI or collision body. Photo games additionally require neutral and
 story-aware defeat-expression portraits plus generated player-head sprites. Fighter photo games
 attempt an all-or-nothing 11-pose player set. Platformer photo games whose design selects
 `platformerArtDensity: "detailed"` attempt an all-or-nothing five-pose 112×128 player set. The

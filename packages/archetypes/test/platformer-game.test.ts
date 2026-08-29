@@ -3,6 +3,7 @@ import {
   completeGeneratedPlatformerPoses,
   generatedPlatformerGaitFrame,
   generatedPlatformerGaitRate,
+  generatedPlatformerBossDrawRect,
   generatedPlatformerPlayerDrawRect,
   generatedPlatformerPoseDrawSize,
 } from '../src/platformer/game';
@@ -49,5 +50,11 @@ describe('generated platformer player poses', () => {
     const compressed = generatedPlatformerPlayerDrawRect(100, 50, 12, 28, 28, 32, 1);
     expect(compressed).toEqual({ x: 92, y: 49, w: 28, h: 31 });
     expect(compressed.y + compressed.h).toBe(50 + 28 + 2);
+  });
+
+  it('centers the larger generated boss over the stable collision body and ground line', () => {
+    const rect = generatedPlatformerBossDrawRect(200, 90, 26, 30);
+    expect(rect).toEqual({ x: 189, y: 74, w: 48, h: 48 });
+    expect(rect.y + rect.h).toBe(90 + 30 + 2);
   });
 });

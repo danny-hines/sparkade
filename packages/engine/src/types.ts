@@ -59,6 +59,8 @@ export interface LikenessAssets {
   fighterPoses?: Readonly<Record<string, CanvasImageSource>> | null;
   /** Native generated platformer poses. Activated only as one complete set. */
   platformerPoses?: Readonly<Record<string, CanvasImageSource>> | null;
+  /** High-density signature boss generated from the platformer's story art. */
+  platformerBoss?: CanvasImageSource | null;
 }
 
 /** What a finished run reports back to the host. */

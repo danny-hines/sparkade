@@ -190,4 +190,21 @@ describe('loadLikenessAssets', () => {
     expect(result?.platformerPoses).toBeNull();
     expect(requested.filter((url) => url.includes('/assets/platformer-player-'))).toHaveLength(5);
   });
+
+  it('loads a generated platformer boss independently from player likeness art', async () => {
+    const result = await loadLikenessAssets('boss-game', {
+      head12: false,
+      head12Side: false,
+      head12Back: false,
+      head16: false,
+      head16Side: false,
+      head16Back: false,
+      portrait: false,
+      ...unavailableGeneratedAssets,
+      platformerBoss: true,
+    });
+
+    expect(result?.platformerBoss).not.toBeNull();
+    expect(requested).toEqual(['/api/games/boss-game/assets/platformer-boss.png']);
+  });
 });

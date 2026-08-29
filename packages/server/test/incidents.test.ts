@@ -183,5 +183,8 @@ describe('generation incidents', () => {
     expect(
       hasSubstantiveRepair([{ ...REPAIRS[0]!, action: 'platformer-player-art-fallback' }]),
     ).toBe(true);
+    expect(
+      hasSubstantiveRepair([{ ...REPAIRS[0]!, action: 'platformer-boss-art-fallback' }]),
+    ).toBe(true);
   });
 });

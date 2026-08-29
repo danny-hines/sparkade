@@ -42,7 +42,7 @@ export function sumCosts(costs: (number | null)[]): number | null {
 export function estimateGenerationCost(
   model: string,
   snapshot: PriceSnapshot,
-  options: { platformerPoseJudges?: boolean } = {},
+  options: { platformerPoseJudges?: boolean; platformerBossJudge?: boolean } = {},
 ): number | null {
   const price = snapshot[model];
   if (!price) return null;
@@ -56,6 +56,9 @@ export function estimateGenerationCost(
           { input: 900, output: 350 }, // front-idle identity selection
           { input: 1200, output: 500 }, // run-pair selection
         ]
+      : []),
+    ...(options.platformerBossJudge
+      ? [{ input: 1600, output: 1900 }] // story-art-to-gameplay boss selection + reasoning
       : []),
   ];
   let total = 0;
@@ -73,7 +76,9 @@ export function formatUsd(v: number | null): string {
  * no selected archetype yet, use the shared platformer/fighter upper bound so
  * the review screen never advertises a ten-image price for a 21-image game. */
 export function estimateImageCount(hasPhoto: boolean, archetype?: ArchetypeId): number {
-  if (!hasPhoto) return 5;
-  if (archetype === undefined || archetype === 'fighter') return 21;
-  return archetype === 'platformer' ? 21 : 10;
+  if (archetype === 'platformer') return hasPhoto ? 24 : 8;
+  if (!hasPhoto) return archetype === undefined ? 8 : 5;
+  if (archetype === undefined) return 24;
+  if (archetype === 'fighter') return 21;
+  return 10;
 }

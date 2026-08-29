@@ -1,6 +1,11 @@
 // Sparkade engine substrate — layer 1 of the three-layer architecture.
 // Zero DOM access at module load; everything DOM-touching lives inside classes.
 export * from './types';
+export {
+  harmonizeSourcePalette,
+  semanticGamePaletteForSource,
+  type LibraryColorMode,
+} from './source-palette';
 export { Rng } from './rng';
 export { GameLoop, STEP } from './loop';
 export { InputBroker, MenuRepeater, isTextEntryTarget, type RawInputId } from './input';
@@ -16,11 +21,23 @@ export {
   makeTallHeroEntry,
   makeTallSpriteEntry,
   resolveLikenessHead,
+  resolveLibraryEntryArt,
   type ResolvedSprite,
+  type ResolvedLibraryArt,
   type SpritePresentation,
   type SpriteResolveOptions,
 } from './sprites';
-export { Renderer, Camera, worldTransform, worldZoomRect, drawTileLayer, drawObstacleShadows, drawObstacleTile, type WorldTransform, type WorldZoomRect } from './renderer';
+export {
+  Renderer,
+  Camera,
+  worldTransform,
+  worldZoomRect,
+  drawTileLayer,
+  drawObstacleShadows,
+  drawObstacleTile,
+  type WorldTransform,
+  type WorldZoomRect,
+} from './renderer';
 export {
   BACKDROP_VARIANTS,
   generatedBackdropSourceRect,
@@ -40,7 +57,15 @@ export {
 } from './scroll-backdrop';
 export { WEATHER_KINDS, makeWeather, type Weather, type WeatherKind } from './weather';
 export { ParticleSystem } from './particles';
-export { aabbOverlap, moveAABB, cellsUnder, type AABB, type TileGrid, type Solidity, type MoveResult } from './physics';
+export {
+  aabbOverlap,
+  moveAABB,
+  cellsUnder,
+  type AABB,
+  type TileGrid,
+  type Solidity,
+  type MoveResult,
+} from './physics';
 export { AudioSys } from './audio/audio';
 export { ChiptunePlayer } from './audio/music';
 export {
@@ -68,6 +93,19 @@ export {
   type LeaderboardRow,
   type PauseAction,
 } from './overlays';
-export { GameHost, type EngineContext, type ArchetypeRuntime, type GameHostCallbacks } from './gamehost';
+export {
+  GameHost,
+  type EngineContext,
+  type ArchetypeRuntime,
+  type GameHostCallbacks,
+} from './gamehost';
 export { LIBRARY, missingLibraryIds } from './library/index';
+export {
+  PLATFORMER_HD_TILE_DENSITY,
+  PLATFORMER_HD_TILE_KINDS,
+  TILES_PLATFORMER_HD,
+  platformerHdMovingPlatformRef,
+  platformerHdTileRef,
+  type PlatformerHdTileKind,
+} from './library/platformer-hd';
 export { FONT_GLYPHS } from './fontdata';

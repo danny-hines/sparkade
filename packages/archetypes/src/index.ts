@@ -27,6 +27,7 @@ export {
   PlatformerSolidAutotiles,
   solidNeighborMask,
   solidTileVariant,
+  terrainAtlasFrame,
 } from './platformer/autotile';
 export { lintShooter, estimateShooterDurationS } from './shooter/lint';
 export { lintHShooter, estimateHShooterDurationS } from './hshooter/lint';

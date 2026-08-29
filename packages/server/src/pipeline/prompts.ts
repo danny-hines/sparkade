@@ -14,6 +14,7 @@ import {
   LIB_ITEMS,
   LIB_NPCS,
   LIB_OBJECTS,
+  LIB_PLATFORMER_ONLY_TILE_THEMES,
   LIB_PICKUPS,
   LIB_PROJECTILES,
   LIB_SHIPS,
@@ -321,10 +322,17 @@ IMAGE-FIRST CHARACTER FALLBACKS: a later Muse Image stage authors the visible pl
     archetype === 'platformer'
       ? 'solid/solid_inner/platform/hazard/checkpoint/exit/deco/wall/floor/block/pit/switch/door_locked/door_boss/door_open'
       : 'solid/platform/hazard/checkpoint/exit/deco/wall/floor/block/pit/switch/door_locked/door_boss/door_open';
+  const platformerOnlyFamilies = LIB_PLATFORMER_ONLY_TILE_THEMES.map((theme) => `${theme}_*`).join(
+    ', ',
+  );
+  const platformerOnlyNote =
+    archetype === 'platformer'
+      ? ` Platformer also has image-authored ${platformerOnlyFamilies}; these cover solid/solid_inner/platform/hazard/checkpoint/exit/deco and are automatically rendered at high density.`
+      : '';
   const reskinNotes =
     (roles.length
       ? `TERRAIN RESKIN — the strongest identity lever after the palette. ALWAYS reskin the terrain — assigning every tile slot is expected, not optional. The example just shows one family for format; pick the family that fits THIS game's world and never leave the tiles on the plain default. Each tile slot (${roles.join(', ')}) can be re-assigned:
-- to a THEMED library family: castle_*, cave_*, wasteland_*, alien_*, ice_*, desert_*, clockwork_* (brass machinery), candy_* (confectionery), coral_* (undersea reef), garden_* (overgrown greenery) — e.g. "tile_solid": "lib:ice_solid". Every family has every kind (${familyKinds}). Families are SHAPE languages — your palette supplies all color, so pick the family whose shapes fit the premise and stay within ONE family for coherence.
+- to a THEMED library family: castle_*, cave_*, wasteland_*, alien_*, ice_*, desert_*, clockwork_* (brass machinery), candy_* (confectionery), coral_* (undersea reef), garden_* (overgrown greenery) — e.g. "tile_solid": "lib:ice_solid". Every core family has every kind (${familyKinds}).${platformerOnlyNote} Pick the family whose material and shapes fit the premise and stay within ONE family for coherence.
 - or to a custom 16×16 sprite you draw (must be EXACTLY 16×16; solid/wall/floor tiles should be fully opaque and tile seamlessly edge-to-edge). When unsure, use a themed family — it always looks professional.
 ${platformerSolidNote}`
       : 'This archetype has no terrain tiles; its look comes from palette, backdrop, ship/foe sprites and wave choreography.\n') +

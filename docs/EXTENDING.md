@@ -72,8 +72,23 @@ ordinary enemy behaviors and four extra-wide panoramic background plates (one pe
 boss arena) from the key art. Background plates are distant, low-contrast scenery only; the
 hand-written tile map remains the sole source of collision geometry. They are generated in parallel,
 normalized to 1536×600, and gently camera-panned without horizontal tiling, so model edge
-imperfections cannot create a repeating seam. Each enemy or background role falls back independently
-to its stable procedural counterpart if unavailable. Photo games additionally require neutral and
+imperfections cannot create a repeating seam. Foreground geometry uses curated Muse Image packs for
+all eighteen platformer themes, checked into `packages/engine/src/library/platformer-hd.generated.json`.
+Each provides density-four cap/body atlases, platforms, hazards, checkpoints, exits, decorations,
+and a moving platform. The runtime transparently upgrades the existing family selected by Spark,
+scales the richer pixels over the same validated collision geometry, and retains the original 16px
+art for custom or unknown families. This removes all per-game foreground image calls. Author a
+reviewable replacement pack without
+touching gameplay with:
+
+```sh
+npm run tilesets:generate -- --theme cave --concept "rough crystal caverns"
+```
+
+The command saves raw outputs, prompts, processed assets, and a cost manifest under
+`data/experiments/platformer-tilesets/`. After visual review, promote the candidate path printed by
+the command with `npm run tilesets:promote`. Promotion palette-indexes the art and checks it into the
+runtime library; it never happens automatically. Photo games additionally require neutral and
 story-aware defeat-expression portraits plus generated player-head sprites. Fighter photo games
 attempt an all-or-nothing 11-pose player set. Platformer photo games whose design selects
 `platformerArtDensity: "detailed"` attempt an all-or-nothing five-pose 112×128 player set. The

@@ -5,7 +5,7 @@
 // builds via the import.meta.env.DEV gate in app.tsx.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import { PlatformerSolidAutotiles } from '@sparkade/archetypes';
+import { PlatformerSolidAutotiles, terrainAtlasFrame } from '@sparkade/archetypes';
 import {
   BACKDROP_VARIANTS,
   decodeSprite,
@@ -16,19 +16,41 @@ import {
   makeBackdrop,
   makeScrollBackdrop,
   makeWeather,
+  resolveLibraryEntryArt,
   SHOOTER_BACKDROP_VARIANTS,
   WEATHER_KINDS,
+  type LibraryColorMode,
   type LibraryEntry,
 } from '@sparkade/engine';
-import { LIB_TILE_THEMES, PALETTE_MOODS } from '@sparkade/shared';
+import { LIB_PLATFORMER_TILE_THEMES, PALETTE_MOODS } from '@sparkade/shared';
 import type { GameListItem, PaletteMood } from '@sparkade/shared';
 import { api } from '../api';
-import { buildSolidPreviewPlan } from './assets-gallery-tiles';
+import {
+  buildSolidPreviewPlan,
+  galleryTileDisplaySize,
+  isSpatialTerrainAtlas,
+  SPATIAL_TERRAIN_PREVIEW_SIZE,
+  type GalleryTilePreviewMode,
+} from './assets-gallery-tiles';
 
 /** Same preview palette the contact-sheet checker uses (Sweetie-16-derived). */
 const PREVIEW_PALETTE = [
-  '#000000', '#1a1c2c', '#29366f', '#3b5dc9', '#41a6f6', '#38b764', '#a7f070', '#ffcd75',
-  '#b13e53', '#ef7d57', '#5d275d', '#e04040', '#ffa300', '#ffd75e', '#94b0c2', '#f4f4f4',
+  '#000000',
+  '#1a1c2c',
+  '#29366f',
+  '#3b5dc9',
+  '#41a6f6',
+  '#38b764',
+  '#a7f070',
+  '#ffcd75',
+  '#b13e53',
+  '#ef7d57',
+  '#5d275d',
+  '#e04040',
+  '#ffa300',
+  '#ffd75e',
+  '#94b0c2',
+  '#f4f4f4',
 ];
 
 // A deliberately low-contrast DUNGEON palette that still PASSES paletteProblems
@@ -36,8 +58,22 @@ const PREVIEW_PALETTE = [
 // obstacle" bug: wall art is slot-2 body + faint slot-3 bevels == the slot-2
 // floor. Use it on the Room tab to see the obstacle-contrast pass rescue it.
 const LOWCON_PALETTE = [
-  '#000000', '#0b0d13', '#242833', '#2b2f3b', '#333844', '#57a0e0', '#7dc0f5', '#bfe4ff',
-  '#b048c0', '#c96fd8', '#e6b0f0', '#ff3b3b', '#ffa300', '#ffd75e', '#9fb4c6', '#f4f4f4',
+  '#000000',
+  '#0b0d13',
+  '#242833',
+  '#2b2f3b',
+  '#333844',
+  '#57a0e0',
+  '#7dc0f5',
+  '#bfe4ff',
+  '#b048c0',
+  '#c96fd8',
+  '#e6b0f0',
+  '#ff3b3b',
+  '#ffa300',
+  '#ffd75e',
+  '#9fb4c6',
+  '#f4f4f4',
 ];
 
 type Matcher = (id: string) => boolean;
@@ -56,11 +92,11 @@ const SPRITE_TABS: [string, Matcher][] = [
 // Tile families come from the shared constant so new themes appear automatically.
 const TILE_FAMILIES: [string, Matcher][] = [
   ['default', (id) => /^tile_/.test(id)],
-  ...LIB_TILE_THEMES.map((t): [string, Matcher] => [t, (id) => id.startsWith(`${t}_`)]),
+  ...LIB_PLATFORMER_TILE_THEMES.map((t): [string, Matcher] => [t, (id) => id.startsWith(`${t}_`)]),
 ];
 
 const isTileId = (id: string) =>
-  id.startsWith('tile_') || LIB_TILE_THEMES.some((t) => id.startsWith(`${t}_`));
+  id.startsWith('tile_') || LIB_PLATFORMER_TILE_THEMES.some((t) => id.startsWith(`${t}_`));
 
 function SpriteCell(props: {
   id: string;
@@ -70,60 +106,66 @@ function SpriteCell(props: {
   animate: boolean;
   tiled: boolean;
   headSlots: boolean;
+  tilePreviewMode: GalleryTilePreviewMode;
+  colorMode: LibraryColorMode;
 }): ComponentChildren {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    const frames = props.entry.frames.map((f) => decodeSprite(f, props.palette));
+    const primary = resolveLibraryEntryArt(props.entry, props.palette, props.colorMode);
+    const frames = primary.frames.map((f) => decodeSprite(f, primary.palette));
     const solidPlan = buildSolidPreviewPlan(
       props.id,
       props.tiled,
       (candidateId) => LIBRARY[candidateId] !== undefined,
     );
     const innerEntry = solidPlan ? (LIBRARY[solidPlan.innerId] ?? props.entry) : props.entry;
+    const innerPresentation = resolveLibraryEntryArt(innerEntry, props.palette, props.colorMode);
     const innerFrames =
       solidPlan?.innerId === props.id
         ? frames
-        : innerEntry.frames.map((f) => decodeSprite(f, props.palette));
+        : innerPresentation.frames.map((f) => decodeSprite(f, innerPresentation.palette));
     const solidAutotiles = solidPlan
-      ? new PlatformerSolidAutotiles(frames, innerFrames, props.palette[1] ?? '#111111')
+      ? new PlatformerSolidAutotiles(frames, innerFrames, primary.palette[1] ?? '#111111')
       : null;
     const previewFrameCount = solidPlan
-      ? Math.max(props.entry.frames.length, innerEntry.frames.length)
-      : props.entry.frames.length;
+      ? Math.max(primary.frames.length, innerPresentation.frames.length)
+      : primary.frames.length;
+    const spatialAtlas = isSpatialTerrainAtlas(props.id);
     let fi = 0;
     const draw = () => {
-      const capFrameIx = fi % props.entry.frames.length;
-      const f = props.entry.frames[capFrameIx]!;
+      const capFrameIx = fi % primary.frames.length;
+      const f = primary.frames[capFrameIx]!;
       const img = frames[capFrameIx]!;
-      const reps = props.tiled && isTileId(props.id) ? 3 : 1;
-      canvas.width = f.w * props.zoom * reps;
-      canvas.height = f.h * props.zoom * reps;
+      const reps =
+        props.tiled && isTileId(props.id) ? (spatialAtlas ? SPATIAL_TERRAIN_PREVIEW_SIZE : 3) : 1;
+      const display = galleryTileDisplaySize(props.id, f.w, f.h, props.tilePreviewMode, props.zoom);
+      canvas.width = display.width * reps;
+      canvas.height = display.height * reps;
       const ctx = canvas.getContext('2d')!;
       ctx.imageSmoothingEnabled = false;
+      const drawPreview = (source: CanvasImageSource, x: number, y: number): void => {
+        ctx.drawImage(source, x, y, display.width, display.height);
+      };
       if (solidPlan && solidAutotiles) {
         for (const cell of solidPlan.cells) {
-          const tile = solidAutotiles.frame(cell.mask, fi);
+          const frameIx = props.id.endsWith('_solid_hd') ? terrainAtlasFrame(cell.tx, cell.ty) : fi;
+          const tile = solidAutotiles.frame(cell.mask, frameIx);
           if (!tile) continue;
-          ctx.drawImage(
-            tile,
-            cell.tx * f.w * props.zoom,
-            cell.ty * f.h * props.zoom,
-            f.w * props.zoom,
-            f.h * props.zoom,
-          );
+          drawPreview(tile, cell.tx * display.width, cell.ty * display.height);
+        }
+      } else if (spatialAtlas && props.tiled) {
+        for (let ty = 0; ty < SPATIAL_TERRAIN_PREVIEW_SIZE; ty++) {
+          for (let tx = 0; tx < SPATIAL_TERRAIN_PREVIEW_SIZE; tx++) {
+            const tile = frames[terrainAtlasFrame(tx, ty)] ?? frames[0];
+            if (tile) drawPreview(tile, tx * display.width, ty * display.height);
+          }
         }
       } else {
         for (let ry = 0; ry < reps; ry++)
           for (let rx = 0; rx < reps; rx++)
-            ctx.drawImage(
-              img,
-              rx * f.w * props.zoom,
-              ry * f.h * props.zoom,
-              f.w * props.zoom,
-              f.h * props.zoom,
-            );
+            drawPreview(img, rx * display.width, ry * display.height);
       }
       if (props.headSlots && props.entry.headSlots) {
         const hs = props.entry.headSlots[capFrameIx] ?? props.entry.headSlots[0]!;
@@ -137,20 +179,45 @@ function SpriteCell(props: {
       }
     };
     draw();
-    if (!props.animate || previewFrameCount < 2) return;
+    if (!props.animate || previewFrameCount < 2 || spatialAtlas) return;
     const t = setInterval(() => {
       fi = (fi + 1) % previewFrameCount;
       draw();
     }, 400);
     return () => clearInterval(t);
-  }, [props.id, props.palette, props.zoom, props.animate, props.tiled, props.headSlots]);
+  }, [
+    props.id,
+    props.palette,
+    props.zoom,
+    props.animate,
+    props.tiled,
+    props.headSlots,
+    props.tilePreviewMode,
+    props.colorMode,
+  ]);
   const f0 = props.entry.frames[0]!;
+  const display = galleryTileDisplaySize(props.id, f0.w, f0.h, props.tilePreviewMode, props.zoom);
+  const outputLabel =
+    props.tilePreviewMode === 'heroic'
+      ? 'heroic output'
+      : props.tilePreviewMode === 'compact'
+        ? 'compact output'
+        : 'detail preview';
   return (
     <div class="gal-cell">
       <canvas ref={ref} />
       <div class="gal-id">{props.id}</div>
       <div class="gal-meta">
-        {f0.w}×{f0.h} · {props.entry.frames.length}f
+        {f0.w}×{f0.h}
+        {props.id.endsWith('_hd') && ` → ${display.width}×${display.height} ${outputLabel}`} ·{' '}
+        {isSpatialTerrainAtlas(props.id)
+          ? '8×8 preview · 4×4 atlas repeated 2×2'
+          : `${props.entry.frames.length}f`}
+        {props.entry.sourcePalette && props.colorMode !== 'game'
+          ? props.colorMode === 'harmonized'
+            ? ' · Harmonized Muse colors'
+            : ' · Original Muse colors'
+          : ''}
       </div>
     </div>
   );
@@ -172,9 +239,12 @@ function PaletteCell(props: { mood: PaletteMood }): ComponentChildren {
     const ctx = canvas.getContext('2d')!;
     ctx.imageSmoothingEnabled = false;
     // bg bands (2,3,4)
-    ctx.fillStyle = c[2]!; ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = c[3]!; ctx.fillRect(0, 0, W, Math.floor(H * 0.66));
-    ctx.fillStyle = c[4]!; ctx.fillRect(0, 0, W, Math.floor(H * 0.33));
+    ctx.fillStyle = c[2]!;
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = c[3]!;
+    ctx.fillRect(0, 0, W, Math.floor(H * 0.66));
+    ctx.fillStyle = c[4]!;
+    ctx.fillRect(0, 0, W, Math.floor(H * 0.33));
     const disc = (cx: number, cy: number, r: number, col: string) => {
       ctx.fillStyle = col;
       ctx.beginPath();
@@ -182,16 +252,32 @@ function PaletteCell(props: { mood: PaletteMood }): ComponentChildren {
       ctx.fill();
     };
     // hero (5/6/7 + outline 1)
-    disc(46, 46, 19, c[1]!); disc(46, 46, 17, c[5]!); disc(46, 42, 10, c[6]!); disc(42, 39, 3.5, c[7]!);
+    disc(46, 46, 19, c[1]!);
+    disc(46, 46, 17, c[5]!);
+    disc(46, 42, 10, c[6]!);
+    disc(42, 39, 3.5, c[7]!);
     // enemy (8/9/a + outline)
-    disc(112, 46, 17, c[1]!); disc(112, 46, 15, c[8]!); disc(112, 43, 8, c[9]!); disc(109, 40, 3, c[10]!);
+    disc(112, 46, 17, c[1]!);
+    disc(112, 46, 15, c[8]!);
+    disc(112, 43, 8, c[9]!);
+    disc(109, 40, 3, c[10]!);
     // hazard spikes (b)
     ctx.fillStyle = c[11]!;
-    for (let k = 0; k < 5; k++) { const hx = 150 + k * 12; ctx.beginPath(); ctx.moveTo(hx, H - 4); ctx.lineTo(hx + 5, H - 14); ctx.lineTo(hx + 10, H - 4); ctx.fill(); }
+    for (let k = 0; k < 5; k++) {
+      const hx = 150 + k * 12;
+      ctx.beginPath();
+      ctx.moveTo(hx, H - 4);
+      ctx.lineTo(hx + 5, H - 14);
+      ctx.lineTo(hx + 10, H - 4);
+      ctx.fill();
+    }
     // gold pips (d) + warm accent (c)
-    disc(225, 22, 6, c[13]!); disc(242, 30, 6, c[13]!); disc(233, 44, 5, c[12]!);
+    disc(225, 22, 6, c[13]!);
+    disc(242, 30, 6, c[13]!);
+    disc(233, 44, 5, c[12]!);
     // text-contrast chip: near-white (f) 'text' bars on bg-dark (2)
-    ctx.fillStyle = c[2]!; ctx.fillRect(255, 14, 40, 50);
+    ctx.fillStyle = c[2]!;
+    ctx.fillRect(255, 14, 40, 50);
     ctx.fillStyle = c[15]!;
     for (const bx of [259, 266, 273, 280, 287]) ctx.fillRect(bx, 26, 4, 26);
   }, [props.mood.id]);
@@ -199,7 +285,12 @@ function PaletteCell(props: { mood: PaletteMood }): ComponentChildren {
     <div class="gal-cell gal-palette">
       <div class="gal-swatches">
         {c.map((hex, i) => (
-          <div key={i} class="gal-swatch" style={`background:${hex}`} title={`slot ${SLOT_LABELS[i]} · ${hex}`}>
+          <div
+            key={i}
+            class="gal-swatch"
+            style={`background:${hex}`}
+            title={`slot ${SLOT_LABELS[i]} · ${hex}`}
+          >
             <span>{SLOT_LABELS[i]}</span>
           </div>
         ))}
@@ -249,7 +340,11 @@ function WeatherCell(props: { kind: string; palette: string[]; seed: number }): 
 }
 
 /** A live VERTICAL-scroll shooter backdrop: the real makeScrollBackdrop, scrolled. */
-function ShooterBgCell(props: { variant: string; palette: string[]; seed: number }): ComponentChildren {
+function ShooterBgCell(props: {
+  variant: string;
+  palette: string[];
+  seed: number;
+}): ComponentChildren {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = ref.current;
@@ -280,7 +375,11 @@ function ShooterBgCell(props: { variant: string; palette: string[]; seed: number
 }
 
 /** A live backdrop panel: the real generator, parallax animated. */
-function BackdropCell(props: { variant: string; palette: string[]; seed: number }): ComponentChildren {
+function BackdropCell(props: {
+  variant: string;
+  palette: string[];
+  seed: number;
+}): ComponentChildren {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = ref.current;
@@ -352,7 +451,7 @@ function RoomCell(props: { palette: string[]; shade: boolean }): ComponentChildr
     const pit = dec('tile_pit');
     const block = dec('tile_block');
     const at = (tx: number, ty: number): string =>
-      ty >= 0 && ty < ROWS && tx >= 0 && tx < COLS ? ROOM_LAYOUT[ty]![tx] ?? '.' : 'W';
+      ty >= 0 && ty < ROWS && tx >= 0 && tx < COLS ? (ROOM_LAYOUT[ty]![tx] ?? '.') : 'W';
 
     // Base terrain: floor everywhere, then walls/pits (blocks sit on floor later).
     for (let ty = 0; ty < ROWS; ty++)
@@ -369,7 +468,11 @@ function RoomCell(props: { palette: string[]; shade: boolean }): ComponentChildr
     };
     if (props.shade)
       drawObstacleShadows(
-        sink, { x: 0, y: 0 }, COLS, ROWS, TILE,
+        sink,
+        { x: 0, y: 0 },
+        COLS,
+        ROWS,
+        TILE,
         (tx, ty) => at(tx, ty) === 'W' || at(tx, ty) === 'P',
         (tx, ty) => at(tx, ty) === '.' || at(tx, ty) === 'B',
       );
@@ -379,36 +482,85 @@ function RoomCell(props: { palette: string[]; shade: boolean }): ComponentChildr
       for (let tx = 0; tx < COLS; tx++)
         if (at(tx, ty) === 'B') {
           ctx.drawImage(block, tx * TILE, ty * TILE);
-          if (props.shade) drawObstacleTile(sink, tx * TILE, ty * TILE, TILE, true, true, true, true);
+          if (props.shade)
+            drawObstacleTile(sink, tx * TILE, ty * TILE, TILE, true, true, true, true);
         }
   }, [props.palette, props.shade]);
   return (
     <div class="gal-cell">
-      <canvas ref={ref} style={`width:${ROOM_LAYOUT[0]!.length * 32}px;image-rendering:pixelated`} />
-      <div class="gal-id">{props.shade ? 'WITH obstacle-contrast pass' : 'raw tile art (ships today)'}</div>
+      <canvas
+        ref={ref}
+        style={`width:${ROOM_LAYOUT[0]!.length * 32}px;image-rendering:pixelated`}
+      />
+      <div class="gal-id">
+        {props.shade ? 'WITH obstacle-contrast pass' : 'raw tile art (ships today)'}
+      </div>
     </div>
   );
 }
 
-const TABS = ['Palettes', 'Room', 'Backdrops', 'Shooter BG', 'Weather', ...SPRITE_TABS.map(([t]) => t), 'Tiles', 'Font'] as const;
+const TABS = [
+  'Palettes',
+  'Room',
+  'Backdrops',
+  'Shooter BG',
+  'Weather',
+  ...SPRITE_TABS.map(([t]) => t),
+  'Tiles',
+  'Font',
+] as const;
 
 export function AssetsGalleryScreen(): ComponentChildren {
+  const query = new URLSearchParams(location.search);
+  const requestedTab = query.get('tab');
+  const requestedFamily = query.get('family');
   const [games, setGames] = useState<GameListItem[]>([]);
   const [paletteId, setPaletteId] = useState('preview');
   const [zoom, setZoom] = useState(5);
   const [animate, setAnimate] = useState(true);
   const [tiled, setTiled] = useState(true);
   const [headSlots, setHeadSlots] = useState(false);
+  const requestedColorMode = query.get('colors');
+  const legacySourceMode = query.get('source');
+  const [colorMode, setColorMode] = useState<LibraryColorMode>(
+    requestedColorMode === 'game' ||
+      requestedColorMode === 'source' ||
+      requestedColorMode === 'harmonized'
+      ? requestedColorMode
+      : legacySourceMode === '1'
+        ? 'source'
+        : legacySourceMode === '0'
+          ? 'game'
+          : 'harmonized',
+  );
   const [seed, setSeed] = useState(12345);
-  const [tab, setTab] = useState<string>('Heroes & ships');
-  const [tileFamily, setTileFamily] = useState('default');
+  const [tab, setTab] = useState<string>(
+    requestedTab && TABS.includes(requestedTab as (typeof TABS)[number])
+      ? requestedTab
+      : 'Heroes & ships',
+  );
+  const [tileFamily, setTileFamily] = useState(
+    requestedFamily && TILE_FAMILIES.some(([name]) => name === requestedFamily)
+      ? requestedFamily
+      : 'default',
+  );
+  const [hdTilesOnly, setHdTilesOnly] = useState(query.get('hd') === '1');
+  const requestedTilePreviewMode = query.get('scale');
+  const [tilePreviewMode, setTilePreviewMode] = useState<GalleryTilePreviewMode>(
+    requestedTilePreviewMode === 'compact' || requestedTilePreviewMode === 'detail'
+      ? requestedTilePreviewMode
+      : 'heroic',
+  );
 
   useEffect(() => {
     // Unlock the kiosk viewport lock on BOTH html and body — html keeps its fixed
     // 600px height + overflow:hidden otherwise, which clips the scrollable body.
     document.documentElement.classList.add('dev-gallery');
     document.body.classList.add('dev-gallery');
-    void api.listGames().then(setGames).catch(() => {});
+    void api
+      .listGames()
+      .then(setGames)
+      .catch(() => {});
     return () => {
       document.documentElement.classList.remove('dev-gallery');
       document.body.classList.remove('dev-gallery');
@@ -421,7 +573,8 @@ export function AssetsGalleryScreen(): ComponentChildren {
       { id: 'lowcon', title: 'Low-contrast dungeon (repro)', palette: LOWCON_PALETTE },
     ];
     for (const g of games) {
-      if (g.cover?.palette) list.push({ id: g.id, title: `${g.title} (${g.archetype})`, palette: g.cover.palette });
+      if (g.cover?.palette)
+        list.push({ id: g.id, title: `${g.title} (${g.archetype})`, palette: g.cover.palette });
     }
     return list;
   }, [games]);
@@ -451,6 +604,8 @@ export function AssetsGalleryScreen(): ComponentChildren {
           animate={animate}
           tiled={tiled}
           headSlots={headSlots}
+          tilePreviewMode={tilePreviewMode}
+          colorMode={colorMode}
         />
       ))}
     </div>
@@ -458,22 +613,49 @@ export function AssetsGalleryScreen(): ComponentChildren {
 
   const activeSprite = SPRITE_TABS.find(([t]) => t === tab);
   const tileMatch = TILE_FAMILIES.find(([t]) => t === tileFamily)?.[1] ?? (() => false);
+  const visibleTileIds = ids.filter(tileMatch).filter((id) => !hdTilesOnly || id.endsWith('_hd'));
 
   return (
     <div class="gal-page">
       <div class="gal-header">
         <h1>
-          Sparkade asset gallery <span class="gal-dim">(dev only — colors come from the selected palette)</span>{' '}
-          <a href="/?dev=likeness" style="color:var(--cyan);text-decoration:none;font-size:14px">→ likeness lab</a>{' '}
-          <a href="/?dev=platformer-poses" style="color:var(--cyan);text-decoration:none;font-size:14px">→ platformer poses</a>{' '}
-          <a href="/?dev=platformer-levels" style="color:var(--cyan);text-decoration:none;font-size:14px">→ platformer levels</a>{' '}
-          <a href="/?dev=sprite-editor" style="color:var(--cyan);text-decoration:none;font-size:14px">→ sprite editor</a>{' '}
-          <a href="/?dev=fighter-editor" style="color:var(--cyan);text-decoration:none;font-size:14px">→ fighter workshop</a>
+          Sparkade asset gallery{' '}
+          <span class="gal-dim">(dev only — palette and source-color previews)</span>{' '}
+          <a href="/?dev=likeness" style="color:var(--cyan);text-decoration:none;font-size:14px">
+            → likeness lab
+          </a>{' '}
+          <a
+            href="/?dev=platformer-poses"
+            style="color:var(--cyan);text-decoration:none;font-size:14px"
+          >
+            → platformer poses
+          </a>{' '}
+          <a
+            href="/?dev=platformer-levels"
+            style="color:var(--cyan);text-decoration:none;font-size:14px"
+          >
+            → platformer levels
+          </a>{' '}
+          <a
+            href="/?dev=sprite-editor"
+            style="color:var(--cyan);text-decoration:none;font-size:14px"
+          >
+            → sprite editor
+          </a>{' '}
+          <a
+            href="/?dev=fighter-editor"
+            style="color:var(--cyan);text-decoration:none;font-size:14px"
+          >
+            → fighter workshop
+          </a>
         </h1>
         <div class="gal-controls">
           <label>
             Palette{' '}
-            <select value={paletteId} onChange={(e) => setPaletteId((e.target as HTMLSelectElement).value)}>
+            <select
+              value={paletteId}
+              onChange={(e) => setPaletteId((e.target as HTMLSelectElement).value)}
+            >
               {palettes.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.title}
@@ -483,20 +665,38 @@ export function AssetsGalleryScreen(): ComponentChildren {
           </label>
           <label>
             Zoom{' '}
-            <select value={zoom} onChange={(e) => setZoom(Number((e.target as HTMLSelectElement).value))}>
+            <select
+              value={zoom}
+              onChange={(e) => setZoom(Number((e.target as HTMLSelectElement).value))}
+            >
               <option>3</option>
               <option>5</option>
               <option>8</option>
             </select>
           </label>
           <label>
-            <input type="checkbox" checked={animate} onChange={(e) => setAnimate((e.target as HTMLInputElement).checked)} /> Animate
+            <input
+              type="checkbox"
+              checked={animate}
+              onChange={(e) => setAnimate((e.target as HTMLInputElement).checked)}
+            />{' '}
+            Animate
           </label>
           <label>
-            <input type="checkbox" checked={tiled} onChange={(e) => setTiled((e.target as HTMLInputElement).checked)} /> 3×3 tile previews
+            <input
+              type="checkbox"
+              checked={tiled}
+              onChange={(e) => setTiled((e.target as HTMLInputElement).checked)}
+            />{' '}
+            3×3 tile previews
           </label>
           <label>
-            <input type="checkbox" checked={headSlots} onChange={(e) => setHeadSlots((e.target as HTMLInputElement).checked)} /> Head slots
+            <input
+              type="checkbox"
+              checked={headSlots}
+              onChange={(e) => setHeadSlots((e.target as HTMLInputElement).checked)}
+            />{' '}
+            Head slots
           </label>
         </div>
         <div class="gal-tabs" role="tablist">
@@ -521,7 +721,10 @@ export function AssetsGalleryScreen(): ComponentChildren {
         {tab === 'Palettes' && (
           <div>
             <div class="gal-controls gal-subcontrols">
-              <span class="gal-dim">Curated moods — the design cookbook + legibility fallback. Each passes the palette validator. Swatch slots 0–f; scene shows hero/enemy/hazard/gold/text-in-use.</span>
+              <span class="gal-dim">
+                Curated moods — the design cookbook + legibility fallback. Each passes the palette
+                validator. Swatch slots 0–f; scene shows hero/enemy/hazard/gold/text-in-use.
+              </span>
             </div>
             <div class="gal-grid">
               {PALETTE_MOODS.map((m) => (
@@ -535,9 +738,10 @@ export function AssetsGalleryScreen(): ComponentChildren {
           <div>
             <div class="gal-controls gal-subcontrols">
               <span class="gal-dim">
-                Floor↔obstacle contrast. Pick the <b>Low-contrast dungeon (repro)</b> palette above: on the left the
-                walls/pits/block sink into the floor (the ship-today bug); on the right the obstacle-contrast pass
-                forces a palette-independent raised-block silhouette.
+                Floor↔obstacle contrast. Pick the <b>Low-contrast dungeon (repro)</b> palette above:
+                on the left the walls/pits/block sink into the floor (the ship-today bug); on the
+                right the obstacle-contrast pass forces a palette-independent raised-block
+                silhouette.
               </span>
             </div>
             <div class="gal-grid">
@@ -552,13 +756,26 @@ export function AssetsGalleryScreen(): ComponentChildren {
             <div class="gal-controls gal-subcontrols">
               <span class="gal-dim">Procedural — the real generator, parallax animated.</span>
               <label>
-                Seed <input type="number" value={seed} style="width:110px" onChange={(e) => setSeed(Number((e.target as HTMLInputElement).value) || 0)} />
+                Seed{' '}
+                <input
+                  type="number"
+                  value={seed}
+                  style="width:110px"
+                  onChange={(e) => setSeed(Number((e.target as HTMLInputElement).value) || 0)}
+                />
               </label>
-              <button type="button" onClick={() => setSeed(Math.floor(Math.random() * 2 ** 31))}>Reroll</button>
+              <button type="button" onClick={() => setSeed(Math.floor(Math.random() * 2 ** 31))}>
+                Reroll
+              </button>
             </div>
             <div class="gal-grid">
               {BACKDROP_VARIANTS.map((v) => (
-                <BackdropCell key={`${v}-${seed}-${paletteId}`} variant={v} palette={palette} seed={seed} />
+                <BackdropCell
+                  key={`${v}-${seed}-${paletteId}`}
+                  variant={v}
+                  palette={palette}
+                  seed={seed}
+                />
               ))}
             </div>
           </div>
@@ -568,17 +785,31 @@ export function AssetsGalleryScreen(): ComponentChildren {
           <div>
             <div class="gal-controls gal-subcontrols">
               <span class="gal-dim">
-                Vertical-scroll shooter backdrops (real makeScrollBackdrop) — top-down / fly-through scenes that tile
-                vertically. Each generated shooter gets one theme (model-picked, else seed-varied) instead of always starfield.
+                Vertical-scroll shooter backdrops (real makeScrollBackdrop) — top-down / fly-through
+                scenes that tile vertically. Each generated shooter gets one theme (model-picked,
+                else seed-varied) instead of always starfield.
               </span>
               <label>
-                Seed <input type="number" value={seed} style="width:110px" onChange={(e) => setSeed(Number((e.target as HTMLInputElement).value) || 0)} />
+                Seed{' '}
+                <input
+                  type="number"
+                  value={seed}
+                  style="width:110px"
+                  onChange={(e) => setSeed(Number((e.target as HTMLInputElement).value) || 0)}
+                />
               </label>
-              <button type="button" onClick={() => setSeed(Math.floor(Math.random() * 2 ** 31))}>Reroll</button>
+              <button type="button" onClick={() => setSeed(Math.floor(Math.random() * 2 ** 31))}>
+                Reroll
+              </button>
             </div>
             <div class="gal-grid">
               {SHOOTER_BACKDROP_VARIANTS.map((v) => (
-                <ShooterBgCell key={`${v}-${seed}-${paletteId}`} variant={v} palette={palette} seed={seed} />
+                <ShooterBgCell
+                  key={`${v}-${seed}-${paletteId}`}
+                  variant={v}
+                  palette={palette}
+                  seed={seed}
+                />
               ))}
             </div>
           </div>
@@ -587,15 +818,31 @@ export function AssetsGalleryScreen(): ComponentChildren {
         {tab === 'Weather' && (
           <div>
             <div class="gal-controls gal-subcontrols">
-              <span class="gal-dim">Ambient overlays (real makeWeather) over a sample backdrop — as drawn over gameplay, under the HUD.</span>
+              <span class="gal-dim">
+                Ambient overlays (real makeWeather) over a sample backdrop — as drawn over gameplay,
+                under the HUD.
+              </span>
               <label>
-                Seed <input type="number" value={seed} style="width:110px" onChange={(e) => setSeed(Number((e.target as HTMLInputElement).value) || 0)} />
+                Seed{' '}
+                <input
+                  type="number"
+                  value={seed}
+                  style="width:110px"
+                  onChange={(e) => setSeed(Number((e.target as HTMLInputElement).value) || 0)}
+                />
               </label>
-              <button type="button" onClick={() => setSeed(Math.floor(Math.random() * 2 ** 31))}>Reroll</button>
+              <button type="button" onClick={() => setSeed(Math.floor(Math.random() * 2 ** 31))}>
+                Reroll
+              </button>
             </div>
             <div class="gal-grid">
               {WEATHER_KINDS.map((k) => (
-                <WeatherCell key={`${k}-${seed}-${paletteId}`} kind={k} palette={palette} seed={seed} />
+                <WeatherCell
+                  key={`${k}-${seed}-${paletteId}`}
+                  kind={k}
+                  palette={palette}
+                  seed={seed}
+                />
               ))}
             </div>
           </div>
@@ -610,9 +857,56 @@ export function AssetsGalleryScreen(): ComponentChildren {
 
         {tab === 'Tiles' && (
           <div>
+            <div class="gal-controls gal-subcontrols">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={hdTilesOnly}
+                  onChange={(e) => setHdTilesOnly((e.target as HTMLInputElement).checked)}
+                />{' '}
+                Curated HD only
+              </label>
+              <label>
+                Output{' '}
+                <select
+                  value={tilePreviewMode}
+                  onChange={(e) =>
+                    setTilePreviewMode(
+                      (e.target as HTMLSelectElement).value as GalleryTilePreviewMode,
+                    )
+                  }
+                >
+                  <option value="heroic">Heroic runtime (native)</option>
+                  <option value="compact">Compact runtime</option>
+                  <option value="detail">Source detail (2×)</option>
+                </select>
+              </label>
+              <label>
+                Tile colors{' '}
+                <select
+                  value={colorMode}
+                  onChange={(e) =>
+                    setColorMode((e.target as HTMLSelectElement).value as LibraryColorMode)
+                  }
+                >
+                  <option value="harmonized">Muse + game harmonized</option>
+                  <option value="source">Original Muse</option>
+                  <option value="game">Game-palette approximation</option>
+                </select>
+              </label>
+              <span class="gal-dim">
+                Heroic uses the same 4× physical world transform as detailed players, preserving
+                64px tiles 1:1. Compact shows the 2× cabinet output. HD solid previews pair cap/body
+                atlases and walk spatial frames exactly like gameplay. Harmonized preserves Muse
+                contrast and saturation while applying a gentle hue grade from the selected game
+                palette.
+              </span>
+            </div>
             <div class="gal-tabs gal-subtabs" role="tablist">
               {TILE_FAMILIES.map(([name, match]) => {
-                const n = ids.filter(match).length;
+                const n = ids
+                  .filter(match)
+                  .filter((id) => !hdTilesOnly || id.endsWith('_hd')).length;
                 return (
                   <button
                     key={name}
@@ -626,7 +920,7 @@ export function AssetsGalleryScreen(): ComponentChildren {
                 );
               })}
             </div>
-            {spriteGrid(ids.filter(tileMatch))}
+            {spriteGrid(visibleTileIds)}
           </div>
         )}
 

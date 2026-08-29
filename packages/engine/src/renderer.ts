@@ -244,7 +244,7 @@ export function drawTileLayer(
   cols: number,
   rows: number,
   tileSize: number,
-  tileAt: (tx: number, ty: number) => HTMLCanvasElement | null,
+  tileAt: (tx: number, ty: number) => CanvasImageSource | null,
 ): void {
   const x0 = Math.max(0, Math.floor(cam.x / tileSize));
   const y0 = Math.max(0, Math.floor(cam.y / tileSize));
@@ -253,7 +253,7 @@ export function drawTileLayer(
   for (let ty = y0; ty <= y1; ty++) {
     for (let tx = x0; tx <= x1; tx++) {
       const img = tileAt(tx, ty);
-      if (img) r.draw(img, tx * tileSize - cam.x, ty * tileSize - cam.y);
+      if (img) r.drawScaled(img, tx * tileSize - cam.x, ty * tileSize - cam.y, tileSize, tileSize);
     }
   }
 }

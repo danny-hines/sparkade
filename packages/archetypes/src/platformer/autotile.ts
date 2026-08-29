@@ -16,6 +16,15 @@ export type SolidEdge = 'north' | 'east' | 'south' | 'west';
 export type SolidCorner = 'northWest' | 'northEast' | 'southEast' | 'southWest';
 export type SolidTileVariant = 'cap' | 'inner';
 
+/** Select a spatial variant from a 4×4 continuous density-four atlas. */
+export function terrainAtlasFrame(tx: number, ty: number, columns = 4, rows = 4): number {
+  const safeColumns = Math.max(1, Math.trunc(columns));
+  const safeRows = Math.max(1, Math.trunc(rows));
+  const column = ((Math.trunc(tx) % safeColumns) + safeColumns) % safeColumns;
+  const row = ((Math.trunc(ty) % safeRows) + safeRows) % safeRows;
+  return column + row * safeColumns;
+}
+
 /** Build a four-neighbour connectivity mask for one square solid cell. */
 export function solidNeighborMask(
   solidAt: (tx: number, ty: number) => boolean,
@@ -94,21 +103,22 @@ function drawExposedEdges(
   w: number,
   h: number,
   color: string,
+  thickness: number,
 ): void {
   ctx.fillStyle = color;
   for (const edge of exposedSolidEdges(mask)) {
     switch (edge) {
       case 'north':
-        ctx.fillRect(0, 0, w, 1);
+        ctx.fillRect(0, 0, w, thickness);
         break;
       case 'east':
-        ctx.fillRect(w - 1, 0, 1, h);
+        ctx.fillRect(w - thickness, 0, thickness, h);
         break;
       case 'south':
-        ctx.fillRect(0, h - 1, w, 1);
+        ctx.fillRect(0, h - thickness, w, thickness);
         break;
       case 'west':
-        ctx.fillRect(0, 0, 1, h);
+        ctx.fillRect(0, 0, thickness, h);
         break;
     }
   }
@@ -125,39 +135,58 @@ function drawRoundedCorner(
   w: number,
   h: number,
   color: string,
+  density: number,
 ): void {
-  if (w < 3 || h < 3) return;
+  const cut = density * 2;
+  if (w < cut + density || h < cut + density) return;
   let x = 0;
   let y = 0;
-  let diagonalX = 1;
-  let diagonalY = 1;
+  let diagonalX = density;
+  let diagonalY = density;
   if (corner === 'northEast' || corner === 'southEast') {
-    x = w - 2;
-    diagonalX = w - 2;
+    x = w - cut;
+    diagonalX = w - cut;
   }
   if (corner === 'southEast' || corner === 'southWest') {
-    y = h - 2;
-    diagonalY = h - 2;
+    y = h - cut;
+    diagonalY = h - cut;
   }
-  ctx.clearRect(x, y, 2, 2);
+  ctx.clearRect(x, y, cut, cut);
   ctx.fillStyle = color;
-  ctx.fillRect(diagonalX, diagonalY, 1, 1);
+  ctx.fillRect(diagonalX, diagonalY, density, density);
+}
+
+function sourceSize(source: CanvasImageSource): { width: number; height: number } {
+  const sized = source as CanvasImageSource & {
+    naturalWidth?: number;
+    naturalHeight?: number;
+    videoWidth?: number;
+    videoHeight?: number;
+    width?: number;
+    height?: number;
+  };
+  return {
+    width: sized.naturalWidth || sized.videoWidth || sized.width || 16,
+    height: sized.naturalHeight || sized.videoHeight || sized.height || 16,
+  };
 }
 
 export function renderSolidVariant(
-  source: HTMLCanvasElement,
+  source: CanvasImageSource,
   mask: number,
   borderColor: string,
 ): HTMLCanvasElement {
   const out = document.createElement('canvas');
-  out.width = source.width;
-  out.height = source.height;
+  const dimensions = sourceSize(source);
+  out.width = dimensions.width;
+  out.height = dimensions.height;
   const ctx = out.getContext('2d')!;
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(source, 0, 0);
-  drawExposedEdges(ctx, mask, out.width, out.height, borderColor);
+  const density = Math.max(1, Math.round(out.width / 16));
+  drawExposedEdges(ctx, mask, out.width, out.height, borderColor, density);
   for (const corner of roundedSolidCorners(mask)) {
-    drawRoundedCorner(ctx, corner, out.width, out.height, borderColor);
+    drawRoundedCorner(ctx, corner, out.width, out.height, borderColor, density);
   }
   return out;
 }
@@ -170,8 +199,8 @@ export class PlatformerSolidAutotiles {
   private variants: HTMLCanvasElement[][] = [];
 
   constructor(
-    capFrames: readonly HTMLCanvasElement[],
-    innerFrames: readonly HTMLCanvasElement[],
+    capFrames: readonly CanvasImageSource[],
+    innerFrames: readonly CanvasImageSource[],
     borderColor: string,
   ) {
     for (let mask = 0; mask <= SOLID_NEIGHBOR_MASK; mask++) {

@@ -14,6 +14,11 @@ export interface HeadSlot {
 
 export interface LibraryEntry {
   frames: SpriteData[];
+  /** Transitional compatibility for older dual-frame generated packs. New
+   * generated packs store source-indexed art directly in `frames`. */
+  sourceFrames?: SpriteData[];
+  /** Exactly 16 colors used by source-indexed frames; index zero remains transparent. */
+  sourcePalette?: string[];
   /** Named frame-index lists, e.g. { idle: [0], walk: [0, 1] }. Every entry has at least `idle`. */
   anims: Record<string, number[]>;
   /**

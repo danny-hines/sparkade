@@ -3,6 +3,11 @@
 import { type GameSpec, type SpriteData } from '@sparkade/shared';
 import { LIBRARY } from './library/index';
 import type { HeadSlot, HeadView, LibraryEntry } from './types';
+import {
+  harmonizeSourcePalette,
+  semanticGamePaletteForSource,
+  type LibraryColorMode,
+} from './source-palette';
 
 /** Decode palette-indexed rows into an offscreen canvas. Index 0 and '.' are transparent. */
 export function decodeSprite(data: SpriteData, palette: string[]): HTMLCanvasElement {
@@ -100,6 +105,43 @@ export interface ResolvedSprite {
   flipped: HTMLCanvasElement[];
   flash: HTMLCanvasElement[];
   anims: Record<string, number[]>;
+}
+
+export interface ResolvedLibraryArt {
+  frames: SpriteData[];
+  palette: string[];
+  usesSourceColors: boolean;
+  colorMode: LibraryColorMode;
+}
+
+/** Resolve compact source-indexed art, with compatibility for transitional dual-frame packs. */
+export function resolveLibraryEntryArt(
+  entry: LibraryEntry,
+  gamePalette: string[],
+  requestedMode: LibraryColorMode = 'harmonized',
+): ResolvedLibraryArt {
+  const hasSourcePalette = entry.sourcePalette?.length === 16;
+  const hasTransitionalFrames = entry.sourceFrames !== undefined;
+  const hasCompleteTransitionalFrames =
+    entry.sourceFrames?.length === entry.frames.length && entry.sourceFrames.length > 0;
+  const hasSourceArt =
+    hasSourcePalette && (!hasTransitionalFrames || hasCompleteTransitionalFrames);
+  const colorMode = hasSourceArt ? requestedMode : 'game';
+  const sourceFrames = hasCompleteTransitionalFrames ? entry.sourceFrames! : entry.frames;
+  const usesSourceColors = hasSourceArt && colorMode !== 'game';
+  return {
+    frames: colorMode === 'game' && hasCompleteTransitionalFrames ? entry.frames : sourceFrames,
+    palette:
+      colorMode === 'harmonized'
+        ? harmonizeSourcePalette(entry.sourcePalette!, gamePalette)
+        : colorMode === 'source'
+          ? entry.sourcePalette!
+          : hasSourceArt && !hasCompleteTransitionalFrames
+            ? semanticGamePaletteForSource(entry.sourcePalette!, gamePalette)
+            : gamePalette,
+    usesSourceColors,
+    colorMode,
+  };
 }
 
 export interface LikenessImages {
@@ -402,11 +444,18 @@ export class SpriteStore {
     }
 
     if (anchorOpaqueTop) {
-      entry = { ...entry, frames: entry.frames.map(anchorSpriteOpaqueTop) };
+      entry = {
+        ...entry,
+        frames: entry.frames.map(anchorSpriteOpaqueTop),
+        sourceFrames: entry.sourceFrames?.map(anchorSpriteOpaqueTop),
+      };
     }
 
-    const frames = entry.frames.map((f) => decodeSprite(f, this.spec.palette));
-    const likenessOverlays = entry.likenessOverlays?.map((f) => decodeSprite(f, this.spec.palette));
+    const authored = resolveLibraryEntryArt(entry, this.spec.palette);
+    const authoredFrames = authored.frames;
+    const authoredPalette = authored.palette;
+    const frames = authoredFrames.map((f) => decodeSprite(f, authoredPalette));
+    const likenessOverlays = entry.likenessOverlays?.map((f) => decodeSprite(f, authoredPalette));
     if (applyLikeness && this.likeness && entry.headSlots) {
       entry.headSlots.forEach((slot, i) => {
         const head = resolveLikenessHead(this.likeness!, slot);
@@ -422,8 +471,8 @@ export class SpriteStore {
       });
     }
     return {
-      w: entry.frames[0]?.w ?? 8,
-      h: entry.frames[0]?.h ?? 8,
+      w: authoredFrames[0]?.w ?? 8,
+      h: authoredFrames[0]?.h ?? 8,
       appliedPresentation,
       frames,
       flipped: frames.map(flipCanvas),

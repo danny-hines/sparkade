@@ -36,7 +36,7 @@ file-upload fallback and the voice step offers canned transcripts.
 **Asset review (dev only):** `http://localhost:5173/?dev=assets` (during `npm run dev`;
 `http://127.0.0.1:8080/dev/assets` redirects there) is a tabbed gallery of the entire built-in
 sprite library — heroes/ships, enemies, 12 bosses (four per archetype), NPCs, projectiles/pickups,
-and 11 themed tile families — plus the bitmap font, all 11 procedural backdrops with live parallax,
+and 19 tile families including the default set — plus the bitmap font, all 11 procedural backdrops with live parallax,
 the ~two-dozen curated palette moods (each with an in-use scene), and the ambient weather overlays
 (each animated over a sample backdrop). Switch between the preview palette and any installed game's
 palette, zoom, toggle animation, see 3×3 seamless-tiling previews for every tile family, overlay
@@ -149,7 +149,7 @@ No SSH needed to update: **Settings → System info → Check for updates** runs
 3. **Generated game spec** (model-authored, pure data): story, palette, sprites, levels,
    boss, backdrop, weather, music score, SFX params, scoring — validated, auto-repaired (RFC 6902
    patches at temperature 0), and bounded. The model composes each game's look from a broad built-in
-   library (multiple hero/ship bodies, enemies, per-archetype bosses, 11 themed tile families),
+   library (multiple hero/ship bodies, enemies, per-archetype bosses, 19 tile families including the default set),
    picks a parallax backdrop scene and an optional ambient weather overlay (rain, snow, embers,
    fog, fireflies, …), or draws its own pure-data sprites. The 16-color palette
    recolors everything, so it is checked for legibility (dark outline, hero popping off the
@@ -164,7 +164,11 @@ embedded verbatim in the prompt templates (`packages/shared/src/schemas/`).
 four consistent story scenes (intro, boss, victory, defeat). Every platformer also derives three
 isolated 192×192 boss candidates from its boss story scene; Muse Spark selects the most faithful
 locally valid candidate, which renders as a 48×48 signature finale actor over the stable hand-written
-AI and collision body. Photo games additionally require
+AI and collision body. Platformer foreground geometry instead uses curated, density-four Muse Image
+packs for all eighteen platformer tile themes, checked into the sprite library. Spark keeps selecting the
+same cohesive tile families; the platformer runtime transparently upgrades them without an image
+call or any change to collision. Custom and unknown families retain the original safe fallback.
+Photo games additionally require
 neutral and story-aware defeat-expression portraits plus generated 12/16px player-head sprites;
 there is no quantized-photo fallback or UI toggle. Detailed platformer photo games additionally
 attempt a native 112×128 five-pose player set (front idle, side idle, two chained side-run contacts,

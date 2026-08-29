@@ -55,6 +55,17 @@ describe('entities prompt likeness casting', () => {
     expect(system).toContain('Each custom cap and inner sprite must be EXACTLY 16×16');
     expect(system).toContain('Level generation still authors only semantic `solid` cells');
     expect(system).toContain('the engine selects the cap');
+    expect(system).toContain('city_*');
+    expect(system).toContain('circuitry_*');
+    expect(system).toContain('industrial_*');
+    expect(system).toContain('automatically rendered at high density');
+
+    const adventure = buildEntitiesPrompt(
+      'adventure',
+      { ...design, archetype: 'adventure' } as DesignDoc,
+      false,
+    ).system;
+    expect(adventure).not.toContain('city_*');
   });
 
   it('keeps image-generated platformer characters on lightweight library fallbacks', () => {

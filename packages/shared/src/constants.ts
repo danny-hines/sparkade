@@ -323,6 +323,18 @@ export const GENERATED_GAME_ASSET_FILES = {
   platformerBackdropLevel2: 'platformer-backdrop-level-2.png',
   platformerBackdropLevel3: 'platformer-backdrop-level-3.png',
   platformerBackdropBoss: 'platformer-backdrop-boss.png',
+  // Legacy, read-only compatibility: an experimental pipeline emitted these
+  // files for a small number of saved games. New generations no longer create
+  // them and the runtime intentionally ignores them in favor of curated packs,
+  // but retaining the allowlist entries keeps the rest of those manifests valid.
+  platformerTerrainCheckpoint: 'platformer-terrain-checkpoint.png',
+  platformerTerrainDecoration: 'platformer-terrain-decoration.png',
+  platformerTerrainExit: 'platformer-terrain-exit.png',
+  platformerTerrainHazard: 'platformer-terrain-hazard.png',
+  platformerTerrainMovingPlatform: 'platformer-terrain-moving-platform.png',
+  platformerTerrainPlatform: 'platformer-terrain-platform.png',
+  platformerTerrainSolidCap: 'platformer-terrain-solid-cap.png',
+  platformerTerrainSolidInner: 'platformer-terrain-solid-inner.png',
 } as const;
 
 export type GeneratedGameAssetRole = keyof typeof GENERATED_GAME_ASSET_FILES;
@@ -482,8 +494,9 @@ export const LIB_TILE_KINDS = [
 export const LIB_TILES = LIB_TILE_KINDS.map((k) => `tile_${k}`);
 
 /**
- * Themed tile families — shape-languages, since color always comes from the
- * game's palette. A spec reskins terrain via sprites.assign, e.g.
+ * Core themed tile families available to every tiled archetype. Legacy art
+ * uses semantic game colors; platformers transparently upgrade these refs to
+ * source-authored, game-harmonized HD art. A spec reskins terrain via sprites.assign, e.g.
  * `"tile_solid": "lib:castle_solid"` (or a custom 16×16 sprite).
  */
 export const LIB_TILE_THEMES = [
@@ -499,8 +512,41 @@ export const LIB_TILE_THEMES = [
   'garden',
 ] as const;
 
+/** Muse-authored families currently available only to the platformer. Other
+ * archetypes keep the complete legacy families until their tile paths receive
+ * the same high-density treatment. */
+export const LIB_PLATFORMER_ONLY_TILE_THEMES = [
+  'city',
+  'circuitry',
+  'volcano',
+  'jungle',
+  'spaceship',
+  'haunted',
+  'sky',
+  'industrial',
+] as const;
+
+export const LIB_PLATFORMER_TILE_THEMES = [
+  ...LIB_TILE_THEMES,
+  ...LIB_PLATFORMER_ONLY_TILE_THEMES,
+] as const;
+
+export const LIB_PLATFORMER_TILE_KINDS = [
+  'solid',
+  'solid_inner',
+  'platform',
+  'hazard',
+  'checkpoint',
+  'exit',
+  'deco',
+] as const;
+
 export const LIB_THEMED_TILES: readonly string[] = LIB_TILE_THEMES.flatMap((theme) =>
   LIB_TILE_KINDS.map((k) => `${theme}_${k}`),
+);
+
+export const LIB_PLATFORMER_ONLY_TILES: readonly string[] = LIB_PLATFORMER_ONLY_TILE_THEMES.flatMap(
+  (theme) => LIB_PLATFORMER_TILE_KINDS.map((kind) => `${theme}_${kind}`),
 );
 
 export const LIB_SPRITE_IDS: readonly string[] = [
@@ -517,6 +563,7 @@ export const LIB_SPRITE_IDS: readonly string[] = [
   ...LIB_OBJECTS,
   ...LIB_TILES,
   ...LIB_THEMED_TILES,
+  ...LIB_PLATFORMER_ONLY_TILES,
 ];
 
 /**

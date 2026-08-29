@@ -1,18 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import {
   FONT_GLYPHS,
+  harmonizeSourcePalette,
   LIBRARY,
+  PLATFORMER_HD_TILE_KINDS,
   anchorSpriteOpaqueTop,
   makeTallHeroEntry,
   makeTallHumanoidEntry,
   makeTallSpriteEntry,
   missingLibraryIds,
+  platformerHdMovingPlatformRef,
+  platformerHdTileRef,
+  resolveLibraryEntryArt,
   resolveLikenessHead,
+  semanticGamePaletteForSource,
   SpriteStore,
 } from '@sparkade/engine';
 import {
   LIB_HEROES_ADVENTURE,
   LIB_HEROES_PLATFORMER,
+  LIB_PLATFORMER_ONLY_TILE_THEMES,
+  LIB_PLATFORMER_TILE_KINDS,
+  LIB_PLATFORMER_TILE_THEMES,
   LIB_SHIPS,
   LIB_TILE_THEMES,
   LIB_THEMED_TILES,
@@ -56,7 +65,192 @@ describe('built-in sprite library', () => {
       for (const idxs of Object.values(entry.anims)) {
         for (const ix of idxs) expect(ix, id).toBeLessThan(entry.frames.length);
       }
+      if (entry.sourceFrames || entry.sourcePalette) {
+        expect(entry.sourcePalette, `${id} source palette`).toHaveLength(16);
+        expect(
+          entry.sourcePalette!.every((color) => /^#[0-9a-f]{6}$/.test(color)),
+          `${id} source palette colors`,
+        ).toBe(true);
+        const sourceFrames = entry.sourceFrames ?? entry.frames;
+        expect(sourceFrames, `${id} source frames`).toHaveLength(entry.frames.length);
+        for (const [fi, frame] of sourceFrames.entries()) {
+          expect(frame.w, `${id} source#${fi}`).toBe(w);
+          expect(frame.h, `${id} source#${fi}`).toBe(h);
+          expect(frame.rows).toHaveLength(h);
+          for (const row of frame.rows) {
+            expect(row).toHaveLength(w);
+            expect(row).toMatch(/^[0-9a-f.]+$/);
+          }
+        }
+      }
     }
+  });
+
+  it('resolves compact source-color art without duplicating frames', () => {
+    const source = { w: 1, h: 1, rows: ['a'] };
+    const gamePalette = [
+      '#000000',
+      '#101010',
+      '#123322',
+      '#17613a',
+      '#2a9a58',
+      '#ffffff',
+      '#ffffff',
+      '#ffffff',
+      '#ffffff',
+      '#ffffff',
+      '#ffffff',
+      '#ffffff',
+      '#ffffff',
+      '#ffffff',
+      '#ffffff',
+      '#ffffff',
+    ];
+    const sourcePalette = [
+      '#000000',
+      '#291016',
+      '#41151f',
+      '#591b29',
+      '#712033',
+      '#89263d',
+      '#a12b47',
+      '#b93151',
+      '#d1365b',
+      '#d94a6a',
+      '#e15e79',
+      '#e97288',
+      '#f18697',
+      '#f49aaa',
+      '#f7aebd',
+      '#fac2d0',
+    ];
+    const entry = {
+      frames: [source],
+      sourcePalette,
+      anims: { idle: [0] },
+    };
+
+    const harmonized = resolveLibraryEntryArt(entry, gamePalette);
+    expect(harmonized.frames).toEqual([source]);
+    expect(harmonized.palette).toHaveLength(16);
+    expect(harmonized.palette).not.toEqual(sourcePalette);
+    expect(harmonized.usesSourceColors).toBe(true);
+    expect(harmonized.colorMode).toBe('harmonized');
+    expect(resolveLibraryEntryArt(entry, gamePalette, 'source')).toEqual({
+      frames: [source],
+      palette: sourcePalette,
+      usesSourceColors: true,
+      colorMode: 'source',
+    });
+    expect(resolveLibraryEntryArt(entry, gamePalette, 'game')).toEqual({
+      frames: [source],
+      palette: semanticGamePaletteForSource(sourcePalette, gamePalette),
+      usesSourceColors: false,
+      colorMode: 'game',
+    });
+  });
+
+  it('keeps compatibility with transitional dual-frame source art', () => {
+    const semantic = { w: 1, h: 1, rows: ['2'] };
+    const source = { w: 1, h: 1, rows: ['a'] };
+    const gamePalette = Array(16).fill('#112233') as string[];
+    const sourcePalette = Array(16).fill('#ee8844') as string[];
+    const entry = {
+      frames: [semantic],
+      sourceFrames: [source],
+      sourcePalette,
+      anims: { idle: [0] },
+    };
+
+    const harmonized = resolveLibraryEntryArt(entry, gamePalette);
+    expect(harmonized.frames).toEqual([source]);
+    expect(harmonized.palette).toHaveLength(16);
+    expect(harmonized.palette).not.toEqual(sourcePalette);
+    expect(harmonized.usesSourceColors).toBe(true);
+    expect(harmonized.colorMode).toBe('harmonized');
+    expect(resolveLibraryEntryArt(entry, gamePalette, 'source')).toEqual({
+      frames: [source],
+      palette: sourcePalette,
+      usesSourceColors: true,
+      colorMode: 'source',
+    });
+    expect(resolveLibraryEntryArt(entry, gamePalette, 'game')).toEqual({
+      frames: [semantic],
+      palette: gamePalette,
+      usesSourceColors: false,
+      colorMode: 'game',
+    });
+    expect(
+      resolveLibraryEntryArt({ ...entry, sourceFrames: [] }, gamePalette).usesSourceColors,
+    ).toBe(false);
+  });
+
+  it('maps luminance-ordered source slots onto the four-color game ramp', () => {
+    const sourcePalette = Array.from(
+      { length: 16 },
+      (_, index) => `#${index.toString(16).repeat(6)}`,
+    );
+    const gamePalette = Array.from(
+      { length: 16 },
+      (_, index) => `#${(15 - index).toString(16).repeat(6)}`,
+    );
+
+    expect(semanticGamePaletteForSource(sourcePalette, gamePalette)).toEqual([
+      gamePalette[0],
+      gamePalette[1],
+      gamePalette[1],
+      gamePalette[2],
+      gamePalette[2],
+      gamePalette[2],
+      gamePalette[2],
+      gamePalette[3],
+      gamePalette[3],
+      gamePalette[3],
+      gamePalette[3],
+      gamePalette[3],
+      gamePalette[3],
+      gamePalette[4],
+      gamePalette[4],
+      gamePalette[4],
+    ]);
+  });
+
+  it('gently shifts source hues toward the game environment without flattening value', () => {
+    const source = [
+      '#000000',
+      ...Array.from({ length: 15 }, (_, index) => (index < 8 ? '#d93652' : '#f2c45c')),
+    ];
+    const game = [
+      '#000000',
+      '#101010',
+      '#123322',
+      '#17613a',
+      '#2a9a58',
+      '#ffffff',
+      '#ffffff',
+      '#ffffff',
+      '#ffffff',
+      '#ffffff',
+      '#ffffff',
+      '#ffffff',
+      '#ffffff',
+      '#ffffff',
+      '#ffffff',
+      '#ffffff',
+    ];
+    const harmonized = harmonizeSourcePalette(source, game);
+
+    expect(harmonized).toHaveLength(16);
+    expect(harmonized[0]).toBe('#000000');
+    expect(harmonized).not.toEqual(source);
+    const original = source[1]!;
+    const shifted = harmonized[1]!;
+    expect(parseInt(shifted.slice(3, 5), 16)).toBeGreaterThan(parseInt(original.slice(3, 5), 16));
+    const lightness = (hex: string): number => {
+      const channels = [1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16));
+      return (Math.max(...channels) + Math.min(...channels)) / 2;
+    };
+    expect(Math.abs(lightness(shifted) - lightness(original))).toBeLessThan(2);
   });
 
   it('heroes and ships carry head slots for the likeness pipeline', () => {
@@ -193,6 +387,43 @@ describe('built-in sprite library', () => {
     for (const id of [...LIB_TILES, ...LIB_THEMED_TILES]) {
       expect(LIBRARY[id]!.frames[0]!.w, id).toBe(16);
       expect(LIBRARY[id]!.frames[0]!.h, id).toBe(16);
+    }
+  });
+
+  it('upgrades every reviewed platformer tile family to density-four art', () => {
+    for (const theme of LIB_PLATFORMER_TILE_THEMES) {
+      for (const kind of PLATFORMER_HD_TILE_KINDS.filter((value) => value !== 'moving_platform')) {
+        expect(platformerHdTileRef(`lib:${theme}_${kind}`), `${theme}_${kind}`).toBe(
+          `lib:${theme}_${kind}_hd`,
+        );
+      }
+      expect(platformerHdMovingPlatformRef(`lib:${theme}_solid`), theme).toBe(
+        `lib:${theme}_moving_platform_hd`,
+      );
+
+      expect(LIBRARY[`${theme}_solid_hd`]!.frames).toHaveLength(4);
+      expect(LIBRARY[`${theme}_solid_inner_hd`]!.frames).toHaveLength(16);
+      expect(LIBRARY[`${theme}_solid_hd`]!.frames[0]).toMatchObject({ w: 64, h: 64 });
+      expect(LIBRARY[`${theme}_exit_hd`]!.frames[0]).toMatchObject({ w: 64, h: 128 });
+      expect(LIBRARY[`${theme}_moving_platform_hd`]!.frames[0]).toMatchObject({ w: 96, h: 32 });
+
+      const platform = LIBRARY[`${theme}_platform_hd`]!.frames[0]!;
+      const opaqueRows = platform.rows.filter((row) => /[1-9a-f]/.test(row));
+      expect(opaqueRows, `${theme}_platform_hd`).toHaveLength(20);
+    }
+
+    expect(platformerHdTileRef('lib:tile_solid')).toBe('lib:tile_solid');
+    expect(platformerHdTileRef('custom:hand_drawn')).toBe('custom:hand_drawn');
+    expect(platformerHdMovingPlatformRef('lib:tile_solid')).toBeNull();
+  });
+
+  it('provides validation-sized base refs for platformer-only HD families', () => {
+    for (const theme of LIB_PLATFORMER_ONLY_TILE_THEMES) {
+      for (const kind of LIB_PLATFORMER_TILE_KINDS) {
+        const entry = LIBRARY[`${theme}_${kind}`];
+        expect(entry, `${theme}_${kind}`).toBeDefined();
+        expect(entry!.frames[0], `${theme}_${kind}`).toMatchObject({ w: 16, h: 16 });
+      }
     }
   });
 

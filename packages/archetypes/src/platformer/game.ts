@@ -9,6 +9,8 @@ import {
   makeBackdrop,
   makeGeneratedBackdrop,
   moveAABB,
+  platformerHdMovingPlatformRef,
+  platformerHdTileRef,
   type Backdrop,
   type EngineContext,
   type GameInstance,
@@ -38,6 +40,7 @@ import {
   PlatformerSolidAutotiles,
   resolveSolidInnerRef,
   solidNeighborMask,
+  terrainAtlasFrame,
 } from './autotile';
 import {
   MOVING_PLATFORM_BODY,
@@ -113,6 +116,7 @@ const GENERATED_BOSS_DRAW_W = 48;
 const GENERATED_BOSS_DRAW_H = 48;
 const GENERATED_BOSS_GROUND_OVERLAP = 2;
 const GENERATED_ENEMY_GROUND_OVERLAP = 1;
+export const GENERATED_PLATFORMER_BACKDROP_DIM_ALPHA = 0.22;
 
 const GENERATED_ENEMY_DRAW_SIZE = {
   walker: { w: 24, h: 24 },
@@ -273,8 +277,9 @@ class PlatformerGame implements GameInstance {
   private levelIndex = 0; // 0..2 levels, 3 = boss arena
   private level!: PlatformerLevel;
   private grid!: { cols: number; rows: number; kind(x: number, y: number): TileKind };
-  private tileCanvases = new Map<string, HTMLCanvasElement[]>();
+  private tileCanvases = new Map<string, CanvasImageSource[]>();
   private solidAutotiles: PlatformerSolidAutotiles | null = null;
+  private highDensitySolidTerrain = false;
   private decorations: Coord[] = [];
   private backdrop!: Backdrop;
   private ents: Ent[] = [];
@@ -323,6 +328,7 @@ class PlatformerGame implements GameInstance {
   private generatedBoss: CanvasImageSource | null = null;
   private generatedEnemies: Readonly<Record<string, CanvasImageSource>> | null = null;
   private generatedBackdrops: Readonly<Record<string, CanvasImageSource>> | null = null;
+  private generatedBackdropActive = false;
   private diff!: DifficultyScale;
   // Per-game hero feel, resolved (clamped) from spec.feel. Base constants when
   // feel is absent, so existing games are byte-identical. The clamp only ever
@@ -432,6 +438,7 @@ class PlatformerGame implements GameInstance {
     this.buildGrid(level.tiles, level.legend);
     this.decorations = surfaceDecorations(level, this.spec.seed + ix * 101 + 0xdec0);
     const generatedBackdrop = this.generatedBackdrops?.[`level${ix + 1}`];
+    this.generatedBackdropActive = !!generatedBackdrop;
     this.backdrop = generatedBackdrop
       ? makeGeneratedBackdrop(generatedBackdrop, this.viewW, this.viewH)
       : makeBackdrop(this.spec.palette, this.spec.seed + ix * 101, this.spec.backdrop);
@@ -506,6 +513,7 @@ class PlatformerGame implements GameInstance {
     // backdrop now carries into the boss fight too. Do NOT drop the fallback to match
     // loadLevel — that would repaint every legacy game's boss arena.
     const generatedBackdrop = this.generatedBackdrops?.boss;
+    this.generatedBackdropActive = !!generatedBackdrop;
     this.backdrop = generatedBackdrop
       ? makeGeneratedBackdrop(generatedBackdrop, this.viewW, this.viewH)
       : makeBackdrop(this.spec.palette, this.spec.seed + 777, this.spec.backdrop ?? 'caves');
@@ -574,14 +582,16 @@ class PlatformerGame implements GameInstance {
     for (const [kind, ref] of Object.entries(art)) {
       // Reskinnable terrain: assign role = the default lib id (e.g. "tile_solid":
       // "lib:ice_solid" or a custom 16x16). bob:false keeps tiles still.
+      const role = ref.slice(4);
+      const assigned = this.spec.sprites.assign[role] ?? ref;
       this.tileCanvases.set(
         kind,
-        this.engine.sprites.byRole(ref.slice(4), ref, { bob: false }).frames,
+        this.engine.sprites.byRef(platformerHdTileRef(assigned), false, { bob: false }).frames,
       );
     }
 
     const capRef = this.spec.sprites.assign['tile_solid'] ?? 'lib:tile_solid';
-    const cap = this.engine.sprites.byRole('tile_solid', 'lib:tile_solid', { bob: false });
+    const cap = this.engine.sprites.byRef(platformerHdTileRef(capRef), false, { bob: false });
     const refExists = (ref: string): boolean => {
       const [kind, id] = ref.split(':', 2);
       if (!id) return false;
@@ -612,21 +622,38 @@ class PlatformerGame implements GameInstance {
       this.spec.sprites.assign['tile_solid_inner'],
       refExists,
     );
-    const inner = innerRef ? this.engine.sprites.byRef(innerRef, false, { bob: false }) : cap;
+    const inner = innerRef
+      ? this.engine.sprites.byRef(platformerHdTileRef(innerRef), false, { bob: false })
+      : cap;
+    this.highDensitySolidTerrain =
+      (cap.frames[0]?.width ?? TILE_SIZE) > TILE_SIZE &&
+      (inner.frames[0]?.width ?? TILE_SIZE) > TILE_SIZE;
     this.solidAutotiles = new PlatformerSolidAutotiles(
       cap.frames,
       inner.frames,
       this.spec.palette[1] ?? '#111111',
     );
+    const movingPlatformRef = platformerHdMovingPlatformRef(capRef);
+    if (movingPlatformRef) {
+      this.sprites['obj_platform'] = this.engine.sprites.byRef(movingPlatformRef, false, {
+        bob: false,
+        anchorOpaqueTop: true,
+      });
+    }
   }
 
   /** One visual lookup shared by the main terrain and foreground mask passes. */
-  private tileCanvasAt(tx: number, ty: number, frameIx: number): HTMLCanvasElement | null {
+  private tileCanvasAt(tx: number, ty: number, frameIx: number): CanvasImageSource | null {
     const kind = this.grid.kind(tx, ty);
     if (kind === 'empty') return null;
     if (kind === 'solid') {
       const mask = solidNeighborMask((x, y) => this.grid.kind(x, y) === 'solid', tx, ty);
-      return this.solidAutotiles?.frame(mask, frameIx) ?? null;
+      return (
+        this.solidAutotiles?.frame(
+          mask,
+          this.highDensitySolidTerrain ? terrainAtlasFrame(tx, ty) : frameIx,
+        ) ?? null
+      );
     }
     const frames = this.tileCanvases.get(kind);
     if (!frames?.length) return null;
@@ -1391,6 +1418,15 @@ class PlatformerGame implements GameInstance {
     if (this.phase === 'cards' && !this.level && !this.boss) return; // pre-first-level intro
     if (!this.grid) return;
     this.backdrop.draw(r.ctx, cam.x, cam.y);
+    if (this.generatedBackdropActive) {
+      r.rect(
+        0,
+        0,
+        this.viewW,
+        this.viewH,
+        `rgba(0, 0, 0, ${GENERATED_PLATFORMER_BACKDROP_DIM_ALPHA})`,
+      );
+    }
 
     const frameIx = Math.floor(this.animT * 4) % 2;
     drawTileLayer(r, cam, this.grid.cols, this.grid.rows, TILE_SIZE, (tx, ty) => {
@@ -1400,10 +1436,12 @@ class PlatformerGame implements GameInstance {
     const decorationFrames = this.tileCanvases.get('decoration');
     if (decorationFrames?.length) {
       for (const decoration of this.decorations) {
-        r.draw(
+        r.drawScaled(
           decorationFrames[frameIx % decorationFrames.length] ?? decorationFrames[0]!,
           decoration.x * TILE_SIZE - cam.x,
           decoration.y * TILE_SIZE - cam.y,
+          TILE_SIZE,
+          TILE_SIZE,
         );
       }
     }
@@ -1445,10 +1483,12 @@ class PlatformerGame implements GameInstance {
       if (!sprite) continue;
       const anim = e.type === 'spring' ? (e.t > 0 && e.t < 0.25 ? 'bounce' : 'idle') : 'walk';
       const img = this.engine.sprites.frame(sprite, anim, e.t + this.animT, e.dir > 0);
+      if (e.type === 'movingPlatform') {
+        r.drawScaled(img, e.x - cam.x, e.y - cam.y, MOVING_PLATFORM_BODY.w, MOVING_PLATFORM_BODY.h);
+        continue;
+      }
       const drawX = e.x - cam.x - (sprite.w - e.w) / 2;
-      // A moving platform is a one-way top surface. Pin its normalized first
-      // opaque row to that surface instead of bottom-aligning it like an actor.
-      const drawY = e.type === 'movingPlatform' ? e.y - cam.y : e.y - cam.y - (sprite.h - e.h);
+      const drawY = e.y - cam.y - (sprite.h - e.h);
       r.draw(img, drawX, drawY);
     }
 
@@ -1561,7 +1601,13 @@ class PlatformerGame implements GameInstance {
             if (solidity !== 'solid' && solidity !== 'platform') continue;
             const tile = this.tileCanvasAt(tx, ty, frameIx);
             if (!tile) continue;
-            r.draw(tile, tx * TILE_SIZE - cam.x, ty * TILE_SIZE - cam.y);
+            r.drawScaled(
+              tile,
+              tx * TILE_SIZE - cam.x,
+              ty * TILE_SIZE - cam.y,
+              TILE_SIZE,
+              TILE_SIZE,
+            );
           }
         }
       }

@@ -26,6 +26,8 @@
     "test": "vitest run",
     "analyze:repairs": "tsx scripts/analyze-repairs.mts",
     "incidents": "tsx scripts/incidents.mts",
+    "tilesets:generate": "tsx scripts/generate-platformer-tileset.mts",
+    "tilesets:promote": "tsx scripts/promote-platformer-tileset.mts",
     "verify": "node scripts/verify.mjs",
     "test:e2e": "playwright test"
   },

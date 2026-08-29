@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { Camera, worldTransform, worldZoomRect } from '../src/renderer';
+import {
+  Camera,
+  drawTileLayer,
+  type Renderer,
+  worldTransform,
+  worldZoomRect,
+} from '../src/renderer';
 
 describe('worldZoomRect', () => {
   it('uses the requested integer crop inside the rendered world', () => {
@@ -52,5 +58,19 @@ describe('Camera viewport', () => {
     });
     expect(camera.x).toBe(292);
     expect(camera.y).toBe(117.5);
+  });
+});
+
+describe('drawTileLayer', () => {
+  it('scales high-density sources into the authored collision cell', () => {
+    const calls: unknown[][] = [];
+    const source = { naturalWidth: 64, naturalHeight: 64 } as HTMLImageElement;
+    const renderer = {
+      drawScaled: (...args: unknown[]) => calls.push(args),
+    } as unknown as Renderer;
+
+    drawTileLayer(renderer, { x: 0, y: 0 }, 1, 1, 16, () => source);
+
+    expect(calls).toEqual([[source, 0, 0, 16, 16]]);
   });
 });

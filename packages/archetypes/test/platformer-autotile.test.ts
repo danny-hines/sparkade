@@ -13,6 +13,7 @@ import {
   roundedSolidCorners,
   solidNeighborMask,
   solidTileVariant,
+  terrainAtlasFrame,
 } from '../src/platformer/autotile';
 
 describe('platformer solid autotiling', () => {
@@ -27,6 +28,12 @@ describe('platformer solid autotiling', () => {
     expect(solidNeighborMask((x, y) => solids.has(`${x},${y}`), 2, 2)).toBe(
       SOLID_EAST | SOLID_SOUTH | SOLID_WEST,
     );
+  });
+
+  it('walks a density-four material atlas in world-coordinate order', () => {
+    expect([0, 1, 2, 3, 4].map((tx) => terrainAtlasFrame(tx, 0))).toEqual([0, 1, 2, 3, 0]);
+    expect([0, 1, 2, 3].map((tx) => terrainAtlasFrame(tx, 1))).toEqual([4, 5, 6, 7]);
+    expect(terrainAtlasFrame(-1, -1)).toBe(15);
   });
 
   it('uses cap art only when the north side is exposed', () => {
@@ -136,11 +143,7 @@ describe('platformer solid autotiling', () => {
       }),
     });
 
-    const output = renderSolidVariant(
-      { width: 16, height: 16 } as HTMLCanvasElement,
-      0,
-      '#123456',
-    );
+    const output = renderSolidVariant({ width: 16, height: 16 } as HTMLCanvasElement, 0, '#123456');
 
     expect(output.width).toBe(16);
     expect(output.height).toBe(16);
@@ -160,6 +163,51 @@ describe('platformer solid autotiling', () => {
       { args: [14, 1, 1, 1], color: '#123456' },
       { args: [14, 14, 1, 1], color: '#123456' },
       { args: [1, 14, 1, 1], color: '#123456' },
+    ]);
+  });
+
+  it('scales outlines and corner cuts for density-four generated terrain', () => {
+    const operations: Array<{ op: string; args: number[] }> = [];
+    const context = {
+      imageSmoothingEnabled: true,
+      fillStyle: '',
+      drawImage: () => undefined,
+      fillRect: (x: number, y: number, w: number, h: number) =>
+        operations.push({ op: 'fillRect', args: [x, y, w, h] }),
+      clearRect: (x: number, y: number, w: number, h: number) =>
+        operations.push({ op: 'clearRect', args: [x, y, w, h] }),
+    };
+    vi.stubGlobal('document', {
+      createElement: () => ({
+        width: 0,
+        height: 0,
+        getContext: () => context,
+      }),
+    });
+
+    const output = renderSolidVariant(
+      { naturalWidth: 64, naturalHeight: 64 } as HTMLImageElement,
+      0,
+      '#123456',
+    );
+
+    expect(output.width).toBe(64);
+    expect(output.height).toBe(64);
+    expect(operations.filter(({ op }) => op === 'clearRect').map(({ args }) => args)).toEqual([
+      [0, 0, 8, 8],
+      [56, 0, 8, 8],
+      [56, 56, 8, 8],
+      [0, 56, 8, 8],
+    ]);
+    expect(
+      operations
+        .filter(({ op, args }) => op === 'fillRect' && args[2] === 4 && args[3] === 4)
+        .map(({ args }) => args),
+    ).toEqual([
+      [4, 4, 4, 4],
+      [56, 4, 4, 4],
+      [56, 56, 4, 4],
+      [4, 56, 4, 4],
     ]);
   });
 });

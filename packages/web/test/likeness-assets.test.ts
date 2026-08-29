@@ -3,6 +3,7 @@ import { GENERATED_GAME_ASSET_FILES, type GeneratedGameAssetRole } from '@sparka
 import type { GameDetail } from '../src/api';
 import {
   FIGHTER_POSE_ASSETS,
+  PLATFORMER_BACKDROP_ASSETS,
   PLATFORMER_ENEMY_ASSETS,
   PLATFORMER_POSE_ASSETS,
   loadLikenessAssets,
@@ -229,6 +230,34 @@ describe('loadLikenessAssets', () => {
     expect(requested).toEqual(
       PLATFORMER_ENEMY_ASSETS.filter(([role]) => role === 'walker' || role === 'chaser').map(
         ([, assetRole]) => `/api/games/enemy-game/assets/${GENERATED_GAME_ASSET_FILES[assetRole]}`,
+      ),
+    );
+  });
+
+  it('loads each available generated platformer background independently', async () => {
+    const result = await loadLikenessAssets('backdrop-game', {
+      head12: false,
+      head12Side: false,
+      head12Back: false,
+      head16: false,
+      head16Side: false,
+      head16Back: false,
+      portrait: false,
+      ...unavailableGeneratedAssets,
+      platformerBackdropLevel1: true,
+      platformerBackdropLevel3: true,
+      platformerBackdropBoss: true,
+    });
+
+    expect(Object.keys(result?.platformerBackdrops ?? {})).toEqual(['level1', 'level3', 'boss']);
+    expect(result?.platformerBackdrops?.level1).not.toBeNull();
+    expect(result?.platformerBackdrops?.level2).toBeUndefined();
+    expect(requested).toEqual(
+      PLATFORMER_BACKDROP_ASSETS.filter(
+        ([role]) => role === 'level1' || role === 'level3' || role === 'boss',
+      ).map(
+        ([, assetRole]) =>
+          `/api/games/backdrop-game/assets/${GENERATED_GAME_ASSET_FILES[assetRole]}`,
       ),
     );
   });

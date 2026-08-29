@@ -595,6 +595,15 @@ export interface GameMetaFile {
     /** Present when at least one role retained its stable library fallback. */
     reason?: string;
   };
+  /** QA/readiness signal for the four image-generated platformer stage plates. */
+  platformerBackdropArt?: {
+    mode: 'generated' | 'partial' | 'procedural';
+    attempted: boolean;
+    /** Stage plates whose generated art was published. */
+    generatedRoles?: Array<'level1' | 'level2' | 'level3' | 'boss'>;
+    /** Present when at least one stage retained its procedural backdrop. */
+    reason?: string;
+  };
   golden?: boolean;
   failure?: { code: string; message: string; stage: string };
 }

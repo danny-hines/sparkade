@@ -319,6 +319,10 @@ export const GENERATED_GAME_ASSET_FILES = {
   platformerEnemyFlyer: 'platformer-enemy-flyer.png',
   platformerEnemyShooter: 'platformer-enemy-shooter.png',
   platformerEnemyChaser: 'platformer-enemy-chaser.png',
+  platformerBackdropLevel1: 'platformer-backdrop-level-1.png',
+  platformerBackdropLevel2: 'platformer-backdrop-level-2.png',
+  platformerBackdropLevel3: 'platformer-backdrop-level-3.png',
+  platformerBackdropBoss: 'platformer-backdrop-boss.png',
 } as const;
 
 export type GeneratedGameAssetRole = keyof typeof GENERATED_GAME_ASSET_FILES;

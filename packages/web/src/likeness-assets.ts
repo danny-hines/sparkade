@@ -37,6 +37,15 @@ export const PLATFORMER_ENEMY_ASSETS = [
 
 export type PlatformerEnemyName = (typeof PLATFORMER_ENEMY_ASSETS)[number][0];
 
+export const PLATFORMER_BACKDROP_ASSETS = [
+  ['level1', 'platformerBackdropLevel1'],
+  ['level2', 'platformerBackdropLevel2'],
+  ['level3', 'platformerBackdropLevel3'],
+  ['boss', 'platformerBackdropBoss'],
+] as const satisfies readonly (readonly [string, GeneratedGameAssetRole])[];
+
+export type PlatformerBackdropName = (typeof PLATFORMER_BACKDROP_ASSETS)[number][0];
+
 function loadImage(url: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -68,6 +77,7 @@ export async function loadLikenessAssets(
     !assets.storyDefeat &&
     !assets.platformerBoss &&
     !PLATFORMER_ENEMY_ASSETS.some(([, role]) => assets[role]) &&
+    !PLATFORMER_BACKDROP_ASSETS.some(([, role]) => assets[role]) &&
     !hasCompleteFighterSet &&
     !hasCompletePlatformerSet
   ) {
@@ -141,6 +151,20 @@ export async function loadLikenessAssets(
     );
     return loaded.length ? Object.fromEntries(loaded) : null;
   });
+  const platformerBackdropsPromise = Promise.all(
+    PLATFORMER_BACKDROP_ASSETS.map(async ([role, assetRole]) => {
+      if (!assets[assetRole]) return [role, null] as const;
+      return [
+        role,
+        await loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[assetRole])),
+      ] as const;
+    }),
+  ).then((entries) => {
+    const loaded = entries.filter(
+      (entry): entry is readonly [PlatformerBackdropName, HTMLImageElement] => entry[1] !== null,
+    );
+    return loaded.length ? Object.fromEntries(loaded) : null;
+  });
 
   const [
     [head12, head12Side, head12Back, head16, head16Side, head16Back, portrait, portraitDefeat],
@@ -149,6 +173,7 @@ export async function loadLikenessAssets(
     platformerPoses,
     platformerBoss,
     platformerEnemies,
+    platformerBackdrops,
   ] = await Promise.all([
     likenessPromise,
     storyPromise,
@@ -156,6 +181,7 @@ export async function loadLikenessAssets(
     platformerPromise,
     platformerBossPromise,
     platformerEnemiesPromise,
+    platformerBackdropsPromise,
   ]);
 
   return {
@@ -175,5 +201,6 @@ export async function loadLikenessAssets(
     platformerPoses,
     platformerBoss,
     platformerEnemies,
+    platformerBackdrops,
   };
 }

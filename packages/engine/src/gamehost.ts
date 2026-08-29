@@ -66,6 +66,8 @@ export interface EngineContext {
   platformerBoss: CanvasImageSource | null;
   /** Image-generated platformer enemies, independently available by behavior role. */
   platformerEnemies: Readonly<Record<string, CanvasImageSource>> | null;
+  /** Image-generated platformer stage plates, independently available by stage. */
+  platformerBackdrops: Readonly<Record<string, CanvasImageSource>> | null;
   spec: GameSpec;
   /** True when the host runs as a self-playing library demo — archetypes can
    *  read this to drive themselves (e.g. the fighter runs both sides on AI). */
@@ -182,6 +184,7 @@ export class GameHost {
       platformerPoses: opts.likeness?.platformerPoses ?? null,
       platformerBoss: opts.likeness?.platformerBoss ?? null,
       platformerEnemies: opts.likeness?.platformerEnemies ?? null,
+      platformerBackdrops: opts.likeness?.platformerBackdrops ?? null,
       spec: opts.spec,
       attract: !!opts.attract,
       shake: (ms = FEEL.screenShakeMs, magnitude = 3) => this.renderer.shake(ms, magnitude),

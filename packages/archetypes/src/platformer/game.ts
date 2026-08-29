@@ -7,6 +7,7 @@ import {
   drawTileLayer,
   LIBRARY,
   makeBackdrop,
+  makeGeneratedBackdrop,
   moveAABB,
   type Backdrop,
   type EngineContext,
@@ -321,6 +322,7 @@ class PlatformerGame implements GameInstance {
   private generatedPlayerPoses: GeneratedPlatformerPoses | null = null;
   private generatedBoss: CanvasImageSource | null = null;
   private generatedEnemies: Readonly<Record<string, CanvasImageSource>> | null = null;
+  private generatedBackdrops: Readonly<Record<string, CanvasImageSource>> | null = null;
   private diff!: DifficultyScale;
   // Per-game hero feel, resolved (clamped) from spec.feel. Base constants when
   // feel is absent, so existing games are byte-identical. The clamp only ever
@@ -368,6 +370,7 @@ class PlatformerGame implements GameInstance {
         : null;
     this.generatedBoss = this.engine.platformerBoss;
     this.generatedEnemies = this.engine.platformerEnemies;
+    this.generatedBackdrops = this.engine.platformerBackdrops;
   }
 
   get worldZoom() {
@@ -428,7 +431,10 @@ class PlatformerGame implements GameInstance {
     this.level = level;
     this.buildGrid(level.tiles, level.legend);
     this.decorations = surfaceDecorations(level, this.spec.seed + ix * 101 + 0xdec0);
-    this.backdrop = makeBackdrop(this.spec.palette, this.spec.seed + ix * 101, this.spec.backdrop);
+    const generatedBackdrop = this.generatedBackdrops?.[`level${ix + 1}`];
+    this.backdrop = generatedBackdrop
+      ? makeGeneratedBackdrop(generatedBackdrop, this.viewW, this.viewH)
+      : makeBackdrop(this.spec.palette, this.spec.seed + ix * 101, this.spec.backdrop);
     this.ents = level.entities.map((e) => this.makeEnt(e));
     this.boss = null;
     for (const p of this.projs) p.active = false;
@@ -499,11 +505,10 @@ class PlatformerGame implements GameInstance {
     // published games without a `backdrop` field render identically; an explicit spec
     // backdrop now carries into the boss fight too. Do NOT drop the fallback to match
     // loadLevel — that would repaint every legacy game's boss arena.
-    this.backdrop = makeBackdrop(
-      this.spec.palette,
-      this.spec.seed + 777,
-      this.spec.backdrop ?? 'caves',
-    );
+    const generatedBackdrop = this.generatedBackdrops?.boss;
+    this.backdrop = generatedBackdrop
+      ? makeGeneratedBackdrop(generatedBackdrop, this.viewW, this.viewH)
+      : makeBackdrop(this.spec.palette, this.spec.seed + 777, this.spec.backdrop ?? 'caves');
     this.ents = [];
     for (const p of this.projs) p.active = false;
     this.checkpoint = null;

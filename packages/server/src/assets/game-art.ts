@@ -131,7 +131,8 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
   // A 256px fixture is plenty for deterministic pipeline coverage and keeps
   // mock photo-fighter generation fast. Silhouette helpers use a 512px design
   // grid so their coordinates stay easy to reason about.
-  const width = 256;
+  const platformerBackdrop = prompt.includes('panoramic BACKGROUND PLATE');
+  const width = platformerBackdrop ? 512 : 256;
   const height = 256;
   const greenScreen = prompt.includes('#00ff00');
   const fighter = greenScreen && prompt.includes('fighting-game sprite');

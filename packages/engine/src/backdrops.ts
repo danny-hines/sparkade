@@ -20,6 +20,92 @@ export interface Backdrop {
   drawForeground(ctx: CanvasRenderingContext2D, scrollX: number, scrollY: number): void;
 }
 
+export interface GeneratedBackdropSourceRect {
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
+}
+
+/** Select a viewport-shaped crop from an extra-wide generated plate. Starting
+ * near the plate center keeps the strongest composition on screen, while a
+ * small camera-linked drift reveals more scenery without ever exposing a seam. */
+export function generatedBackdropSourceRect(
+  imageWidth: number,
+  imageHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  scrollX: number,
+): GeneratedBackdropSourceRect {
+  const safeImageWidth = Math.max(1, imageWidth);
+  const safeImageHeight = Math.max(1, imageHeight);
+  const aspect = Math.max(1, viewportWidth) / Math.max(1, viewportHeight);
+  let sw = safeImageWidth;
+  let sh = Math.max(1, Math.round(sw / aspect));
+  if (sh > safeImageHeight) {
+    sh = safeImageHeight;
+    sw = Math.max(1, Math.round(sh * aspect));
+  }
+  sw = Math.min(sw, safeImageWidth);
+  sh = Math.min(sh, safeImageHeight);
+  const maxX = Math.max(0, safeImageWidth - sw);
+  const maxY = Math.max(0, safeImageHeight - sh);
+  const centerX = maxX / 2;
+  return {
+    sx: Math.max(0, Math.min(maxX, Math.round(centerX + scrollX * 0.2))),
+    sy: Math.round(maxY / 2),
+    sw,
+    sh,
+  };
+}
+
+function imageDimensions(image: CanvasImageSource): { width: number; height: number } {
+  if ('naturalWidth' in image) {
+    const htmlImage = image as HTMLImageElement;
+    return { width: htmlImage.naturalWidth, height: htmlImage.naturalHeight };
+  }
+  if ('videoWidth' in image) {
+    const video = image as HTMLVideoElement;
+    return { width: video.videoWidth, height: video.videoHeight };
+  }
+  const sized = image as { width?: number; height?: number };
+  return { width: Number(sized.width) || 1, height: Number(sized.height) || 1 };
+}
+
+/** Turn one generated panoramic plate into a cheap runtime backdrop. Unlike
+ * procedural scenes it pans within a wider source instead of wrapping, so an
+ * imperfect model-authored edge can never become a visible tile seam. */
+export function makeGeneratedBackdrop(
+  image: CanvasImageSource,
+  viewportWidth = INTERNAL_WIDTH,
+  viewportHeight = INTERNAL_HEIGHT,
+): Backdrop {
+  const dimensions = imageDimensions(image);
+  return {
+    draw(ctx: CanvasRenderingContext2D, scrollX: number) {
+      const source = generatedBackdropSourceRect(
+        dimensions.width,
+        dimensions.height,
+        viewportWidth,
+        viewportHeight,
+        scrollX,
+      );
+      ctx.drawImage(
+        image,
+        source.sx,
+        source.sy,
+        source.sw,
+        source.sh,
+        0,
+        0,
+        viewportWidth,
+        viewportHeight,
+      );
+    },
+    drawForeground() {},
+  };
+}
+
 function shade(hex: string, factor: number): string {
   const r = Math.max(0, Math.min(255, Math.round(parseInt(hex.slice(1, 3), 16) * factor)));
   const g = Math.max(0, Math.min(255, Math.round(parseInt(hex.slice(3, 5), 16) * factor)));
@@ -96,7 +182,11 @@ function steppedPeak(
  * re-derive their backdrop from the seed at load, so growing this pool would
  * silently repaint existing libraries. New variants are opt-in via the spec.
  */
-export function pickVariant(palette: string[], seed: number, prefer?: BackdropVariant): BackdropVariant {
+export function pickVariant(
+  palette: string[],
+  seed: number,
+  prefer?: BackdropVariant,
+): BackdropVariant {
   if (prefer) return prefer;
   const rng = new Rng(seed ^ 0xbadc0de);
   const bgLum = luminance(palette[2] ?? '#202040');
@@ -130,7 +220,12 @@ export function makeBackdrop(palette: string[], seed: number, variant?: Backdrop
         const bright = rng.chance(0.25);
         ctx.fillStyle = bright ? '#ffffff' : shade(light, 1.2);
         ctx.globalAlpha = bright ? 0.9 : 0.5;
-        ctx.fillRect(rng.int(0, W - 1), rng.int(0, H - 1), 1 + (bright ? 1 : 0), 1 + (bright ? 1 : 0));
+        ctx.fillRect(
+          rng.int(0, W - 1),
+          rng.int(0, H - 1),
+          1 + (bright ? 1 : 0),
+          1 + (bright ? 1 : 0),
+        );
       }
       ctx.globalAlpha = 1;
     } else if (v === 'mountains') {
@@ -446,7 +541,13 @@ export function makeBackdrop(palette: string[], seed: number, variant?: Backdrop
         ctx.fillStyle = shade(light, 1.05);
         ctx.globalAlpha = 0.45;
         for (let p = 0; p < puffs; p++) {
-          wrapDisc(ctx, W, sx + Math.floor(sw / 2) + 6 + p * 10, top - 7 - p * 12, 8 - p * 2 + rng.int(0, 2));
+          wrapDisc(
+            ctx,
+            W,
+            sx + Math.floor(sw / 2) + 6 + p * 10,
+            top - 7 - p * 12,
+            8 - p * 2 + rng.int(0, 2),
+          );
         }
         ctx.globalAlpha = 1;
         if (rng.chance(0.4)) {

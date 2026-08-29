@@ -67,7 +67,13 @@ is `packages/server/src/providers/meta-image.ts`, its settings live under `image
 key art plus intro, boss, victory and defeat scenes. Platformers branch three isolated 192×192
 boss candidates from the boss story scene, then use a labeled Muse Spark review board to select the
 strongest story-faithful silhouette; the density-4 winner renders at 48×48 without changing the
-runtime's boss AI or collision body. Photo games additionally require neutral and
+runtime's boss AI or collision body. Platformers also generate two candidates for each of the four
+ordinary enemy behaviors and four extra-wide panoramic background plates (one per level plus the
+boss arena) from the key art. Background plates are distant, low-contrast scenery only; the
+hand-written tile map remains the sole source of collision geometry. They are generated in parallel,
+normalized to 1536×600, and gently camera-panned without horizontal tiling, so model edge
+imperfections cannot create a repeating seam. Each enemy or background role falls back independently
+to its stable procedural counterpart if unavailable. Photo games additionally require neutral and
 story-aware defeat-expression portraits plus generated player-head sprites. Fighter photo games
 attempt an all-or-nothing 11-pose player set. Platformer photo games whose design selects
 `platformerArtDensity: "detailed"` attempt an all-or-nothing five-pose 112×128 player set. The

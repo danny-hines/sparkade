@@ -23,10 +23,13 @@ export {
 export { Renderer, Camera, worldTransform, worldZoomRect, drawTileLayer, drawObstacleShadows, drawObstacleTile, type WorldTransform, type WorldZoomRect } from './renderer';
 export {
   BACKDROP_VARIANTS,
+  generatedBackdropSourceRect,
   makeBackdrop,
+  makeGeneratedBackdrop,
   pickVariant,
   type Backdrop,
   type BackdropVariant,
+  type GeneratedBackdropSourceRect,
 } from './backdrops';
 export {
   SHOOTER_BACKDROP_VARIANTS,

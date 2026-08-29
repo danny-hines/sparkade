@@ -128,6 +128,15 @@ import {
   type PlatformerEnemyCandidateDescriptor,
 } from '../assets/platformer-enemy';
 import {
+  GENERATED_PLATFORMER_BACKDROPS,
+  PLATFORMER_BACKDROP_ASPECT_HINT,
+  PLATFORMER_BACKDROP_ASSET_ROLES,
+  PLATFORMER_BACKDROP_PROMPT_VERSION,
+  buildPlatformerBackdropPrompt,
+  normalizePlatformerBackdrop,
+  type GeneratedPlatformerBackdrop,
+} from '../assets/platformer-backdrop';
+import {
   GameAssetWorkspace,
   GeneratedAssetStorageError,
   imagePromptHash,
@@ -1833,6 +1842,113 @@ export class GenerationRunner {
       } satisfies Record<StoryArtRole, Promise<Buffer>>;
       const storyTask = Promise.all(Object.values(storyAssets)).then(() => undefined);
 
+      let platformerBackdropArtStatus: GameMetaFile['platformerBackdropArt'] =
+        spec.archetype === 'platformer'
+          ? {
+              mode: 'procedural',
+              attempted: true,
+              reason: 'Generated platformer backgrounds did not complete',
+            }
+          : undefined;
+      const platformerBackdropTask =
+        spec.archetype === 'platformer'
+          ? keyArtTask.then(async (keyArt): Promise<void> => {
+              const generationStarted = Date.now();
+              const generated = new Set<GeneratedPlatformerBackdrop>();
+              const colors = spec.palette.join(', ');
+              const sceneFor = (role: GeneratedPlatformerBackdrop) => {
+                if (role === 'boss') {
+                  return {
+                    sceneName: 'Final arena',
+                    sceneBeat: spec.meta.tagline,
+                  };
+                }
+                const index = Number.parseInt(role.slice(-1), 10) - 1;
+                return {
+                  sceneName: spec.levels[index]?.name ?? `Level ${index + 1}`,
+                  sceneBeat: spec.story.levelIntros[index] ?? spec.meta.tagline,
+                };
+              };
+
+              emit('building-assets', 'Painting four panoramic level backgrounds in parallel…');
+              await Promise.all(
+                GENERATED_PLATFORMER_BACKDROPS.map(async (role) => {
+                  const scene = sceneFor(role);
+                  const prompt = buildPlatformerBackdropPrompt({
+                    gameTitle: spec.meta.title,
+                    tagline: spec.meta.tagline,
+                    role,
+                    ...scene,
+                    backdrop: spec.backdrop ?? 'the game-specific environment shown in the key art',
+                    colors,
+                  });
+                  try {
+                    await cachedGeneratedAsset({
+                      role: PLATFORMER_BACKDROP_ASSET_ROLES[role],
+                      promptVersion: PLATFORMER_BACKDROP_PROMPT_VERSION,
+                      prompt,
+                      label:
+                        role === 'boss' ? 'Boss arena background' : `${scene.sceneName} background`,
+                      reference: keyArt,
+                      size: PLATFORMER_BACKDROP_ASPECT_HINT,
+                      normalize: normalizePlatformerBackdrop,
+                    });
+                    generated.add(role);
+                  } catch (error) {
+                    if (
+                      abort.signal.aborted ||
+                      error instanceof GeneratedAssetStorageError ||
+                      (error instanceof PipelineError && error.code === 'storage')
+                    ) {
+                      throw error;
+                    }
+                    validationFailure(`platformer-backdrop-${role}`);
+                    emit(
+                      'building-assets',
+                      `${scene.sceneName} background was unavailable; keeping its procedural scene`,
+                    );
+                  }
+                }),
+              );
+
+              const generatedRoles = GENERATED_PLATFORMER_BACKDROPS.filter((role) =>
+                generated.has(role),
+              );
+              const missingRoles = GENERATED_PLATFORMER_BACKDROPS.filter(
+                (role) => !generated.has(role),
+              );
+              if (missingRoles.length === 0) {
+                platformerBackdropArtStatus = {
+                  mode: 'generated',
+                  attempted: true,
+                  generatedRoles,
+                };
+                emit('building-assets', 'Finished the panoramic platformer backgrounds');
+                return;
+              }
+
+              const reason = `No valid generated background for ${missingRoles.join(', ')}`;
+              platformerBackdropArtStatus = {
+                mode: generatedRoles.length ? 'partial' : 'procedural',
+                attempted: true,
+                ...(generatedRoles.length ? { generatedRoles } : {}),
+                reason,
+              };
+              recordEarlyRepairEvent(
+                'entities',
+                'platformer-backdrop-art-fallback',
+                missingRoles.map((role) => ({
+                  code: 'PLATFORMER_BACKDROP_ART_FALLBACK',
+                  path: `/assets/platformer-backdrop/${role}`,
+                  message: reason,
+                })),
+                [],
+                generationStarted,
+                'downgraded',
+              );
+            })
+          : Promise.resolve();
+
       let platformerBossArtStatus: GameMetaFile['platformerBossArt'] =
         spec.archetype === 'platformer'
           ? {
@@ -3008,6 +3124,7 @@ export class GenerationRunner {
 
       const finishingAssets = await Promise.allSettled([
         storyTask,
+        platformerBackdropTask,
         platformerBossTask,
         platformerEnemyTask,
         fighterTask,
@@ -3051,6 +3168,9 @@ export class GenerationRunner {
         ...(platformerPlayerArtStatus ? { platformerPlayerArt: platformerPlayerArtStatus } : {}),
         ...(platformerBossArtStatus ? { platformerBossArt: platformerBossArtStatus } : {}),
         ...(platformerEnemyArtStatus ? { platformerEnemyArt: platformerEnemyArtStatus } : {}),
+        ...(platformerBackdropArtStatus
+          ? { platformerBackdropArt: platformerBackdropArtStatus }
+          : {}),
       };
       writeFileSync(join(staging, 'meta.json'), JSON.stringify(meta, null, 2));
 

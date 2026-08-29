@@ -66,6 +66,8 @@ export interface EngineContext {
   platformerBoss: CanvasImageSource | null;
   /** Image-generated platformer enemies, independently available by behavior role. */
   platformerEnemies: Readonly<Record<string, CanvasImageSource>> | null;
+  /** Image-generated platformer pickups and projectiles, independently available by role. */
+  platformerProps: Readonly<Record<string, CanvasImageSource>> | null;
   /** Image-generated platformer stage plates, independently available by stage. */
   platformerBackdrops: Readonly<Record<string, CanvasImageSource>> | null;
   spec: GameSpec;
@@ -184,6 +186,7 @@ export class GameHost {
       platformerPoses: opts.likeness?.platformerPoses ?? null,
       platformerBoss: opts.likeness?.platformerBoss ?? null,
       platformerEnemies: opts.likeness?.platformerEnemies ?? null,
+      platformerProps: opts.likeness?.platformerProps ?? null,
       platformerBackdrops: opts.likeness?.platformerBackdrops ?? null,
       spec: opts.spec,
       attract: !!opts.attract,

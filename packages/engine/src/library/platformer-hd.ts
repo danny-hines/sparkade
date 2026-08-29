@@ -11,6 +11,7 @@ export const PLATFORMER_HD_TILE_KINDS = [
   'exit',
   'deco',
   'moving_platform',
+  'spring',
 ] as const;
 
 export type PlatformerHdTileKind = (typeof PLATFORMER_HD_TILE_KINDS)[number];
@@ -98,5 +99,13 @@ export function platformerHdMovingPlatformRef(solidRef: string): string | null {
   const match = /^lib:([a-z][a-z0-9_]*)_solid$/.exec(solidRef);
   if (!match) return null;
   const id = `${match[1]}_moving_platform_hd`;
+  return Object.prototype.hasOwnProperty.call(TILES_PLATFORMER_HD, id) ? `lib:${id}` : null;
+}
+
+/** Infer the curated spring entry from an assigned solid family. */
+export function platformerHdSpringRef(solidRef: string): string | null {
+  const match = /^lib:([a-z][a-z0-9_]*)_solid$/.exec(solidRef);
+  if (!match) return null;
+  const id = `${match[1]}_spring_hd`;
   return Object.prototype.hasOwnProperty.call(TILES_PLATFORMER_HD, id) ? `lib:${id}` : null;
 }

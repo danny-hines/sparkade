@@ -10,6 +10,7 @@ import {
   makeTallSpriteEntry,
   missingLibraryIds,
   platformerHdMovingPlatformRef,
+  platformerHdSpringRef,
   platformerHdTileRef,
   resolveLibraryEntryArt,
   resolveLikenessHead,
@@ -392,7 +393,9 @@ describe('built-in sprite library', () => {
 
   it('upgrades every reviewed platformer tile family to density-four art', () => {
     for (const theme of LIB_PLATFORMER_TILE_THEMES) {
-      for (const kind of PLATFORMER_HD_TILE_KINDS.filter((value) => value !== 'moving_platform')) {
+      for (const kind of PLATFORMER_HD_TILE_KINDS.filter(
+        (value) => value !== 'moving_platform' && value !== 'spring',
+      )) {
         expect(platformerHdTileRef(`lib:${theme}_${kind}`), `${theme}_${kind}`).toBe(
           `lib:${theme}_${kind}_hd`,
         );
@@ -400,12 +403,15 @@ describe('built-in sprite library', () => {
       expect(platformerHdMovingPlatformRef(`lib:${theme}_solid`), theme).toBe(
         `lib:${theme}_moving_platform_hd`,
       );
+      expect(platformerHdSpringRef(`lib:${theme}_solid`), theme).toBe(`lib:${theme}_spring_hd`);
 
       expect(LIBRARY[`${theme}_solid_hd`]!.frames).toHaveLength(4);
       expect(LIBRARY[`${theme}_solid_inner_hd`]!.frames).toHaveLength(16);
       expect(LIBRARY[`${theme}_solid_hd`]!.frames[0]).toMatchObject({ w: 64, h: 64 });
       expect(LIBRARY[`${theme}_exit_hd`]!.frames[0]).toMatchObject({ w: 64, h: 128 });
       expect(LIBRARY[`${theme}_moving_platform_hd`]!.frames[0]).toMatchObject({ w: 96, h: 32 });
+      expect(LIBRARY[`${theme}_spring_hd`]!.frames).toHaveLength(2);
+      expect(LIBRARY[`${theme}_spring_hd`]!.frames[0]).toMatchObject({ w: 64, h: 64 });
 
       const platform = LIBRARY[`${theme}_platform_hd`]!.frames[0]!;
       const opaqueRows = platform.rows.filter((row) => /[1-9a-f]/.test(row));
@@ -415,6 +421,7 @@ describe('built-in sprite library', () => {
     expect(platformerHdTileRef('lib:tile_solid')).toBe('lib:tile_solid');
     expect(platformerHdTileRef('custom:hand_drawn')).toBe('custom:hand_drawn');
     expect(platformerHdMovingPlatformRef('lib:tile_solid')).toBeNull();
+    expect(platformerHdSpringRef('lib:tile_solid')).toBeNull();
   });
 
   it('provides validation-sized base refs for platformer-only HD families', () => {

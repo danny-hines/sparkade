@@ -72,10 +72,13 @@ ordinary enemy behaviors and four extra-wide panoramic background plates (one pe
 boss arena) from the key art. Background plates are distant, low-contrast scenery only; the
 hand-written tile map remains the sole source of collision geometry. They are generated in parallel,
 normalized to 1536×600, and gently camera-panned without horizontal tiling, so model edge
-imperfections cannot create a repeating seam. Foreground geometry uses curated Muse Image packs for
+imperfections cannot create a repeating seam. Five small gameplay props—the collectible, health,
+power-up, hero projectile, and enemy projectile—are also generated independently from the key art.
+Each is checkpointed and falls back independently, and all five calls run alongside the other
+platformer art work rather than serializing the pipeline. Foreground geometry uses curated Muse Image packs for
 all eighteen platformer themes, checked into `packages/engine/src/library/platformer-hd.generated.json`.
 Each provides density-four cap/body atlases, platforms, hazards, checkpoints, exits, decorations,
-and a moving platform. The runtime transparently upgrades the existing family selected by Spark,
+and a moving platform plus an animated spring. The runtime transparently upgrades the existing family selected by Spark,
 scales the richer pixels over the same validated collision geometry, and retains the original 16px
 art for custom or unknown families. This removes all per-game foreground image calls. Author a
 reviewable replacement pack without

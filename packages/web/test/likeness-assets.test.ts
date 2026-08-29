@@ -6,6 +6,7 @@ import {
   PLATFORMER_BACKDROP_ASSETS,
   PLATFORMER_ENEMY_ASSETS,
   PLATFORMER_POSE_ASSETS,
+  PLATFORMER_PROP_ASSETS,
   loadLikenessAssets,
 } from '../src/likeness-assets';
 
@@ -230,6 +231,37 @@ describe('loadLikenessAssets', () => {
     expect(requested).toEqual(
       PLATFORMER_ENEMY_ASSETS.filter(([role]) => role === 'walker' || role === 'chaser').map(
         ([, assetRole]) => `/api/games/enemy-game/assets/${GENERATED_GAME_ASSET_FILES[assetRole]}`,
+      ),
+    );
+  });
+
+  it('loads each available generated platformer prop independently', async () => {
+    const result = await loadLikenessAssets('prop-game', {
+      head12: false,
+      head12Side: false,
+      head12Back: false,
+      head16: false,
+      head16Side: false,
+      head16Back: false,
+      portrait: false,
+      ...unavailableGeneratedAssets,
+      platformerPropCollectible: true,
+      platformerPropPowerup: true,
+      platformerPropEnemyProjectile: true,
+    });
+
+    expect(Object.keys(result?.platformerProps ?? {})).toEqual([
+      'collectible',
+      'powerup',
+      'enemyProjectile',
+    ]);
+    expect(result?.platformerProps?.collectible).not.toBeNull();
+    expect(result?.platformerProps?.health).toBeUndefined();
+    expect(requested).toEqual(
+      PLATFORMER_PROP_ASSETS.filter(
+        ([role]) => role === 'collectible' || role === 'powerup' || role === 'enemyProjectile',
+      ).map(
+        ([, assetRole]) => `/api/games/prop-game/assets/${GENERATED_GAME_ASSET_FILES[assetRole]}`,
       ),
     );
   });

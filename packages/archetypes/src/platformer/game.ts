@@ -10,6 +10,7 @@ import {
   makeGeneratedBackdrop,
   moveAABB,
   platformerHdMovingPlatformRef,
+  platformerHdSpringRef,
   platformerHdTileRef,
   type Backdrop,
   type EngineContext,
@@ -235,6 +236,21 @@ export function generatedPlatformerEnemyDrawRect(
   };
 }
 
+/** Density-four spring art retains the original one-tile world footprint. */
+export function platformerSpringDrawRect(
+  springX: number,
+  springY: number,
+  springW: number,
+  springH: number,
+): { x: number; y: number; w: number; h: number } {
+  return {
+    x: springX - (TILE_SIZE - springW) / 2,
+    y: springY - (TILE_SIZE - springH),
+    w: TILE_SIZE,
+    h: TILE_SIZE,
+  };
+}
+
 /** Generated player art is atomic so animation can never switch identities or
  * pixel densities when one asset is missing or fails to load. */
 export function completeGeneratedPlatformerPoses(
@@ -263,6 +279,7 @@ const ROLE_FALLBACK: Record<string, string> = {
   projectile: 'lib:proj_orb',
   enemy_projectile: 'lib:proj_pellet',
   obj_platform: 'lib:obj_platform',
+  obj_spring: 'lib:obj_spring',
 };
 
 export function createPlatformerGame(engine: EngineContext, spec: PlatformerSpec): GameInstance {
@@ -327,6 +344,7 @@ class PlatformerGame implements GameInstance {
   private generatedPlayerPoses: GeneratedPlatformerPoses | null = null;
   private generatedBoss: CanvasImageSource | null = null;
   private generatedEnemies: Readonly<Record<string, CanvasImageSource>> | null = null;
+  private generatedProps: Readonly<Record<string, CanvasImageSource>> | null = null;
   private generatedBackdrops: Readonly<Record<string, CanvasImageSource>> | null = null;
   private generatedBackdropActive = false;
   private diff!: DifficultyScale;
@@ -361,7 +379,9 @@ class PlatformerGame implements GameInstance {
           ? { presentation: platformerHeroPresentation(this.spec.playerHeightTiles) }
           : role === 'obj_platform'
             ? { bob: false, anchorOpaqueTop: true }
-            : {},
+            : role === 'obj_spring'
+              ? { bob: false }
+              : {},
       );
     }
     this.worldScale = platformerWorldScale(this.spec.playerHeightTiles, this.spec.platformerScale);
@@ -376,6 +396,7 @@ class PlatformerGame implements GameInstance {
         : null;
     this.generatedBoss = this.engine.platformerBoss;
     this.generatedEnemies = this.engine.platformerEnemies;
+    this.generatedProps = this.engine.platformerProps;
     this.generatedBackdrops = this.engine.platformerBackdrops;
   }
 
@@ -639,6 +660,10 @@ class PlatformerGame implements GameInstance {
         bob: false,
         anchorOpaqueTop: true,
       });
+    }
+    const springRef = platformerHdSpringRef(capRef);
+    if (springRef) {
+      this.sprites['obj_spring'] = this.engine.sprites.byRef(springRef, false, { bob: false });
     }
   }
 
@@ -1479,12 +1504,32 @@ class PlatformerGame implements GameInstance {
         );
         continue;
       }
+      const generatedPropRole =
+        e.type === 'coin'
+          ? 'collectible'
+          : e.type === 'heart'
+            ? 'health'
+            : e.type === 'powerup'
+              ? 'powerup'
+              : null;
+      const generatedProp = generatedPropRole ? this.generatedProps?.[generatedPropRole] : null;
+      if (generatedProp) {
+        r.drawScaled(generatedProp, e.x - cam.x, e.y - cam.y, e.w, e.h);
+        continue;
+      }
       const sprite = this.entitySprite(e);
       if (!sprite) continue;
       const anim = e.type === 'spring' ? (e.t > 0 && e.t < 0.25 ? 'bounce' : 'idle') : 'walk';
       const img = this.engine.sprites.frame(sprite, anim, e.t + this.animT, e.dir > 0);
       if (e.type === 'movingPlatform') {
         r.drawScaled(img, e.x - cam.x, e.y - cam.y, MOVING_PLATFORM_BODY.w, MOVING_PLATFORM_BODY.h);
+        continue;
+      }
+      if (e.type === 'spring') {
+        // Curated springs are density-four 64px sources, but keep the same
+        // 16px world footprint and collider as the original library spring.
+        const rect = platformerSpringDrawRect(e.x, e.y, e.w, e.h);
+        r.drawScaled(img, rect.x - cam.x, rect.y - cam.y, rect.w, rect.h);
         continue;
       }
       const drawX = e.x - cam.x - (sprite.w - e.w) / 2;
@@ -1526,6 +1571,19 @@ class PlatformerGame implements GameInstance {
     // projectiles (friendly and hostile can be cast separately)
     for (const p of this.projs) {
       if (!p.active) continue;
+      const generatedProjectile =
+        this.generatedProps?.[p.friendly ? 'heroProjectile' : 'enemyProjectile'];
+      if (generatedProjectile) {
+        r.drawScaledFlipped(
+          generatedProjectile,
+          p.x - cam.x - 4,
+          p.y - cam.y - 4,
+          8,
+          8,
+          p.friendly ? p.vx < 0 : p.vx > 0,
+        );
+        continue;
+      }
       const projSprite = this.sprites[p.friendly ? 'projectile' : 'enemy_projectile']!;
       const img = this.engine.sprites.frame(projSprite, 'idle', p.t, p.vx < 0);
       r.draw(img, p.x - cam.x - 4, p.y - cam.y - 4);
@@ -1631,7 +1689,7 @@ class PlatformerGame implements GameInstance {
       case 'powerup':
         return this.sprites['powerup'] ?? null;
       case 'spring':
-        return this.engine.sprites.byRole('obj_spring', 'lib:obj_spring');
+        return this.sprites['obj_spring'] ?? null;
       case 'movingPlatform':
         return this.sprites['obj_platform'] ?? null;
     }

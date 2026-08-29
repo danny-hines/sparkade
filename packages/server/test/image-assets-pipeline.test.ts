@@ -78,6 +78,14 @@ const PLATFORMER_ENEMY_ROLES = [
   'platformerEnemyChaser',
 ] as const satisfies readonly GeneratedGameAssetRole[];
 
+const PLATFORMER_PROP_ROLES = [
+  'platformerPropCollectible',
+  'platformerPropHealth',
+  'platformerPropPowerup',
+  'platformerPropHeroProjectile',
+  'platformerPropEnemyProjectile',
+] as const satisfies readonly GeneratedGameAssetRole[];
+
 const PLATFORMER_BACKDROP_ROLES = [
   'platformerBackdropLevel1',
   'platformerBackdropLevel2',
@@ -259,6 +267,11 @@ describe.sequential('mock image asset pipeline', () => {
       attempted: true,
       generatedRoles: ['walker', 'flyer', 'shooter', 'chaser'],
     });
+    expect(files.readMeta(gameId)?.platformerPropArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+      generatedRoles: ['collectible', 'health', 'powerup', 'heroProjectile', 'enemyProjectile'],
+    });
     expect(files.readMeta(gameId)?.platformerBackdropArt).toEqual({
       mode: 'generated',
       attempted: true,
@@ -270,6 +283,7 @@ describe.sequential('mock image asset pipeline', () => {
       ...PLATFORMER_ROLES,
       ...PLATFORMER_BOSS_ROLES,
       ...PLATFORMER_ENEMY_ROLES,
+      ...PLATFORMER_PROP_ROLES,
       ...PLATFORMER_BACKDROP_ROLES,
     ]);
 
@@ -295,6 +309,11 @@ describe.sequential('mock image asset pipeline', () => {
       platformerEnemyFlyer: [96, 96],
       platformerEnemyShooter: [96, 96],
       platformerEnemyChaser: [96, 96],
+      platformerPropCollectible: [48, 48],
+      platformerPropHealth: [48, 48],
+      platformerPropPowerup: [48, 48],
+      platformerPropHeroProjectile: [32, 32],
+      platformerPropEnemyProjectile: [32, 32],
       platformerBackdropLevel1: [1536, 600],
       platformerBackdropLevel2: [1536, 600],
       platformerBackdropLevel3: [1536, 600],
@@ -303,7 +322,7 @@ describe.sequential('mock image asset pipeline', () => {
     expect(HEAD_ROLES.some((role) => role in dimensions)).toBe(false);
     expect(
       db.usageForGame(gameId).filter((event) => event.stage.startsWith('image:') && !event.failed),
-    ).toHaveLength(35);
+    ).toHaveLength(40);
     expect(existsSync(join(files.gameDir(gameId), 'photo.jpg'))).toBe(false);
   });
 
@@ -324,7 +343,7 @@ describe.sequential('mock image asset pipeline', () => {
     const successfulImagesBeforeRetry = db
       .usageForGame(gameId)
       .filter((event) => event.stage.startsWith('image:') && !event.failed);
-    expect(successfulImagesBeforeRetry).toHaveLength(35);
+    expect(successfulImagesBeforeRetry).toHaveLength(40);
 
     expect(runner.retryJob(gameId)).toEqual({ jobId });
     expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done', attempt: 2 });
@@ -340,6 +359,7 @@ describe.sequential('mock image asset pipeline', () => {
       ...PLATFORMER_ROLES,
       ...PLATFORMER_BOSS_ROLES,
       ...PLATFORMER_ENEMY_ROLES,
+      ...PLATFORMER_PROP_ROLES,
       ...PLATFORMER_BACKDROP_ROLES,
     ]);
   });

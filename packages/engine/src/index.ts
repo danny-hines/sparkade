@@ -105,6 +105,7 @@ export {
   PLATFORMER_HD_TILE_KINDS,
   TILES_PLATFORMER_HD,
   platformerHdMovingPlatformRef,
+  platformerHdSpringRef,
   platformerHdTileRef,
   type PlatformerHdTileKind,
 } from './library/platformer-hd';

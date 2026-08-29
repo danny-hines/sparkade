@@ -7,6 +7,7 @@ import {
   generatedPlatformerEnemyDrawRect,
   generatedPlatformerPlayerDrawRect,
   generatedPlatformerPoseDrawSize,
+  platformerSpringDrawRect,
 } from '../src/platformer/game';
 
 describe('generated platformer player poses', () => {
@@ -66,5 +67,11 @@ describe('generated platformer player poses', () => {
 
     const flyer = generatedPlatformerEnemyDrawRect('flyer', 100, 50, 14, 14);
     expect(flyer).toEqual({ x: 94, y: 43, w: 26, h: 22 });
+  });
+
+  it('renders density-four springs at the original one-tile gameplay size', () => {
+    const rect = platformerSpringDrawRect(101, 81, 14, 14);
+    expect(rect).toEqual({ x: 100, y: 79, w: 16, h: 16 });
+    expect(rect.y + rect.h).toBe(81 + 14);
   });
 });

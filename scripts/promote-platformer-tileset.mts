@@ -18,7 +18,8 @@ type TileKind =
   | 'checkpoint'
   | 'exit'
   | 'deco'
-  | 'moving_platform';
+  | 'moving_platform'
+  | 'spring';
 
 interface SpriteFrame {
   w: number;
@@ -90,10 +91,25 @@ async function derivedPlatform(capCell: Buffer): Promise<Buffer> {
     .toBuffer();
 }
 
+async function derivedSpringBounce(spring: Buffer): Promise<Buffer> {
+  const compressed = await sharp(spring)
+    .resize(64, 46, { fit: 'fill', kernel: sharp.kernel.nearest })
+    .png()
+    .toBuffer();
+  return sharp({
+    create: { width: 64, height: 64, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  })
+    .composite([{ input: compressed, left: 0, top: 18 }])
+    .png()
+    .toBuffer();
+}
+
 async function main(): Promise<void> {
   const theme = required('theme').trim().toLowerCase();
   if (!/^[a-z][a-z0-9_]*$/.test(theme)) throw new Error('theme must be a lowercase id');
   const assetsDir = resolve(required('assets'));
+  const file = JSON.parse(readFileSync(OUTPUT, 'utf8')) as PackFile;
+  const existingPack = file.themes[theme];
   const paths = {
     solid: join(assetsDir, 'platformer-terrain-solid-cap.png'),
     solid_inner: join(assetsDir, 'platformer-terrain-solid-inner.png'),
@@ -102,17 +118,23 @@ async function main(): Promise<void> {
     exit: join(assetsDir, 'platformer-terrain-exit.png'),
     deco: join(assetsDir, 'platformer-terrain-decoration.png'),
     moving_platform: join(assetsDir, 'platformer-terrain-moving-platform.png'),
+    spring: join(assetsDir, 'platformer-terrain-spring.png'),
   } as const;
   for (const path of Object.values(paths)) {
     if (!existsSync(path)) throw new Error(`missing source asset ${path}`);
   }
-  const sourcePalette = await buildSourcePalette(
-    Object.values(paths).map((path) => readFileSync(path)),
-  );
+  // An accepted pack's source palette is part of its visual identity. New
+  // fixture roles map into that stable palette instead of re-indexing every
+  // existing tile whenever another source image is added.
+  const sourcePalette =
+    existingPack?.sourcePalette ??
+    (await buildSourcePalette(Object.values(paths).map((path) => readFileSync(path))));
 
   const capCells = await cells(readFileSync(paths.solid), 4, 1);
   const innerCells = await cells(readFileSync(paths.solid_inner), 4, 4);
   const platform = await derivedPlatform(capCells[0]!);
+  const spring = readFileSync(paths.spring);
+  const springBounce = await derivedSpringBounce(spring);
   const entry = async (frames: readonly Buffer[]) => ({
     frames: await Promise.all(
       frames.map((frame) => indexImageToSourcePalette(frame, sourcePalette)),
@@ -128,17 +150,26 @@ async function main(): Promise<void> {
     exit: await entry([readFileSync(paths.exit)]),
     deco: await entry([readFileSync(paths.deco)]),
     moving_platform: await entry([readFileSync(paths.moving_platform)]),
+    spring: {
+      frames: await Promise.all(
+        [spring, springBounce].map((frame) => indexImageToSourcePalette(frame, sourcePalette)),
+      ),
+      anims: { idle: [0], bounce: [1, 0] },
+    },
   } satisfies Record<TileKind, { frames: SpriteFrame[]; anims: Record<string, number[]> }>;
 
-  const file = JSON.parse(readFileSync(OUTPUT, 'utf8')) as PackFile;
+  const note = argument('note');
   file.themes[theme] = {
     sourcePalette,
-    source: {
-      model: 'muse-image-1.0',
-      note:
-        argument('note') ??
-        `Curated from ${basename(resolve(assetsDir, '..'))}; one-way platform derived from the accepted solid cap.`,
-    },
+    source:
+      existingPack?.source && !note
+        ? existingPack.source
+        : {
+            model: existingPack?.source?.model ?? 'muse-image-1.0',
+            note:
+              note ??
+              `Curated from ${basename(resolve(assetsDir, '..'))}; one-way platform derived from the accepted solid cap.`,
+          },
     entries,
   };
   writeFileSync(OUTPUT, `${JSON.stringify(file, null, 2)}\n`);

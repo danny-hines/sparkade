@@ -164,9 +164,11 @@ embedded verbatim in the prompt templates (`packages/shared/src/schemas/`).
 four consistent story scenes (intro, boss, victory, defeat). Every platformer also derives three
 isolated 192×192 boss candidates from its boss story scene; Muse Spark selects the most faithful
 locally valid candidate, which renders as a 48×48 signature finale actor over the stable hand-written
-AI and collision body. Platformer foreground geometry instead uses curated, density-four Muse Image
+AI and collision body. Each platformer also generates four ordinary enemy roles, five independent
+pickups/projectiles, and four panoramic stage backdrops in parallel from its key art. A failed small
+prop keeps only that role's stable library fallback. Platformer foreground geometry instead uses curated, density-four Muse Image
 packs for all eighteen platformer tile themes, checked into the sprite library. Spark keeps selecting the
-same cohesive tile families; the platformer runtime transparently upgrades them without an image
+same cohesive tile families—including their moving platforms and animated springs—and the platformer runtime transparently upgrades them without an image
 call or any change to collision. Custom and unknown families retain the original safe fallback.
 Photo games additionally require
 neutral and story-aware defeat-expression portraits plus generated 12/16px player-head sprites;

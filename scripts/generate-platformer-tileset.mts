@@ -98,6 +98,7 @@ function fixtureFilename(role: PlatformerTilesetFixtureRole): string {
     exit: 'platformer-terrain-exit.png',
     deco: 'platformer-terrain-decoration.png',
     movingPlatform: 'platformer-terrain-moving-platform.png',
+    spring: 'platformer-terrain-spring.png',
   }[role];
 }
 

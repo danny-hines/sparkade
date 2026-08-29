@@ -33,6 +33,9 @@ describe('curated platformer tileset authoring', () => {
     expect(moving).toContain('exact style, material, palette, lighting, and pixel-density');
     expect(moving).toContain('never become a hairline');
     expect(moving).toContain('#00ff00');
+    const spring = buildPlatformerTilesetFixturePrompt('cave', 'wet crystal caverns', 'spring');
+    expect(spring).toContain('compressible');
+    expect(spring).toContain('jump pad');
 
     const safeHazard = buildPlatformerTilesetFixturePolicyFallbackPrompt('hazard');
     expect(safeHazard).toContain('family-friendly');

@@ -7,11 +7,12 @@ export const PLATFORMER_TILESET_FIXTURE_ROLES = [
   'exit',
   'deco',
   'movingPlatform',
+  'spring',
 ] as const;
 
 export type PlatformerTilesetFixtureRole = (typeof PLATFORMER_TILESET_FIXTURE_ROLES)[number];
 
-export const PLATFORMER_TILESET_AUTHOR_PROMPT_VERSION = 'platformer-tileset-author-v4';
+export const PLATFORMER_TILESET_AUTHOR_PROMPT_VERSION = 'platformer-tileset-author-v5';
 
 const FIXTURE_DIRECTIONS: Record<PlatformerTilesetFixtureRole, string> = {
   hazard:
@@ -22,6 +23,8 @@ const FIXTURE_DIRECTIONS: Record<PlatformerTilesetFixtureRole, string> = {
   deco: 'one low noninteractive foreground scenery prop native to the theme, grounded and clearly not a pickup, hazard, enemy, checkpoint, or doorway',
   movingPlatform:
     'one wide moving-platform vehicle or slab with a perfectly flat rideable top and a sturdy visible body, no hanging supports, rider, cargo, floor, or scenery',
+  spring:
+    'one compact spring-loaded jump pad with an unmistakable compressible coil, bellows, piston, mushroom cap, or bounce mechanism, grounded at the bottom and readable as something the hero should land on',
 };
 
 const SAFE_FIXTURE_DIRECTIONS: Record<PlatformerTilesetFixtureRole, string> = {
@@ -33,6 +36,8 @@ const SAFE_FIXTURE_DIRECTIONS: Record<PlatformerTilesetFixtureRole, string> = {
   deco: 'one low noninteractive foreground scenery prop native to the attached material, grounded and compact',
   movingPlatform:
     'one wide floating platform slab with a perfectly flat rideable top and a sturdy visible body, with no supports, cargo, or surrounding scene',
+  spring:
+    'one compact spring-loaded jump pad with an obvious compressible bounce mechanism, grounded and clearly readable',
 };
 
 const FIXTURE_DIMENSIONS: Record<PlatformerTilesetFixtureRole, { width: number; height: number }> =
@@ -42,6 +47,7 @@ const FIXTURE_DIMENSIONS: Record<PlatformerTilesetFixtureRole, { width: number; 
     exit: { width: 64, height: 128 },
     deco: { width: 64, height: 64 },
     movingPlatform: { width: 96, height: 32 },
+    spring: { width: 64, height: 64 },
   };
 
 function clean(value: string, max = 500): string {

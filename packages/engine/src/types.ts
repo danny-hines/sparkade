@@ -68,6 +68,8 @@ export interface LikenessAssets {
   platformerBoss?: CanvasImageSource | null;
   /** Independently generated platformer enemy bodies, keyed by behavior role. */
   platformerEnemies?: Readonly<Record<string, CanvasImageSource>> | null;
+  /** Independently generated pickups and projectiles, keyed by gameplay role. */
+  platformerProps?: Readonly<Record<string, CanvasImageSource>> | null;
   /** Independently generated panoramic platformer stage plates. */
   platformerBackdrops?: Readonly<Record<string, CanvasImageSource>> | null;
 }

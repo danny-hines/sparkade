@@ -595,6 +595,17 @@ export interface GameMetaFile {
     /** Present when at least one role retained its stable library fallback. */
     reason?: string;
   };
+  /** QA/readiness signal for small, independently generated gameplay props. */
+  platformerPropArt?: {
+    mode: 'generated' | 'partial' | 'procedural';
+    attempted: boolean;
+    /** Prop roles whose generated art passed local processing and was published. */
+    generatedRoles?: Array<
+      'collectible' | 'health' | 'powerup' | 'heroProjectile' | 'enemyProjectile'
+    >;
+    /** Present when at least one role retained its stable library fallback. */
+    reason?: string;
+  };
   /** QA/readiness signal for the four image-generated platformer stage plates. */
   platformerBackdropArt?: {
     mode: 'generated' | 'partial' | 'procedural';

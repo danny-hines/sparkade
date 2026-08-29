@@ -137,6 +137,14 @@ import {
   type GeneratedPlatformerBackdrop,
 } from '../assets/platformer-backdrop';
 import {
+  GENERATED_PLATFORMER_PROPS,
+  PLATFORMER_PROP_PIPELINE_PROMPT_VERSION,
+  PLATFORMER_PROP_PROMPT_VERSION,
+  buildPlatformerPropPrompt,
+  processGeneratedPlatformerProp,
+  type GeneratedPlatformerProp,
+} from '../assets/platformer-prop';
+import {
   GameAssetWorkspace,
   GeneratedAssetStorageError,
   imagePromptHash,
@@ -257,6 +265,14 @@ const PLATFORMER_ENEMY_ASSET_ROLES = {
   shooter: 'platformerEnemyShooter',
   chaser: 'platformerEnemyChaser',
 } as const satisfies Record<GeneratedPlatformerEnemy, GeneratedGameAssetRole>;
+
+const PLATFORMER_PROP_ASSET_ROLES = {
+  collectible: 'platformerPropCollectible',
+  health: 'platformerPropHealth',
+  powerup: 'platformerPropPowerup',
+  heroProjectile: 'platformerPropHeroProjectile',
+  enemyProjectile: 'platformerPropEnemyProjectile',
+} as const satisfies Record<GeneratedPlatformerProp, GeneratedGameAssetRole>;
 
 /** Surprise's structured genre is authoritative; the design model still gets
  * the instruction, but cannot silently relabel the job by returning another id. */
@@ -2458,6 +2474,154 @@ export class GenerationRunner {
             })
           : Promise.resolve();
 
+      let platformerPropArtStatus: GameMetaFile['platformerPropArt'] =
+        spec.archetype === 'platformer'
+          ? {
+              mode: 'procedural',
+              attempted: true,
+              reason: 'Generated platformer prop art did not complete',
+            }
+          : undefined;
+      const platformerPropTask =
+        spec.archetype === 'platformer'
+          ? keyArtTask.then(async (keyArt): Promise<void> => {
+              const generationStarted = Date.now();
+              const colors = spec.palette
+                .filter((hex) => {
+                  const r = Number.parseInt(hex.slice(1, 3), 16);
+                  const g = Number.parseInt(hex.slice(3, 5), 16);
+                  const b = Number.parseInt(hex.slice(5, 7), 16);
+                  return !(g > r * 1.15 && g > b * 1.15);
+                })
+                .join(', ');
+              const premise = [spec.meta.tagline, ...spec.story.intro].join(' ');
+              const promptHashes = Object.fromEntries(
+                GENERATED_PLATFORMER_PROPS.map((role) => [
+                  role,
+                  imagePromptHash(
+                    JSON.stringify({
+                      promptVersion: PLATFORMER_PROP_PROMPT_VERSION,
+                      gameTitle: spec.meta.title,
+                      tagline: spec.meta.tagline,
+                      premise,
+                      role,
+                      colors,
+                    }),
+                    keyArt,
+                  ),
+                ]),
+              ) as Record<GeneratedPlatformerProp, string>;
+              const generated = new Set<GeneratedPlatformerProp>();
+
+              for (const role of GENERATED_PLATFORMER_PROPS) {
+                if (
+                  assetWorkspace.load(
+                    PLATFORMER_PROP_ASSET_ROLES[role],
+                    PLATFORMER_PROP_PIPELINE_PROMPT_VERSION,
+                    promptHashes[role],
+                  )
+                ) {
+                  generated.add(role);
+                }
+              }
+              const missing = GENERATED_PLATFORMER_PROPS.filter((role) => !generated.has(role));
+              if (missing.length === 0) {
+                platformerPropArtStatus = {
+                  mode: 'generated',
+                  attempted: true,
+                  generatedRoles: [...GENERATED_PLATFORMER_PROPS],
+                };
+                emit('building-assets', 'Restored the generated platformer gameplay props');
+                return;
+              }
+
+              emit('building-assets', `Painting ${missing.length} gameplay props in parallel…`);
+              await Promise.all(
+                missing.map(async (role) => {
+                  try {
+                    const raw = await callImage({
+                      role: `platformer-prop-${role}`,
+                      label: `${role} gameplay prop`,
+                      prompt: buildPlatformerPropPrompt({
+                        gameTitle: spec.meta.title,
+                        tagline: spec.meta.tagline,
+                        premise,
+                        role,
+                        colors,
+                      }),
+                      reference: keyArt,
+                      size: '1024x1024',
+                    });
+                    let processed;
+                    try {
+                      processed = await processGeneratedPlatformerProp(raw, role);
+                    } catch (initialError) {
+                      const recovery = await recoverGeneratedPlatformerGreenPanel(raw);
+                      if (!recovery.recovered) throw initialError;
+                      processed = await processGeneratedPlatformerProp(recovery.image, role);
+                    }
+                    await assetWorkspace.store(
+                      PLATFORMER_PROP_ASSET_ROLES[role],
+                      processed.png,
+                      PLATFORMER_PROP_PIPELINE_PROMPT_VERSION,
+                      promptHashes[role],
+                    );
+                    generated.add(role);
+                  } catch (error) {
+                    if (
+                      abort.signal.aborted ||
+                      error instanceof GeneratedAssetStorageError ||
+                      (error instanceof PipelineError && error.code === 'storage')
+                    ) {
+                      throw error;
+                    }
+                    validationFailure(`platformer-prop-${role}`);
+                    emit(
+                      'building-assets',
+                      `${role} prop was unavailable; keeping its stable library fallback`,
+                    );
+                  }
+                }),
+              );
+
+              const generatedRoles = GENERATED_PLATFORMER_PROPS.filter((role) =>
+                generated.has(role),
+              );
+              const missingRoles = GENERATED_PLATFORMER_PROPS.filter(
+                (role) => !generated.has(role),
+              );
+              if (missingRoles.length === 0) {
+                platformerPropArtStatus = {
+                  mode: 'generated',
+                  attempted: true,
+                  generatedRoles,
+                };
+                emit('building-assets', 'Generated the complete platformer gameplay prop set');
+                return;
+              }
+
+              const reason = `No valid generated art for ${missingRoles.join(', ')}`;
+              platformerPropArtStatus = {
+                mode: generatedRoles.length ? 'partial' : 'procedural',
+                attempted: true,
+                ...(generatedRoles.length ? { generatedRoles } : {}),
+                reason,
+              };
+              recordEarlyRepairEvent(
+                'entities',
+                'platformer-prop-art-fallback',
+                missingRoles.map((role) => ({
+                  code: 'PLATFORMER_PROP_ART_FALLBACK',
+                  path: `/assets/platformer-prop-${role}`,
+                  message: reason,
+                })),
+                [],
+                generationStarted,
+                'downgraded',
+              );
+            })
+          : Promise.resolve();
+
       let fighterArtStatus: GameMetaFile['fighterArt'] =
         spec.archetype === 'fighter'
           ? photoReference
@@ -3127,6 +3291,7 @@ export class GenerationRunner {
         platformerBackdropTask,
         platformerBossTask,
         platformerEnemyTask,
+        platformerPropTask,
         fighterTask,
         platformerPlayerTask,
         portraitTask,
@@ -3168,6 +3333,7 @@ export class GenerationRunner {
         ...(platformerPlayerArtStatus ? { platformerPlayerArt: platformerPlayerArtStatus } : {}),
         ...(platformerBossArtStatus ? { platformerBossArt: platformerBossArtStatus } : {}),
         ...(platformerEnemyArtStatus ? { platformerEnemyArt: platformerEnemyArtStatus } : {}),
+        ...(platformerPropArtStatus ? { platformerPropArt: platformerPropArtStatus } : {}),
         ...(platformerBackdropArtStatus
           ? { platformerBackdropArt: platformerBackdropArtStatus }
           : {}),

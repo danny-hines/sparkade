@@ -138,7 +138,8 @@
       "type": "object",
       "properties": {
         "title": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[ -~]+$" },
-        "tagline": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[ -~]+$" }
+        "tagline": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[ -~]+$" },
+        "heroConcept": { "type": "string", "minLength": 1, "maxLength": 220, "pattern": "^[ -~]+$" }
       },
       "required": ["title", "tagline"],
       "additionalProperties": false

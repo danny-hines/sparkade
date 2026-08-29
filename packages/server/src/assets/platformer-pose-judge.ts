@@ -3,7 +3,7 @@ import type { ProviderUsage } from '@sparkade/shared';
 import { buildPlatformerPosePrompt, type PlatformerPosePromptOptions } from './platformer-pose';
 
 export const PLATFORMER_POSE_LAB_PROMPT_VERSION = 'platformer-pose-lab-v3';
-export const PLATFORMER_POSE_JUDGE_PROMPT_VERSION = 'platformer-pose-judge-v3';
+export const PLATFORMER_POSE_JUDGE_PROMPT_VERSION = 'platformer-pose-judge-v4';
 export const PLATFORMER_PLAYER_PIPELINE_PROMPT_VERSION = 'platformer-player-pipeline-v1';
 
 export type PlatformerPoseCandidateKind = 'phase-a' | 'phase-b';
@@ -305,8 +305,8 @@ export function buildPlatformerPoseJudgePrompt(
     system: [
       'You are the exacting art director and animation QA judge for a premium SNES-style platform game.',
       'Inspect the attached labeled review board. Judge only what is visibly present. Do not excuse a failure because the art is attractive.',
-      'The SOURCE PHOTO is identity truth. FRONT IDLE and SIDE ANCHOR are intermediates. The A and B labels describe generation intent only; they are not evidence that a particular anatomical limb actually occupies the requested depth layer.',
-      'Identity means the same recognizable person: apparent age, head and face shape, skin tone, hairline, hair texture/style, facial hair, eyewear/headwear, accessories, body proportions, and costume. Becoming bald, childlike, generically younger, differently proportioned, or gaining/losing accessories is a fatal identity failure.',
+      'The SOURCE PHOTO is immutable identity truth from the neck up. Its clothing below the neck is not identity. FRONT IDLE establishes the canonical game-world costume and body presentation; SIDE ANCHOR carries both into profile. The A and B labels describe generation intent only; they are not evidence that a particular anatomical limb actually occupies the requested depth layer.',
+      'Identity means the same recognizable person from the neck up: apparent age, head and face shape, skin tone, hairline, hair texture/style, facial hair, eyewear, headwear, and visible head accessories. Costume is judged separately against FRONT IDLE. Becoming bald, childlike, generically younger, differently proportioned, or gaining/losing a head accessory is a fatal identity failure.',
       'First review each candidate only for identity, costume, readable running pose, facing, grounding, and technical integrity. Do not reject an individual candidate by trying to name its camera-side or far-side leading limb in isolation.',
       'Then evaluate every labeled A+B comparison cell on the board. Compare the visible pixels around the hips, crotch, knees, shoes, shoulders, elbows, and hands. Ask whether the foreground/background limb contours exchange roles strongly enough that alternating the two images reads as a stride rather than one character wiggling in place. You do not need to assign anatomical near/far labels to either isolated image.',
       'A valid two-frame pair must depict the same character at the same scale, side angle, pixel density, palette, costume, and ground line. Clear visible leg alternation is the non-negotiable gate. Arm alternation is important but secondary and must not by itself reject an otherwise convincing stride.',

@@ -139,9 +139,15 @@ normalized decision. This directory is local and gitignored; it is intentionally
 published game assets and generation incidents.
 Append `&run=<run-id>` to the lab URL to reopen any persisted run after a dev-server restart.
 
-An accepted player photo is sent to Muse Image. For detailed platformers, the source photo also
+An accepted player photo is sent to Muse Image. Spark's design-stage `heroConcept` is the canonical
+game-world wardrobe contract shared by key art, story scenes, portraits, and detailed platformer
+poses. For photographed players, the photo remains immutable identity truth from the neck up
+(including hair, facial hair, eyewear, and headwear), while source clothing below the neck is
+deliberately replaced by the premise-specific outfit. For detailed platformers, the source photo also
 appears in the locally assembled identity and pose review boards sent to the configured design-stage
-provider. The separately disclosed `likeness.describeInStory` option controls whether the earlier
-design pass itself sees the photo. Production does not reduce identity to the old finite face-feature
-taxonomy. The source photo remains in staging only while the job is retryable and is removed before
-a successful game is published; photos and audio must never be logged.
+provider. Those judges compare head identity to the photo and costume to `heroConcept`; they do not
+mistake source-photo clothing for identity. The separately disclosed `likeness.describeInStory`
+option controls whether the earlier design pass itself sees the photo. Production does not reduce
+identity to the old finite face-feature taxonomy. The source photo remains in staging only while the
+job is retryable and is removed before a successful game is published; photos and audio must never be
+logged.

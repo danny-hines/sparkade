@@ -148,7 +148,13 @@ describe('deterministic generated-spec normalization', () => {
     const fixed = result.spec as PlatformerSpec;
     expect(fixed.levels[0]!.playerSpawn).toEqual({ x: 0, y: 12 });
     expect(fixed.levels[0]!.entities[0]).toMatchObject({ x: 0, y: 12 });
-    expect(fixed.levels[0]!.entities[1]).toMatchObject({ x: 0, y: 0 });
+    expect(fixed.levels[0]!.entities[1]).toMatchObject({ x: 0, y: 7 });
+    expect(result.fixes).toContainEqual(
+      expect.objectContaining({
+        code: 'PLATFORMER_ENTITY_REACHABILITY',
+        path: '/levels/0/entities/1',
+      }),
+    );
     const geometryErrors = lintPlatformer(fixed).filter((error) =>
       [
         'PLAT_SPAWN_IN_SOLID',
@@ -192,7 +198,7 @@ describe('deterministic generated-spec normalization', () => {
     const result = normalizeGeneratedSpec(input);
     const entities = (result.spec as PlatformerSpec).levels[0]!.entities;
     expect(entities.slice(0, 4)).toMatchObject([
-      { type: 'walker', x: 4, y: 4 },
+      { type: 'walker', x: 3, y: 6 },
       { type: 'coin', x: 8, y: 4 },
       { type: 'flyer', x: 12, y: 4 },
       { type: 'spring', x: 16, y: 4 },
@@ -211,6 +217,12 @@ describe('deterministic generated-spec normalization', () => {
     expect(result.fixes.filter((fix) => fix.code === 'PLATFORMER_COORD')).toHaveLength(4);
     expect(result.fixes).toContainEqual(
       expect.objectContaining({
+        code: 'PLATFORMER_ENTITY_REACHABILITY',
+        path: '/levels/0/entities/0',
+      }),
+    );
+    expect(result.fixes).toContainEqual(
+      expect.objectContaining({
         code: 'PLATFORMER_MOVING_PLATFORM_COORD',
         path: '/levels/0/entities/4',
       }),
@@ -221,10 +233,57 @@ describe('deterministic generated-spec normalization', () => {
     expect(
       again.fixes.filter(
         (fix) =>
-          fix.code === 'PLATFORMER_COORD' ||
-          fix.code.startsWith('PLATFORMER_MOVING_PLATFORM'),
+          fix.code === 'PLATFORMER_COORD' || fix.code.startsWith('PLATFORMER_MOVING_PLATFORM'),
       ),
     ).toEqual([]);
+  });
+
+  it('relocates entities from sealed pockets to the nearest reachable interaction cells', () => {
+    const input = golden<PlatformerSpec>('platformer');
+    const level = input.levels[0]!;
+    const width = 30;
+    const rows = Array.from({ length: 10 }, () => '.'.repeat(width));
+    for (let y = 0; y < rows.length - 1; y++) {
+      rows[y] = `${rows[y]!.slice(0, 15)}#${rows[y]!.slice(16)}`;
+    }
+    rows[8] = `${rows[8]!.slice(0, 7)}C${rows[8]!.slice(8)}`;
+    rows[9] = '#'.repeat(width);
+    level.tiles = rows;
+    level.legend = { '#': 'solid', C: 'checkpoint' };
+    level.playerSpawn = { x: 2, y: 8 };
+    level.exit = { x: 12, y: 8 };
+    level.entities = [
+      { type: 'coin', x: 20, y: 8 },
+      { type: 'heart', x: 21, y: 8 },
+      { type: 'powerup', x: 22, y: 8, props: { kind: 'shield' } },
+      { type: 'walker', x: 23, y: 8, props: { range: 3, speed: 0.8 } },
+      { type: 'flyer', x: 24, y: 5, props: { amplitude: 1 } },
+      { type: 'spring', x: 26, y: 8 },
+    ];
+    input.levels = [level];
+
+    const result = normalizeGeneratedSpec(input);
+    const fixed = (result.spec as PlatformerSpec).levels[0]!;
+    expect(fixed.entities).toEqual([
+      { type: 'coin', x: 14, y: 8 },
+      { type: 'heart', x: 14, y: 7 },
+      { type: 'powerup', x: 13, y: 8, props: { kind: 'shield' } },
+      { type: 'walker', x: 11, y: 8, props: { range: 3, speed: 0.8 } },
+      { type: 'flyer', x: 14, y: 5, props: { amplitude: 1 } },
+      { type: 'spring', x: 10, y: 8 },
+    ]);
+    expect(
+      result.fixes.filter((fix) => fix.code === 'PLATFORMER_ENTITY_REACHABILITY'),
+    ).toHaveLength(6);
+    expect(
+      lintPlatformer(result.spec as PlatformerSpec).filter(
+        (error) => error.code === 'PLAT_ENTITY_UNREACHABLE',
+      ),
+    ).toEqual([]);
+
+    const again = normalizeGeneratedSpec(result.spec);
+    expect(again.spec).toEqual(result.spec);
+    expect(again.fixes.filter((fix) => fix.code === 'PLATFORMER_ENTITY_REACHABILITY')).toEqual([]);
   });
 
   it('relocates floating and cramped checkpoints without changing marker count or characters', () => {

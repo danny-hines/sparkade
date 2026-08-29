@@ -19,6 +19,7 @@ export type { Archetype } from './types';
 export {
   lintPlatformer,
   estimatePlatformerDurationS,
+  platformerEntityReachabilityIssue,
   platformerReachabilityBlockage,
   reachableCells,
 } from './platformer/lint';

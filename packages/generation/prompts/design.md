@@ -23,6 +23,14 @@ The user message carries the player's request (transcribed from voice, or a pres
 
 Performance budget for all: ≤24 active entities on screen, level width ≤256 tiles, 16-color palette, 8 audio voices. The engine supplies game feel (coyote time, hit-stop, screen shake) — you supply identity.
 
+## Player identity and wardrobe
+
+`heroConcept` is the canonical visual contract shared by gameplay sprites, portraits, key art, and story scenes. Make the hero's outfit specific to this game's premise rather than generic modern clothing: a space adventure might call for a spacesuit, a futuristic city for a neon street jacket or techwear, a fantasy garden for practical botanical gear, and so on. Name concrete garments, materials, colors, footwear, and body-worn costume details so Muse Image can reproduce the same design everywhere.
+
+When a likeness photo exists, the photo is immutable identity truth from the neck up—including face and head shape, skin tone, hair, facial hair, glasses, headwear, and other visible head accessories. Do NOT describe, replace, or embellish those traits in `heroConcept`. The source photo's shirt or other clothing below the neck is NOT identity and should be replaced by the story-specific game-world outfit you choose. Keep the person recognizably the same adult; never make costume changes by changing their apparent age or body proportions.
+
+When no photo exists, `heroConcept` may establish the original hero's complete head-to-toe appearance as well as their outfit.
+
 ## Make it clearly different
 
 The user message lists the games already on this cabinet. Make something CLEARLY different from every one of them in title, premise, palette mood, musical key AND musical genre/feel (don't let every game be a minor-key march at a slightly different tempo).

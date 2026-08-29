@@ -390,7 +390,7 @@
         {
           "type": "movingPlatform",
           "x": 82,
-          "y": 12,
+          "y": 13,
           "props": {
             "dy": -4,
             "periodMs": 3200
@@ -638,7 +638,7 @@
         {
           "type": "movingPlatform",
           "x": 85,
-          "y": 5,
+          "y": 6,
           "props": {
             "dx": 6,
             "periodMs": 3600

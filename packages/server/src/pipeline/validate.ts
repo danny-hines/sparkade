@@ -15,7 +15,11 @@ import {
   type ShooterSpec,
   type SpriteData,
 } from '@sparkade/shared';
-import { reconcileDoors } from '@sparkade/archetypes';
+import {
+  platformerEntityReachabilityIssue,
+  reachableCells,
+  reconcileDoors,
+} from '@sparkade/archetypes';
 
 const ajv = new Ajv2020({ allErrors: true, strict: false });
 const compiled = new Map<string, ValidateFunction>();
@@ -472,6 +476,7 @@ export interface NormalizationFix {
     | 'TILE_WHITESPACE'
     | 'TILE_ROWS'
     | 'PLATFORMER_COORD'
+    | 'PLATFORMER_ENTITY_REACHABILITY'
     | 'PLATFORMER_CHECKPOINT_COORD'
     | 'PLATFORMER_MOVING_PLATFORM_COORD'
     | 'PLATFORMER_MOVING_PLATFORM_STATIONARY'
@@ -940,35 +945,30 @@ function nearestCell(
   h: number,
   accepts: (x: number, y: number) => boolean,
 ): GridCoord | null {
-  let best: GridCoord | null = null;
-  let bestScore: readonly number[] | null = null;
-  const isBefore = (left: readonly number[], right: readonly number[]): boolean => {
+  const compareScore = (left: readonly number[], right: readonly number[]): number => {
     for (let i = 0; i < left.length; i++) {
       if (left[i] === right[i]) continue;
-      return left[i]! < right[i]!;
+      return left[i]! - right[i]!;
     }
-    return false;
+    return 0;
   };
+  const candidates: GridCoord[] = [];
   for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      if (!accepts(x, y)) continue;
-      // Prefer minimal movement, then staying in the same column, then the
-      // smallest horizontal displacement. The final coordinates make ties
-      // deterministic without inventing randomness.
-      const score = [
-        Math.abs(x - origin.x) + Math.abs(y - origin.y),
-        x === origin.x ? 0 : 1,
-        Math.abs(x - origin.x),
-        y,
-        x,
-      ] as const;
-      if (!bestScore || isBefore(score, bestScore)) {
-        best = { x, y };
-        bestScore = score;
-      }
-    }
+    for (let x = 0; x < w; x++) candidates.push({ x, y });
   }
-  return best;
+  // Prefer minimal movement, then staying in the same column, then the
+  // smallest horizontal displacement. The final coordinates make ties
+  // deterministic without inventing randomness. Sorting first lets expensive
+  // reachability predicates stop as soon as the nearest valid cell is found.
+  const score = ({ x, y }: GridCoord): readonly number[] => [
+    Math.abs(x - origin.x) + Math.abs(y - origin.y),
+    x === origin.x ? 0 : 1,
+    Math.abs(x - origin.x),
+    y,
+    x,
+  ];
+  candidates.sort((left, right) => compareScore(score(left), score(right)));
+  return candidates.find(({ x, y }) => accepts(x, y)) ?? null;
 }
 
 function normalizePlatformerContent(out: GameSpec, fixes: NormalizationFix[]): void {
@@ -1148,6 +1148,64 @@ function normalizePlatformerContent(out: GameSpec, fixes: NormalizationFix[]): v
         'PLATFORMER_COORD',
         `/levels/${li}/entities/${ei}`,
         `moved ${entity.type} from ${before} to valid cell (${x},${y})`,
+      );
+    });
+
+    // Geometry alone is insufficient: an entity may be in a perfectly open
+    // pocket that the player can never enter. Reuse the archetype traversal
+    // graph and move only those invalid placements, preserving type/props and
+    // preferring the closest reachable interaction position.
+    const entityReserved = new Set<string>([
+      `${level.playerSpawn.x},${level.playerSpawn.y}`,
+      `${level.exit.x},${level.exit.y}`,
+    ]);
+    level.tiles.forEach((row, y) => {
+      for (let x = 0; x < row.length; x++) {
+        if (level.legend[row[x]!] === 'checkpoint') entityReserved.add(`${x},${y}`);
+      }
+    });
+    const occupied = new Map<string, number>();
+    const occupy = (x: number, y: number, delta: number): void => {
+      const cell = `${x},${y}`;
+      const count = (occupied.get(cell) ?? 0) + delta;
+      if (count > 0) occupied.set(cell, count);
+      else occupied.delete(cell);
+    };
+    for (const entity of level.entities) occupy(entity.x, entity.y, 1);
+
+    level.entities.forEach((entity, ei) => {
+      const reach = reachableCells(level, playerHeight, {
+        ...(entity.type === 'movingPlatform' ? { ignoreMovingPlatformIndex: ei } : {}),
+      });
+      const issue = platformerEntityReachabilityIssue(level, entity, playerHeight, reach);
+      if (!issue) return;
+
+      const origin = { x: entity.x, y: entity.y };
+      occupy(origin.x, origin.y, -1);
+      const replacement = nearestCell(origin, w, h, (x, y) => {
+        if (entityReserved.has(`${x},${y}`) || occupied.has(`${x},${y}`)) return false;
+        if (kind(x, y) !== 'empty') return false;
+        if (
+          entity.type === 'movingPlatform' &&
+          !movingPlatformPathClear(x, y, entity.props?.dx ?? 0, entity.props?.dy ?? 0)
+        ) {
+          return false;
+        }
+        const candidate = { ...entity, x, y };
+        return !platformerEntityReachabilityIssue(level, candidate, playerHeight, reach);
+      });
+      if (!replacement) {
+        occupy(origin.x, origin.y, 1);
+        return;
+      }
+      entity.x = replacement.x;
+      entity.y = replacement.y;
+      occupy(entity.x, entity.y, 1);
+      addFix(
+        fixes,
+        'PLATFORMER_ENTITY_REACHABILITY',
+        `/levels/${li}/entities/${ei}`,
+        `moved ${entity.type} from (${origin.x},${origin.y}) to reachable interaction cell (${entity.x},${entity.y}): ${issue}`,
       );
     });
   });

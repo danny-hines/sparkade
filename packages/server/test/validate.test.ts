@@ -589,7 +589,13 @@ describe('platformer route recovery', () => {
   it('regenerates every failing level independently even when all levels fail', async () => {
     const valid = golden('platformer') as PlatformerSpec;
     const broken = structuredClone(valid);
-    broken.levels.forEach((level, index) => carveChasm(level, 35 + index * 8));
+    broken.levels.forEach((level, index) => {
+      carveChasm(level, 35 + index * 8);
+      // Moving platforms are now part of the traversal graph and may
+      // legitimately bridge a carved gap. Remove them so this fixture still
+      // guarantees that all three levels independently fail route validation.
+      level.entities = level.entities.filter((entity) => entity.type !== 'movingPlatform');
+    });
     const stages: StageName[] = [];
     const regeneratedIndexes: number[] = [];
 

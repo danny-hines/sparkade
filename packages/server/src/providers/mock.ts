@@ -139,7 +139,8 @@ export class MockProvider implements Provider {
           tagline: golden.meta.tagline,
           archetype,
           palette: [...golden.palette],
-          heroConcept: 'A plucky hero shaped by the player idea',
+          heroConcept:
+            'An indigo expedition jacket with brass fasteners, sturdy tan trousers, and dark trail boots',
           story: structuredClone(golden.story),
           levelPlan: [
             { name: 'Opening', summary: 'Learn the ropes in a gentle first stretch' },

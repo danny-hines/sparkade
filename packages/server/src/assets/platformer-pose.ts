@@ -14,7 +14,7 @@ export type GeneratedPlatformerPose = (typeof GENERATED_PLATFORMER_POSES)[number
 
 export const GENERATED_PLATFORMER_POSE_WIDTH = 112;
 export const GENERATED_PLATFORMER_POSE_HEIGHT = 128;
-export const GENERATED_PLATFORMER_POSE_PROMPT_VERSION = 'platformer-pose-v6';
+export const GENERATED_PLATFORMER_POSE_PROMPT_VERSION = 'platformer-pose-v7';
 
 const PLATFORMER_RUN_LOWER_BODY_TOP = 72;
 const PLATFORMER_RUN_MAX_LOWER_BODY_IOU = 0.72;
@@ -73,9 +73,9 @@ export function buildPlatformerPosePrompt(
   const colors = cleanPromptFragment(options.colors);
   return [
     'Create exactly ONE isolated, full-body platform-game sprite of the exact person or character in the attached reference image.',
-    'Preserve their recognizable identity: face shape, skin tone, hair texture and style, facial hair, glasses, headwear, accessories, and body proportions visible in the reference. Never invent glasses or accessories that are absent from the reference, and never remove ones that are present.',
+    "Preserve their recognizable identity from the neck up: apparent adult age, face and head shape, skin tone, hair texture and style, facial hair, glasses, headwear, and visible head accessories in the reference. Never invent glasses or head accessories that are absent, and never remove ones that are present. The source photo's clothing below the neck is not identity and should not be copied.",
     heroConcept
-      ? `Game-world costume inspiration: ${heroConcept}. Use only its garments, footwear, colors, and body-worn costume details. Ignore any action, pose, tool, light, weapon, artifact, or held/carried object mentioned in that concept; both hands must remain empty.`
+      ? `Canonical game-world costume contract: ${heroConcept}. Dress the character in these garments, footwear, colors, and body-worn costume details from the neck down in every pose. Ignore any action, pose, tool, light, weapon, artifact, or held/carried object mentioned in that concept; both hands must remain empty.`
       : '',
     colors ? `Costume color direction: ${colors}.` : '',
     `Pose: ${POSE_DIRECTIONS[pose]}.`,

@@ -173,13 +173,18 @@ describe('dev platformer poses lab', () => {
     });
     expect(judgeInputs[0]?.request.system).toContain('SOURCE PHOTO is the only identity truth');
     expect(judgeInputs[0]?.request.system).toContain('wrinkles');
+    expect(judgeInputs[0]?.request.user).toContain(
+      'CANONICAL GAME-WORLD WARDROBE: dark shirt and tan pants',
+    );
     expect(judgeInputs[1]?.request.image).toBeInstanceOf(Buffer);
     await expect(sharp(judgeInputs[1]!.request.image!).metadata()).resolves.toMatchObject({
       width: 1720,
       height: 1420,
       format: 'jpeg',
     });
-    expect(judgeInputs[1]?.request.system).toContain('SOURCE PHOTO is identity truth');
+    expect(judgeInputs[1]?.request.system).toContain(
+      'SOURCE PHOTO is immutable identity truth from the neck up',
+    );
     expect(judgeInputs[1]?.request.system).toContain('every labeled A+B comparison cell');
     expect(status.events.some((event) => event.type === 'idle-judge-response')).toBe(true);
     expect(status.events.find((event) => event.type === 'idle-selection')?.data).toMatchObject({

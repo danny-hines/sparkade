@@ -534,7 +534,9 @@ async function executeRun(
         round,
       },
     });
-    const prompt = buildPlatformerIdleJudgePrompt(descriptors);
+    const prompt = buildPlatformerIdleJudgePrompt(descriptors, {
+      heroConcept: run.heroConcept,
+    });
     const schema = buildPlatformerIdleJudgeSchema(descriptors);
     emit(run, {
       type: 'stage',

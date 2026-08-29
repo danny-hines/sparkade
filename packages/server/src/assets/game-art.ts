@@ -1,7 +1,7 @@
 import sharp from 'sharp';
 import type { GameSpec } from '@sparkade/shared';
 
-export const KEY_ART_PROMPT_VERSION = 'key-art-v1';
+export const KEY_ART_PROMPT_VERSION = 'key-art-v2';
 export const STORY_ART_PROMPT_VERSION = 'story-scenes-v1';
 export const KEY_ART_SIZE = { width: 480, height: 270 } as const;
 export const STORY_ART_SIZE = { width: 420, height: 180 } as const;
@@ -14,8 +14,14 @@ function clean(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
-function visualBrief(spec: GameSpec): string {
+function wardrobeBrief(heroConcept: string | undefined): string {
+  const concept = heroConcept ? clean(heroConcept) : '';
+  return concept ? `Canonical player hero design and game-world outfit: ${concept}.` : '';
+}
+
+function visualBrief(spec: GameSpec, heroConcept?: string): string {
   const fighterPlayer = spec.archetype === 'fighter' ? spec.player : undefined;
+  const canonicalHeroConcept = heroConcept ?? spec.meta.heroConcept;
   return [
     `Game title for context only: ${clean(spec.meta.title)}. Do not render the title as text.`,
     `Genre: ${spec.archetype}.`,
@@ -24,18 +30,25 @@ function visualBrief(spec: GameSpec): string {
     `Main villain: ${clean(spec.boss.name)}. ${clean(spec.story.bossIntro)}`,
     fighterPlayer
       ? `Player fighter design: ${clean(fighterPlayer.name)}; ${clean(fighterPlayer.build)} build; outfit: ${clean(fighterPlayer.outfit ?? 'classic arcade gear')}.`
-      : '',
+      : wardrobeBrief(canonicalHeroConcept),
     `Use this exact limited color direction: ${spec.palette.join(', ')}.`,
   ].join(' ');
 }
 
 /** The photo is supplied as the edit reference when `hasPlayerPhoto` is true. */
-export function buildKeyArtPrompt(spec: GameSpec, hasPlayerPhoto: boolean): string {
+export function buildKeyArtPrompt(
+  spec: GameSpec,
+  hasPlayerPhoto: boolean,
+  heroConcept?: string,
+): string {
   return [
     hasPlayerPhoto
-      ? 'Transform the exact person in the reference photo into the PLAYER HERO of this game. Preserve their recognizable face shape, skin tone, hair texture and style, facial hair, glasses, headwear, accessories, and body proportions; never replace them with a generic character.'
+      ? 'Transform the exact person in the reference photo into the PLAYER HERO of this game. The reference is immutable identity truth from the neck up: preserve their recognizable face and head shape, skin tone, hair texture and style, facial hair, glasses, headwear, and visible head accessories; never replace them with a generic character. The source photo clothing below the neck is NOT identity: replace it with the canonical game-world outfit in the visual brief.'
       : 'Create a distinctive original PLAYER HERO suited to this game premise.',
-    visualBrief(spec),
+    visualBrief(spec, heroConcept),
+    hasPlayerPhoto
+      ? 'Keep the exact same neck-up identity while making the canonical outfit clearly readable in its silhouette, collar, torso, sleeves, legs, and footwear.'
+      : '',
     'Compose one dramatic landscape key-art image that clearly shows the player hero, the game world, and the main villain in the distance.',
     'Polished 16-bit console-game illustration: deliberate pixel clusters, crisp silhouettes, expressive characters, rich environmental detail, and cohesive limited colors. It should feel like premium SNES-era box art rendered by a master pixel artist.',
     'Landscape composition with important faces and action inside the central safe area. No UI, screenshot frame, arcade cabinet, text, letters, title, logo, caption, watermark, signature, border, photorealism, blur, or 3D render.',
@@ -48,11 +61,17 @@ export function buildKeyArtPrompt(spec: GameSpec, hasPlayerPhoto: boolean): stri
  * copy can be perfectly appropriate for the game while still combining with
  * a real-person reference in a way that trips an image policy classifier.
  */
-export function buildKeyArtPolicyFallbackPrompt(spec: GameSpec, hasPlayerPhoto: boolean): string {
+export function buildKeyArtPolicyFallbackPrompt(
+  spec: GameSpec,
+  hasPlayerPhoto: boolean,
+  heroConcept?: string,
+): string {
+  const canonicalHeroConcept = heroConcept ?? spec.meta.heroConcept;
   return [
     hasPlayerPhoto
-      ? 'Render the adult person in the reference image as the friendly player character. Preserve their recognizable face, skin tone, hair, eyewear, headwear, accessories, and proportions.'
+      ? 'Render the adult person in the reference image as the friendly player character. Preserve their recognizable identity from the neck up, including face, skin tone, hair, eyewear, headwear, and visible head accessories. Replace their source clothing below the neck with the canonical game-world outfit.'
       : 'Create one friendly original player character.',
+    spec.archetype === 'fighter' ? '' : wardrobeBrief(canonicalHeroConcept),
     `Create polished landscape key art for a colorful ${spec.archetype} game world using this limited palette: ${spec.palette.join(', ')}.`,
     'Use a calm, adventurous composition with the player character centered safely in the environment.',
     'Premium 16-bit console illustration with crisp pixel clusters, clear silhouettes, and rich environmental detail.',
@@ -60,7 +79,12 @@ export function buildKeyArtPolicyFallbackPrompt(spec: GameSpec, hasPlayerPhoto: 
   ].join(' ');
 }
 
-export function buildStoryArtPrompt(spec: GameSpec, role: StoryArtRole): string {
+export function buildStoryArtPrompt(
+  spec: GameSpec,
+  role: StoryArtRole,
+  heroConcept?: string,
+): string {
+  const canonicalHeroConcept = heroConcept ?? spec.meta.heroConcept;
   const beat =
     role === 'intro'
       ? `Opening scene: ${clean(spec.story.intro.join(' '))}`
@@ -72,6 +96,7 @@ export function buildStoryArtPrompt(spec: GameSpec, role: StoryArtRole): string 
   return [
     'Using the reference key art as the immutable visual bible, create a new landscape story illustration from the same game.',
     `Preserve the exact same player hero identity, costume, villain design, palette, pixel-art technique, and world. ${beat}.`,
+    spec.archetype === 'fighter' ? '' : wardrobeBrief(canonicalHeroConcept),
     role === 'boss'
       ? 'Frame the player hero and villain facing one another with immediate danger and a strong scale contrast.'
       : role === 'victory'
@@ -85,7 +110,12 @@ export function buildStoryArtPrompt(spec: GameSpec, role: StoryArtRole): string 
 }
 
 /** A story-role-specific prompt that is safe to use after a policy rejection. */
-export function buildStoryArtPolicyFallbackPrompt(spec: GameSpec, role: StoryArtRole): string {
+export function buildStoryArtPolicyFallbackPrompt(
+  spec: GameSpec,
+  role: StoryArtRole,
+  heroConcept?: string,
+): string {
+  const canonicalHeroConcept = heroConcept ?? spec.meta.heroConcept;
   const scene =
     role === 'intro'
       ? 'Show the player character arriving safely in the world with a curious, hopeful expression.'
@@ -97,6 +127,7 @@ export function buildStoryArtPolicyFallbackPrompt(spec: GameSpec, role: StoryArt
   return [
     'Using the reference key art as the visual guide, create a new family-friendly landscape story illustration from the same game.',
     `Preserve the same adult player character identity, costume, palette, pixel-art technique, and world. ${scene}`,
+    spec.archetype === 'fighter' ? '' : wardrobeBrief(canonicalHeroConcept),
     `Use this limited color direction: ${spec.palette.join(', ')}.`,
     'Polished 16-bit console illustration with crisp pixel clusters, readable silhouettes, and the main subject away from the extreme edges.',
     'No text, letters, title, logo, caption, speech bubble, UI, watermark, signature, border, photorealism, blur, or 3D render.',

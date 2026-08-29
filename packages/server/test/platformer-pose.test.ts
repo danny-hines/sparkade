@@ -129,11 +129,14 @@ describe('generated platformer player prompts', () => {
     });
     expect(idle).toContain('exact person or character in the attached reference image');
     expect(idle).toContain('Never invent glasses');
+    expect(idle).toContain('identity from the neck up');
+    expect(idle).toContain("source photo's clothing below the neck is not identity");
     expect(idle).toContain('FRONT-FACING idle pose');
     expect(idle).toContain('native 112x128 high-density player sprite canvas');
     expect(idle).toContain('flat solid #00ff00');
     expect(idle).toContain('NOT a sprite sheet');
-    expect(idle).toContain('Use only its garments, footwear, colors');
+    expect(idle).toContain('Canonical game-world costume contract');
+    expect(idle).toContain('garments, footwear, colors');
     expect(idle).toContain('both hands must remain empty');
     expect(buildPlatformerPosePrompt('walk1')).toContain('left foot reaching forward');
     expect(buildPlatformerPosePrompt('walk2')).toContain('right foot reaching forward');

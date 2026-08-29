@@ -61,6 +61,9 @@ describe('prompt templates', () => {
     expect(t).toContain(
       'For `platformerArtDensity`, use `detailed` by default when a likeness photo exists',
     );
+    expect(t).toContain('`heroConcept` is the canonical visual contract');
+    expect(t).toContain('immutable identity truth from the neck up');
+    expect(t).toContain("source photo's shirt or other clothing below the neck is NOT identity");
   });
 
   it('golden excerpts are valid JSON slices of the goldens', () => {

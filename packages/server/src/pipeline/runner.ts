@@ -1632,12 +1632,13 @@ export class GenerationRunner {
       };
 
       const photoReference = photo ? await prepareImageReference(photo) : undefined;
-      const keyArtPrompt = buildKeyArtPrompt(spec, !!photo);
+      const canonicalHeroConcept = spec.meta.heroConcept ?? design.heroConcept;
+      const keyArtPrompt = buildKeyArtPrompt(spec, !!photo, canonicalHeroConcept);
       const keyArtTask = cachedGeneratedAsset({
         role: 'keyArt',
         promptVersion: KEY_ART_PROMPT_VERSION,
         prompt: keyArtPrompt,
-        policyFallbackPrompt: buildKeyArtPolicyFallbackPrompt(spec, !!photo),
+        policyFallbackPrompt: buildKeyArtPolicyFallbackPrompt(spec, !!photo, canonicalHeroConcept),
         label: 'Key art',
         ...(photoReference ? { reference: photoReference } : {}),
         size: KEY_ART_ASPECT_HINT,
@@ -1649,6 +1650,7 @@ export class GenerationRunner {
         defeatPortraitVersion: GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION,
         headVersion: GENERATED_HEAD_PROMPT_VERSION,
         features: feat,
+        heroConcept: canonicalHeroConcept,
       });
       const portraitTask: Promise<Buffer | null> = photo
         ? (async () => {
@@ -1669,7 +1671,11 @@ export class GenerationRunner {
                     photo,
                     feat,
                     imageEditFor('portrait', 'Player portrait'),
-                    { size: '1024x1024', user: gameId },
+                    {
+                      size: '1024x1024',
+                      user: gameId,
+                      heroConcept: canonicalHeroConcept,
+                    },
                   );
                 } catch (error) {
                   if (error instanceof PipelineError) throw error;
@@ -1720,7 +1726,11 @@ export class GenerationRunner {
                     feat,
                     defeatContext,
                     imageEditFor('portrait-defeat', 'Defeat portrait'),
-                    { size: '1024x1024', user: gameId },
+                    {
+                      size: '1024x1024',
+                      user: gameId,
+                      heroConcept: canonicalHeroConcept,
+                    },
                   );
                 } catch (error) {
                   if (error instanceof PipelineError) throw error;
@@ -1842,8 +1852,12 @@ export class GenerationRunner {
           cachedGeneratedAsset({
             role: assetRole,
             promptVersion: STORY_ART_PROMPT_VERSION,
-            prompt: buildStoryArtPrompt(spec, role),
-            policyFallbackPrompt: buildStoryArtPolicyFallbackPrompt(spec, role),
+            prompt: buildStoryArtPrompt(spec, role, canonicalHeroConcept),
+            policyFallbackPrompt: buildStoryArtPolicyFallbackPrompt(
+              spec,
+              role,
+              canonicalHeroConcept,
+            ),
             label: `${role} scene`,
             reference: keyArt,
             size: STORY_ART_ASPECT_HINT,
@@ -2839,7 +2853,7 @@ export class GenerationRunner {
                     idleJudge: PLATFORMER_IDLE_JUDGE_PROMPT_VERSION,
                     poseJudge: PLATFORMER_POSE_JUDGE_PROMPT_VERSION,
                   },
-                  heroConcept: design.heroConcept,
+                  heroConcept: canonicalHeroConcept,
                   colors,
                 });
                 const pipelineSha = imagePromptHash(pipelineFingerprint, photoReference);
@@ -2966,7 +2980,7 @@ export class GenerationRunner {
                           'idle',
                           `Player identity candidate ${id}`,
                           buildPlatformerIdleCandidatePrompt(id, {
-                            heroConcept: design.heroConcept,
+                            heroConcept: canonicalHeroConcept,
                             colors,
                             ...(retryGuidance ? { retryGuidance } : {}),
                           }),
@@ -2992,7 +3006,9 @@ export class GenerationRunner {
                       processed,
                     })),
                   });
-                  const judgePrompt = buildPlatformerIdleJudgePrompt(descriptors);
+                  const judgePrompt = buildPlatformerIdleJudgePrompt(descriptors, {
+                    heroConcept: canonicalHeroConcept,
+                  });
                   const mockDecision = {
                     sourceReview: { eyewear: 'absent', summary: 'Mock source identity.' },
                     candidateReviews: descriptors.map(({ id }) => ({
@@ -3535,7 +3551,11 @@ export class GenerationRunner {
       specVersion: 1,
       archetype,
       seed,
-      meta: { title: design.title, tagline: design.tagline },
+      meta: {
+        title: design.title,
+        tagline: design.tagline,
+        heroConcept: design.heroConcept,
+      },
       palette: design.palette,
       story: design.story,
       sprites: (parts.entities?.sprites ?? { custom: {}, assign: {} }) as GameSpec['sprites'],

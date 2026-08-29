@@ -211,13 +211,71 @@ describe('platformer lints', () => {
     level.tiles[footY - 2] = solid.repeat(width);
     level.playerSpawn = { x: 2, y: footY };
     level.exit = { x: width - 3, y: footY };
-    const checkpoint = Object.entries(level.legend).find(
-      ([, kind]) => kind === 'checkpoint',
-    )![0];
+    const checkpoint = Object.entries(level.legend).find(([, kind]) => kind === 'checkpoint')![0];
     setLevelCell(level, Math.floor(width / 2), footY, checkpoint);
 
     expect(reachableCells(level).has(`${level.exit.x},${level.exit.y}`)).toBe(true);
     expect(codes(archetypes.platformer.lint(spec))).not.toContain('PLAT_EXIT_UNREACHABLE');
+  });
+
+  it('rejects pickups and grounded enemies stranded in a sealed but open pocket', () => {
+    const spec = golden<PlatformerSpec>('platformer');
+    const level = spec.levels[0]!;
+    const width = 30;
+    const rows = Array.from({ length: 10 }, () => '.'.repeat(width));
+    for (let y = 0; y < rows.length - 1; y++) {
+      rows[y] = `${rows[y]!.slice(0, 15)}#${rows[y]!.slice(16)}`;
+    }
+    rows[8] = `${rows[8]!.slice(0, 7)}C${rows[8]!.slice(8)}`;
+    rows[9] = '#'.repeat(width);
+    level.tiles = rows;
+    level.legend = { '#': 'solid', C: 'checkpoint' };
+    level.playerSpawn = { x: 2, y: 8 };
+    level.exit = { x: 12, y: 8 };
+    level.entities = [
+      { type: 'coin', x: 20, y: 8 },
+      { type: 'heart', x: 21, y: 8 },
+      { type: 'powerup', x: 22, y: 8, props: { kind: 'shield' } },
+      { type: 'walker', x: 23, y: 8, props: { range: 3 } },
+      { type: 'flyer', x: 24, y: 5, props: { amplitude: 1 } },
+      { type: 'spring', x: 26, y: 8 },
+    ];
+
+    const unreachable = archetypes.platformer
+      .lint(spec)
+      .filter((error) => error.code === 'PLAT_ENTITY_UNREACHABLE');
+    expect(unreachable.map((error) => error.path)).toEqual([
+      '/levels/0/entities/0',
+      '/levels/0/entities/1',
+      '/levels/0/entities/2',
+      '/levels/0/entities/3',
+      '/levels/0/entities/4',
+      '/levels/0/entities/5',
+    ]);
+    expect(unreachable[0]!.message).toContain('no reachable collection position');
+    expect(unreachable[3]!.message).toContain('no reachable encounter space');
+    expect(unreachable[4]!.message).toContain('interaction envelope');
+    expect(unreachable[5]!.message).toContain('reachable standing cell');
+  });
+
+  it('includes moving-platform travel in the reachable traversal graph', () => {
+    const level = golden<PlatformerSpec>('platformer').levels[0]!;
+    const width = 24;
+    const rows = Array.from({ length: 10 }, () => '.'.repeat(width));
+    rows[8] = `${'.'.repeat(4)}C${'.'.repeat(width - 5)}`;
+    rows[9] = `${'#'.repeat(8)}${'.'.repeat(8)}${'#'.repeat(8)}`;
+    level.tiles = rows;
+    level.legend = { '#': 'solid', C: 'checkpoint' };
+    level.playerSpawn = { x: 2, y: 8 };
+    level.exit = { x: 21, y: 8 };
+    level.entities = [
+      { type: 'movingPlatform', x: 7, y: 8, props: { dx: 8, dy: 0, periodMs: 2400 } },
+    ];
+
+    const withoutPlatform = structuredClone(level);
+    withoutPlatform.entities = [];
+    expect(reachableCells(withoutPlatform).has('21,8')).toBe(false);
+    expect(reachableCells(level).has('21,8')).toBe(true);
   });
 
   it('missing checkpoint → PLAT_NO_CHECKPOINT; content floors enforced', () => {

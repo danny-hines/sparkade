@@ -47,12 +47,19 @@ describe('platformer idle foundation prompts', () => {
       heroConcept: 'navy jacket and tan pants',
       retryGuidance: 'remove dark eye artifacts',
     });
-    const judgePrompt = buildPlatformerIdleJudgePrompt(candidates);
+    const judgePrompt = buildPlatformerIdleJudgePrompt(candidates, {
+      heroConcept: 'navy jacket and tan pants',
+    });
 
     expect(imagePrompt).toContain('independent identity-foundation variation labeled I2');
     expect(imagePrompt).toContain('not glasses');
     expect(imagePrompt).toContain('RETRY CORRECTION FROM THE ART DIRECTOR');
-    expect(judgePrompt.system).toContain('SOURCE PHOTO is the only identity truth');
+    expect(judgePrompt.system).toContain(
+      'SOURCE PHOTO is the only identity truth from the neck up',
+    );
+    expect(judgePrompt.system).toContain('clothing below the neck is not identity');
+    expect(judgePrompt.system).toContain('Do not penalize a candidate for replacing');
+    expect(judgePrompt.user).toContain('CANONICAL GAME-WORLD WARDROBE: navy jacket and tan pants');
     expect(judgePrompt.system).toContain(
       'high-resolution image that will seed every downstream edit',
     );

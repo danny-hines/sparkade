@@ -68,10 +68,23 @@ describe('archetype schemas', () => {
   });
 
   it('palette is exactly 16 colors', () => {
-    const def = (ARCHETYPE_SCHEMAS.platformer as { $defs: { palette: { minItems: number; maxItems: number } } })
-      .$defs.palette;
+    const def = (
+      ARCHETYPE_SCHEMAS.platformer as { $defs: { palette: { minItems: number; maxItems: number } } }
+    ).$defs.palette;
     expect(def.minItems).toBe(16);
     expect(def.maxItems).toBe(16);
+  });
+
+  it('persists the canonical hero concept in optional saved-game metadata', () => {
+    for (const [id, schema] of Object.entries(ARCHETYPE_SCHEMAS)) {
+      const meta = (
+        schema as {
+          $defs: { meta: { properties: Record<string, unknown>; required: string[] } };
+        }
+      ).$defs.meta;
+      expect(meta.properties['heroConcept'], `${id}.meta.heroConcept`).toBeDefined();
+      expect(meta.required, `${id} keeps legacy metadata compatible`).not.toContain('heroConcept');
+    }
   });
 
   it('keeps the two-tile platformer layout marker optional for saved-game compatibility', () => {

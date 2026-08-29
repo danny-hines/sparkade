@@ -74,7 +74,8 @@ describe('platformer pose lab prompts', () => {
 
   it('asks Spark to judge identity and the pair jointly with a reject-all option', () => {
     const prompt = buildPlatformerPoseJudgePrompt(candidates);
-    expect(prompt.system).toContain('SOURCE PHOTO is identity truth');
+    expect(prompt.system).toContain('SOURCE PHOTO is immutable identity truth from the neck up');
+    expect(prompt.system).toContain('FRONT IDLE establishes the canonical game-world costume');
     expect(prompt.system).toContain('Becoming bald, childlike');
     expect(prompt.system).toContain('leg alternation is the non-negotiable gate');
     expect(prompt.system).toContain('Do not reject an individual candidate');

@@ -15,7 +15,7 @@
       "items": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }
     },
     "heroConcept": {
-      "description": "One line: who the hero is and what they look like.",
+      "description": "Canonical visual brief for the player hero. When a likeness photo exists, describe the story-specific outfit from the neck down (garments, colors, materials, footwear, and body-worn costume details) without inventing or changing the person's face, hair, eyewear, or headwear.",
       "type": "string",
       "minLength": 1,
       "maxLength": 120,

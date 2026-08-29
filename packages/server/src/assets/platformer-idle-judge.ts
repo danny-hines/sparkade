@@ -1,7 +1,7 @@
 import sharp from 'sharp';
 import { buildPlatformerPosePrompt, type PlatformerPosePromptOptions } from './platformer-pose';
 
-export const PLATFORMER_IDLE_JUDGE_PROMPT_VERSION = 'platformer-idle-judge-v1';
+export const PLATFORMER_IDLE_JUDGE_PROMPT_VERSION = 'platformer-idle-judge-v2';
 
 export type PlatformerEyewearState = 'present' | 'absent' | 'uncertain';
 
@@ -166,20 +166,28 @@ export function buildPlatformerIdleJudgeSchema(
 
 export function buildPlatformerIdleJudgePrompt(
   candidates: readonly PlatformerIdleCandidateDescriptor[],
+  options: Pick<PlatformerPosePromptOptions, 'heroConcept'> = {},
 ): { system: string; user: string } {
   const ids = candidates.map(({ id }) => id).join(', ');
+  const heroConcept = options.heroConcept?.replace(/\s+/g, ' ').trim().slice(0, 500);
   return {
     system: [
       'You are the exacting identity art director for a premium SNES-style platform game.',
-      'Inspect the attached front-idle identity-foundation review board. The SOURCE PHOTO is the only identity truth. Judge every candidate independently from that source; do not let one generated candidate redefine the person for another.',
+      "Inspect the attached front-idle identity-foundation review board. The SOURCE PHOTO is the only identity truth from the neck up; its clothing below the neck is not identity. Judge every candidate's head independently from that source and its costume against the canonical game-world wardrobe supplied in the user message. Do not let one generated candidate redefine the person or outfit for another.",
       'The large RAW view is the high-resolution image that will seed every downstream edit. Inspect it closely for facial contamination that a tiny runtime sprite may hide. The small PROCESSED view shows the actual 112x128 high-density silhouette and scale.',
       'First classify whether the source visibly has eyewear. Then classify every candidate. Dark pixels, wrinkles, eyebrows, eyelashes, eye sockets, or shading that resemble invented glasses are an eyewear mismatch and a fatal identity artifact when the source has no glasses. Missing or materially changed source eyewear is equally fatal.',
-      'Identity includes apparent adult age, face and head shape, skin tone, hairline, hair texture and style, facial hair, headwear, body proportions, costume, footwear, and all visible accessories. Becoming bald, childlike, generically younger, differently proportioned, or gaining or losing an accessory is fatal.',
+      'Identity includes apparent adult age, face and head shape, skin tone, hairline, hair texture and style, facial hair, eyewear, headwear, and visible head accessories. Costume is a separate score: it must faithfully realize the supplied canonical wardrobe from the neck down, including its garments, colors, materials, silhouette, footwear, and body-worn details. Do not penalize a candidate for replacing the source photo clothing.',
+      'Becoming bald, childlike, generically younger, differently proportioned, or gaining or losing a head accessory is fatal. Copying unrelated source-photo clothing instead of the requested costume is a costume failure.',
       'A usable foundation must also show exactly one complete uncropped person, a neutral front-facing idle pose, empty hands, coherent anatomy, readable native-scale pixel technique, and no props, text, scenery, borders, or severe artifacts.',
       'Score every category from 0 (unusable) to 5 (excellent). Select the strongest candidate only if it has no fatal issue, eyewearMatch=true, and every score is at least 4. Otherwise reject all with an empty candidateId and give concrete retry guidance.',
       'Return only the requested JSON object.',
     ].join(' '),
-    user: `Review front-idle candidates ${ids}. Compare each RAW and PROCESSED view directly with SOURCE PHOTO, record all candidate reviews, and select the safest identity foundation or reject the batch.`,
+    user: [
+      `Review front-idle candidates ${ids}. Compare each RAW and PROCESSED head directly with SOURCE PHOTO, record all candidate reviews, and select the safest identity foundation or reject the batch.`,
+      heroConcept
+        ? `CANONICAL GAME-WORLD WARDROBE: ${heroConcept}`
+        : 'No separate wardrobe brief was supplied; judge costume coherence consistently across the candidate itself.',
+    ].join(' '),
   };
 }
 
@@ -332,7 +340,7 @@ export async function buildPlatformerIdleJudgeBoard(input: {
   panel(550, 90, 1170, 430, 'NON-NEGOTIABLE FOUNDATION CHECKS');
   layers.push({
     input: Buffer.from(
-      '<svg width="1080" height="330" xmlns="http://www.w3.org/2000/svg"><text x="0" y="34" fill="#ffd75e" font-family="monospace" font-size="22" font-weight="bold">COMPARE EACH CANDIDATE DIRECTLY TO SOURCE</text><text x="0" y="86" fill="#c4cae8" font-family="monospace" font-size="19"><tspan x="0" dy="0">• Classify source eyewear first; reject invented or missing glasses</tspan><tspan x="0" dy="42">• Preserve adult age, face/head shape, hairline and facial hair</tspan><tspan x="0" dy="42">• Preserve costume, body proportions and visible accessories</tspan><tspan x="0" dy="42">• RAW is the downstream edit seed—inspect eye and face artifacts</tspan><tspan x="0" dy="42">• PROCESSED must be a complete neutral 112×128 front idle</tspan><tspan x="0" dy="42">• Reject generic identity, props, extra subjects or anatomy defects</tspan></text></svg>',
+      '<svg width="1080" height="330" xmlns="http://www.w3.org/2000/svg"><text x="0" y="34" fill="#ffd75e" font-family="monospace" font-size="22" font-weight="bold">COMPARE EACH CANDIDATE DIRECTLY TO SOURCE</text><text x="0" y="86" fill="#c4cae8" font-family="monospace" font-size="19"><tspan x="0" dy="0">• Classify source eyewear first; reject invented or missing glasses</tspan><tspan x="0" dy="42">• Preserve adult age, face/head shape, hairline and facial hair</tspan><tspan x="0" dy="42">• Match game wardrobe; source clothing below neck may change</tspan><tspan x="0" dy="42">• RAW is the downstream edit seed—inspect eye and face artifacts</tspan><tspan x="0" dy="42">• PROCESSED must be a complete neutral 112×128 front idle</tspan><tspan x="0" dy="42">• Reject generic identity, props, extra subjects or anatomy defects</tspan></text></svg>',
     ),
     left: 600,
     top: 145,

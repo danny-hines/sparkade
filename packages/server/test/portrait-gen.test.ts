@@ -134,6 +134,7 @@ describe('generated likeness heads', () => {
     const portrait = await generatePortrait(source, {} as FaceFeatures, edit, {
       size: '768x768',
       user: 'game-123',
+      heroConcept: 'a silver pressure suit with cobalt shoulder panels',
       callOptions: { model: 'muse-image-test', timeoutMs: 7_500 },
     });
 
@@ -145,6 +146,9 @@ describe('generated likeness heads', () => {
       user: 'game-123',
     });
     expect(request?.prompt).toContain('front-facing head-and-shoulders portrait');
+    expect(request?.prompt).toContain('likeness from the neck up');
+    expect(request?.prompt).toContain('silver pressure suit with cobalt shoulder panels');
+    expect(request?.prompt).toContain("source photo's clothing below the neck is not identity");
     const inputMeta = await sharp(request!.image).metadata();
     expect(inputMeta).toMatchObject({ width: 512, height: 512, format: 'png' });
     expect(callOptions).toEqual({ model: 'muse-image-test', timeoutMs: 7_500 });
@@ -183,11 +187,13 @@ describe('generated likeness heads', () => {
       null,
       'The storm scattered every rescued star and the tower went dark.',
       edit,
+      { heroConcept: 'a silver pressure suit with cobalt shoulder panels' },
     );
 
     expect(prompt).toContain('storm scattered every rescued star');
     expect(prompt).toMatch(/disappointment, worry, sadness, or concern/);
     expect(prompt).toContain('Change only the expression');
+    expect(prompt).toContain('silver pressure suit with cobalt shoulder panels');
     expect(prompt).toContain('Add no accessory that is absent');
     expect(prompt).not.toMatch(/glasses|lens|temple arm/i);
     await expect(sharp(portrait).metadata()).resolves.toMatchObject({

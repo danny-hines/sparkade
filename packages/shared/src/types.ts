@@ -66,6 +66,9 @@ export interface PartialSpec {
 export interface GameMetaBlock {
   title: string;
   tagline: string;
+  /** Canonical player visual/wardrobe brief retained with the published game
+   * so regenerated presentation assets use the same character design. */
+  heroConcept?: string;
 }
 
 export interface StoryBlock {
@@ -476,6 +479,8 @@ export interface DesignDoc {
   tagline: string;
   archetype: ArchetypeId;
   palette: string[];
+  /** Canonical player visual brief. With a photo, this directs the story-specific
+   * wardrobe below the neck while the photo remains truth for head identity. */
   heroConcept: string;
   story: StoryBlock;
   levelPlan: { name: string; summary: string }[];

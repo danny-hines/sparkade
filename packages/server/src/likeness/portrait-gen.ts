@@ -26,10 +26,13 @@ export interface LikenessImageGenerationOptions {
   callOptions?: MetaImageCallOptions;
   /** View authored for directional in-game head slots. Defaults to front. */
   direction?: GeneratedHeadDirection;
+  /** Design-stage canonical game-world wardrobe. Portraits use the visible
+   * collar and shoulders to match story and gameplay art. */
+  heroConcept?: string;
 }
 
-export const GENERATED_PORTRAIT_PROMPT_VERSION = 'generated-portrait-v1';
-export const GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION = 'generated-defeat-portrait-v1';
+export const GENERATED_PORTRAIT_PROMPT_VERSION = 'generated-portrait-v2';
+export const GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION = 'generated-defeat-portrait-v2';
 
 export function describeVisibleTraits(feat: FaceFeatures | null): string {
   if (!feat) {
@@ -47,6 +50,13 @@ export function describeVisibleTraits(feat: FaceFeatures | null): string {
   if (feat.glasses) bits.push('glasses');
   if (feat.headwear) bits.push('their headwear');
   return bits.join(', ');
+}
+
+function wardrobeInstruction(heroConcept: string | undefined): string {
+  const concept = heroConcept?.replace(/\s+/g, ' ').trim().slice(0, 500);
+  return concept
+    ? `The source photo's clothing below the neck is not identity. Dress the visible neck, collar, and shoulders in this canonical game-world outfit: ${concept}.`
+    : '';
 }
 
 async function requestImageEdit(
@@ -81,7 +91,8 @@ export async function generatePortrait(
   const prompt = [
     'Redraw the person in this photo as a friendly 16-bit pixel-art arcade video-game character —',
     'a front-facing head-and-shoulders portrait bust.',
-    `Preserve their likeness: ${describeVisibleTraits(feat)}, their skin tone, and their expression.`,
+    `Preserve their likeness from the neck up: ${describeVisibleTraits(feat)}, their skin tone, and their expression.`,
+    wardrobeInstruction(options.heroConcept),
     'Clean flat colours, a bold dark outline, a simple plain dark background.',
     'Cheerful retro SNES game art, stylised and characterful, NOT photorealistic.',
   ].join(' ');
@@ -114,6 +125,7 @@ export async function generateDefeatPortrait(
     `Defeat context: ${context || 'The hero has lost this round.'}`,
     'Give them a clearly readable, natural expression of disappointment, worry, sadness, or concern that best fits this specific setback. Keep the emotion sympathetic and resilient, not comedic or exaggerated.',
     `Preserve their recognizable likeness: ${describeVisibleTraits(feat)}, their skin tone, hair, facial proportions, and all visible identity cues. ${accessoryInstruction}`,
+    wardrobeInstruction(options.heroConcept),
     'Change only the expression; do not add injuries, wounds, bruises, gore, tears streaming down the face, or signs of death.',
     'Clean flat colours, a bold dark outline, a simple plain dark background.',
     'Polished retro SNES game art, stylised and characterful, NOT photorealistic. No text, caption, border, or watermark.',

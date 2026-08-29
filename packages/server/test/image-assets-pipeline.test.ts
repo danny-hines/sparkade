@@ -13,6 +13,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { generatedAssetForRole, readGameAssetManifest, sha256 } from '../src/assets/manifest';
 import { GENERATED_FIGHTER_POSES } from '../src/assets/fighter-pose';
 import {
+  buildKeyArtPrompt,
   buildKeyArtPolicyFallbackPrompt,
   buildStoryArtPolicyFallbackPrompt,
   buildStoryArtPrompt,
@@ -208,6 +209,25 @@ class FailFirstPublishFiles extends GameFiles {
 }
 
 describe('story art prompts', () => {
+  it('shares one story-specific wardrobe between key art and story scenes', () => {
+    const spec = JSON.parse(
+      readFileSync(
+        join(process.cwd(), 'packages/generation/golden/golden-platformer.json'),
+        'utf8',
+      ),
+    ) as GameSpec;
+    const wardrobe = 'a silver pressure suit with cobalt panels and magnetic boots';
+
+    const keyArt = buildKeyArtPrompt(spec, true, wardrobe);
+    const story = buildStoryArtPrompt(spec, 'intro', wardrobe);
+
+    expect(keyArt).toContain('immutable identity truth from the neck up');
+    expect(keyArt).toContain('source photo clothing below the neck is NOT identity');
+    expect(keyArt).toContain(wardrobe);
+    expect(story).toContain(wardrobe);
+    expect(story).toContain('exact same player hero identity, costume');
+  });
+
   it('turns the authored defeat beat into a safe, emotionally specific scene', () => {
     const spec = JSON.parse(
       readFileSync(
@@ -233,10 +253,11 @@ describe('story art prompts', () => {
     ) as GameSpec;
     spec.story.defeat = ['The vines draw you down into the abyss.'];
 
-    const keyArt = buildKeyArtPolicyFallbackPrompt(spec, true);
+    const keyArt = buildKeyArtPolicyFallbackPrompt(spec, true, 'a safe expedition jacket');
     const defeat = buildStoryArtPolicyFallbackPrompt(spec, 'defeat');
 
     expect(keyArt).toContain('adult person');
+    expect(keyArt).toContain('safe expedition jacket');
     expect(defeat).toContain('resting safely');
     expect(`${keyArt} ${defeat}`).not.toMatch(/abyss|danger|wounds|gore|death/i);
   });
@@ -254,6 +275,9 @@ describe.sequential('mock image asset pipeline', () => {
     });
 
     expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done' });
+    expect(files.readSpec(gameId)?.meta.heroConcept).toBe(
+      'An indigo expedition jacket with brass fasteners, sturdy tan trousers, and dark trail boots',
+    );
     expect(files.readMeta(gameId)?.platformerPlayerArt).toEqual({
       mode: 'generated',
       attempted: true,

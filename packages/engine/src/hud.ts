@@ -27,27 +27,86 @@ const ICON_PALETTE = [
 const HEART: SpriteData = {
   w: 8,
   h: 8,
-  rows: ['.bb..bb.', 'bffbbbfb', 'bfbbbbbb', 'bbbbbbbb', '.bbbbbb.', '..bbbb..', '...bb...', '........'],
+  rows: [
+    '.bb..bb.',
+    'bffbbbfb',
+    'bfbbbbbb',
+    'bbbbbbbb',
+    '.bbbbbb.',
+    '..bbbb..',
+    '...bb...',
+    '........',
+  ],
 };
 const HEART_EMPTY: SpriteData = {
   w: 8,
   h: 8,
-  rows: ['.11..11.', '1..11..1', '1......1', '1......1', '.1....1.', '..1..1..', '...11...', '........'],
+  rows: [
+    '.11..11.',
+    '1..11..1',
+    '1......1',
+    '1......1',
+    '.1....1.',
+    '..1..1..',
+    '...11...',
+    '........',
+  ],
 };
 const KEY: SpriteData = {
   w: 8,
   h: 8,
-  rows: ['.dd.....', 'd..d....', 'd..d....', '.dd.....', '..d.....', '..ddd...', '..d.....', '..dd....'],
+  rows: [
+    '.dd.....',
+    'd..d....',
+    'd..d....',
+    '.dd.....',
+    '..d.....',
+    '..ddd...',
+    '..d.....',
+    '..dd....',
+  ],
+};
+const COLLECTIBLE: SpriteData = {
+  w: 8,
+  h: 8,
+  rows: [
+    '..ddd...',
+    '.d77d...',
+    'd7ffd...',
+    'd7ffd...',
+    'd7ffd...',
+    '.d77d...',
+    '..ddd...',
+    '........',
+  ],
 };
 const BOMB: SpriteData = {
   w: 8,
   h: 8,
-  rows: ['.....c..', '....1...', '..111...', '.11111..', '.11111..', '.11111..', '..111...', '........'],
+  rows: [
+    '.....c..',
+    '....1...',
+    '..111...',
+    '.11111..',
+    '.11111..',
+    '.11111..',
+    '..111...',
+    '........',
+  ],
 };
 const LIFE: SpriteData = {
   w: 8,
   h: 8,
-  rows: ['..555...', '.56655..', '.56555..', '.55555..', '..555...', '.5...5..', '........', '........'],
+  rows: [
+    '..555...',
+    '.56655..',
+    '.56555..',
+    '.55555..',
+    '..555...',
+    '.5...5..',
+    '........',
+    '........',
+  ],
 };
 
 export class Hud {
@@ -60,18 +119,30 @@ export class Hud {
     this.icons['heart'] = decodeSprite(HEART, pal);
     this.icons['heartEmpty'] = decodeSprite(HEART_EMPTY, pal);
     this.icons['key'] = decodeSprite(KEY, pal);
+    this.icons['collectible'] = decodeSprite(COLLECTIBLE, pal);
     this.icons['bomb'] = decodeSprite(BOMB, pal);
     this.icons['life'] = decodeSprite(LIFE, pal);
   }
 
-  render(r: Renderer, hud: HudState, opts: { showBombs?: boolean; showKeys?: boolean } = {}): void {
+  render(
+    r: Renderer,
+    hud: HudState,
+    opts: {
+      showBombs?: boolean;
+      showKeys?: boolean;
+      showCollectibles?: boolean;
+      healthIcon?: CanvasImageSource | null;
+      collectibleIcon?: CanvasImageSource | null;
+    } = {},
+  ): void {
     // Top strip, translucent so gameplay stays visible beneath.
     r.rect(0, 0, INTERNAL_WIDTH, 20, 'rgba(6,7,20,0.75)');
 
     // Health hearts (left)
     let x = 6;
     for (let i = 0; i < hud.maxHealth; i++) {
-      r.draw(this.icons[i < hud.health ? 'heart' : 'heartEmpty']!, x, 6);
+      if (i < hud.health && opts.healthIcon) r.drawScaled(opts.healthIcon, x, 6, 8, 8);
+      else r.draw(this.icons[i < hud.health ? 'heart' : 'heartEmpty']!, x, 6);
       x += 10;
     }
     // Lives
@@ -84,6 +155,12 @@ export class Hud {
       r.text(`x${hud.keys}`, x + 10, 6, r.theme.heading);
       x += 36;
     }
+    if (opts.showCollectibles) {
+      if (opts.collectibleIcon) r.drawScaled(opts.collectibleIcon, x, 6, 8, 8);
+      else r.draw(this.icons['collectible']!, x, 6);
+      r.text(`x${hud.collectibles ?? 0}`, x + 10, 6, r.theme.heading);
+      x += 36;
+    }
     if (opts.showBombs) {
       r.draw(this.icons['bomb']!, x, 6);
       r.text(`x${hud.bombs}`, x + 10, 6, r.theme.text);
@@ -91,7 +168,9 @@ export class Hud {
     }
 
     // Score (right)
-    r.text(String(hud.score).padStart(7, '0'), INTERNAL_WIDTH - 6, 6, r.theme.heading, { align: 'right' });
+    r.text(String(hud.score).padStart(7, '0'), INTERNAL_WIDTH - 6, 6, r.theme.heading, {
+      align: 'right',
+    });
 
     // Boss bar (center, only during boss fights)
     if (hud.boss) {

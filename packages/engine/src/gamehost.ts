@@ -428,6 +428,15 @@ export class GameHost {
         this.engineCtx.hud.render(r, this.instance.hud, {
           showKeys: this.opts.spec.archetype === 'adventure',
           showBombs: this.opts.spec.archetype === 'shooter',
+          showCollectibles: this.opts.spec.archetype === 'platformer',
+          healthIcon:
+            this.opts.spec.archetype === 'platformer'
+              ? this.engineCtx.platformerProps?.health
+              : null,
+          collectibleIcon:
+            this.opts.spec.archetype === 'platformer'
+              ? this.engineCtx.platformerProps?.collectible
+              : null,
         });
         if (this.engineCtx.cards.active) this.engineCtx.cards.render(r);
         if (this.state === 'paused') this.pause.render(r);

@@ -99,6 +99,8 @@ export interface HudState {
   maxHealth: number;
   keys: number;
   bombs: number;
+  /** Platformer pickup count; optional so older archetypes remain unchanged. */
+  collectibles?: number;
   /** Optional boss health while a boss fight is active. */
   boss?: { hp: number; maxHp: number; name: string };
 }

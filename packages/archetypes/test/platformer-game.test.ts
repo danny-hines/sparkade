@@ -7,6 +7,7 @@ import {
   generatedPlatformerEnemyDrawRect,
   generatedPlatformerPlayerDrawRect,
   generatedPlatformerPoseDrawSize,
+  generatedPlatformerPropDrawRect,
   platformerSpringDrawRect,
 } from '../src/platformer/game';
 
@@ -73,5 +74,18 @@ describe('generated platformer player poses', () => {
     const rect = platformerSpringDrawRect(101, 81, 14, 14);
     expect(rect).toEqual({ x: 100, y: 79, w: 16, h: 16 });
     expect(rect.y + rect.h).toBe(81 + 14);
+  });
+
+  it('animates generated pickups inside their unchanged collision footprint', () => {
+    const coin = generatedPlatformerPropDrawRect('coin', 100, 50, 12, 12, 0);
+    expect(coin).toEqual({ x: 100, y: 49.25, w: 12, h: 12 });
+
+    const heart = generatedPlatformerPropDrawRect('heart', 100, 50, 12, 12, Math.PI / 8);
+    expect(heart.x).toBe(100);
+    expect(heart.w).toBe(12);
+    expect(heart.h).toBeGreaterThan(12);
+
+    const powerup = generatedPlatformerPropDrawRect('powerup', 100, 50, 12, 12, 0);
+    expect(powerup).toEqual({ x: 100, y: 48.5, w: 12, h: 12 });
   });
 });

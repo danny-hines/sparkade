@@ -179,12 +179,11 @@ describe('generation incidents', () => {
   it('classifies only substantive recovery actions as incidents', () => {
     expect(hasSubstantiveRepair(REPAIRS)).toBe(true);
     expect(hasSubstantiveRepair([{ ...REPAIRS[0]!, action: 'normalize' }])).toBe(false);
-    expect(hasSubstantiveRepair([{ ...REPAIRS[0]!, action: 'fighter-art-fallback' }])).toBe(true);
     expect(
       hasSubstantiveRepair([{ ...REPAIRS[0]!, action: 'platformer-player-art-fallback' }]),
     ).toBe(true);
-    expect(
-      hasSubstantiveRepair([{ ...REPAIRS[0]!, action: 'platformer-boss-art-fallback' }]),
-    ).toBe(true);
+    expect(hasSubstantiveRepair([{ ...REPAIRS[0]!, action: 'platformer-boss-art-fallback' }])).toBe(
+      true,
+    );
   });
 });

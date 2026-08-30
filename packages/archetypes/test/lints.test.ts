@@ -4,7 +4,13 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { AdventureSpec, FighterSpec, GameSpec, PlatformerSpec, ShooterSpec } from '@sparkade/shared';
+import type {
+  AdventureSpec,
+  FighterSpec,
+  GameSpec,
+  PlatformerSpec,
+  ShooterSpec,
+} from '@sparkade/shared';
 import { MIN_DURATION_S } from '@sparkade/shared';
 import { archetypes } from '@sparkade/archetypes';
 import { checkKeyTopology, buildGraph, reconcileDoors } from '../src/adventure/lint';
@@ -84,9 +90,7 @@ describe('platformer lints', () => {
     const spec = golden<PlatformerSpec>('platformer');
     spec.levels[0]!.playerSpawn = { x: 2, y: 0 };
     // ensure sky above: blank the column
-    spec.levels[0]!.tiles = spec.levels[0]!.tiles.map((r, y) =>
-      y < 6 ? '.'.repeat(r.length) : r,
-    );
+    spec.levels[0]!.tiles = spec.levels[0]!.tiles.map((r, y) => (y < 6 ? '.'.repeat(r.length) : r));
     expect(codes(archetypes.platformer.lint(spec))).toContain('PLAT_SPAWN_NOT_GROUNDED');
   });
 
@@ -115,11 +119,15 @@ describe('platformer lints', () => {
 
     const checkpointSpec = golden<PlatformerSpec>('platformer');
     const level = checkpointSpec.levels[0]!;
-    const checkpointChar = Object.entries(level.legend).find(([, kind]) => kind === 'checkpoint')![0];
+    const checkpointChar = Object.entries(level.legend).find(
+      ([, kind]) => kind === 'checkpoint',
+    )![0];
     const checkpointY = level.tiles.findIndex((row) => row.includes(checkpointChar));
     const checkpointX = level.tiles[checkpointY]!.indexOf(checkpointChar);
     setLevelCell(level, checkpointX, checkpointY - 1, '#');
-    expect(codes(archetypes.platformer.lint(checkpointSpec))).toContain('PLAT_CHECKPOINT_NO_HEADROOM');
+    expect(codes(archetypes.platformer.lint(checkpointSpec))).toContain(
+      'PLAT_CHECKPOINT_NO_HEADROOM',
+    );
   });
 
   it('keeps low-ceiling saved games on legacy lint geometry when the marker is absent', () => {
@@ -174,10 +182,17 @@ describe('platformer lints', () => {
     const w = level.tiles[0]!.length;
     // carve an uncrossable 8-tile-wide bottomless chasm through every row
     const gapStart = Math.floor(w / 2);
-    level.tiles = level.tiles.map((r) => r.slice(0, gapStart) + '.'.repeat(8) + r.slice(gapStart + 8));
+    level.tiles = level.tiles.map(
+      (r) => r.slice(0, gapStart) + '.'.repeat(8) + r.slice(gapStart + 8),
+    );
     // remove any helpers that might bridge it
     level.entities = level.entities.filter(
-      (e) => !(e.x >= gapStart - 5 && e.x <= gapStart + 13 && (e.type === 'spring' || e.type === 'movingPlatform')),
+      (e) =>
+        !(
+          e.x >= gapStart - 5 &&
+          e.x <= gapStart + 13 &&
+          (e.type === 'spring' || e.type === 'movingPlatform')
+        ),
     );
     const diagnostics = archetypes.platformer.lint(spec);
     const errs = codes(diagnostics);
@@ -189,9 +204,7 @@ describe('platformer lints', () => {
     expect(reach.has(`${blockage!.landing.x},${blockage!.landing.y}`)).toBe(false);
     expect(
       diagnostics.find((diagnostic) => diagnostic.code === 'PLAT_EXIT_UNREACHABLE')?.message,
-    ).toContain(
-      `reachable standing cell (${blockage!.frontier.x},${blockage!.frontier.y})`,
-    );
+    ).toContain(`reachable standing cell (${blockage!.frontier.x},${blockage!.frontier.y})`);
   });
 
   it('reachability flood fill covers the spawn area', () => {
@@ -287,14 +300,18 @@ describe('platformer lints', () => {
 
     const noPickups = golden<PlatformerSpec>('platformer');
     for (const l of noPickups.levels)
-      l.entities = l.entities.filter((e) => e.type !== 'coin' && e.type !== 'heart' && e.type !== 'powerup');
+      l.entities = l.entities.filter(
+        (e) => e.type !== 'coin' && e.type !== 'heart' && e.type !== 'powerup',
+      );
     const errs = codes(archetypes.platformer.lint(noPickups));
     expect(errs).toContain('PLAT_FLOOR_PICKUPS');
     expect(errs).toContain('PLAT_FLOOR_POWERUP');
 
     const fewEnemies = golden<PlatformerSpec>('platformer');
     for (const l of fewEnemies.levels)
-      l.entities = l.entities.filter((e) => e.type !== 'flyer' && e.type !== 'shooter' && e.type !== 'chaser');
+      l.entities = l.entities.filter(
+        (e) => e.type !== 'flyer' && e.type !== 'shooter' && e.type !== 'chaser',
+      );
     expect(codes(archetypes.platformer.lint(fewEnemies))).toContain('PLAT_FLOOR_ENEMY_TYPES');
   });
 
@@ -328,7 +345,9 @@ describe('platformer lints', () => {
     };
     const ok = golden<PlatformerSpec>('platformer');
     ok.boss.arena = arena(true);
-    expect(codes(archetypes.platformer.lint(ok)).filter((c) => c.startsWith('PLAT_ARENA'))).toEqual([]);
+    expect(codes(archetypes.platformer.lint(ok)).filter((c) => c.startsWith('PLAT_ARENA'))).toEqual(
+      [],
+    );
 
     const cramped = golden<PlatformerSpec>('platformer');
     cramped.boss.arena = arena(true);
@@ -408,7 +427,6 @@ describe('fighter roster lints', () => {
     spec.levels[2]!.opponent.outfit = 'boxer';
     expect(codes(archetypes.fighter.lint(spec))).toContain('FIGHT_OUTFIT_VARIETY');
   });
-
 });
 
 describe('adventure lints (key/lock topology)', () => {
@@ -426,9 +444,9 @@ describe('adventure lints (key/lock topology)', () => {
     // Remove every key: locked doors become unopenable.
     for (const room of dungeon.rooms) room.entities = room.entities.filter((e) => e.type !== 'key');
     const errs = codes(archetypes.adventure.lint(spec));
-    expect(
-      errs.includes('ADV_UNREACHABLE_ROOM') || errs.includes('ADV_BOSS_UNREACHABLE'),
-    ).toBe(true);
+    expect(errs.includes('ADV_UNREACHABLE_ROOM') || errs.includes('ADV_BOSS_UNREACHABLE')).toBe(
+      true,
+    );
     expect(errs).toContain('ADV_KEYS_SHORT');
   });
 

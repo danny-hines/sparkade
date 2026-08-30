@@ -576,7 +576,7 @@ describe.sequential('mock image asset pipeline', () => {
     ).toHaveLength(8);
   });
 
-  it('publishes the complete, distinct 11-pose generated fighter set', async () => {
+  it('publishes a distinct 13-state atlas for every fighter in the five-character roster', async () => {
     const { db, files, runner } = createHarness();
     const { jobId, gameId } = runner.createJob({
       promptText: 'A rooftop martial arts tournament at sunset',

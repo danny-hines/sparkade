@@ -307,7 +307,7 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
     hshooter:
       "Also reskinnable via assign: projectile (your ship's shot), enemy_shot, pod (boss side-turrets), pickup_spread, pickup_rapid, pickup_shield, pickup_bomb.",
     fighter:
-      'Nothing to reskin — fighters, arena and effects are all drawn by the engine from your palette. The player and ladder roster are authored by the levels pass. Here, make the boss unmistakable with a distinct build + outfit + colorSlot.',
+      'Nothing to reskin — Fighter bodies come from the required generated roster atlases. The player and ladder roster are authored by the levels pass. Here, make the boss unmistakable with a concrete visualConcept plus a distinct build, outfit, and colorSlot.',
   };
   const roles = tileRoles[archetype];
   const connectedSolidNote =

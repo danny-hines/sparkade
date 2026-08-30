@@ -260,7 +260,9 @@ describe('archetype schemas', () => {
     ]) {
       expect(s.required).toContain(key);
     }
-    expect((DESIGN_SCHEMA as { properties: Record<string, unknown> }).properties.vehicleConcept).toBeDefined();
+    expect(
+      (DESIGN_SCHEMA as { properties: Record<string, unknown> }).properties.vehicleConcept,
+    ).toBeDefined();
     expect(s.required).not.toContain('vehicleConcept');
     expect(
       (DESIGN_SCHEMA as { properties: Record<string, unknown> }).properties.fighterArtDirection,

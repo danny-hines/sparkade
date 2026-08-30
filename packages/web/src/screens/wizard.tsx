@@ -1,11 +1,17 @@
-// New Game wizard: Step 1 photo (optional) → Step 2 idea (voice / idea cards /
-// surprise me) → Step 3 review (transcript confirmed BEFORE any money is
-// spent, labeled cost estimate) → Generate.
+// Guided New Game wizard: photo (optional) → hero name → engine → creative
+// details → review. Every user-approved choice is sent as a structured brief;
+// promptText remains as the readable/legacy representation.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import { GENERATION, LIKENESS_OVAL, MAX_PHOTO_DIM, type ArchetypeId } from '@sparkade/shared';
+import {
+  GENERATION,
+  LIKENESS_OVAL,
+  MAX_PHOTO_DIM,
+  type ArchetypeId,
+  type GameListItem,
+} from '@sparkade/shared';
 import { api, type SettingsPayload } from '../api';
-import { FooterLegend, Modal } from '../components';
+import { FooterLegend, GameCover, Modal } from '../components';
 import { Icon, Btn } from '../icons';
 import { getUserMediaForDevice } from '../media';
 import { shellInput } from '../shell-input';
@@ -13,8 +19,49 @@ import { pickSurpriseArchetype } from '../surprise';
 import type { Screen } from '../app';
 
 type PhotoMode = 'choice' | 'camera' | 'preview' | 'error';
-type IdeaMode = 'choice' | 'record' | 'transcribing' | 'cards';
-type Step = 'photo' | 'idea' | 'review';
+type EntryMode = 'choice' | 'record' | 'transcribing' | 'cards';
+type RecordTarget = 'name' | 'details';
+type Step = 'photo' | 'name' | 'archetype' | 'details' | 'review';
+
+interface ArchetypeChoice {
+  id: ArchetypeId;
+  label: string;
+  feel: string;
+  description: string;
+}
+
+const ARCHETYPES: readonly ArchetypeChoice[] = [
+  {
+    id: 'platformer',
+    label: 'Platformer',
+    feel: 'Run · jump · explore',
+    description: 'Side-view stages full of movement, secrets, enemies, and a finale boss.',
+  },
+  {
+    id: 'shooter',
+    label: 'Vertical Shooter',
+    feel: 'Dodge · blast · survive',
+    description: 'Fly upward through enemy waves, power-ups, hazards, and giant bosses.',
+  },
+  {
+    id: 'adventure',
+    label: 'Adventure',
+    feel: 'Explore · discover · battle',
+    description: 'A top-down world of connected rooms, characters, items, and puzzles.',
+  },
+  {
+    id: 'hshooter',
+    label: 'Side-Scroll Shooter',
+    feel: 'Fly · weave · fire',
+    description: 'Race across cinematic landscapes while enemies and terrain close in.',
+  },
+  {
+    id: 'fighter',
+    label: 'Fighter',
+    feel: 'Duel · counter · triumph',
+    description: 'A character-driven arcade ladder with distinct rivals and arenas.',
+  },
+];
 
 const SURPRISE_SPARKS = [
   'a lighthouse that walks',
@@ -27,26 +74,31 @@ const SURPRISE_SPARKS = [
   'a mushroom orchestra',
 ];
 
+function choiceFor(id: ArchetypeId): ArchetypeChoice {
+  return ARCHETYPES.find((choice) => choice.id === id) ?? ARCHETYPES[0]!;
+}
+
 export function WizardScreen(props: {
   go: (s: Screen) => void;
   settings: SettingsPayload | null;
 }): ComponentChildren {
   const [step, setStep] = useState<Step>('photo');
   const [photoMode, setPhotoMode] = useState<PhotoMode>('choice');
-  const [ideaMode, setIdeaMode] = useState<IdeaMode>('choice');
+  const [entryMode, setEntryMode] = useState<EntryMode>('choice');
+  const [recordTarget, setRecordTarget] = useState<RecordTarget>('name');
   const [cursor, setCursor] = useState(0);
   const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState('');
   const [countdown, setCountdown] = useState(0);
-  const [transcript, setTranscript] = useState('');
+  const [heroName, setHeroName] = useState('');
+  const [details, setDetails] = useState('');
   const [sourceKind, setSourceKind] = useState<'voice' | 'preset' | 'surprise'>('voice');
-  const [requestedArchetype, setRequestedArchetype] = useState<ArchetypeId | undefined>();
+  const [requestedArchetype, setRequestedArchetype] = useState<ArchetypeId>('platformer');
   const [presetId, setPresetId] = useState<string | undefined>();
   const [recordSecs, setRecordSecs] = useState(0);
   const [level, setLevel] = useState(0);
   const [sttError, setSttError] = useState('');
-  const [appending, setAppending] = useState(false);
   const [estimate, setEstimate] = useState<{
     usd: number | null;
     label: string;
@@ -57,8 +109,9 @@ export function WizardScreen(props: {
   const [online, setOnline] = useState(navigator.onLine);
   const [isPi, setIsPi] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-
+  const [games, setGames] = useState<GameListItem[]>([]);
   const [cardsScroll, setCardsScroll] = useState({ atTop: true, atBottom: true });
+
   const idempotencyKey = useRef(`ik-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const gridRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -66,13 +119,21 @@ export function WizardScreen(props: {
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const recordingCanceledRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const modeRef = useRef({ step, photoMode, ideaMode, cursor });
-  modeRef.current = { step, photoMode, ideaMode, cursor };
+  const modeRef = useRef({ step, photoMode, entryMode, recordTarget, cursor });
+  modeRef.current = { step, photoMode, entryMode, recordTarget, cursor };
 
   const presets = props.settings?.presets ?? [];
+  const selectedChoice = choiceFor(requestedArchetype);
+  const selectedIndex = ARCHETYPES.findIndex((choice) => choice.id === requestedArchetype);
+  const readyPreviewByArchetype = new Map<ArchetypeId, GameListItem>();
+  for (const game of games) {
+    if (game.status === 'ready' && !readyPreviewByArchetype.has(game.archetype)) {
+      readyPreviewByArchetype.set(game.archetype, game);
+    }
+  }
 
-  // Idea-card grid can outgrow the screen; track scroll state for the up/down hint.
   const recomputeCards = (): void => {
     const el = gridRef.current;
     if (!el) return;
@@ -82,58 +143,66 @@ export function WizardScreen(props: {
     });
   };
 
-  // ----- camera lifecycle: request only while on the camera step ------------
   const stopCamera = () => {
-    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
   };
+
   const stopMic = () => {
     if (recorderRef.current && recorderRef.current.state !== 'inactive') recorderRef.current.stop();
     recorderRef.current = null;
   };
-  useEffect(
-    () => () => {
-      stopCamera();
-      stopMic();
-    },
-    [],
-  );
+
+  const cancelRecording = () => {
+    recordingCanceledRef.current = true;
+    stopMic();
+  };
+
+  useEffect(() => () => {
+    stopCamera();
+    recordingCanceledRef.current = true;
+    stopMic();
+  });
 
   useEffect(() => {
-    if (step === 'photo' && photoMode === 'camera') {
-      let canceled = false;
-      void getUserMediaForDevice('video', props.settings?.devices?.cameraId, {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
+    if (step !== 'photo' || photoMode !== 'camera') return undefined;
+    let canceled = false;
+    void getUserMediaForDevice('video', props.settings?.devices?.cameraId, {
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+    })
+      .then((stream) => {
+        if (canceled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        streamRef.current = stream;
+        if (videoRef.current) videoRef.current.srcObject = stream;
       })
-        .then((stream) => {
-          if (canceled) {
-            stream.getTracks().forEach((t) => t.stop());
-            return;
-          }
-          streamRef.current = stream;
-          if (videoRef.current) videoRef.current.srcObject = stream;
-        })
-        .catch((e: Error) => {
-          setCameraError(
-            e.name === 'NotAllowedError' ? 'Camera access was denied.' : 'No camera found.',
-          );
-          setPhotoMode('error');
-          setCursor(0);
-        });
-      return () => {
-        canceled = true;
-        stopCamera();
-      };
-    }
-    return undefined;
+      .catch((error: Error) => {
+        setCameraError(
+          error.name === 'NotAllowedError' ? 'Camera access was denied.' : 'No camera found.',
+        );
+        setPhotoMode('error');
+        setCursor(0);
+      });
+    return () => {
+      canceled = true;
+      stopCamera();
+    };
   }, [step, photoMode]);
 
   useEffect(() => {
-    void api
-      .systemInfo()
-      .then((i) => setIsPi(i.isPi))
-      .catch(() => {});
+    void Promise.all([
+      api
+        .systemInfo()
+        .then((info) => setIsPi(info.isPi))
+        .catch(() => {}),
+      api
+        .listGames()
+        .then(setGames)
+        .catch(() => {}),
+    ]);
     const on = () => setOnline(true);
     const off = () => setOnline(false);
     window.addEventListener('online', on);
@@ -145,28 +214,45 @@ export function WizardScreen(props: {
   }, []);
 
   useEffect(() => {
-    if (step === 'review') {
-      const archetype =
-        requestedArchetype ?? presets.find((preset) => preset.id === presetId)?.archetype;
-      void api
-        .estimate({
-          photo: !!photoBlob,
-          ...(archetype ? { archetype: archetype as ArchetypeId } : {}),
-        })
-        .then(setEstimate)
-        .catch(() => setEstimate(null));
-    }
-  }, [step, photoBlob, presetId, presets, requestedArchetype]);
+    if (step !== 'review') return;
+    void api
+      .estimate({ photo: !!photoBlob, archetype: requestedArchetype })
+      .then(setEstimate)
+      .catch(() => setEstimate(null));
+  }, [step, photoBlob, requestedArchetype]);
 
-  // Keep the focused idea card scrolled into view and refresh the up/down hint.
   useEffect(() => {
-    if (step === 'idea' && ideaMode === 'cards') {
+    if (step === 'details' && entryMode === 'cards') {
       cardRef.current?.scrollIntoView({ block: 'nearest' });
       recomputeCards();
     }
-  }, [cursor, ideaMode, step, presets.length]);
+  }, [cursor, entryMode, step, presets.length]);
 
-  // ----- capture ------------------------------------------------------------
+  const goToName = () => {
+    setStep('name');
+    setEntryMode('choice');
+    setRecordTarget('name');
+    setCursor(0);
+  };
+
+  const goToArchetype = () => {
+    setStep('archetype');
+    setEntryMode('choice');
+    setCursor(
+      Math.max(
+        0,
+        ARCHETYPES.findIndex((choice) => choice.id === requestedArchetype),
+      ),
+    );
+  };
+
+  const goToDetails = () => {
+    setStep('details');
+    setEntryMode('choice');
+    setRecordTarget('details');
+    setCursor(0);
+  };
+
   const snapPhoto = () => {
     const video = videoRef.current;
     if (!video || video.videoWidth === 0) return;
@@ -176,7 +262,6 @@ export function WizardScreen(props: {
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext('2d')!;
-    // center-crop square; canvas re-encode strips EXIF and bakes orientation
     ctx.drawImage(
       video,
       (video.videoWidth - side) / 2,
@@ -198,7 +283,7 @@ export function WizardScreen(props: {
         });
         stopCamera();
         setPhotoMode('preview');
-        setCursor(1); // default focus "Use photo"
+        setCursor(1);
         shellInput.blip('success');
       },
       'image/jpeg',
@@ -208,119 +293,138 @@ export function WizardScreen(props: {
 
   const startCountdown = () => {
     setCountdown(3);
-    const tick = (n: number) => {
+    const tick = (next: number) => {
       shellInput.blip('move');
-      if (n === 0) {
+      if (next === 0) {
         setCountdown(0);
         snapPhoto();
         return;
       }
-      setCountdown(n);
-      setTimeout(() => tick(n - 1), 800);
+      setCountdown(next);
+      setTimeout(() => tick(next - 1), 800);
     };
     tick(3);
   };
 
-  // ----- recording ------------------------------------------------------------
-  const startRecording = async () => {
+  const startRecording = async (target: RecordTarget, append = false) => {
     setSttError('');
+    setRecordTarget(target);
+    recordingCanceledRef.current = false;
     try {
       const stream = await getUserMediaForDevice('audio', props.settings?.devices?.micId);
       streamRef.current = stream;
       const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : 'audio/webm';
-      const rec = new MediaRecorder(stream, { mimeType: mime });
-      recorderRef.current = rec;
+      const recorder = new MediaRecorder(stream, { mimeType: mime });
+      recorderRef.current = recorder;
       chunksRef.current = [];
-      rec.ondataavailable = (e) => chunksRef.current.push(e.data);
-      rec.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
+      recorder.ondataavailable = (event) => chunksRef.current.push(event.data);
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        if (recordingCanceledRef.current) return;
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        setIdeaMode('transcribing');
+        setEntryMode('transcribing');
         void api
           .transcribe(blob)
           .then((text) => {
-            setTranscript((prev) => (appending && prev ? `${prev} ${text}` : text));
-            setSourceKind('voice');
-            setRequestedArchetype(undefined);
-            setPresetId(undefined);
-            setAppending(false);
-            setStep('review');
-            setCursor(0);
+            const heard = text.trim();
+            if (target === 'name') {
+              setHeroName(heard.slice(0, 48));
+              goToArchetype();
+            } else {
+              setDetails((previous) => (append && previous ? `${previous} ${heard}` : heard));
+              setSourceKind('voice');
+              setPresetId(undefined);
+              setStep('review');
+              setCursor(0);
+            }
             shellInput.blip('success');
           })
-          .catch((e: Error) => {
-            setSttError(e.message);
-            setIdeaMode('choice');
+          .catch((error: Error) => {
+            setSttError(error.message);
+            setEntryMode('choice');
             setCursor(0);
             shellInput.blip('error');
           });
       };
-      // live level meter
+
       const audioCtx = new AudioContext();
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 256;
       audioCtx.createMediaStreamSource(stream).connect(analyser);
       const data = new Uint8Array(analyser.frequencyBinCount);
-      let secs = 0;
+      let seconds = 0;
       setRecordSecs(0);
       const meter = setInterval(() => {
         analyser.getByteFrequencyData(data);
         let sum = 0;
-        for (const v of data) sum += v;
+        for (const value of data) sum += value;
         setLevel(Math.min(1, sum / data.length / 90));
       }, 90);
-      const clock = setInterval(() => {
-        secs += 1;
-        setRecordSecs(secs);
-        if (secs >= GENERATION.maxRecordingSeconds) stopAll();
-      }, 1000);
       const stopAll = () => {
         clearInterval(meter);
         clearInterval(clock);
         void audioCtx.close();
-        if (rec.state !== 'inactive') rec.stop();
+        if (recorder.state !== 'inactive') recorder.stop();
       };
-      rec.addEventListener('stop', stopAll);
-      rec.start();
+      const clock = setInterval(() => {
+        seconds += 1;
+        setRecordSecs(seconds);
+        if (seconds >= GENERATION.maxRecordingSeconds) stopAll();
+      }, 1000);
+      recorder.addEventListener('stop', stopAll);
+      recorder.start();
     } catch {
-      setSttError('Microphone unavailable — pick an idea card instead.');
-      setIdeaMode('choice');
+      setSttError(
+        target === 'name'
+          ? 'Microphone unavailable — Spark can name the hero.'
+          : 'Microphone unavailable — pick an idea card instead.',
+      );
+      setEntryMode('choice');
       shellInput.blip('error');
     }
   };
 
-  // ----- surprise -------------------------------------------------------------
-  const surpriseMe = () => {
-    const arche = pickSurpriseArchetype();
+  const surpriseDetails = () => {
     const spark = SURPRISE_SPARKS[Math.floor(Math.random() * SURPRISE_SPARKS.length)]!;
-    setTranscript(
-      `Surprise me! Invent a completely original ${arche} — perhaps something like ${spark}, or better. Pick a bold premise nobody has seen.`,
+    setDetails(
+      `Invent a completely original ${selectedChoice.label.toLowerCase()} about ${spark}. Give it a bold world, surprising enemies, and a memorable finale.`,
     );
     setSourceKind('surprise');
-    setRequestedArchetype(arche);
     setPresetId(undefined);
     setStep('review');
     setCursor(0);
     shellInput.blip('success');
   };
 
+  const surpriseType = () => {
+    const archetype = pickSurpriseArchetype();
+    setRequestedArchetype(archetype);
+    setCursor(ARCHETYPES.findIndex((choice) => choice.id === archetype));
+    shellInput.blip('success');
+  };
+
   const generate = () => {
-    if (submitting || !online || !transcript.trim()) return;
+    if (submitting || !online || !details.trim()) return;
     setSubmitting(true);
+    const promptText = heroName.trim()
+      ? `${heroName.trim()} is the main character. ${details.trim()}`
+      : details.trim();
     void api
       .createGame({
-        promptText: transcript.trim(),
+        promptText,
         sourceKind,
-        ...(sourceKind === 'surprise' && requestedArchetype ? { requestedArchetype } : {}),
+        requestedArchetype,
+        ...(heroName.trim() ? { heroName: heroName.trim() } : {}),
+        details: details.trim(),
         ...(presetId ? { presetId } : {}),
         ...(photoBlob ? { photo: photoBlob } : {}),
         idempotencyKey: idempotencyKey.current,
       })
-      .then((r) => {
+      .then((result) => {
         shellInput.blip('success');
-        props.go({ name: 'generation', jobId: r.jobId, gameId: r.gameId });
+        props.go({ name: 'generation', jobId: result.jobId, gameId: result.gameId });
       })
       .catch(() => {
         setSubmitting(false);
@@ -328,82 +432,70 @@ export function WizardScreen(props: {
       });
   };
 
-  // ----- input ---------------------------------------------------------------
   useEffect(
     () =>
-      shellInput.pushHandler((btn) => {
-        const m = modeRef.current;
+      shellInput.pushHandler((button) => {
+        const mode = modeRef.current;
         const nav = (count: number, horizontal = false) => {
-          if ((horizontal && btn === 'LEFT') || (!horizontal && btn === 'UP')) {
-            setCursor((c) => (c + count - 1) % count);
+          if ((horizontal && button === 'LEFT') || (!horizontal && button === 'UP')) {
+            setCursor((current) => (current + count - 1) % count);
             shellInput.blip('move');
             return true;
           }
-          if ((horizontal && btn === 'RIGHT') || (!horizontal && btn === 'DOWN')) {
-            setCursor((c) => (c + 1) % count);
+          if ((horizontal && button === 'RIGHT') || (!horizontal && button === 'DOWN')) {
+            setCursor((current) => (current + 1) % count);
             shellInput.blip('move');
             return true;
           }
           return false;
         };
 
-        if (m.step === 'photo') {
-          if (m.photoMode === 'choice') {
+        if (mode.step === 'photo') {
+          if (mode.photoMode === 'choice') {
             const count = import.meta.env.DEV ? 3 : 2;
             if (nav(count)) return;
-            if (btn === 'A') {
+            if (button === 'A') {
               shellInput.blip('select');
-              if (m.cursor === 0) {
-                setPhotoMode('camera');
-              } else if (m.cursor === 1) {
+              if (mode.cursor === 0) setPhotoMode('camera');
+              else if (mode.cursor === 1) {
                 setPhotoBlob(null);
-                setStep('idea');
-                setIdeaMode('choice');
-                setCursor(0);
-              } else {
-                fileInputRef.current?.click(); // dev-only upload fallback
-              }
-            } else if (btn === 'B') {
+                goToName();
+              } else fileInputRef.current?.click();
+            } else if (button === 'B') {
               shellInput.blip('back');
               props.go({ name: 'home' });
             }
-          } else if (m.photoMode === 'camera') {
-            if (btn === 'A' && countdown === 0) startCountdown();
-            else if (btn === 'B') {
+          } else if (mode.photoMode === 'camera') {
+            if (button === 'A' && countdown === 0) startCountdown();
+            else if (button === 'B') {
               shellInput.blip('back');
               stopCamera();
               setPhotoMode('choice');
               setCursor(0);
             }
-          } else if (m.photoMode === 'preview') {
+          } else if (mode.photoMode === 'preview') {
             if (nav(2, true)) return;
-            if (btn === 'A') {
+            if (button === 'A') {
               shellInput.blip('select');
-              if (m.cursor === 0) {
+              if (mode.cursor === 0) {
                 setPhotoBlob(null);
-                setPhotoMode('camera'); // retake
-              } else {
-                setStep('idea');
-                setIdeaMode('choice');
-                setCursor(0);
-              }
-            } else if (btn === 'B') {
+                setPhotoMode('camera');
+              } else goToName();
+            } else if (button === 'B') {
               shellInput.blip('back');
               setPhotoMode('choice');
               setCursor(0);
             }
-          } else if (m.photoMode === 'error') {
+          } else if (mode.photoMode === 'error') {
             if (nav(2, true)) return;
-            if (btn === 'A') {
+            if (button === 'A') {
               shellInput.blip('select');
-              if (m.cursor === 0) setPhotoMode('camera');
+              if (mode.cursor === 0) setPhotoMode('camera');
               else {
                 setPhotoBlob(null);
-                setStep('idea');
-                setIdeaMode('choice');
-                setCursor(0);
+                goToName();
               }
-            } else if (btn === 'B') {
+            } else if (button === 'B') {
               shellInput.blip('back');
               setPhotoMode('choice');
               setCursor(0);
@@ -412,142 +504,189 @@ export function WizardScreen(props: {
           return;
         }
 
-        if (m.step === 'idea') {
-          if (m.ideaMode === 'choice') {
-            const count = import.meta.env.DEV ? 4 : 3;
+        if (mode.step === 'name') {
+          if (mode.entryMode === 'choice') {
+            const count = import.meta.env.DEV ? 3 : 2;
             if (nav(count)) return;
-            if (btn === 'A') {
+            if (button === 'A') {
               shellInput.blip('select');
-              if (m.cursor === 0) {
-                setIdeaMode('record');
-                void startRecording();
-              } else if (m.cursor === 1) {
-                setIdeaMode('cards');
-                setCursor(0);
-              } else if (m.cursor === 2) {
-                surpriseMe();
+              if (mode.cursor === 0) {
+                setEntryMode('record');
+                void startRecording('name');
+              } else if (mode.cursor === 1) {
+                setHeroName('');
+                goToArchetype();
               } else {
-                // dev-only canned transcript
-                setTranscript('A brave little robot climbs a clockwork tower to wake the sun');
-                setSourceKind('voice');
-                setRequestedArchetype(undefined);
-                setStep('review');
-                setCursor(0);
+                setHeroName('Nova');
+                goToArchetype();
               }
-            } else if (btn === 'B') {
+            } else if (button === 'B') {
               shellInput.blip('back');
               setStep('photo');
               setPhotoMode('choice');
               setCursor(0);
             }
-          } else if (m.ideaMode === 'record') {
-            if (btn === 'A')
-              stopMic(); // A stops (it also started)
-            else if (btn === 'B') {
+          } else if (mode.entryMode === 'record') {
+            if (button === 'A') stopMic();
+            else if (button === 'B') {
               shellInput.blip('back');
-              stopMic();
-              stopCamera();
-              setIdeaMode('choice');
-              setCursor(0);
-            }
-          } else if (m.ideaMode === 'cards') {
-            const count = presets.length;
-            if (btn === 'LEFT' || btn === 'RIGHT') {
-              setCursor((c) => (btn === 'LEFT' ? (c + count - 1) % count : (c + 1) % count));
-              shellInput.blip('move');
-            } else if (btn === 'UP' || btn === 'DOWN') {
-              setCursor((c) => {
-                const next = btn === 'UP' ? c - 2 : c + 2;
-                if (next < 0 || next >= count) return c;
-                shellInput.blip('move');
-                return next;
-              });
-            } else if (btn === 'A') {
-              shellInput.blip('select');
-              const preset = presets[m.cursor];
-              if (preset) {
-                setTranscript(`${preset.title}: ${preset.premise} (${preset.tone})`);
-                setSourceKind('preset');
-                setRequestedArchetype(undefined);
-                setPresetId(preset.id);
-                setStep('review');
-                setCursor(0);
-              }
-            } else if (btn === 'B') {
-              shellInput.blip('back');
-              setIdeaMode('choice');
+              cancelRecording();
+              setEntryMode('choice');
               setCursor(0);
             }
           }
           return;
         }
 
-        // review
+        if (mode.step === 'archetype') {
+          if (button === 'LEFT' || button === 'RIGHT') {
+            setCursor((current) => {
+              const next =
+                button === 'LEFT'
+                  ? (current + ARCHETYPES.length - 1) % ARCHETYPES.length
+                  : (current + 1) % ARCHETYPES.length;
+              setRequestedArchetype(ARCHETYPES[next]!.id);
+              return next;
+            });
+            shellInput.blip('move');
+          } else if (button === 'A') {
+            shellInput.blip('select');
+            const choice = ARCHETYPES[mode.cursor];
+            if (choice) setRequestedArchetype(choice.id);
+            goToDetails();
+          } else if (button === 'X') surpriseType();
+          else if (button === 'B') {
+            shellInput.blip('back');
+            setStep('name');
+            setEntryMode('choice');
+            setCursor(0);
+          }
+          return;
+        }
+
+        if (mode.step === 'details') {
+          if (mode.entryMode === 'choice') {
+            const count = import.meta.env.DEV ? 4 : 3;
+            if (nav(count)) return;
+            if (button === 'A') {
+              shellInput.blip('select');
+              if (mode.cursor === 0) {
+                setEntryMode('record');
+                void startRecording('details');
+              } else if (mode.cursor === 1) {
+                setEntryMode('cards');
+                setCursor(0);
+              } else if (mode.cursor === 2) surpriseDetails();
+              else {
+                setDetails('Escaping a neon zombie wasteland before the last train leaves');
+                setSourceKind('voice');
+                setPresetId(undefined);
+                setStep('review');
+                setCursor(0);
+              }
+            } else if (button === 'B') {
+              shellInput.blip('back');
+              goToArchetype();
+            }
+          } else if (mode.entryMode === 'record') {
+            if (button === 'A') stopMic();
+            else if (button === 'B') {
+              shellInput.blip('back');
+              cancelRecording();
+              setEntryMode('choice');
+              setCursor(0);
+            }
+          } else if (mode.entryMode === 'cards') {
+            const count = presets.length;
+            if (count > 0 && (button === 'LEFT' || button === 'RIGHT')) {
+              setCursor((current) =>
+                button === 'LEFT' ? (current + count - 1) % count : (current + 1) % count,
+              );
+              shellInput.blip('move');
+            } else if (count > 0 && (button === 'UP' || button === 'DOWN')) {
+              setCursor((current) => {
+                const next = button === 'UP' ? current - 2 : current + 2;
+                if (next < 0 || next >= count) return current;
+                shellInput.blip('move');
+                return next;
+              });
+            } else if (button === 'A') {
+              const preset = presets[mode.cursor];
+              if (preset) {
+                shellInput.blip('select');
+                setDetails(`${preset.title}: ${preset.premise} (${preset.tone})`);
+                setSourceKind('preset');
+                setPresetId(preset.id);
+                setStep('review');
+                setCursor(0);
+              }
+            } else if (button === 'B') {
+              shellInput.blip('back');
+              setEntryMode('choice');
+              setCursor(0);
+            }
+          }
+          return;
+        }
+
         const canAddMore = sourceKind === 'voice';
         const count = canAddMore ? 3 : 2;
         if (nav(count)) return;
-        if (btn === 'A') {
-          if (m.cursor === 0) {
+        if (button === 'A') {
+          if (mode.cursor === 0) {
             if (!online) {
               shellInput.blip('error');
               return;
             }
             shellInput.blip('select');
             generate();
-          } else if (m.cursor === 1) {
+          } else if (mode.cursor === 1) {
             shellInput.blip('select');
-            setAppending(false);
-            setStep('idea');
-            setIdeaMode(sourceKind === 'voice' ? 'record' : 'choice');
-            setCursor(0);
-            if (sourceKind === 'voice') void startRecording();
+            goToDetails();
           } else {
             shellInput.blip('select');
-            setAppending(true);
-            setStep('idea');
-            setIdeaMode('record');
-            void startRecording();
+            setStep('details');
+            setEntryMode('record');
+            void startRecording('details', true);
           }
-        } else if (btn === 'B') {
+        } else if (button === 'B') {
           shellInput.blip('back');
-          setStep('idea');
-          setIdeaMode('choice');
-          setCursor(0);
-        } else if (btn === 'X' && !online && isPi) {
+          goToDetails();
+        } else if (button === 'X' && !online && isPi) {
           props.go({ name: 'settings', tab: 'wifi' });
         }
       }),
     [
       countdown,
-      online,
+      details,
+      heroName,
       isPi,
+      online,
       presets,
       requestedArchetype,
+      selectedChoice.label,
       sourceKind,
       submitting,
-      transcript,
       props.go,
     ],
   );
 
-  // ------------------------------------------------------------------ render
   const stepChip = (
     <div class="wizard-steps">
-      <span class={`step ${step === 'photo' ? 'on' : ''}`}>1 PHOTO</span>
-      <span>
-        <Icon name="chevronRight" />
-      </span>
-      <span class={`step ${step === 'idea' ? 'on' : ''}`}>2 IDEA</span>
-      <span>
-        <Icon name="chevronRight" />
-      </span>
-      <span class={`step ${step === 'review' ? 'on' : ''}`}>3 REVIEW</span>
+      {(['photo', 'name', 'archetype', 'details', 'review'] as const).map((item, index) => (
+        <span key={item} class={`step ${step === item ? 'on' : ''}`}>
+          {index + 1} {item === 'archetype' ? 'TYPE' : item.toUpperCase()}
+        </span>
+      ))}
     </div>
   );
 
+  const recording = entryMode === 'record';
+  const transcribing = entryMode === 'transcribing';
+
   return (
     <div class="screen">
-      <div class="screen-title">
+      <div class="screen-title wizard-title">
         <h2 class="pixel">NEW GAME</h2>
         <span class="status-chips">{stepChip}</span>
       </div>
@@ -571,44 +710,38 @@ export function WizardScreen(props: {
                 </span>{' '}
                 Skip
               </div>
-              {import.meta.env.DEV && (
+              {import.meta.env.DEV ? (
                 <div class={`focusable menu-item ${cursor === 2 ? 'focused' : ''}`}>
                   <span class="icon">
                     <Icon name="folder" />
                   </span>{' '}
                   Upload photo (dev)
                 </div>
-              )}
+              ) : null}
             </div>
             <input
               ref={fileInputRef}
               type="file"
               accept="image/*"
               style="display:none"
-              onChange={(e) => {
-                const f = (e.target as HTMLInputElement).files?.[0];
-                if (f) {
-                  setPhotoBlob(f);
-                  setPhotoUrl((old) => {
-                    if (old) URL.revokeObjectURL(old);
-                    return URL.createObjectURL(f);
-                  });
-                  setStep('idea');
-                  setIdeaMode('choice');
-                  setCursor(0);
-                }
+              onChange={(event) => {
+                const file = (event.target as HTMLInputElement).files?.[0];
+                if (!file) return;
+                setPhotoBlob(file);
+                setPhotoUrl((old) => {
+                  if (old) URL.revokeObjectURL(old);
+                  return URL.createObjectURL(file);
+                });
+                goToName();
               }}
             />
           </div>
         )}
+
         {step === 'photo' && photoMode === 'camera' && (
           <div class="center-col">
             <div class="camera-stage">
               <video ref={videoRef} autoPlay playsInline muted />
-              {/* Guide geometry = LIKENESS_OVAL, the same numbers the server
-                  crops with. Under object-fit:cover on a landscape camera the
-                  captured square displays exactly stage-height tall, so:
-                  width% = 2·rx·(stageH/stageW), height% = 2·ry. */}
               <div
                 class="oval-guide"
                 style={{
@@ -617,15 +750,16 @@ export function WizardScreen(props: {
                   top: `${(LIKENESS_OVAL.cy * 100).toFixed(1)}%`,
                 }}
               />
-              {countdown > 0 && <div class="countdown">{countdown}</div>}
+              {countdown > 0 ? <div class="countdown">{countdown}</div> : null}
             </div>
             <div style="color:var(--text-dim)">Line your face up with the oval</div>
           </div>
         )}
+
         {step === 'photo' && photoMode === 'preview' && (
           <div class="center-col">
             <div class="camera-stage" style="width:330px;height:330px">
-              {photoUrl && <img src={photoUrl} style="width:100%;height:100%;object-fit:cover" />}
+              {photoUrl ? <img src={photoUrl} alt="Photo preview" /> : null}
             </div>
             <div class="modal-choices" style="display:flex;gap:18px">
               <div class={`focusable ${cursor === 0 ? 'focused' : ''}`} style="padding:12px 28px">
@@ -637,6 +771,7 @@ export function WizardScreen(props: {
             </div>
           </div>
         )}
+
         {step === 'photo' && photoMode === 'error' && (
           <div class="center-col">
             <div style="font-size:24px;color:var(--danger)">{cameraError}</div>
@@ -651,48 +786,49 @@ export function WizardScreen(props: {
           </div>
         )}
 
-        {step === 'idea' && ideaMode === 'choice' && (
+        {step === 'name' && entryMode === 'choice' && (
           <div class="center-col">
-            <div style="font-size:24px">What should this game be?</div>
-            {sttError && <div style="color:var(--danger);font-size:17px">{sttError}</div>}
+            <div class="wizard-kicker">MEET YOUR HERO</div>
+            <div style="font-size:26px">What is the main character's name?</div>
+            <div style="color:var(--text-dim);font-size:18px">
+              Say just the name. Spark will use it throughout the story.
+            </div>
+            {sttError ? <div style="color:var(--danger);font-size:17px">{sttError}</div> : null}
             <div class="menu-list" style="width:520px">
               <div class={`focusable menu-item ${cursor === 0 ? 'focused' : ''}`}>
                 <span class="icon">
                   <Icon name="mic" />
                 </span>{' '}
-                Speak
-                <span class="hint">up to {GENERATION.maxRecordingSeconds}s</span>
+                Speak the name
               </div>
               <div class={`focusable menu-item ${cursor === 1 ? 'focused' : ''}`}>
                 <span class="icon">
-                  <Icon name="cards" />
-                </span>{' '}
-                Idea card
-              </div>
-              <div class={`focusable menu-item ${cursor === 2 ? 'focused' : ''}`}>
-                <span class="icon">
                   <Icon name="sparkle" />
                 </span>{' '}
-                Surprise me
+                Let Spark choose
               </div>
-              {import.meta.env.DEV && (
-                <div class={`focusable menu-item ${cursor === 3 ? 'focused' : ''}`}>
+              {import.meta.env.DEV ? (
+                <div class={`focusable menu-item ${cursor === 2 ? 'focused' : ''}`}>
                   <span class="icon">
                     <Icon name="keyboard" />
                   </span>{' '}
-                  Canned (dev)
+                  Nova (dev)
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
         )}
-        {step === 'idea' && ideaMode === 'record' && (
+
+        {(step === 'name' || step === 'details') && recording && (
           <div class="center-col">
             <div style="font-size:26px;color:var(--spark)">
               <Icon name="dot" /> Recording…
             </div>
             <div style="font-size:20px;color:var(--text-dim)">
-              Describe the game you want. {GENERATION.maxRecordingSeconds - recordSecs}s left
+              {recordTarget === 'name'
+                ? 'Say the character name.'
+                : 'Describe the story, enemies, and look you want.'}{' '}
+              {GENERATION.maxRecordingSeconds - recordSecs}s left
             </div>
             <div class="level-meter">
               <div style={{ width: `${Math.round(level * 100)}%` }} />
@@ -702,7 +838,8 @@ export function WizardScreen(props: {
             </div>
           </div>
         )}
-        {step === 'idea' && ideaMode === 'transcribing' && (
+
+        {(step === 'name' || step === 'details') && transcribing && (
           <div class="center-col">
             <span style="font-size:38px;color:var(--cyan)">
               <Icon name="sparkle" class="spin" />
@@ -710,52 +847,127 @@ export function WizardScreen(props: {
             <div style="font-size:22px">Listening back…</div>
           </div>
         )}
-        {step === 'idea' && ideaMode === 'cards' && (
-          <div class="idea-grid" ref={gridRef} onScroll={recomputeCards}>
-            {presets.map((p, i) => (
+
+        {step === 'archetype' && (
+          <div class="archetype-stage">
+            <div class="wizard-kicker">CHOOSE HOW IT PLAYS</div>
+            <div class="archetype-carousel">
               <div
-                key={p.id}
-                ref={i === cursor ? cardRef : undefined}
-                class={`focusable idea-card ${i === cursor ? 'focused' : ''}`}
+                class="archetype-track"
+                style={{ transform: `translateX(calc(50% - ${selectedIndex * 232 + 107}px))` }}
+              >
+                {ARCHETYPES.map((choice, index) => {
+                  const preview = readyPreviewByArchetype.get(choice.id);
+                  return (
+                    <div
+                      key={choice.id}
+                      class={`focusable archetype-card ${index === cursor ? 'focused selected' : ''}`}
+                    >
+                      <GameCover
+                        cover={preview?.cover ?? null}
+                        archetype={choice.id}
+                        gameId={preview?.id}
+                        seedText={preview?.title ?? choice.label}
+                        class="archetype-cover"
+                      />
+                      <div class="archetype-name">{choice.label}</div>
+                      <div class="archetype-feel">{choice.feel}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div class="archetype-description">{selectedChoice.description}</div>
+            <div class="archetype-position">
+              <Icon name="pixLeft" /> {selectedIndex + 1} / {ARCHETYPES.length}{' '}
+              <Icon name="pixRight" />
+            </div>
+          </div>
+        )}
+
+        {step === 'details' && entryMode === 'choice' && (
+          <div class="center-col">
+            <div class="wizard-kicker">MAKE IT YOURS · {selectedChoice.label.toUpperCase()}</div>
+            <div style="font-size:25px">What else should Spark know?</div>
+            <div style="color:var(--text-dim);font-size:18px;max-width:620px;text-align:center">
+              Try “fighting off invading aliens” or “escaping a zombie wasteland.”
+            </div>
+            {sttError ? <div style="color:var(--danger);font-size:17px">{sttError}</div> : null}
+            <div class="menu-list" style="width:540px">
+              <div class={`focusable menu-item ${cursor === 0 ? 'focused' : ''}`}>
+                <span class="icon">
+                  <Icon name="mic" />
+                </span>{' '}
+                Speak details
+                <span class="hint">up to {GENERATION.maxRecordingSeconds}s</span>
+              </div>
+              <div class={`focusable menu-item ${cursor === 1 ? 'focused' : ''}`}>
+                <span class="icon">
+                  <Icon name="cards" />
+                </span>{' '}
+                Start from an idea card
+              </div>
+              <div class={`focusable menu-item ${cursor === 2 ? 'focused' : ''}`}>
+                <span class="icon">
+                  <Icon name="sparkle" />
+                </span>{' '}
+                Surprise me
+              </div>
+              {import.meta.env.DEV ? (
+                <div class={`focusable menu-item ${cursor === 3 ? 'focused' : ''}`}>
+                  <span class="icon">
+                    <Icon name="keyboard" />
+                  </span>{' '}
+                  Zombie escape (dev)
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
+
+        {step === 'details' && entryMode === 'cards' && (
+          <div class="idea-grid" ref={gridRef} onScroll={recomputeCards}>
+            {presets.map((preset, index) => (
+              <div
+                key={preset.id}
+                ref={index === cursor ? cardRef : undefined}
+                class={`focusable idea-card ${index === cursor ? 'focused' : ''}`}
               >
                 <div class="genre">
-                  {p.archetype} · {p.tone}
+                  ADAPT TO {selectedChoice.label} · {preset.tone}
                 </div>
-                <div class="name">{p.title}</div>
-                <div class="premise">{p.premise}</div>
+                <div class="name">{preset.title}</div>
+                <div class="premise">{preset.premise}</div>
               </div>
             ))}
           </div>
         )}
 
         {step === 'review' && (
-          <div class="two-col">
-            <div>
-              <div style="color:var(--cyan);font-size:17px;margin-bottom:8px">
-                {sourceKind === 'voice'
-                  ? 'HEARD:'
-                  : sourceKind === 'preset'
-                    ? 'IDEA CARD:'
-                    : 'SURPRISE:'}
+          <div class="wizard-review">
+            <div class="wizard-review-brief">
+              <div class="wizard-kicker">READY FOR SPARK</div>
+              <div class="review-row">
+                <span>HERO</span>
+                <b>{heroName || 'Spark will choose a name'}</b>
               </div>
-              <div class="transcript-box">{transcript}</div>
-              <div style="display:flex;gap:16px;margin-top:16px;align-items:center">
+              <div class="review-row">
+                <span>GAME TYPE</span>
+                <b>{selectedChoice.label}</b>
+              </div>
+              <div class="review-row details">
+                <span>DETAILS</span>
+                <b>{details}</b>
+              </div>
+              <div class="review-meta">
                 {photoUrl ? (
-                  <img
-                    src={photoUrl}
-                    style="width:84px;height:84px;object-fit:cover;border-radius:10px;border:2px solid var(--line)"
-                  />
+                  <img src={photoUrl} alt="Hero photo" class="review-photo" />
                 ) : (
-                  <div style="width:84px;height:84px;border-radius:10px;border:2px dashed var(--line);display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:13px;text-align:center">
-                    no photo
-                  </div>
+                  <div class="review-no-photo">no photo</div>
                 )}
-                <div style="font-size:17px;color:var(--text-dim)">
+                <div>
                   <div>
-                    Models:{' '}
-                    <b style="color:var(--text)">
-                      {estimate ? `${estimate.model} + ${estimate.imageModel}` : '…'}
-                    </b>
+                    Models: <b>{estimate ? `${estimate.model} + ${estimate.imageModel}` : '…'}</b>
                   </div>
                   <div>
                     Network:{' '}
@@ -766,28 +978,26 @@ export function WizardScreen(props: {
                   <div>
                     Cost: <b style="color:var(--gold)">{estimate?.label ?? '…'}</b>
                   </div>
-                  {estimate?.busy && (
+                  {estimate?.busy ? (
                     <div style="color:var(--cyan)">
                       Another game is generating — this one will queue.
                     </div>
-                  )}
+                  ) : null}
                 </div>
               </div>
-              {!online && (
-                <div style="margin-top:12px;color:var(--danger);font-size:18px">
+              {!online ? (
+                <div style="margin-top:10px;color:var(--danger);font-size:17px">
                   Offline — connect to WiFi to generate.
                   {isPi ? (
                     <>
                       {' '}
                       Press <Btn>X</Btn> for WiFi settings.
                     </>
-                  ) : (
-                    ''
-                  )}
+                  ) : null}
                 </div>
-              )}
+              ) : null}
             </div>
-            <div>
+            <div class="wizard-review-actions">
               <div class="menu-list" style="margin:0">
                 <div
                   class={`focusable menu-item ${cursor === 0 ? 'focused' : ''}`}
@@ -802,21 +1012,22 @@ export function WizardScreen(props: {
                   <span class="icon">
                     <Icon name="refresh" />
                   </span>{' '}
-                  {sourceKind === 'voice' ? 'Re-record' : 'Change idea'}
+                  Change details
                 </div>
-                {sourceKind === 'voice' && (
+                {sourceKind === 'voice' ? (
                   <div class={`focusable menu-item ${cursor === 2 ? 'focused' : ''}`}>
                     <span class="icon">
                       <Icon name="plus" />
                     </span>{' '}
                     Add more
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
           </div>
         )}
       </div>
+
       <FooterLegend
         items={
           step === 'photo' && photoMode === 'camera'
@@ -824,18 +1035,27 @@ export function WizardScreen(props: {
                 ['A', 'Snap (3·2·1)'],
                 ['B', 'Back'],
               ]
-            : step === 'idea' && ideaMode === 'record'
+            : recording
               ? [
                   ['A', 'Stop'],
                   ['B', 'Cancel'],
                 ]
-              : [
-                  ['A', 'Select'],
-                  ['B', 'Back'],
-                ]
+              : step === 'archetype'
+                ? [
+                    ['← →', 'Browse'],
+                    ['A', 'Choose'],
+                    ['X', 'Random'],
+                    ['B', 'Back'],
+                  ]
+                : [
+                    ['A', 'Select'],
+                    ['B', 'Back'],
+                  ]
         }
       />
-      {step === 'idea' && ideaMode === 'cards' && !(cardsScroll.atTop && cardsScroll.atBottom) && (
+      {step === 'details' &&
+      entryMode === 'cards' &&
+      !(cardsScroll.atTop && cardsScroll.atBottom) ? (
         <div class="wizard-scroll-hint" title="scroll">
           <span class={cardsScroll.atTop ? 'off' : ''}>
             <Icon name="pixUp" />
@@ -844,14 +1064,14 @@ export function WizardScreen(props: {
             <Icon name="pixDown" />
           </span>
         </div>
-      )}
-      {submitting && (
+      ) : null}
+      {submitting ? (
         <Modal>
           <h3>
             <Icon name="sparkle" class="spin" /> Starting generation…
           </h3>
         </Modal>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -1,11 +1,17 @@
 // Home: the combined launcher. Left panel is one navigable list — New Game, the
 // game library, then Settings; the right panel shows a live detail of the
 // selected item. Selecting a game moves focus into the detail panel, where
-// up/down scroll the synopsis and left/right pick Play/Delete in a docked
+// up/down scroll the full preview/details and left/right pick Play/Delete in a docked
 // footer. Replaces the old menu + library + detail screens.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import { DELETE_HOLD_MS, type GameListItem, type ScoreRow, type SystemInfo } from '@sparkade/shared';
+import {
+  DELETE_HOLD_MS,
+  type ArchetypeId,
+  type GameListItem,
+  type ScoreRow,
+  type SystemInfo,
+} from '@sparkade/shared';
 import { api, type GameDetail } from '../api';
 import { FooterLegend, GameCover, HoldRing, Modal, usd } from '../components';
 import { shellInput } from '../shell-input';
@@ -14,6 +20,14 @@ import { LibraryDemo } from './library-demo';
 import type { Screen } from '../app';
 
 type Action = { key: string; label: ComponentChildren; danger?: boolean };
+
+const GAME_TYPE_LABELS: Record<ArchetypeId, string> = {
+  platformer: 'Platformer',
+  shooter: 'V-Shooter',
+  adventure: 'Adventure',
+  hshooter: 'H-Shooter',
+  fighter: 'Fighter',
+};
 
 function statusLabel(s: GameListItem['status']): string {
   switch (s) {
@@ -100,7 +114,7 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
     return () => {
       live = false;
     };
-  }, [selectedGame?.id]);
+  }, [selectedGame?.id, selectedGame?.status]);
 
   useEffect(() => {
     focusRef.current?.scrollIntoView({ block: 'nearest' });
@@ -227,16 +241,11 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
               <div class="home-item-text">
                 <div class="home-item-title">{g.title}</div>
                 <div class="home-item-sub">
+                  <span class="badge type">{GAME_TYPE_LABELS[g.archetype]}</span>
                   <span class={`badge ${g.golden ? 'golden' : g.status}`}>
                     {g.golden ? 'Built-in' : statusLabel(g.status)}
                   </span>
-                  {g.topScore ? (
-                    <span>
-                      {g.topScore.initials} {g.topScore.score}
-                    </span>
-                  ) : (
-                    !g.golden && <span>{usd(g.costUsd)}</span>
-                  )}
+                  {!g.golden && <span class="home-item-cost">{usd(g.costUsd)}</span>}
                 </div>
               </div>
             </div>
@@ -325,8 +334,12 @@ function DetailPanel(props: {
   zone: 'list' | 'detail';
   scrollRef: { current: HTMLDivElement | null };
 }): ComponentChildren {
-  const item = props.detail?.item ?? props.game;
+  // The four-second list poll is the freshest source of status + cover data.
+  // Keeping it authoritative lets a selected generating game turn ready in
+  // place, even before the detail request refresh finishes.
+  const item = props.game;
   const spec = props.detail?.spec;
+  const pending = item.status === 'queued' || item.status === 'generating';
   const [scroll, setScroll] = useState({ atTop: true, atBottom: true });
   const recompute = (): void => {
     const el = props.scrollRef.current;
@@ -340,67 +353,82 @@ function DetailPanel(props: {
   const scrollable = !(scroll.atTop && scroll.atBottom);
   return (
     <div class="home-detail-inner">
-      <div class="home-detail-stage">
-        <LibraryDemo
-          key={item.id}
-          gameId={item.id}
-          ready={item.status === 'ready'}
-          archetype={item.archetype}
-          fallback={
-            <GameCover
-              cover={item.cover}
-              archetype={item.archetype}
-              gameId={item.id}
-              seedText={item.title}
-              class="home-detail-cover-full"
-              presentation="matted"
-            />
-          }
-        />
-      </div>
-      <div class="home-detail-meta">
-        <div class="home-detail-title">{item.title}</div>
-        {item.tagline && <div class="home-detail-tag">{item.tagline}</div>}
-        <span class={`badge ${item.golden ? 'golden' : item.status}`}>
-          {item.golden ? 'Built-in' : item.status}
-        </span>
-      </div>
+      <div class="home-detail-scroll" ref={props.scrollRef} onScroll={recompute}>
+        <div class="home-detail-stage">
+          <LibraryDemo
+            key={item.id}
+            gameId={item.id}
+            ready={item.status === 'ready'}
+            archetype={item.archetype}
+            fallback={
+              pending ? (
+                <GenerationCover
+                  title={item.title}
+                  status={item.status === 'queued' ? 'queued' : 'generating'}
+                />
+              ) : (
+                <GameCover
+                  cover={item.cover}
+                  archetype={item.archetype}
+                  gameId={item.id}
+                  seedText={item.title}
+                  class="home-detail-cover-full"
+                  presentation="matted"
+                />
+              )
+            }
+          />
+        </div>
+        <div class="home-detail-meta">
+          <div class="home-detail-title">{item.title}</div>
+          {item.tagline && <div class="home-detail-tag">{item.tagline}</div>}
+          <div class="home-detail-badges">
+            <span class="badge type">{GAME_TYPE_LABELS[item.archetype]}</span>
+            <span class={`badge ${item.golden ? 'golden' : item.status}`}>
+              {item.golden ? 'Built-in' : statusLabel(item.status)}
+            </span>
+          </div>
+        </div>
 
-      <div class="home-synopsis" ref={props.scrollRef} onScroll={recompute}>
-        {spec ? (
-          <p>{spec.story.intro.join(' ')}</p>
-        ) : (
-          <p style="color:var(--text-dim)">
-            <Icon name="sparkle" class="spin" /> Loading…
-          </p>
-        )}
-        {item.status === 'failed' && item.failure && (
-          <p style="color:var(--danger)">{item.failure.message}</p>
-        )}
-        {!item.golden && props.detail && (
-          <p style="color:var(--text-dim);font-size:13px">
-            Cost <b style="color:var(--gold)">{usd(item.costUsd)}</b>
-            {(props.detail.job?.attempt ?? 1) > 1 ? ` · ${props.detail.job!.attempt} attempts` : ''}
-          </p>
-        )}
-        <div class="home-board-title">LEADERBOARD</div>
-        <table class="score-table">
-          <tbody>
-            {props.scores.length === 0 ? (
-              <tr>
-                <td style="color:var(--text-dim)">No scores yet — be the first!</td>
-              </tr>
-            ) : (
-              props.scores.slice(0, 5).map((s, i) => (
-                <tr key={i}>
-                  <td style="width:30px;color:var(--text-dim)">{i + 1}.</td>
-                  <td class="initials">{s.initials}</td>
-                  <td style="text-align:right">{s.score}</td>
+        <div class="home-synopsis">
+          {spec ? (
+            <p>{spec.story.intro.join(' ')}</p>
+          ) : (
+            <p style="color:var(--text-dim)">
+              <Icon name="sparkle" class={pending ? 'spin' : ''} />{' '}
+              {pending ? 'Story and details are still taking shape…' : 'Loading…'}
+            </p>
+          )}
+          {item.status === 'failed' && item.failure && (
+            <p style="color:var(--danger)">{item.failure.message}</p>
+          )}
+          {!item.golden && props.detail && (
+            <p style="color:var(--text-dim);font-size:13px">
+              Cost <b style="color:var(--gold)">{usd(item.costUsd)}</b>
+              {(props.detail.job?.attempt ?? 1) > 1
+                ? ` · ${props.detail.job!.attempt} attempts`
+                : ''}
+            </p>
+          )}
+          <div class="home-board-title">LEADERBOARD</div>
+          <table class="score-table">
+            <tbody>
+              {props.scores.length === 0 ? (
+                <tr>
+                  <td style="color:var(--text-dim)">No scores yet — be the first!</td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                props.scores.slice(0, 5).map((s, i) => (
+                  <tr key={i}>
+                    <td style="width:30px;color:var(--text-dim)">{i + 1}.</td>
+                    <td class="initials">{s.initials}</td>
+                    <td style="text-align:right">{s.score}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div class="home-actions">
@@ -424,6 +452,27 @@ function DetailPanel(props: {
             </span>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function GenerationCover(props: {
+  title: string;
+  status: 'queued' | 'generating';
+}): ComponentChildren {
+  return (
+    <div class="home-generation-cover" aria-label={`${props.title} is being generated`}>
+      <img class="home-generation-backdrop" src="/generation-placeholder.png" alt="" />
+      <img
+        class="home-generation-art"
+        src="/generation-placeholder.png"
+        alt="Hero and boss silhouettes in a game world being assembled"
+      />
+      <div class="home-generation-scan" />
+      <div class="home-generation-status pixel">
+        <Icon name="sparkle" />{' '}
+        {props.status === 'queued' ? 'WAITING TO BUILD' : 'SPARK IS BUILDING'}
       </div>
     </div>
   );

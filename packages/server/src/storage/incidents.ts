@@ -116,6 +116,7 @@ const SUBSTANTIVE_REPAIR_ACTIONS = new Set([
   'design-collision-redraft',
   'design-redraft',
   'fallback',
+  'adventure-boss-art-fallback',
   'model-repair',
   'platformer-boss-art-fallback',
   'platformer-backdrop-art-fallback',

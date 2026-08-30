@@ -217,6 +217,9 @@ async function normalizeLandscape(image: Buffer, width: number, height: number):
  * provider. It exercises the exact normalization/manifest/runtime path without
  * pretending that a local placeholder came from Muse Image. */
 export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
+  if (prompt.includes('ADVENTURE BOSS CANDIDATE BOARD CONTRACT')) {
+    return mockGeneratedAdventureBossBoard();
+  }
   const adventureSheetPoses = mockAdventurePlayerSheetPoses(prompt);
   if (adventureSheetPoses) return mockGeneratedAdventurePlayerSheet(adventureSheetPoses);
   const sheetPoses = mockFighterPoseSheetPoses(prompt);
@@ -270,6 +273,36 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
     }
   }
   return sharp(raw, { raw: { width, height, channels: 4 } })
+    .png()
+    .toBuffer();
+}
+
+async function mockGeneratedAdventureBossBoard(): Promise<Buffer> {
+  const cells = await Promise.all(
+    [0, 1, 2, 3].map(async (index): Promise<sharp.OverlayOptions> => {
+      const image = await mockGeneratedImage(
+        `One isolated top-down adventure-game sprite on #00ff00. Boss candidate ${index + 1}, neutral ready fighting stance.`,
+      );
+      const input = await sharp(image)
+        .resize(512, 512, {
+          fit: 'contain',
+          kernel: sharp.kernel.nearest,
+          background: { r: 0, g: 255, b: 0, alpha: 1 },
+        })
+        .png()
+        .toBuffer();
+      return { input, left: (index % 2) * 512, top: Math.floor(index / 2) * 512 };
+    }),
+  );
+  return sharp({
+    create: {
+      width: 1024,
+      height: 1024,
+      channels: 4,
+      background: { r: 0, g: 255, b: 0, alpha: 1 },
+    },
+  })
+    .composite(cells)
     .png()
     .toBuffer();
 }

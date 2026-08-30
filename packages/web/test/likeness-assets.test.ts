@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GENERATED_GAME_ASSET_FILES, type GeneratedGameAssetRole } from '@sparkade/shared';
 import type { GameDetail } from '../src/api';
 import {
+  ADVENTURE_BOSS_ASSET,
   ADVENTURE_PLAYER_POSE_ASSETS,
   ADVENTURE_ROOM_PLATES_ASSET,
   FIGHTER_ARENA_ASSET,
@@ -331,6 +332,25 @@ describe('loadLikenessAssets', () => {
     expect(result?.adventureRoomPlates).not.toBeNull();
     expect(requested).toEqual([
       `/api/games/adventure-game/assets/${GENERATED_GAME_ASSET_FILES.adventureRoomPlates}`,
+    ]);
+  });
+
+  it('loads the generated Adventure boss independently from player art', async () => {
+    const result = await loadLikenessAssets('adventure-boss-game', {
+      head12: false,
+      head12Side: false,
+      head12Back: false,
+      head16: false,
+      head16Side: false,
+      head16Back: false,
+      portrait: false,
+      ...unavailableGeneratedAssets,
+      [ADVENTURE_BOSS_ASSET]: true,
+    });
+
+    expect(result?.adventureBoss).not.toBeNull();
+    expect(requested).toEqual([
+      `/api/games/adventure-boss-game/assets/${GENERATED_GAME_ASSET_FILES.adventureBoss}`,
     ]);
   });
 

@@ -337,6 +337,7 @@ export const GENERATED_GAME_ASSET_FILES = {
   platformerBackdropLevel3: 'platformer-backdrop-level-3.png',
   platformerBackdropBoss: 'platformer-backdrop-boss.png',
   adventureRoomPlates: 'adventure-room-plates.png',
+  adventureBoss: 'adventure-boss.png',
   adventurePlayerDownIdle: 'adventure-player-down-idle.png',
   adventurePlayerDownWalk: 'adventure-player-down-walk.png',
   adventurePlayerUpIdle: 'adventure-player-up-idle.png',

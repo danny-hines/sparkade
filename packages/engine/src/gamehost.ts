@@ -78,6 +78,8 @@ export interface EngineContext {
   adventureRoomPlates: CanvasImageSource | null;
   /** Complete image-generated Adventure player set, keyed by direction and motion. */
   adventurePlayerPoses: Readonly<Record<string, CanvasImageSource>> | null;
+  /** Image-generated Adventure finale boss. */
+  adventureBoss: CanvasImageSource | null;
   spec: GameSpec;
   /** True when the host runs as a self-playing library demo — archetypes can
    *  read this to drive themselves (e.g. the fighter runs both sides on AI). */
@@ -200,6 +202,7 @@ export class GameHost {
       platformerBackdrops: opts.likeness?.platformerBackdrops ?? null,
       adventureRoomPlates: opts.likeness?.adventureRoomPlates ?? null,
       adventurePlayerPoses: opts.likeness?.adventurePlayerPoses ?? null,
+      adventureBoss: opts.likeness?.adventureBoss ?? null,
       spec: opts.spec,
       attract: !!opts.attract,
       shake: (ms = FEEL.screenShakeMs, magnitude = 3) => this.renderer.shake(ms, magnitude),

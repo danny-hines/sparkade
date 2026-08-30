@@ -79,6 +79,8 @@ export interface LikenessAssets {
   adventureRoomPlates?: CanvasImageSource | null;
   /** Atomic generated Adventure player directions and motion poses. */
   adventurePlayerPoses?: Readonly<Record<string, CanvasImageSource>> | null;
+  /** Story-art-derived high-density Adventure finale boss. */
+  adventureBoss?: CanvasImageSource | null;
 }
 
 /** What a finished run reports back to the host. */

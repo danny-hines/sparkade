@@ -668,6 +668,13 @@ export interface GameMetaFile {
     /** Present when the stable directional-head hero fallback remains active. */
     reason?: string;
   };
+  /** QA/readiness signal for the story-art-derived Adventure finale boss. */
+  adventureBossArt?: {
+    mode: 'generated' | 'procedural';
+    attempted: boolean;
+    /** Present when the library boss remains active. */
+    reason?: string;
+  };
   /** QA/readiness signal for the likeness-independent H-scroll player craft. */
   hshooterPlayerCraftArt?: {
     mode: 'generated' | 'procedural';

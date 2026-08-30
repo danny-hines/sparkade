@@ -115,8 +115,8 @@ and [fixed 3×2 pose-sheet contract](assets/adventure-player-sheet-study.png).
   and show the same canonical collar and shoulders.
 - Publish all six stable filenames together and activate them only after the entire set loads. The
   normal player path now uses five image calls—three identity candidates plus two pose sheets—instead
-  of eight. Including all other current Adventure art, the expected total is 11 images without a
-  player photo and 13 with one, down from 14 and 16 respectively.
+  of eight. Including all other current Adventure art and the one-call boss board, the expected
+  total is 12 images without a player photo and 14 with one, down from the former unbatched path.
 - Guarantee gameplay visibility independently from Muse output. Cache each generated pose at its
   exact physical display size with a one-physical-pixel near-black alpha-mask contour, then place a
   wider 34%-opacity hard-edged contact shadow under the player. Author and review the source poses
@@ -127,6 +127,14 @@ and [fixed 3×2 pose-sheet contract](assets/adventure-player-sheet-study.png).
   semantic review have proven reliable enough that generation failures are handled without it.
 
 ## Generated finale boss
+
+Status: implemented. New Adventure games make one Muse Image call for a fixed 2×2 board of four
+story-art-faithful boss candidates. The server segments and validates each cell locally, then Spark
+selects the strongest identity, top-down camera, silhouette, and gameplay read from a mixed-floor
+review board. Only when all four cells fail does the pipeline spend one bounded isolated retry.
+The selected 192×224 transparent source is published atomically as `adventure-boss.png`; the
+runtime caches it at exact physical display density, adds a one-physical-pixel contour and contact
+shadow, and renders a 48×56 visual over the unchanged 24×24 collider and existing phases.
 
 - Derive one high-density boss foundation from the existing boss story illustration, using the same
   candidate generation, local processing, review board, manifest, metadata, and fallback principles
@@ -196,7 +204,7 @@ separation.
 2. One-call generated entrance/ordinary/deep/finale room-surface atlas. Done.
 3. Complete generated player identity and directional walk presentation. Done.
 4. Expand rooms to 28×14 and retain room plates at physical display density. Done.
-5. Generated finale boss from boss story art.
+5. Generated finale boss from boss story art. Done.
 6. Generated five-role enemy cast.
 7. Themed key, item, NPC, and selected projectile art.
 8. Room zones, stronger puzzle proofs, encounter-space validation, and broader gameplay vocabulary.

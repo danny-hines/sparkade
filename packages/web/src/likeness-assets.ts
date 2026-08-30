@@ -54,6 +54,8 @@ export type PlatformerBackdropName = (typeof PLATFORMER_BACKDROP_ASSETS)[number]
 export const ADVENTURE_ROOM_PLATES_ASSET =
   'adventureRoomPlates' as const satisfies GeneratedGameAssetRole;
 
+export const ADVENTURE_BOSS_ASSET = 'adventureBoss' as const satisfies GeneratedGameAssetRole;
+
 export const ADVENTURE_PLAYER_POSE_ASSETS = [
   ['downIdle', 'adventurePlayerDownIdle'],
   ['downWalk', 'adventurePlayerDownWalk'],
@@ -101,6 +103,7 @@ export async function loadLikenessAssets(
     !assets[FIGHTER_ARENA_ASSET] &&
     !assets.platformerBoss &&
     !assets.adventureRoomPlates &&
+    !assets[ADVENTURE_BOSS_ASSET] &&
     !PLATFORMER_ENEMY_ASSETS.some(([, role]) => assets[role]) &&
     !PLATFORMER_PROP_ASSETS.some(([, role]) => assets[role]) &&
     !PLATFORMER_BACKDROP_ASSETS.some(([, role]) => assets[role]) &&
@@ -211,6 +214,9 @@ export async function loadLikenessAssets(
   const adventureRoomPlatesPromise = assets[ADVENTURE_ROOM_PLATES_ASSET]
     ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[ADVENTURE_ROOM_PLATES_ASSET]))
     : Promise.resolve(null);
+  const adventureBossPromise = assets[ADVENTURE_BOSS_ASSET]
+    ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[ADVENTURE_BOSS_ASSET]))
+    : Promise.resolve(null);
   const adventurePlayerPromise: Promise<Record<AdventurePlayerPoseName, HTMLImageElement> | null> =
     hasCompleteAdventurePlayerSet
       ? Promise.all(
@@ -236,6 +242,7 @@ export async function loadLikenessAssets(
     platformerProps,
     platformerBackdrops,
     adventureRoomPlates,
+    adventureBoss,
     adventurePlayerPoses,
     hshooterPlayerCraft,
   ] = await Promise.all([
@@ -249,6 +256,7 @@ export async function loadLikenessAssets(
     platformerPropsPromise,
     platformerBackdropsPromise,
     adventureRoomPlatesPromise,
+    adventureBossPromise,
     adventurePlayerPromise,
     hshooterPlayerCraftPromise,
   ]);
@@ -274,6 +282,7 @@ export async function loadLikenessAssets(
     platformerProps,
     platformerBackdrops,
     adventureRoomPlates,
+    adventureBoss,
     adventurePlayerPoses,
     hshooterPlayerCraft,
   };

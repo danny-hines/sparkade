@@ -48,6 +48,7 @@ export function estimateGenerationCost(
     platformerEnemyJudge?: boolean;
     adventurePlayerIdentityJudge?: boolean;
     adventurePlayerSetJudge?: boolean;
+    adventureBossJudge?: boolean;
   } = {},
 ): number | null {
   const price = snapshot[model];
@@ -75,6 +76,9 @@ export function estimateGenerationCost(
     ...(options.adventurePlayerSetJudge
       ? [{ input: 1900, output: 2200 }] // complete two-sheet direction and motion selection
       : []),
+    ...(options.adventureBossJudge
+      ? [{ input: 1800, output: 1000 }] // one four-candidate story-art-derived boss board
+      : []),
   ];
   let total = 0;
   for (const u of typical)
@@ -93,9 +97,10 @@ export function formatUsd(v: number | null): string {
 export function estimateImageCount(hasPhoto: boolean, archetype?: ArchetypeId): number {
   if (archetype === 'platformer') return hasPhoto ? 40 : 25;
   if (archetype === 'fighter') return hasPhoto ? 33 : 31;
-  // Adventure adds three identity candidates and two six-pose sheets. With a
-  // photo, a successful full player set replaces the three legacy head calls.
-  if (archetype === 'adventure') return hasPhoto ? 13 : 11;
+  // Adventure adds three identity candidates, two six-pose sheets, and one
+  // four-candidate boss board. With a photo, a successful full player set
+  // replaces the three legacy head calls.
+  if (archetype === 'adventure') return hasPhoto ? 14 : 12;
   // H-scroll replaces three likeness-head calls with one vehicle-identity call.
   if (archetype === 'hshooter') return hasPhoto ? 8 : 6;
   if (archetype === undefined) return hasPhoto ? 40 : 31;

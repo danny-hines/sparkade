@@ -191,6 +191,23 @@ import {
   normalizeAdventureRoomPlates,
 } from '../assets/adventure-room-plates';
 import {
+  ADVENTURE_BOSS_JUDGE_PROMPT_VERSION,
+  ADVENTURE_BOSS_PIPELINE_PROMPT_VERSION,
+  ADVENTURE_BOSS_PROMPT_VERSION,
+  ADVENTURE_BOSS_RETRY_PROMPT_VERSION,
+  ADVENTURE_BOSS_ROLE,
+  bestAdventureBossCandidateId,
+  buildAdventureBossBoardPrompt,
+  buildAdventureBossJudgeBoard,
+  buildAdventureBossJudgePrompt,
+  buildAdventureBossJudgeSchema,
+  buildAdventureBossRetryPrompt,
+  normalizeAdventureBossJudgeDecision,
+  processGeneratedAdventureBoss,
+  splitGeneratedAdventureBossBoard,
+  type AdventureBossCandidate,
+} from '../assets/adventure-boss';
+import {
   ADVENTURE_PLAYER_PIPELINE_PROMPT_VERSION,
   ADVENTURE_PLAYER_POSE_PROMPT_VERSION,
   GENERATED_ADVENTURE_PLAYER_POSES,
@@ -2866,6 +2883,215 @@ export class GenerationRunner {
             })
           : Promise.resolve();
 
+      let adventureBossArtStatus: GameMetaFile['adventureBossArt'] =
+        spec.archetype === 'adventure'
+          ? {
+              mode: 'procedural',
+              attempted: true,
+              reason: 'Generated Adventure boss art did not complete',
+            }
+          : undefined;
+      const adventureBossTask =
+        spec.archetype === 'adventure'
+          ? storyAssets.boss.then(async (storyBoss): Promise<void> => {
+              const generationStarted = Date.now();
+              const colors = spec.palette
+                .filter((hex) => {
+                  const r = Number.parseInt(hex.slice(1, 3), 16);
+                  const g = Number.parseInt(hex.slice(3, 5), 16);
+                  const b = Number.parseInt(hex.slice(5, 7), 16);
+                  return !(g > r * 1.15 && g > b * 1.15);
+                })
+                .join(', ');
+              try {
+                const pipelineFingerprint = JSON.stringify({
+                  promptVersions: {
+                    board: ADVENTURE_BOSS_PROMPT_VERSION,
+                    retry: ADVENTURE_BOSS_RETRY_PROMPT_VERSION,
+                    judge: ADVENTURE_BOSS_JUDGE_PROMPT_VERSION,
+                  },
+                  bossName: spec.boss.name,
+                  bossIntro: spec.story.bossIntro,
+                  colors,
+                });
+                const pipelineSha = imagePromptHash(pipelineFingerprint, storyBoss);
+                const cached = assetWorkspace.load(
+                  ADVENTURE_BOSS_ROLE,
+                  ADVENTURE_BOSS_PIPELINE_PROMPT_VERSION,
+                  pipelineSha,
+                );
+                if (cached) {
+                  adventureBossArtStatus = { mode: 'generated', attempted: true };
+                  emit('building-assets', 'Restored the selected Adventure boss');
+                  return;
+                }
+
+                emit('building-assets', 'Painting four Adventure boss candidates in one board…');
+                const rawBoard = await callImage({
+                  role: 'adventure-boss-board',
+                  label: 'Adventure boss candidate board',
+                  prompt: buildAdventureBossBoardPrompt({
+                    bossName: spec.boss.name,
+                    bossIntro: spec.story.bossIntro,
+                    colors,
+                  }),
+                  reference: storyBoss,
+                  size: '1024x1024',
+                });
+                let candidates: AdventureBossCandidate[] = [];
+                let failures: Awaited<
+                  ReturnType<typeof splitGeneratedAdventureBossBoard>
+                >['failures'] = [];
+                try {
+                  const split = await splitGeneratedAdventureBossBoard(rawBoard);
+                  candidates = split.candidates;
+                  failures = split.failures;
+                } catch (error) {
+                  failures = [
+                    {
+                      id: 'B1',
+                      reason: error instanceof Error ? error.message : String(error),
+                    },
+                  ];
+                }
+                failures.forEach(({ id }) => validationFailure(`adventure-boss-board-${id}`));
+
+                if (candidates.length === 0) {
+                  emit(
+                    'building-assets',
+                    'The Adventure boss board had no usable cells; repainting one isolated candidate…',
+                  );
+                  const retryRaw = await callImage({
+                    role: 'adventure-boss-retry',
+                    label: 'Adventure boss isolated retry',
+                    prompt: buildAdventureBossRetryPrompt({
+                      bossName: spec.boss.name,
+                      bossIntro: spec.story.bossIntro,
+                      colors,
+                      failures,
+                    }),
+                    reference: storyBoss,
+                    size: '1024x1024',
+                  });
+                  try {
+                    let processed;
+                    try {
+                      processed = await processGeneratedAdventureBoss(retryRaw);
+                    } catch (initialError) {
+                      const recovery = await recoverGeneratedPlatformerGreenPanel(retryRaw);
+                      if (!recovery.recovered) throw initialError;
+                      processed = await processGeneratedAdventureBoss(recovery.image);
+                    }
+                    candidates.push({ id: 'R1', png: processed.png, metrics: processed.metrics });
+                  } catch (error) {
+                    validationFailure('adventure-boss-retry');
+                    throw new Error(
+                      `isolated Adventure boss retry failed validation: ${error instanceof Error ? error.message : String(error)}`,
+                    );
+                  }
+                }
+
+                const descriptors = candidates.map(({ id }) => ({ id }));
+                const reviewBoard = await buildAdventureBossJudgeBoard({
+                  storyBoss,
+                  candidates,
+                });
+                const judgePrompt = buildAdventureBossJudgePrompt(descriptors);
+                const mockDecision = {
+                  candidateReviews: descriptors.map(({ id }) => ({
+                    id,
+                    scores: {
+                      villainMatch: 5,
+                      silhouette: 5,
+                      camera: 5,
+                      technical: 5,
+                      gameplayReadability: 5,
+                    },
+                    issues: [],
+                    summary: 'Mock story-faithful Adventure boss candidate.',
+                  })),
+                  selection: {
+                    candidateId: descriptors[0]!.id,
+                    confidence: 1,
+                    rationale: 'Mock selection.',
+                  },
+                };
+                let rawDecision: unknown = mockDecision;
+                if (!mockImages) {
+                  try {
+                    rawDecision = await callLlm(
+                      'design',
+                      {
+                        ...judgePrompt,
+                        jsonSchema: buildAdventureBossJudgeSchema(descriptors),
+                        maxTokens: 1800,
+                        timeoutMs: 120_000,
+                      },
+                      {
+                        stage: 'building-assets',
+                        label: 'Spark selected the Adventure finale boss',
+                        image: reviewBoard,
+                        reasoningEffort: 'low',
+                      },
+                    );
+                  } catch (error) {
+                    if (abort.signal.aborted) throw error;
+                    throw new Error(
+                      `Adventure boss art review failed: ${error instanceof Error ? error.message : String(error)}`,
+                    );
+                  }
+                }
+                const decision = normalizeAdventureBossJudgeDecision(rawDecision, descriptors);
+                const selectedId =
+                  decision.selection.candidateId || bestAdventureBossCandidateId(decision);
+                const selected = candidates.find(({ id }) => id === selectedId) ?? candidates[0]!;
+                await assetWorkspace.store(
+                  ADVENTURE_BOSS_ROLE,
+                  selected.png,
+                  ADVENTURE_BOSS_PIPELINE_PROMPT_VERSION,
+                  pipelineSha,
+                );
+                adventureBossArtStatus = { mode: 'generated', attempted: true };
+                emit(
+                  'building-assets',
+                  `Spark selected ${selected.id} as the Adventure finale boss`,
+                );
+              } catch (error) {
+                if (
+                  abort.signal.aborted ||
+                  error instanceof GeneratedAssetStorageError ||
+                  (error instanceof PipelineError && !isOptionalGeneratedArtProviderFailure(error))
+                ) {
+                  throw error;
+                }
+                await assetWorkspace.discard([ADVENTURE_BOSS_ROLE]);
+                const reason =
+                  error instanceof Error
+                    ? error.message.slice(0, 240)
+                    : 'Generated Adventure boss failed validation';
+                adventureBossArtStatus = { mode: 'procedural', attempted: true, reason };
+                recordEarlyRepairEvent(
+                  'entities',
+                  'adventure-boss-art-fallback',
+                  [
+                    {
+                      code: 'ADVENTURE_BOSS_ART_FALLBACK',
+                      path: '/assets/adventure-boss',
+                      message: reason,
+                    },
+                  ],
+                  [],
+                  generationStarted,
+                  'downgraded',
+                );
+                emit(
+                  'building-assets',
+                  `Generated Adventure boss was unavailable; using the library boss (${reason.slice(0, 120)})`,
+                );
+              }
+            })
+          : Promise.resolve();
+
       let platformerBossArtStatus: GameMetaFile['platformerBossArt'] =
         spec.archetype === 'platformer'
           ? {
@@ -4661,6 +4887,7 @@ export class GenerationRunner {
         storyTask,
         platformerBackdropTask,
         adventureRoomPlateTask,
+        adventureBossTask,
         platformerBossTask,
         platformerEnemyTask,
         platformerPropTask,
@@ -4718,6 +4945,7 @@ export class GenerationRunner {
           ? { adventureRoomPlateArt: adventureRoomPlateArtStatus }
           : {}),
         ...(adventurePlayerArtStatus ? { adventurePlayerArt: adventurePlayerArtStatus } : {}),
+        ...(adventureBossArtStatus ? { adventureBossArt: adventureBossArtStatus } : {}),
         ...(hshooterPlayerCraftArtStatus
           ? { hshooterPlayerCraftArt: hshooterPlayerCraftArtStatus }
           : {}),

@@ -65,6 +65,9 @@ const PLAYER_H = 12;
 const GENERATED_PLAYER_DRAW_W = 28;
 const GENERATED_PLAYER_DRAW_H = 32;
 const GENERATED_PLAYER_OUTLINE = '#090c18';
+const GENERATED_BOSS_DRAW_W = 48;
+const GENERATED_BOSS_DRAW_H = 56;
+const GENERATED_BOSS_OUTLINE = '#090c18';
 const SWORD_TIME = 0.28;
 const SWORD_COOLDOWN = 0.35;
 const SWORD_KB = 60; // enemy knockback distance, px
@@ -414,6 +417,19 @@ function prepareAdventurePlayerPose(source: CanvasImageSource): HTMLCanvasElemen
   return outlineCanvas(canvas, GENERATED_PLAYER_OUTLINE);
 }
 
+/** Normalize the selected boss once at exact physical display density. The
+ * runtime keeps the small collision body and anchors this larger visual at its
+ * feet, so generated art cannot alter boss movement or attacks. */
+function prepareAdventureBoss(source: CanvasImageSource): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = GENERATED_BOSS_DRAW_W * DISPLAY_SCALE;
+  canvas.height = GENERATED_BOSS_DRAW_H * DISPLAY_SCALE;
+  const ctx = canvas.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+  return outlineCanvas(canvas, GENERATED_BOSS_OUTLINE);
+}
+
 export function createAdventureGame(engine: EngineContext, spec: AdventureSpec): GameInstance {
   return new AdventureGame(engine, spec);
 }
@@ -543,6 +559,7 @@ class AdventureGame implements GameInstance {
   private boomSprite: ResolvedSprite;
   private bombSprite: ResolvedSprite;
   private generatedPlayerPoses: Readonly<Record<string, CanvasImageSource>> | null;
+  private generatedBoss: CanvasImageSource | null;
   private diff!: DifficultyScale;
 
   constructor(
@@ -566,6 +583,7 @@ class AdventureGame implements GameInstance {
           ]),
         )
       : null;
+    this.generatedBoss = engine.adventureBoss ? prepareAdventureBoss(engine.adventureBoss) : null;
 
     const tileArt: Record<string, string> = {
       floor: 'lib:tile_floor',
@@ -2299,6 +2317,19 @@ class AdventureGame implements GameInstance {
 
     if (item.kind === 'boss') {
       const b = item.boss;
+      if (this.generatedBoss) {
+        let x = Math.round(b.x + b.w / 2 - GENERATED_BOSS_DRAW_W / 2 - cam.x);
+        const y = Math.round(b.y + b.h - GENERATED_BOSS_DRAW_H - cam.y);
+        if (b.mode === 'telegraph') x += Math.round(Math.sin(this.animT * 60) * 2);
+        this.drawGroundShadow(b.x + b.w / 2, item.groundY, 34, 0.31);
+        const ctx = r.ctx;
+        ctx.save();
+        ctx.imageSmoothingEnabled = false;
+        if (b.invulnT > 0 && Math.floor(this.animT * 16) % 2 === 0) ctx.globalAlpha = 0.55;
+        ctx.drawImage(this.generatedBoss, x, y, GENERATED_BOSS_DRAW_W, GENERATED_BOSS_DRAW_H);
+        ctx.restore();
+        return;
+      }
       const sprite = this.sprites['boss']!;
       let x = b.x - cam.x - (sprite.w - b.w) / 2;
       const y = b.y - cam.y - (sprite.h - b.h);

@@ -659,9 +659,9 @@ export class GenerationRunner {
       ...(inputs.creationBrief
         ? {
             payload: {
-              archetype: inputs.creationBrief.archetype,
+              archetype: inputs.creationBrief.archetype ?? null,
               heroName: inputs.creationBrief.heroName ?? null,
-              details: inputs.creationBrief.details,
+              details: inputs.creationBrief.details ?? null,
             },
           }
         : {}),

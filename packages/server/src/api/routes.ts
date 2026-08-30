@@ -205,22 +205,25 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     if (requestedArchetype !== undefined && !isArchetypeId(requestedArchetype)) {
       return reply.code(400).send({ error: 'requestedArchetype is invalid' });
     }
-    if ((heroName !== undefined || details !== undefined) && !requestedArchetype) {
-      return reply.code(400).send({ error: 'guided creation fields require requestedArchetype' });
-    }
     if (photo && photo.length > MAX_PHOTO_BYTES)
       return reply.code(413).send({ error: 'photo too large' });
+    const cleanHeroName = heroName?.trim().slice(0, 48);
+    const cleanDetails = details?.trim().slice(0, 1200);
+    const briefDetails =
+      cleanDetails ||
+      (sourceKind !== 'voice' ? promptText.trim().slice(0, 1200) || undefined : undefined);
+    const hasCreationBrief = !!(requestedArchetype || cleanHeroName || briefDetails);
     const res = runner.createJob({
       promptText: promptText.slice(0, 1200),
       sourceKind,
       ...(requestedArchetype ? { requestedArchetype } : {}),
-      ...(requestedArchetype
+      ...(hasCreationBrief
         ? {
             creationBrief: {
               version: 1 as const,
-              ...(heroName?.trim() ? { heroName: heroName.trim().slice(0, 48) } : {}),
-              archetype: requestedArchetype,
-              details: (details?.trim() || promptText.trim()).slice(0, 1200),
+              ...(cleanHeroName ? { heroName: cleanHeroName } : {}),
+              ...(requestedArchetype ? { archetype: requestedArchetype } : {}),
+              ...(briefDetails ? { details: briefDetails } : {}),
             },
           }
         : {}),

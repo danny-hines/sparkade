@@ -144,6 +144,32 @@ describe('requested archetype API', () => {
       },
     });
   });
+
+  it('builds a partial guided brief while leaving engine selection to Spark', async () => {
+    const { app, calls } = await apiHarness();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/games',
+      payload: {
+        promptText: 'Nova explores a strange crystal ocean',
+        sourceKind: 'voice',
+        heroName: 'Nova',
+        details: 'Explore a strange crystal ocean',
+        idempotencyKey: 'ik-auto-type',
+      },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(calls[0]).not.toHaveProperty('requestedArchetype');
+    expect(calls[0]).toMatchObject({
+      creationBrief: {
+        version: 1,
+        heroName: 'Nova',
+        details: 'Explore a strange crystal ocean',
+      },
+    });
+    expect(calls[0]?.creationBrief).not.toHaveProperty('archetype');
+  });
 });
 
 describe('requested archetype persistence', () => {
@@ -252,8 +278,24 @@ describe('guided creation design prompt', () => {
 
     expect(prompt.user).toContain('APPROVED CREATION BRIEF (authoritative)');
     expect(prompt.user).toContain('HERO NAME: Nova');
-    expect(prompt.user).toContain('REQUIRED ARCHETYPE: shooter');
+    expect(prompt.user).toContain('GAME TYPE: shooter');
     expect(prompt.user).toContain('Fighting off invading aliens above a crystal ocean');
     expect(prompt.user).toContain('Preserve the supplied hero name exactly');
+  });
+
+  it('leaves omitted guided fields as explicit Spark decisions', () => {
+    const prompt = buildDesignPrompt({
+      promptText: 'Nova explores a strange crystal ocean',
+      hasPhoto: false,
+      describeInStory: false,
+      antiCollision: [],
+      creationBrief: { version: 1, heroName: 'Nova' },
+    });
+
+    expect(prompt.user).toContain('HERO NAME: Nova');
+    expect(prompt.user).toContain('GAME TYPE: (Spark decides)');
+    expect(prompt.user).toContain('ADDITIONAL DETAILS: (Spark decides)');
+    expect(prompt.user).toContain('Choose the archetype that best fits');
+    expect(prompt.user).toContain('Invent an original story');
   });
 });

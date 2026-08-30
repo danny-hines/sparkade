@@ -636,39 +636,118 @@ h2.pixel {
   letter-spacing: 2px;
 }
 
-.name-review {
-  gap: 14px;
+.game-details-stage {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
 }
 
-.name-review-transcript {
-  width: 560px;
-  min-height: 72px;
-  padding: 16px 22px;
+.game-details-grid {
+  width: 760px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.game-detail-row {
+  min-height: 66px;
+  padding: 10px 20px;
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  align-items: center;
+  text-align: left;
+}
+
+.game-detail-row.details {
+  min-height: 92px;
+}
+
+.game-detail-label {
+  color: var(--cyan);
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.game-detail-value {
+  min-width: 0;
+  padding-left: 22px;
+  border-left: 2px solid var(--line);
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1.42;
+}
+
+.game-detail-value.one-line {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.game-detail-value.multi-line {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.game-detail-value.spark-decides {
+  color: var(--text-dim);
+}
+
+.game-details-help {
+  width: 760px;
+  min-height: 46px;
+  padding: 8px 12px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  border: 2px solid var(--cyan);
-  border-radius: 12px;
-  background: var(--bg-panel);
-  color: var(--text);
-  font-size: 28px;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
-  box-shadow: 0 0 18px rgba(53, 224, 255, 0.18);
-}
-
-.name-review-prompt {
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
   color: var(--text-dim);
-  font-size: 17px;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
-.name-review-actions {
+.game-details-help .icon-svg {
+  flex: none;
+  color: var(--cyan);
+}
+
+.game-details-help.error,
+.game-details-help.error .icon-svg {
+  color: var(--danger);
+}
+
+.game-details-create {
   width: 520px;
-  gap: 12px;
+  min-height: 58px;
+  padding: 10px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
-.name-review-actions .menu-item {
-  padding-block: 13px;
+.game-details-create > span {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text);
+  font-size: 20px;
+}
+
+.game-details-create > span .icon-svg {
+  color: var(--cyan);
+}
+
+.game-details-create small {
+  max-width: 230px;
+  color: var(--gold);
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: right;
 }
 
 .camera-stage {
@@ -716,64 +795,6 @@ h2.pixel {
   font-family: 'Press Start 2P', monospace;
   color: var(--spark);
   text-shadow: 0 0 30px rgba(255, 154, 42, 0.8);
-}
-
-.idea-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 14px;
-  align-content: start;
-  max-height: 100%;
-  overflow-y: auto;
-  scrollbar-width: none; /* keyboard-scrolled; focused card is kept in view */
-  padding: 2px 6px 2px 2px; /* breathing room for the focus ring */
-}
-.idea-grid::-webkit-scrollbar {
-  display: none;
-}
-
-.idea-card {
-  padding: 14px 18px;
-  text-align: left;
-  scroll-margin-block: 14px; /* keep the focus ring off the clip edges */
-}
-
-/* Up/down scroll-state hint, mirrors the home detail panel's .home-scroll-hint. */
-.wizard-scroll-hint {
-  position: absolute;
-  right: 40px;
-  bottom: 16px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-  font-size: 15px;
-  color: var(--cyan);
-}
-.wizard-scroll-hint span {
-  display: flex;
-}
-.wizard-scroll-hint .off {
-  opacity: 0.22;
-}
-
-.idea-card .genre {
-  color: var(--cyan);
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-}
-
-.idea-card .name {
-  font-size: 21px;
-  font-weight: 600;
-  margin: 4px 0;
-}
-
-.idea-card .premise {
-  font-size: 16px;
-  color: var(--text-dim);
-  line-height: 1.35;
 }
 
 .archetype-stage {
@@ -860,80 +881,6 @@ h2.pixel {
 .archetype-position svg {
   width: 17px;
   height: 17px;
-}
-
-.wizard-review {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 330px;
-  gap: 28px;
-  height: 100%;
-}
-
-.wizard-review-brief {
-  min-width: 0;
-}
-
-.review-row {
-  display: grid;
-  grid-template-columns: 122px minmax(0, 1fr);
-  gap: 14px;
-  padding: 11px 0;
-  border-bottom: 1px solid var(--line);
-  font-size: 18px;
-}
-
-.review-row > span {
-  color: var(--text-dim);
-  font-size: 13px;
-  letter-spacing: 1.5px;
-}
-
-.review-row > b {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.review-row.details > b {
-  max-height: 98px;
-  overflow-y: auto;
-  line-height: 1.4;
-}
-
-.review-meta {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-top: 15px;
-  color: var(--text-dim);
-  font-size: 15px;
-  line-height: 1.65;
-}
-
-.review-photo,
-.review-no-photo {
-  width: 76px;
-  height: 76px;
-  flex: none;
-  border: 2px solid var(--line);
-  border-radius: 9px;
-}
-
-.review-photo {
-  object-fit: cover;
-}
-
-.review-no-photo {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-style: dashed;
-  color: var(--text-dim);
-  font-size: 12px;
-  text-align: center;
-}
-
-.wizard-review-actions {
-  align-self: center;
 }
 
 .level-meter {

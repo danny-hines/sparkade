@@ -79,10 +79,20 @@ export function buildDesignPrompt(opts: {
   const creationBrief = opts.creationBrief
     ? [
         'APPROVED CREATION BRIEF (authoritative):',
-        `HERO NAME: ${opts.creationBrief.heroName ?? '(invent a fitting name)'}`,
-        `REQUIRED ARCHETYPE: ${opts.creationBrief.archetype}`,
-        `ADDITIONAL DETAILS: ${opts.creationBrief.details}`,
-        'Preserve the supplied hero name exactly in story text. Design every level, control implication, character, and story beat for the required archetype.',
+        `HERO NAME: ${opts.creationBrief.heroName ?? '(Spark decides)'}`,
+        `GAME TYPE: ${opts.creationBrief.archetype ?? '(Spark decides)'}`,
+        `ADDITIONAL DETAILS: ${opts.creationBrief.details ?? '(Spark decides)'}`,
+        ...(opts.creationBrief.heroName
+          ? ['Preserve the supplied hero name exactly in story text.']
+          : ['Invent a fitting hero name.']),
+        ...(opts.creationBrief.archetype
+          ? [
+              `Design every level, control implication, character, and story beat for the required ${opts.creationBrief.archetype} archetype.`,
+            ]
+          : ['Choose the archetype that best fits the approved player input.']),
+        ...(opts.creationBrief.details
+          ? ['Honor the supplied story, enemy, setting, and aesthetic details.']
+          : ['Invent an original story, enemies, setting, and aesthetic.']),
       ].join('\n')
     : '';
   const user = [

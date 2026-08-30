@@ -401,11 +401,9 @@ export const api = {
     form.append('promptText', opts.promptText);
     form.append('sourceKind', opts.sourceKind);
     form.append('idempotencyKey', opts.idempotencyKey);
-    if (opts.requestedArchetype) {
-      form.append('requestedArchetype', opts.requestedArchetype);
-      if (opts.heroName?.trim()) form.append('heroName', opts.heroName.trim());
-      if (opts.details?.trim()) form.append('details', opts.details.trim());
-    }
+    if (opts.requestedArchetype) form.append('requestedArchetype', opts.requestedArchetype);
+    if (opts.heroName?.trim()) form.append('heroName', opts.heroName.trim());
+    if (opts.details?.trim()) form.append('details', opts.details.trim());
     if (opts.presetId) form.append('presetId', opts.presetId);
     if (opts.photo) form.append('photo', opts.photo, 'photo.jpg');
     const res = await fetch('/api/games', { method: 'POST', body: form });

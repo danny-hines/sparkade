@@ -692,10 +692,10 @@ export interface CreationBrief {
   version: 1;
   /** Exact spoken character name. Omitted when the player asks Spark to invent one. */
   heroName?: string;
-  /** Explicit engine choice; authoritative over model classification. */
-  archetype: ArchetypeId;
-  /** Story, enemies, setting, and aesthetic direction approved by the player. */
-  details: string;
+  /** Explicit engine choice; omitted when Spark should classify the request. */
+  archetype?: ArchetypeId;
+  /** Story, enemies, setting, and aesthetic direction; omitted when Spark should invent them. */
+  details?: string;
 }
 
 export interface JobRecord {

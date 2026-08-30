@@ -51,4 +51,19 @@ describe('createGame requested archetype', () => {
     expect(capture.submitted().get('heroName')).toBe('Nova');
     expect(capture.submitted().get('details')).toBe('Defend the last arcade from alien champions');
   });
+
+  it('sends guided fields even when Spark will choose the archetype', async () => {
+    const capture = captureCreateRequest();
+    await api.createGame({
+      promptText: 'Nova explores a strange crystal ocean',
+      sourceKind: 'voice',
+      heroName: 'Nova',
+      details: 'Explore a strange crystal ocean',
+      idempotencyKey: 'ik-auto-type',
+    });
+
+    expect(capture.submitted().get('requestedArchetype')).toBeNull();
+    expect(capture.submitted().get('heroName')).toBe('Nova');
+    expect(capture.submitted().get('details')).toBe('Explore a strange crystal ocean');
+  });
 });

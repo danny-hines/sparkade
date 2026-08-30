@@ -519,6 +519,10 @@ h2.pixel {
   line-height: 1.6;
 }
 .home-cta-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
   font-size: 16px;
   color: var(--text-dim);
   margin-top: 6px;

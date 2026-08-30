@@ -267,7 +267,7 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
             <Cta
               icon="sparkle"
               title="Dream up a new game"
-              sub="Say what you want (or pick an idea) and Sparkade builds it — art, levels, boss, and music. Optionally put your face in it."
+              sub="Take a photo or skip it, then choose the details you care about. Leave anything blank and Spark will decide."
               hint="Start"
             />
           ) : selectedGame ? (

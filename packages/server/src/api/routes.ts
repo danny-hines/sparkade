@@ -328,6 +328,29 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
   });
 
   // ---- job progress (SSE) ---------------------------------------------------
+  app.get('/api/jobs/:jobId/feed', async (req, reply) => {
+    const { jobId } = req.params as { jobId: string };
+    if (!db.getJob(jobId)) return reply.code(404).send({ error: 'unknown job' });
+    return { events: db.generationEventsForJob(jobId) };
+  });
+
+  app.get('/api/jobs/:jobId/assets/:name', async (req, reply) => {
+    const { jobId, name } = req.params as { jobId: string; name: string };
+    const job = db.getJob(jobId);
+    if (!job) return reply.code(404).send({ error: 'unknown job' });
+    const assetsDir =
+      job.status === 'done'
+        ? join(files.gameDir(job.gameId), 'assets')
+        : join(files.stagingDir, jobId, 'assets');
+    const asset = generatedAssetForFilename(assetsDir, name);
+    if (!asset) return reply.code(404).send({ error: 'unknown asset' });
+    const path = join(assetsDir, asset.filename);
+    if (!existsSync(path)) return reply.code(404).send({ error: 'asset not found' });
+    return reply
+      .type(asset.mimeType)
+      .send(await import('node:fs').then((fs) => fs.createReadStream(path)));
+  });
+
   app.get('/api/jobs/:jobId/events', (req, reply) => {
     const { jobId } = req.params as { jobId: string };
     const job = db.getJob(jobId);

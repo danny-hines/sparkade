@@ -8,6 +8,7 @@ import {
   type GameMetaFile,
   type GameSpec,
   type GeneratedGameAssetRole,
+  type GenerationFeedEvent,
   type JobEvent,
   type JobRecord,
   type LogicalButton,
@@ -365,6 +366,10 @@ export const api = {
   getGame: (id: string) => fetch(`/api/games/${id}`).then((r) => json<GameDetail>(r)),
   getPartial: (id: string) =>
     fetch(`/api/games/${id}/partial`).then((r) => json<{ partial: PartialSpec | null }>(r)),
+  getGenerationFeed: (jobId: string) =>
+    fetch(`/api/jobs/${encodeURIComponent(jobId)}/feed`).then((response) =>
+      json<{ events: GenerationFeedEvent[] }>(response),
+    ),
   deleteGame: (id: string) =>
     fetch(`/api/games/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
   retryGame: (id: string) =>
@@ -561,6 +566,8 @@ export const api = {
       | 'portrait.png'
       | (typeof GENERATED_GAME_ASSET_FILES)[GeneratedGameAssetRole],
   ) => `/api/games/${gameId}/assets/${name}`,
+  jobAssetUrl: (jobId: string, filename: string) =>
+    `/api/jobs/${encodeURIComponent(jobId)}/assets/${encodeURIComponent(filename)}`,
 };
 
 /** Subscribe to a job's SSE stream. Returns an unsubscribe function. */

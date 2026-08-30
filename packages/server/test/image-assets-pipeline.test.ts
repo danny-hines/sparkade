@@ -345,6 +345,15 @@ describe.sequential('mock image asset pipeline', () => {
     });
 
     expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done' });
+    const feed = db.generationEventsForJob(jobId);
+    expect(feed[0]).toMatchObject({ kind: 'progress', stage: 'queued', attempt: 1 });
+    expect(feed.some((event) => event.kind === 'decision' && event.payload?.['title'])).toBe(true);
+    expect(
+      feed.some(
+        (event) => event.kind === 'asset' && event.payload?.['filename'] === 'story-intro.png',
+      ),
+    ).toBe(true);
+    expect(feed.at(-1)).toMatchObject({ kind: 'complete', stage: 'done' });
     expect(files.readMeta(gameId)?.adventureRoomPlateArt).toEqual({
       mode: 'generated',
       attempted: true,

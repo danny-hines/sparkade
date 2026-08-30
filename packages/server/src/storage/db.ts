@@ -5,6 +5,8 @@ import { Sqlite } from './sqlite';
 import type {
   ArchetypeId,
   CoverData,
+  GenerationFeedEvent,
+  GenerationFeedKind,
   GameListItem,
   GameStatus,
   JobRecord,
@@ -84,6 +86,18 @@ CREATE TABLE IF NOT EXISTS repair_events (
 );
 CREATE INDEX IF NOT EXISTS repairs_by_job ON repair_events(job_id, id);
 CREATE INDEX IF NOT EXISTS repairs_by_game ON repair_events(game_id, id);
+CREATE TABLE IF NOT EXISTS generation_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id TEXT NOT NULL,
+  game_id TEXT NOT NULL,
+  attempt INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  stage TEXT,
+  message TEXT NOT NULL,
+  payload_json TEXT,
+  at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS generation_events_by_job ON generation_events(job_id, id);
 CREATE TABLE IF NOT EXISTS scores (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   game_id TEXT NOT NULL,
@@ -577,6 +591,54 @@ export class Db {
     return rows.map(toRepairEvent);
   }
 
+  // ------------------------------------------------------ generation feed
+
+  appendGenerationEvent(input: {
+    jobId: string;
+    gameId: string;
+    attempt: number;
+    kind: GenerationFeedKind;
+    stage?: JobRecord['stage'];
+    message: string;
+    payload?: Record<string, unknown>;
+  }): GenerationFeedEvent {
+    const at = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO generation_events (job_id, game_id, attempt, kind, stage, message, payload_json, at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.jobId,
+        input.gameId,
+        input.attempt,
+        input.kind,
+        input.stage ?? null,
+        input.message,
+        input.payload ? JSON.stringify(input.payload) : null,
+        at,
+      );
+    const inserted = this.db.prepare(`SELECT last_insert_rowid() AS id`).get() as { id: number };
+    return {
+      id: Number(inserted.id),
+      jobId: input.jobId,
+      gameId: input.gameId,
+      attempt: input.attempt,
+      kind: input.kind,
+      ...(input.stage ? { stage: input.stage } : {}),
+      message: input.message,
+      ...(input.payload ? { payload: input.payload } : {}),
+      at,
+    };
+  }
+
+  generationEventsForJob(jobId: string): GenerationFeedEvent[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM generation_events WHERE job_id=? ORDER BY id`)
+      .all(jobId) as Record<string, unknown>[];
+    return rows.map(toGenerationFeedEvent);
+  }
+
   // ------------------------------------------------------------------ scores
 
   topScores(gameId: string, limit = 10): ScoreRow[] {
@@ -680,6 +742,22 @@ function toRepairEvent(r: Record<string, unknown>): RepairEvent {
     patch: r.patch_json === null ? null : JSON.parse(String(r.patch_json)),
     elapsedMs: Number(r.elapsed_ms),
     outcome: String(r.outcome),
+    at: String(r.at),
+  };
+}
+
+function toGenerationFeedEvent(r: Record<string, unknown>): GenerationFeedEvent {
+  return {
+    id: Number(r.id),
+    jobId: String(r.job_id),
+    gameId: String(r.game_id),
+    attempt: Number(r.attempt),
+    kind: String(r.kind) as GenerationFeedKind,
+    ...(r.stage ? { stage: String(r.stage) as JobRecord['stage'] } : {}),
+    message: String(r.message),
+    ...(r.payload_json
+      ? { payload: JSON.parse(String(r.payload_json)) as Record<string, unknown> }
+      : {}),
     at: String(r.at),
   };
 }

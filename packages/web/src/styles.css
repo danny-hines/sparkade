@@ -1129,6 +1129,284 @@ h2.pixel {
   }
 }
 
+/* Durable, append-only generation feed. */
+.generation-feed-screen {
+  position: relative;
+}
+
+.generation-feed-header {
+  flex: none;
+  padding-bottom: 8px;
+}
+
+.generation-feed-header .status-chips {
+  gap: 7px;
+}
+
+.generation-feed-header .chip {
+  padding: 5px 9px;
+  font-size: 12px;
+}
+
+.gen-state {
+  color: var(--cyan);
+}
+
+.gen-state.done {
+  color: var(--ok);
+}
+
+.gen-state.failed,
+.gen-state.waiting-network {
+  color: var(--danger);
+}
+
+.generation-feed {
+  flex: 1;
+  width: min(760px, calc(100% - 88px));
+  margin: 0 auto;
+  padding: 8px 12px 24px;
+  overflow-y: auto;
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+  overscroll-behavior: contain;
+}
+
+.generation-feed::-webkit-scrollbar {
+  width: 7px;
+}
+
+.generation-feed::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 6px;
+}
+
+.gen-feed-entry {
+  margin-bottom: 12px;
+}
+
+.gen-feed-card {
+  overflow: hidden;
+  padding: 13px 16px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(17, 23, 48, 0.92);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+  animation: feed-card-in 220ms ease-out both;
+}
+
+@keyframes feed-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.gen-feed-card.decision {
+  border-left: 3px solid var(--cyan);
+  background: linear-gradient(135deg, rgba(28, 46, 81, 0.96), rgba(17, 23, 48, 0.96));
+}
+
+.gen-feed-card.asset {
+  border-left: 3px solid var(--spark);
+}
+
+.gen-feed-card.progress.waiting,
+.gen-feed-card.failure {
+  border-color: rgba(255, 85, 112, 0.68);
+}
+
+.gen-feed-card-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  color: var(--cyan);
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+.gen-feed-card-head time {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.gen-feed-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+}
+
+.gen-feed-message {
+  color: var(--text);
+  font-size: 17px;
+  line-height: 1.4;
+}
+
+.gen-feed-note {
+  margin-top: 7px;
+  color: var(--gold);
+  font-size: 13px;
+}
+
+.gen-feed-title {
+  margin-top: 8px;
+  color: var(--gold);
+  font-size: 20px;
+}
+
+.gen-feed-tagline {
+  margin-top: 5px;
+  color: var(--text-dim);
+  font-size: 15px;
+}
+
+.gen-feed-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.gen-feed-chips span {
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: rgba(65, 166, 246, 0.16);
+  color: var(--cyan);
+  font-size: 11px;
+}
+
+.gen-feed-details,
+.gen-feed-levels {
+  margin-top: 9px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.gen-feed-levels {
+  color: var(--text);
+}
+
+.gen-feed-palette {
+  display: flex;
+  gap: 2px;
+  margin-top: 10px;
+}
+
+.gen-feed-palette span {
+  width: 22px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+.gen-feed-music {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  color: var(--ok);
+  font-size: 14px;
+}
+
+.gen-feed-asset {
+  display: block;
+  width: 100%;
+  max-height: 250px;
+  margin: 4px 0 11px;
+  border-radius: 8px;
+  background: #080b16;
+  object-fit: contain;
+  image-rendering: auto;
+}
+
+.gen-feed-card.terminal {
+  padding: 22px;
+  text-align: center;
+}
+
+.gen-feed-card.complete {
+  border: 2px solid var(--ok);
+  background: linear-gradient(145deg, rgba(31, 86, 68, 0.48), rgba(17, 23, 48, 0.97));
+}
+
+.gen-feed-terminal-icon {
+  color: var(--cyan);
+  font-size: 42px;
+}
+
+.gen-feed-terminal-label {
+  margin: 5px 0 9px;
+  color: var(--ok);
+  font-size: 18px;
+}
+
+.gen-feed-card.failure .gen-feed-terminal-label {
+  color: var(--danger);
+}
+
+.gen-feed-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 15px;
+  padding: 11px 25px;
+  font-size: 18px;
+}
+
+.gen-attempt-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 11px;
+  color: var(--gold);
+  font-size: 11px;
+  letter-spacing: 2px;
+}
+
+.gen-attempt-divider::before,
+.gen-attempt-divider::after {
+  content: '';
+  height: 1px;
+  flex: 1;
+  background: var(--line);
+}
+
+.gen-feed-live {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px;
+  color: var(--cyan);
+  font-size: 12px;
+}
+
+.gen-new-updates {
+  position: absolute;
+  right: 44px;
+  bottom: 58px;
+  z-index: 4;
+  padding: 8px 12px;
+  border: 1px solid var(--cyan);
+  border-radius: 15px;
+  background: var(--bg-panel-2);
+  color: var(--cyan);
+  font:
+    11px 'Press Start 2P',
+    monospace;
+  cursor: pointer;
+}
+
 /* ----------------------------------------------------------------- play */
 
 .play-screen {

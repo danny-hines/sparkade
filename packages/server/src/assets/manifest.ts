@@ -99,6 +99,7 @@ export class GameAssetWorkspace {
   constructor(
     assetsDir: string,
     private readonly model: string,
+    private readonly onStored?: (asset: GeneratedGameAsset) => void,
   ) {
     this.dir = ensureDir(assetsDir);
   }
@@ -272,6 +273,7 @@ export class GameAssetWorkspace {
         error,
       );
     }
+    this.onStored?.(entry);
     return entry;
   }
 }

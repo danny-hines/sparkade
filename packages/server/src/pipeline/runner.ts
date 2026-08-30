@@ -21,6 +21,7 @@ import {
   type FighterSpec,
   type GameMetaFile,
   type GeneratedGameAssetRole,
+  type GenerationFeedKind,
   type GameSpec,
   type JobEvent,
   type JobStage,
@@ -569,6 +570,25 @@ export class GenerationRunner {
     return this.active.size > 0;
   }
 
+  private publishFeed(input: {
+    jobId: string;
+    gameId: string;
+    attempt: number;
+    kind: GenerationFeedKind;
+    stage?: JobStage;
+    message: string;
+    payload?: Record<string, unknown>;
+  }): void {
+    try {
+      const event = this.db.appendGenerationEvent(input);
+      this.hub.emit({ type: 'feed', jobId: input.jobId, event });
+    } catch (error) {
+      // The canonical job row remains the source of truth if the optional
+      // presentation history cannot be written (for example, a nearly-full disk).
+      console.warn('could not append generation feed event:', error);
+    }
+  }
+
   createJob(inputs: NewJobInputs): { jobId: string; gameId: string } {
     const existing = this.db.getJobByIdempotencyKey(inputs.idempotencyKey);
     if (existing) return { jobId: existing.id, gameId: existing.gameId };
@@ -629,6 +649,23 @@ export class GenerationRunner {
       engineVersion: ENGINE_VERSION,
       archetypeVersion: '',
     });
+    this.publishFeed({
+      jobId,
+      gameId,
+      attempt: 1,
+      kind: 'progress',
+      stage: 'queued',
+      message: 'Creation brief approved — waiting in line',
+      ...(inputs.creationBrief
+        ? {
+            payload: {
+              archetype: inputs.creationBrief.archetype,
+              heroName: inputs.creationBrief.heroName ?? null,
+              details: inputs.creationBrief.details,
+            },
+          }
+        : {}),
+    });
     this.enqueue(jobId);
     return { jobId, gameId };
   }
@@ -656,6 +693,14 @@ export class GenerationRunner {
     // history are preserved as before.
     this.db.resetGameForRetry(gameId, job.promptText.slice(0, 28).trim() || 'New game');
     this.files.clearPartial(job.id);
+    this.publishFeed({
+      jobId: job.id,
+      gameId,
+      attempt: job.attempt + 1,
+      kind: 'progress',
+      stage: 'queued',
+      message: `Retry ${job.attempt + 1} queued — restoring completed work`,
+    });
     this.enqueue(job.id);
     return { jobId: job.id };
   }
@@ -775,6 +820,23 @@ export class GenerationRunner {
       slow = true;
     }, GENERATION.softBudgetMs);
     const hardTimer = setTimeout(() => abort.abort(), GENERATION.hardBudgetMs);
+    let lastFeedProgress = '';
+
+    const feed = (
+      kind: GenerationFeedKind,
+      message: string,
+      stage?: JobStage,
+      payload?: Record<string, unknown>,
+    ) =>
+      this.publishFeed({
+        jobId,
+        gameId,
+        attempt: job.attempt,
+        kind,
+        ...(stage ? { stage } : {}),
+        message,
+        ...(payload ? { payload } : {}),
+      });
 
     const emit = (
       stage: JobStage,
@@ -782,6 +844,16 @@ export class GenerationRunner {
       extra: Partial<Extract<JobEvent, { type: 'progress' }>> = {},
     ) => {
       this.db.updateJob(jobId, { stage, detail });
+      const feedSignature = `${stage}\u0000${detail}`;
+      if (feedSignature !== lastFeedProgress) {
+        lastFeedProgress = feedSignature;
+        feed('progress', detail, stage, {
+          ...(extra.unitsDone !== undefined ? { unitsDone: extra.unitsDone } : {}),
+          ...(extra.unitsTotal !== undefined ? { unitsTotal: extra.unitsTotal } : {}),
+          ...(extra.waitingForNetwork ? { waitingForNetwork: true } : {}),
+          ...(slow ? { slow: true } : {}),
+        });
+      }
       this.hub.emit({
         type: 'progress',
         jobId,
@@ -1392,6 +1464,15 @@ export class GenerationRunner {
         }
       };
       pushPartial({});
+      feed('decision', `Spark chose “${design.title}”`, 'designing', {
+        title: design.title,
+        tagline: design.tagline,
+        archetype: design.archetype,
+        palette: design.palette,
+        heroConcept: design.heroConcept,
+        difficulty: design.difficulty,
+        levelNames: design.levelPlan.map((level) => level.name),
+      });
 
       let resumedValidatedSpec: GameSpec | undefined;
       if (priorAttempt && designMatchesResumedCheckpoint) {
@@ -1561,6 +1642,16 @@ export class GenerationRunner {
           ).then((r) => {
             parts.music = isRecord(r) ? (r['music'] ?? r) : r;
             pushPartial({ music: parts.music as PartialSpec['music'] });
+            const music = isRecord(parts.music) ? parts.music : {};
+            feed(
+              'decision',
+              resumedMusic !== undefined ? 'Restored the composed soundtrack' : 'Theme composed',
+              'writing-spec',
+              {
+                ...(typeof music['key'] === 'string' ? { key: music['key'] } : {}),
+                ...(typeof music['bpm'] === 'number' ? { bpm: music['bpm'] } : {}),
+              },
+            );
             tick(resumedMusic !== undefined ? 'Music restored' : 'Music');
           }),
         ]);
@@ -1610,7 +1701,15 @@ export class GenerationRunner {
       emit('building-assets', 'Painting the game art…');
       const staging = this.files.stagingFor(jobId);
       const assetsDir = ensureDir(join(staging, 'assets'));
-      const assetWorkspace = new GameAssetWorkspace(assetsDir, imageModel);
+      const assetWorkspace = new GameAssetWorkspace(assetsDir, imageModel, (asset) => {
+        const label = asset.role.replace(/([A-Z])/g, ' $1').toLowerCase();
+        feed('asset', `Finished ${label}`, 'building-assets', {
+          role: asset.role,
+          filename: asset.filename,
+          width: asset.width,
+          height: asset.height,
+        });
+      });
 
       // Production personalization deliberately relies on the models' direct
       // view of the photo instead of squeezing identity through the legacy,
@@ -4676,6 +4775,13 @@ export class GenerationRunner {
           console.warn('could not update generation incident retry outcome:', error);
         }
       }
+      feed('complete', `${spec.meta.title} is ready to play`, 'done', {
+        title: spec.meta.title,
+        tagline: spec.meta.tagline,
+        archetype,
+        costUsd: meta.costUsd,
+        elapsedMs: Date.now() - startedAt,
+      });
       this.hub.emit({
         type: 'done',
         jobId,
@@ -4721,6 +4827,11 @@ export class GenerationRunner {
           console.warn('could not update generation incident retry outcome:', error);
         }
       }
+      feed('failure', friendly.message, err.stage, {
+        code: friendly.code,
+        costSoFarUsd: this.db.gameCost(gameId),
+        elapsedMs: Date.now() - startedAt,
+      });
       this.hub.emit({
         type: 'failed',
         jobId,

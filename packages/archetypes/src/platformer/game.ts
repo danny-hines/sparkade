@@ -1,6 +1,6 @@
 // Platformer gameplay (Mario-like). Controls per SNES convention:
-// d-pad move/duck, B jump, X/Y run (+ throw with the projectile powerup),
-// A spin jump, START pause (host-owned).
+// d-pad move/duck, A jump, X/Y run (+ throw with the projectile powerup),
+// B spin jump, START pause (host-owned).
 import {
   aabbOverlap,
   cellsUnder,
@@ -847,7 +847,7 @@ class PlatformerGame implements GameInstance {
     if (jumpPressed) this.jumpBufT = FEEL.jumpBufferMs / 1000;
     if (this.jumpBufT > 0 && (this.onGround || this.coyoteT > 0)) {
       this.pvy = this.jumpV;
-      this.spinning = input.A.pressed || (input.A.held && !input.B.held);
+      this.spinning = input.B.pressed || (input.B.held && !input.A.held);
       this.jumpBufT = 0;
       this.coyoteT = 0;
       this.airJumpUsed = false;

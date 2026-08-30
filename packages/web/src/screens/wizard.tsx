@@ -158,11 +158,14 @@ export function WizardScreen(props: {
     stopMic();
   };
 
-  useEffect(() => () => {
-    stopCamera();
-    recordingCanceledRef.current = true;
-    stopMic();
-  });
+  useEffect(
+    () => () => {
+      stopCamera();
+      recordingCanceledRef.current = true;
+      stopMic();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (step !== 'photo' || photoMode !== 'camera') return undefined;

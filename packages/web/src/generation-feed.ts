@@ -19,3 +19,9 @@ export function isNearFeedBottom(
 ): boolean {
   return scrollHeight - clientHeight - scrollTop <= 48;
 }
+
+/** Small gameplay props do not need the full-width showcase used by hero,
+ * enemy, arena, and backdrop art. */
+export function isCompactGenerationAssetRole(role: string | null | undefined): boolean {
+  return role?.startsWith('platformerProp') ?? false;
+}

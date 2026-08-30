@@ -21,12 +21,22 @@ export function FooterLegend(props: {
 }): ComponentChildren {
   return (
     <div class="footer-legend">
-      {props.items.map(([btn, label]) => (
-        <span key={btn + label}>
-          <b>{btn}</b>
-          {label}
-        </span>
-      ))}
+      {props.items.map(([btn, label]) => {
+        const buttons = btn.split('/');
+        return (
+          <span key={btn + label}>
+            <span class="footer-button-group">
+              {buttons.map((button, index) => (
+                <span class="footer-button-part" key={`${button}-${index}`}>
+                  {index > 0 ? <span class="footer-button-separator">/</span> : null}
+                  <b>{button}</b>
+                </span>
+              ))}
+            </span>
+            {label}
+          </span>
+        );
+      })}
       {props.chips ? <span class="status-chips">{props.chips}</span> : null}
     </div>
   );

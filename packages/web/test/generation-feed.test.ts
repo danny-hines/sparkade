@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { GenerationFeedEvent } from '@sparkade/shared';
-import { isNearFeedBottom, mergeGenerationEvents } from '../src/generation-feed';
+import {
+  isCompactGenerationAssetRole,
+  isNearFeedBottom,
+  mergeGenerationEvents,
+} from '../src/generation-feed';
 
 function event(id: number): GenerationFeedEvent {
   return {
@@ -24,5 +28,13 @@ describe('generation feed merging', () => {
   it('only auto-follows while the player remains near the bottom', () => {
     expect(isNearFeedBottom(552, 400, 1000)).toBe(true);
     expect(isNearFeedBottom(300, 400, 1000)).toBe(false);
+  });
+
+  it('uses a compact preview only for small platformer prop assets', () => {
+    expect(isCompactGenerationAssetRole('platformerPropHeroProjectile')).toBe(true);
+    expect(isCompactGenerationAssetRole('platformerPropCollectible')).toBe(true);
+    expect(isCompactGenerationAssetRole('platformerEnemyWalker')).toBe(false);
+    expect(isCompactGenerationAssetRole('platformerBackdropLevel1')).toBe(false);
+    expect(isCompactGenerationAssetRole(null)).toBe(false);
   });
 });

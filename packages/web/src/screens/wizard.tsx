@@ -564,6 +564,7 @@ export function WizardScreen(props: {
   const stepChip = (
     <div class="wizard-steps">
       <span class={`step ${step === 'photo' ? 'on' : ''}`}>1 PHOTO</span>
+      <span class="step-separator">/</span>
       <span class={`step ${onDetailsStep ? 'on' : ''}`}>2 GAME DETAILS</span>
     </div>
   );

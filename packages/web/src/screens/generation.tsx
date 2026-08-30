@@ -6,7 +6,11 @@ import type { ComponentChildren } from 'preact';
 import { type GenerationFeedEvent, type JobEvent, type JobStage } from '@sparkade/shared';
 import { api, subscribeJob } from '../api';
 import { FooterLegend, fmtElapsed, usd, useNow } from '../components';
-import { isNearFeedBottom, mergeGenerationEvents } from '../generation-feed';
+import {
+  isCompactGenerationAssetRole,
+  isNearFeedBottom,
+  mergeGenerationEvents,
+} from '../generation-feed';
 import { Icon } from '../icons';
 import { shellInput } from '../shell-input';
 import type { Screen } from '../app';
@@ -112,7 +116,7 @@ function FeedCard(props: { event: GenerationFeedEvent; jobId: string }): Compone
           <img
             src={api.jobAssetUrl(props.jobId, filename)}
             alt={role ? `${role} preview` : 'Generated asset preview'}
-            class="gen-feed-asset"
+            class={`gen-feed-asset ${isCompactGenerationAssetRole(role) ? 'compact' : ''}`}
             onError={(domEvent) => {
               domEvent.currentTarget.hidden = true;
             }}
@@ -393,18 +397,18 @@ export function GenerationScreen(props: {
         items={
           jobEvent?.type === 'done'
             ? [
-                ['↑ ↓', 'Scroll'],
+                ['↑/↓', 'Scroll'],
                 ['A', 'Play'],
                 ['B', 'Details'],
               ]
             : jobEvent?.type === 'failed'
               ? [
-                  ['↑ ↓', 'Scroll'],
+                  ['↑/↓', 'Scroll'],
                   ['A', 'Retry screen'],
                   ['B', 'Menu'],
                 ]
               : [
-                  ['↑ ↓', 'Scroll'],
+                  ['↑/↓', 'Scroll'],
                   ['B', 'Back (keeps generating)'],
                 ]
         }

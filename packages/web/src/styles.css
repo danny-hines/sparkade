@@ -500,8 +500,28 @@ h2.pixel {
   border-radius: 50%;
   color: var(--cyan);
   font-size: 15px;
+  vertical-align: middle;
+}
+
+.footer-button-group,
+.footer-button-part {
+  display: inline-flex;
+  align-items: center;
+}
+
+.footer-button-group {
+  gap: 6px;
   margin-right: 8px;
   vertical-align: middle;
+}
+
+.footer-button-part {
+  gap: 6px;
+}
+
+.footer-button-separator {
+  color: var(--text-dim);
+  font-size: 15px;
 }
 
 .status-chips {
@@ -623,6 +643,10 @@ h2.pixel {
 
 .wizard-steps .step.on {
   color: var(--spark);
+}
+
+.wizard-steps .step-separator {
+  color: var(--line);
 }
 
 .wizard-title .status-chips {
@@ -1309,6 +1333,13 @@ h2.pixel {
   background: #080b16;
   object-fit: contain;
   image-rendering: auto;
+}
+
+.gen-feed-asset.compact {
+  width: min(50%, 360px);
+  max-height: 130px;
+  margin-right: auto;
+  margin-left: auto;
 }
 
 .gen-feed-card.terminal {

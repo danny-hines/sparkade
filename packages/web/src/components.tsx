@@ -9,6 +9,7 @@ import {
   type GameListItem,
   type LogicalButton,
 } from '@sparkade/shared';
+import { containedCoverRect, coveringSourceRect } from './cover-layout';
 import { shellInput } from './shell-input';
 import { Icon } from './icons';
 
@@ -43,12 +44,60 @@ export function GameCover(props: {
   seedText: string;
   class?: string;
   pending?: boolean;
+  /** Wide detail banners matte the complete cover over a dim full-bleed copy. */
+  presentation?: 'standard' | 'matted';
 }): ComponentChildren {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
     let disposed = false;
+    const matted = props.presentation === 'matted';
+
+    const presentMatted = (
+      source: CanvasImageSource,
+      sourceWidth: number,
+      sourceHeight: number,
+      smoothing: boolean,
+    ) => {
+      canvas.width = 960;
+      canvas.height = 360;
+      const ctx = canvas.getContext('2d')!;
+      ctx.imageSmoothingEnabled = smoothing;
+      if (smoothing) ctx.imageSmoothingQuality = 'high';
+
+      const background = coveringSourceRect(sourceWidth, sourceHeight, canvas.width, canvas.height);
+      ctx.drawImage(
+        source,
+        background.x,
+        background.y,
+        background.width,
+        background.height,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
+      ctx.fillStyle = 'rgba(4, 7, 18, 0.68)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const foreground = containedCoverRect(sourceWidth, sourceHeight, canvas.width, canvas.height);
+      ctx.save();
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.72)';
+      ctx.shadowBlur = 22;
+      ctx.drawImage(
+        source,
+        0,
+        0,
+        sourceWidth,
+        sourceHeight,
+        foreground.x,
+        foreground.y,
+        foreground.width,
+        foreground.height,
+      );
+      ctx.restore();
+    };
 
     // Where the baked likeness head lands on the hero: hand-authored for a
     // library hero, or the custom hero's own headSlot. Recent games use custom
@@ -178,10 +227,22 @@ export function GameCover(props: {
           /* skip layer */
         }
       }
+
+      if (matted) {
+        const source = document.createElement('canvas');
+        source.width = canvas.width;
+        source.height = canvas.height;
+        source.getContext('2d')!.drawImage(canvas, 0, 0);
+        presentMatted(source, source.width, source.height, false);
+      }
     };
 
     const drawKeyArt = (image: HTMLImageElement) => {
       if (disposed) return;
+      if (matted) {
+        presentMatted(image, image.naturalWidth, image.naturalHeight, true);
+        return;
+      }
       // The attract-screen marquee intentionally relies on the canvas's
       // intrinsic 128×76 size; preserve that layout while raising the backing
       // resolution for generated art. Other cover classes already set both
@@ -195,20 +256,23 @@ export function GameCover(props: {
       const ctx = canvas.getContext('2d')!;
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-      const sourceRatio = image.naturalWidth / image.naturalHeight;
-      const targetRatio = canvas.width / canvas.height;
-      let sx = 0;
-      let sy = 0;
-      let sw = image.naturalWidth;
-      let sh = image.naturalHeight;
-      if (sourceRatio > targetRatio) {
-        sw = image.naturalHeight * targetRatio;
-        sx = (image.naturalWidth - sw) / 2;
-      } else if (sourceRatio < targetRatio) {
-        sh = image.naturalWidth / targetRatio;
-        sy = (image.naturalHeight - sh) / 2;
-      }
-      ctx.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      const source = coveringSourceRect(
+        image.naturalWidth,
+        image.naturalHeight,
+        canvas.width,
+        canvas.height,
+      );
+      ctx.drawImage(
+        image,
+        source.x,
+        source.y,
+        source.width,
+        source.height,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
     };
 
     const loadProceduralLikeness = () => {
@@ -230,7 +294,15 @@ export function GameCover(props: {
     return () => {
       disposed = true;
     };
-  }, [props.cover, props.archetype, props.gameId, props.seedText, props.class, props.pending]);
+  }, [
+    props.cover,
+    props.archetype,
+    props.gameId,
+    props.seedText,
+    props.class,
+    props.pending,
+    props.presentation,
+  ]);
   return <canvas ref={ref} class={props.class} />;
 }
 

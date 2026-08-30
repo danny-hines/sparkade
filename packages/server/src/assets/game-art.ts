@@ -3,7 +3,7 @@ import { FIGHTER_POSES, type FighterPose, type GameSpec } from '@sparkade/shared
 import { fighterArtDirectionPrompt } from './fighter-art-direction';
 import { FIGHTER_POSE_SHEET_SIZE, fighterPoseSheetCellRect } from './fighter-pose-sheet';
 
-export const KEY_ART_PROMPT_VERSION = 'key-art-v3';
+export const KEY_ART_PROMPT_VERSION = 'key-art-v4';
 export const STORY_ART_PROMPT_VERSION = 'story-scenes-v2';
 export const KEY_ART_SIZE = { width: 480, height: 270 } as const;
 export const STORY_ART_SIZE = { width: 420, height: 180 } as const;
@@ -76,7 +76,7 @@ export function buildKeyArtPrompt(
       ? 'Compose one dramatic landscape key-art image that clearly shows the player pilot, their exact craft, the game world, and the main villain in the distance.'
       : 'Compose one dramatic landscape key-art image that clearly shows the player hero, the game world, and the main villain in the distance.',
     'Polished 16-bit console-game illustration: deliberate pixel clusters, crisp silhouettes, expressive characters, rich environmental detail, and cohesive limited colors. It should feel like premium SNES-era box art rendered by a master pixel artist.',
-    'Landscape composition with important faces and action inside the central safe area. No UI, screenshot frame, arcade cabinet, text, letters, title, logo, caption, watermark, signature, border, photorealism, blur, or 3D render.',
+    'Landscape composition designed to survive a wide banner presentation. Keep every complete face, head, hairstyle, headwear, and essential action inside the middle 60% of the image height; reserve the outer 20% at both the top and bottom for expendable scenery only. Keep the player as the clear central focal point. No UI, screenshot frame, arcade cabinet, text, letters, title, logo, caption, watermark, signature, border, photorealism, blur, or 3D render.',
   ].join(' ');
 }
 
@@ -107,7 +107,7 @@ export function buildKeyArtPolicyFallbackPrompt(
       ? `Preserve the separate exact player vehicle shown in the ${hasPlayerPhoto ? 'BOTTOM PANEL' : 'reference image'}: ${clean(playerCraft.visualConcept)}. Never merge the person and vehicle identities.`
       : '',
     `Create polished landscape key art for a colorful ${spec.archetype} game world using this limited palette: ${spec.palette.join(', ')}.`,
-    'Use a calm, adventurous composition with the player character centered safely in the environment.',
+    'Use a calm, adventurous composition with the player character as the central focal point. Keep every complete face, head, hairstyle, and headwear inside the middle 60% of the image height; reserve the outer 20% at both the top and bottom for expendable scenery only.',
     'Premium 16-bit console illustration with crisp pixel clusters, clear silhouettes, and rich environmental detail.',
     'No text, letters, title, logo, caption, UI, watermark, signature, border, photorealism, blur, or 3D render.',
   ].join(' ');

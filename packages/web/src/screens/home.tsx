@@ -353,6 +353,7 @@ function DetailPanel(props: {
               gameId={item.id}
               seedText={item.title}
               class="home-detail-cover-full"
+              presentation="matted"
             />
           }
         />

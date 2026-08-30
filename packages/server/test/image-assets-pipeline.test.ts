@@ -244,6 +244,8 @@ describe('story art prompts', () => {
     expect(keyArt).toContain('immutable identity truth from the neck up');
     expect(keyArt).toContain('source photo clothing below the neck is NOT identity');
     expect(keyArt).toContain(wardrobe);
+    expect(keyArt).toContain('middle 60% of the image height');
+    expect(keyArt).toContain('outer 20% at both the top and bottom');
     expect(story).toContain(wardrobe);
     expect(story).toContain('exact same player hero identity, costume');
   });

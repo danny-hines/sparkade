@@ -1,5 +1,6 @@
 import sharp from 'sharp';
 import {
+  analyzePlatformerTraversal,
   platformerReachabilityBlockage,
   reachableCells,
 } from '@sparkade/archetypes';
@@ -289,8 +290,12 @@ export function validatePlatformerLabLevel(level: PlatformerLevel): string[] {
     issues.push('checkpoint missing');
   }
   if (supportedOpen(level.playerSpawn) && supportedOpen(level.exit)) {
-    const reachable = reachableCells(level, 2);
-    if (!reachable.has(`${level.exit.x},${level.exit.y}`)) issues.push('exit is unreachable');
+    const traversal = analyzePlatformerTraversal(level, 2);
+    if (!traversal.reachable.has(`${level.exit.x},${level.exit.y}`)) {
+      issues.push('exit is unreachable');
+    } else if (traversal.trapCells.size) {
+      issues.push(`${traversal.trapCells.size} reachable standing cells cannot escape to the exit`);
+    }
   }
   return issues;
 }

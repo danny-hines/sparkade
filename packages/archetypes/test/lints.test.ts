@@ -15,6 +15,7 @@ import { MIN_DURATION_S } from '@sparkade/shared';
 import { archetypes } from '@sparkade/archetypes';
 import { checkKeyTopology, buildGraph, reconcileDoors } from '../src/adventure/lint';
 import {
+  analyzePlatformerTraversal,
   parseLevelGrid,
   platformerReachabilityBlockage,
   reachableCells,
@@ -289,6 +290,43 @@ describe('platformer lints', () => {
     withoutPlatform.entities = [];
     expect(reachableCells(withoutPlatform).has('21,8')).toBe(false);
     expect(reachableCells(level).has('21,8')).toBe(true);
+  });
+
+  it('rejects a reachable non-lethal pit that cannot return to the exit route', () => {
+    const spec = golden<PlatformerSpec>('platformer');
+    const level = spec.levels[0]!;
+    const width = 40;
+    const sideWall = `${'#'.repeat(8)}${'.'.repeat(6)}${'#'.repeat(26)}`;
+    level.tiles = [
+      ...Array.from({ length: 4 }, () => '.'.repeat(width)),
+      `${'.'.repeat(11)}C${'.'.repeat(28)}`,
+      `${'#'.repeat(8)}${'='.repeat(6)}${'#'.repeat(26)}`,
+      sideWall,
+      sideWall,
+      sideWall,
+      '#'.repeat(width),
+    ];
+    level.legend = { '#': 'solid', '=': 'platform', C: 'checkpoint' };
+    level.playerSpawn = { x: 2, y: 4 };
+    level.exit = { x: 30, y: 4 };
+    level.entities = [];
+
+    const traversal = analyzePlatformerTraversal(level);
+    expect(traversal.reachable.has('30,4')).toBe(true);
+    expect([...traversal.trapCells].sort()).toEqual([
+      '10,8',
+      '11,8',
+      '12,8',
+      '13,8',
+      '8,8',
+      '9,8',
+    ]);
+    expect(codes(archetypes.platformer.lint(spec))).toContain('PLAT_SOFTLOCK_REGION');
+    expect(
+      archetypes.platformer
+        .lint(spec)
+        .find((diagnostic) => diagnostic.code === 'PLAT_SOFTLOCK_REGION')?.message,
+    ).toContain('player can enter but cannot physically reach the exit');
   });
 
   it('missing checkpoint → PLAT_NO_CHECKPOINT; content floors enforced', () => {

@@ -76,6 +76,24 @@ function carveChasm(level: PlatformerSpec['levels'][number], start: number, widt
   );
 }
 
+function addOneWaySafePit(level: PlatformerSpec['levels'][number]): void {
+  const width = 40;
+  const sideWall = `${'#'.repeat(8)}${'.'.repeat(6)}${'#'.repeat(26)}`;
+  level.tiles = [
+    ...Array.from({ length: 4 }, () => '.'.repeat(width)),
+    `${'.'.repeat(11)}C${'.'.repeat(28)}`,
+    `${'#'.repeat(8)}${'='.repeat(6)}${'#'.repeat(26)}`,
+    sideWall,
+    sideWall,
+    sideWall,
+    '#'.repeat(width),
+  ];
+  level.legend = { '#': 'solid', '=': 'platform', C: 'checkpoint' };
+  level.playerSpawn = { x: 2, y: 4 };
+  level.exit = { x: 30, y: 4 };
+  level.entities = [];
+}
+
 type RepairCall = (
   stage: StageName,
   prompt: BuiltPrompt,
@@ -712,6 +730,31 @@ describe('platformer route recovery', () => {
   it('stops paid repair and regeneration calls at the cost ceiling, then uses route fallback', async () => {
     const broken = golden('platformer') as PlatformerSpec;
     carveChasm(broken.levels[0]!, 40);
+    let modelCalls = 0;
+
+    const fixed = await validateAndRepairForTest(
+      broken,
+      async () => {
+        modelCalls++;
+        throw new Error('model should not be called after the repair budget is exhausted');
+      },
+      undefined,
+      0.25,
+    );
+
+    expect(modelCalls).toBe(0);
+    expect(archetypes.platformer.lint(fixed as PlatformerSpec)).toEqual([]);
+  });
+
+  it('uses the route fallback for a reachable safe pit with no physical escape', async () => {
+    const broken = golden('platformer') as PlatformerSpec;
+    addOneWaySafePit(broken.levels[0]!);
+    expect(archetypes.platformer.lint(broken).map((error) => error.code)).toContain(
+      'PLAT_SOFTLOCK_REGION',
+    );
+    expect(archetypes.platformer.lint(broken).map((error) => error.code)).not.toContain(
+      'PLAT_EXIT_UNREACHABLE',
+    );
     let modelCalls = 0;
 
     const fixed = await validateAndRepairForTest(

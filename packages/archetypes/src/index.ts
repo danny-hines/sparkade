@@ -17,6 +17,7 @@ export const archetypes: Record<ArchetypeId, Archetype> = {
 
 export type { Archetype } from './types';
 export {
+  analyzePlatformerTraversal,
   lintPlatformer,
   estimatePlatformerDurationS,
   platformerEntityReachabilityIssue,

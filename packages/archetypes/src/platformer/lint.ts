@@ -32,6 +32,15 @@ export interface PlatformerReachabilityOptions {
   ignoreMovingPlatformIndex?: number;
 }
 
+export interface PlatformerTraversalAnalysis {
+  /** Every standing or moving-platform ride cell reachable from spawn. */
+  reachable: Set<string>;
+  /** Reachable cells from which the player can still get to the exit. */
+  escapableToExit: Set<string>;
+  /** Reachable cells that can be entered but cannot physically reach the exit. */
+  trapCells: Set<string>;
+}
+
 export type PlatformerEntityReachabilityIssue =
   | 'pickup has no reachable collection position'
   | 'ground enemy has no reachable encounter space'
@@ -187,28 +196,41 @@ function traversalContext(
   };
 }
 
-export function reachableCells(
+function reachableTraversalGraph(
   level: PlatformerLevel,
   playerHeightTiles: 1 | 2 = 2,
   options: PlatformerReachabilityOptions = {},
-): Set<string> {
+): { reachable: Set<string>; reverseEdges: Map<string, Set<string>> } {
   const context = traversalContext(level, playerHeightTiles, options);
   const { grid, key, springs, movingPlatformGroups, movingPlatformMembership } = context;
   const start = { x: level.playerSpawn.x, y: level.playerSpawn.y };
-  if (!grid.standable(start.x, start.y)) return new Set<string>();
+  if (!grid.standable(start.x, start.y)) {
+    return { reachable: new Set<string>(), reverseEdges: new Map<string, Set<string>>() };
+  }
   const seen = new Set<string>([key(start.x, start.y)]);
+  const reverseEdges = new Map<string, Set<string>>();
   const queue = [start];
+  const connect = (from: string, destination: string): void => {
+    const sources = reverseEdges.get(destination) ?? new Set<string>();
+    sources.add(from);
+    reverseEdges.set(destination, sources);
+    if (seen.has(destination)) return;
+    seen.add(destination);
+    const [x, y] = destination.split(',').map(Number);
+    queue.push({ x: x!, y: y! });
+  };
   while (queue.length) {
     const cur = queue.shift()!;
+    const current = key(cur.x, cur.y);
+    // Touching the exit completes the level. Do not report terrain that is
+    // reachable only by hypothetically walking through that terminal cell.
+    if (current === key(level.exit.x, level.exit.y)) continue;
     // Once boarded, every sampled position along the same platform's travel
     // is reachable by waiting and riding. These virtual nodes can bridge to
     // authored terrain without changing collision or tile semantics.
-    for (const group of movingPlatformMembership.get(key(cur.x, cur.y)) ?? []) {
+    for (const group of movingPlatformMembership.get(current) ?? []) {
       for (const destination of movingPlatformGroups.get(group) ?? []) {
-        if (seen.has(destination)) continue;
-        seen.add(destination);
-        const [x, y] = destination.split(',').map(Number);
-        queue.push({ x: x!, y: y! });
+        connect(current, destination);
       }
     }
     const rise =
@@ -226,14 +248,51 @@ export function reachableCells(
         if (!up && dy > 1 && Math.abs(dx) > FALL_DX) continue;
         if (!context.isTraversalNode(nx, ny)) continue;
         if (!context.sweptBodyClear(cur, { x: nx, y: ny }, rise)) continue;
-        const k = key(nx, ny);
-        if (seen.has(k)) continue;
-        seen.add(k);
-        queue.push({ x: nx, y: ny });
+        connect(current, key(nx, ny));
       }
     }
   }
-  return seen;
+  return { reachable: seen, reverseEdges };
+}
+
+/** Analyze directed traversal, including drops that can be entered but cannot
+ * be reversed with the normal jump kernel. This catches safe-looking pits and
+ * drop-through basins that leave the player alive with no route onward. */
+export function analyzePlatformerTraversal(
+  level: PlatformerLevel,
+  playerHeightTiles: 1 | 2 = 2,
+  options: PlatformerReachabilityOptions = {},
+): PlatformerTraversalAnalysis {
+  const { reachable, reverseEdges } = reachableTraversalGraph(
+    level,
+    playerHeightTiles,
+    options,
+  );
+  const exit = `${level.exit.x},${level.exit.y}`;
+  const escapableToExit = new Set<string>();
+  const queue: string[] = [];
+  if (reachable.has(exit)) {
+    escapableToExit.add(exit);
+    queue.push(exit);
+  }
+  while (queue.length) {
+    const destination = queue.shift()!;
+    for (const source of reverseEdges.get(destination) ?? []) {
+      if (escapableToExit.has(source)) continue;
+      escapableToExit.add(source);
+      queue.push(source);
+    }
+  }
+  const trapCells = new Set([...reachable].filter((cell) => !escapableToExit.has(cell)));
+  return { reachable, escapableToExit, trapCells };
+}
+
+export function reachableCells(
+  level: PlatformerLevel,
+  playerHeightTiles: 1 | 2 = 2,
+  options: PlatformerReachabilityOptions = {},
+): Set<string> {
+  return analyzePlatformerTraversal(level, playerHeightTiles, options).reachable;
 }
 
 function reachableInteractionPosition(
@@ -568,10 +627,14 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
       );
     }
 
-    // Reachability: exit must be reachable from spawn with the jump kernel.
+    // Reachability is directed: falling into a region does not prove the
+    // player can jump back out. Require both a spawn-to-exit route and no
+    // reachable safe landing that strands the player alive.
+    let reachable: Set<string> | null = null;
     if (spawnCell && exitCell) {
-      const reach = reachableCells(level, playerHeightTiles);
-      if (!reach.has(exitCell)) {
+      const traversal = analyzePlatformerTraversal(level, playerHeightTiles);
+      reachable = traversal.reachable;
+      if (!traversal.reachable.has(exitCell)) {
         const blockage = platformerReachabilityBlockage(level, playerHeightTiles);
         const actionable = blockage
           ? `route is blocked after reachable standing cell (${blockage.frontier.x},${blockage.frontier.y}); nearest disconnected landing toward the exit is (${blockage.landing.x},${blockage.landing.y}) (horizontal gap ${blockage.horizontalGap}, rise ${blockage.rise}) — bridge or carve terrain between those coordinates`
@@ -581,6 +644,20 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
             'PLAT_EXIT_UNREACHABLE',
             `${path}/exit`,
             `exit is not reachable from spawn; ${actionable} (normal jump: at most 4 tiles across and 3 tiles up)`,
+          ),
+        );
+      } else if (traversal.trapCells.size) {
+        const cells = [...traversal.trapCells]
+          .map((cell) => cell.split(',').map(Number) as [number, number])
+          .sort(([leftX, leftY], [rightX, rightY]) => leftY - rightY || leftX - rightX);
+        const [firstX, firstY] = cells[0]!;
+        const xs = cells.map(([x]) => x);
+        const ys = cells.map(([, y]) => y);
+        out.push(
+          err(
+            'PLAT_SOFTLOCK_REGION',
+            `${path}/tiles`,
+            `${cells.length} reachable standing cells form a one-way trap (first at (${firstX},${firstY}), bounds x=${Math.min(...xs)}–${Math.max(...xs)}, y=${Math.min(...ys)}–${Math.max(...ys)}): the player can enter but cannot physically reach the exit — lower an escape ledge, add a reachable spring/platform, or make the pit lethal so it respawns instead of trapping`,
           ),
         );
       }
@@ -605,7 +682,7 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
       );
     }
 
-    const reachable = reachableCells(level, playerHeightTiles);
+    reachable ??= reachableCells(level, playerHeightTiles);
     for (const [entityIndex, e] of level.entities.entries()) {
       if ((ENEMY_TYPES as readonly string[]).includes(e.type)) enemyTypesUsed.add(e.type);
       if (e.type === 'coin' || e.type === 'heart' || e.type === 'powerup') pickupCount++;

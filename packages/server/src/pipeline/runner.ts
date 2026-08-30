@@ -5509,7 +5509,11 @@ export class GenerationRunner {
     // route through each still-disconnected level. This is preferable to
     // throwing away the complete game (and all of its later image work) over a
     // map-model mistake that repeated repair prompts could not localize.
-    const routeCodes = new Set(['PLAT_EXIT_UNREACHABLE', 'PLAT_NO_CHECKPOINT']);
+    const routeCodes = new Set([
+      'PLAT_EXIT_UNREACHABLE',
+      'PLAT_SOFTLOCK_REGION',
+      'PLAT_NO_CHECKPOINT',
+    ]);
     const routeIndexes = failingLevelIndexes(diagnostics);
     const onlyRouteTopologyDiagnostics =
       archetype === 'platformer' &&

@@ -586,8 +586,10 @@ export interface GameMetaFile {
   /** The confirmed prompt text the player approved (or preset/surprise text). */
   sourcePrompt: string;
   sourceKind: 'voice' | 'preset' | 'surprise';
-  /** Structured genre selected by Surprise Me; absent for voice and presets. */
+  /** Explicit engine selected by the player; absent on legacy automatic jobs. */
   requestedArchetype?: ArchetypeId;
+  /** Structured guided-creation inputs retained for provenance and retries. */
+  creationBrief?: CreationBrief;
   presetId?: string;
   hadPhoto: boolean;
   model: string;
@@ -683,6 +685,19 @@ export interface GameMetaFile {
 
 export type JobStatus = 'queued' | 'running' | 'waiting-network' | 'done' | 'failed' | 'canceled';
 
+/** Versioned, user-approved inputs from the guided creation flow. Keeping this
+ * separate from promptText lets retries preserve exact choices while legacy
+ * voice, preset, and Surprise jobs continue to work without a brief. */
+export interface CreationBrief {
+  version: 1;
+  /** Exact spoken character name. Omitted when the player asks Spark to invent one. */
+  heroName?: string;
+  /** Explicit engine choice; authoritative over model classification. */
+  archetype: ArchetypeId;
+  /** Story, enemies, setting, and aesthetic direction approved by the player. */
+  details: string;
+}
+
 export interface JobRecord {
   id: string;
   gameId: string;
@@ -691,8 +706,10 @@ export interface JobRecord {
   detail: string;
   promptText: string;
   sourceKind: 'voice' | 'preset' | 'surprise';
-  /** Structured genre selected by Surprise Me; survives retries. */
+  /** Explicit engine selected by the player; survives retries. */
   requestedArchetype?: ArchetypeId;
+  /** Structured guided-creation inputs. Absent on legacy jobs. */
+  creationBrief?: CreationBrief;
   presetId?: string;
   seed: number;
   idempotencyKey: string;

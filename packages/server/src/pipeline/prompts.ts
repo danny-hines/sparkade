@@ -21,6 +21,7 @@ import {
   PALETTE_MOODS,
   stageSchema,
   type ArchetypeId,
+  type CreationBrief,
   type DesignDoc,
 } from '@sparkade/shared';
 import { goldenExcerpt, loadGolden, loadTemplate, renderTemplate } from '@sparkade/generation';
@@ -54,6 +55,7 @@ export function buildDesignPrompt(opts: {
   describeInStory: boolean;
   antiCollision: { title: string; tagline: string; key?: string }[];
   recentMoods?: string[];
+  creationBrief?: CreationBrief;
   extraNote?: string;
 }): BuiltPrompt {
   const anti = opts.antiCollision.length
@@ -74,8 +76,18 @@ export function buildDesignPrompt(opts: {
   const moodNote = opts.recentMoods?.length
     ? `RECENT PALETTE MOODS on this cabinet (choose a clearly different hue family): ${[...new Set(opts.recentMoods)].join(', ')}.`
     : '';
+  const creationBrief = opts.creationBrief
+    ? [
+        'APPROVED CREATION BRIEF (authoritative):',
+        `HERO NAME: ${opts.creationBrief.heroName ?? '(invent a fitting name)'}`,
+        `REQUIRED ARCHETYPE: ${opts.creationBrief.archetype}`,
+        `ADDITIONAL DETAILS: ${opts.creationBrief.details}`,
+        'Preserve the supplied hero name exactly in story text. Design every level, control implication, character, and story beat for the required archetype.',
+      ].join('\n')
+    : '';
   const user = [
     `PLAYER REQUEST:\n${opts.promptText.slice(0, 1200)}`,
+    ...(creationBrief ? [creationBrief] : []),
     `PHOTO FOR LIKENESS: ${opts.hasPhoto ? 'yes' : 'no'}. ${likenessNotes}`,
     `GAMES ALREADY ON THIS CABINET (be clearly different):\n${anti}`,
     ...(moodNote ? [moodNote] : []),

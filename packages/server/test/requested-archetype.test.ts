@@ -7,6 +7,7 @@ import Fastify from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { DesignDoc } from '@sparkade/shared';
 import { registerRoutes } from '../src/api/routes';
+import { buildDesignPrompt } from '../src/pipeline/prompts';
 import { enforceRequestedArchetype } from '../src/pipeline/runner';
 import { Db } from '../src/storage/db';
 
@@ -42,7 +43,7 @@ async function apiHarness(): Promise<{
   return { app, calls };
 }
 
-describe('requested Surprise archetype API', () => {
+describe('requested archetype API', () => {
   it('accepts a known archetype and passes the structured value to the runner', async () => {
     const { app, calls } = await apiHarness();
     const boundary = 'sparkade-requested-archetype-test';
@@ -73,6 +74,11 @@ describe('requested Surprise archetype API', () => {
     expect(calls[0]).toMatchObject({
       sourceKind: 'surprise',
       requestedArchetype: 'fighter',
+      creationBrief: {
+        version: 1,
+        archetype: 'fighter',
+        details: 'Surprise me',
+      },
     });
   });
 
@@ -111,7 +117,7 @@ describe('requested Surprise archetype API', () => {
     expect(calls[0]).not.toHaveProperty('requestedArchetype');
   });
 
-  it('rejects the Surprise-only field on other source kinds', async () => {
+  it('accepts an authoritative engine for voice creation and builds a guided brief', async () => {
     const { app, calls } = await apiHarness();
     const response = await app.inject({
       method: 'POST',
@@ -120,19 +126,27 @@ describe('requested Surprise archetype API', () => {
         promptText: 'A game about a lighthouse',
         sourceKind: 'voice',
         requestedArchetype: 'platformer',
+        heroName: 'Nova',
+        details: 'Escaping a neon zombie wasteland',
         idempotencyKey: 'ik-mismatched-source',
       },
     });
 
-    expect(response.statusCode).toBe(400);
-    expect(response.json()).toEqual({
-      error: 'requestedArchetype is only valid for Surprise Me',
+    expect(response.statusCode).toBe(202);
+    expect(calls[0]).toMatchObject({
+      sourceKind: 'voice',
+      requestedArchetype: 'platformer',
+      creationBrief: {
+        version: 1,
+        heroName: 'Nova',
+        archetype: 'platformer',
+        details: 'Escaping a neon zombie wasteland',
+      },
     });
-    expect(calls).toEqual([]);
   });
 });
 
-describe('requested Surprise archetype persistence', () => {
+describe('requested archetype persistence', () => {
   it('migrates legacy databases and preserves the selection across job updates', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sparkade-archetype-test-'));
     cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
@@ -166,6 +180,7 @@ describe('requested Surprise archetype persistence', () => {
     cleanup.push(() => db.close());
     const jobColumns = db.db.prepare(`PRAGMA table_info(jobs)`).all() as { name: string }[];
     expect(jobColumns.some((column) => column.name === 'requested_archetype')).toBe(true);
+    expect(jobColumns.some((column) => column.name === 'creation_brief_json')).toBe(true);
     expect(jobColumns.some((column) => column.name === 'image_price_snapshot_json')).toBe(true);
 
     db.insertJob(
@@ -178,6 +193,12 @@ describe('requested Surprise archetype persistence', () => {
         promptText: 'Surprise me',
         sourceKind: 'surprise',
         requestedArchetype: 'adventure',
+        creationBrief: {
+          version: 1,
+          heroName: 'Mira',
+          archetype: 'adventure',
+          details: 'Recover the songs stolen from a moonlit forest',
+        },
         seed: 42,
         idempotencyKey: 'ik-surprise',
         hasPhoto: false,
@@ -190,6 +211,12 @@ describe('requested Surprise archetype persistence', () => {
     );
 
     expect(db.getJob('j-surprise')?.requestedArchetype).toBe('adventure');
+    expect(db.getJob('j-surprise')?.creationBrief).toEqual({
+      version: 1,
+      heroName: 'Mira',
+      archetype: 'adventure',
+      details: 'Recover the songs stolen from a moonlit forest',
+    });
     expect(db.jobImagePriceSnapshot('j-surprise')).toEqual({
       model: 'muse-image-1.0',
       perImageUsd: 0.01,
@@ -200,10 +227,33 @@ describe('requested Surprise archetype persistence', () => {
   });
 });
 
-describe('requested Surprise archetype enforcement', () => {
+describe('requested archetype enforcement', () => {
   it('overrides a conflicting model classification without changing ordinary designs', () => {
     const modelDesign = { archetype: 'fighter', title: 'Wrong Shape' } as DesignDoc;
     expect(enforceRequestedArchetype(modelDesign, 'adventure').archetype).toBe('adventure');
     expect(enforceRequestedArchetype(modelDesign)).toBe(modelDesign);
+  });
+});
+
+describe('guided creation design prompt', () => {
+  it('makes the approved hero name, engine, and details explicit and authoritative', () => {
+    const prompt = buildDesignPrompt({
+      promptText: 'Nova fights off invading aliens',
+      hasPhoto: true,
+      describeInStory: false,
+      antiCollision: [],
+      creationBrief: {
+        version: 1,
+        heroName: 'Nova',
+        archetype: 'shooter',
+        details: 'Fighting off invading aliens above a crystal ocean',
+      },
+    });
+
+    expect(prompt.user).toContain('APPROVED CREATION BRIEF (authoritative)');
+    expect(prompt.user).toContain('HERO NAME: Nova');
+    expect(prompt.user).toContain('REQUIRED ARCHETYPE: shooter');
+    expect(prompt.user).toContain('Fighting off invading aliens above a crystal ocean');
+    expect(prompt.user).toContain('Preserve the supplied hero name exactly');
   });
 });

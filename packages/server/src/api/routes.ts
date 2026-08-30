@@ -170,6 +170,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     let idempotencyKey = '';
     let sourceKind: 'voice' | 'preset' | 'surprise' = 'voice';
     let requestedArchetype: string | undefined;
+    let heroName: string | undefined;
+    let details: string | undefined;
     let presetId: string | undefined;
     let photo: Buffer | undefined;
     if (req.isMultipart()) {
@@ -183,6 +185,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
           else if (part.fieldname === 'idempotencyKey') idempotencyKey = v;
           else if (part.fieldname === 'sourceKind') sourceKind = v as typeof sourceKind;
           else if (part.fieldname === 'requestedArchetype') requestedArchetype = v;
+          else if (part.fieldname === 'heroName') heroName = v;
+          else if (part.fieldname === 'details') details = v;
           else if (part.fieldname === 'presetId') presetId = v;
         }
       }
@@ -192,6 +196,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       idempotencyKey = body?.idempotencyKey ?? '';
       sourceKind = (body?.sourceKind as typeof sourceKind) ?? 'voice';
       requestedArchetype = body?.requestedArchetype;
+      heroName = body?.heroName;
+      details = body?.details;
       presetId = body?.presetId;
     }
     if (!promptText.trim()) return reply.code(400).send({ error: 'promptText is required' });
@@ -199,8 +205,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     if (requestedArchetype !== undefined && !isArchetypeId(requestedArchetype)) {
       return reply.code(400).send({ error: 'requestedArchetype is invalid' });
     }
-    if (requestedArchetype !== undefined && String(sourceKind) !== 'surprise') {
-      return reply.code(400).send({ error: 'requestedArchetype is only valid for Surprise Me' });
+    if ((heroName !== undefined || details !== undefined) && !requestedArchetype) {
+      return reply.code(400).send({ error: 'guided creation fields require requestedArchetype' });
     }
     if (photo && photo.length > MAX_PHOTO_BYTES)
       return reply.code(413).send({ error: 'photo too large' });
@@ -208,6 +214,16 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       promptText: promptText.slice(0, 1200),
       sourceKind,
       ...(requestedArchetype ? { requestedArchetype } : {}),
+      ...(requestedArchetype
+        ? {
+            creationBrief: {
+              version: 1 as const,
+              ...(heroName?.trim() ? { heroName: heroName.trim().slice(0, 48) } : {}),
+              archetype: requestedArchetype,
+              details: (details?.trim() || promptText.trim()).slice(0, 1200),
+            },
+          }
+        : {}),
       ...(presetId ? { presetId } : {}),
       ...(photo ? { photo } : {}),
       idempotencyKey,

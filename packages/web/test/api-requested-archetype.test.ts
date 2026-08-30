@@ -36,15 +36,19 @@ describe('createGame requested archetype', () => {
     expect(capture.submitted().get('requestedArchetype')).toBe('hshooter');
   });
 
-  it('omits the field for ordinary voice creation', async () => {
+  it('sends the guided brief fields for ordinary voice creation', async () => {
     const capture = captureCreateRequest();
     await api.createGame({
       promptText: 'A platform game about a lighthouse',
       sourceKind: 'voice',
       requestedArchetype: 'fighter',
+      heroName: 'Nova',
+      details: 'Defend the last arcade from alien champions',
       idempotencyKey: 'ik-voice',
     });
 
-    expect(capture.submitted().has('requestedArchetype')).toBe(false);
+    expect(capture.submitted().get('requestedArchetype')).toBe('fighter');
+    expect(capture.submitted().get('heroName')).toBe('Nova');
+    expect(capture.submitted().get('details')).toBe('Defend the last arcade from alien champions');
   });
 });

@@ -15,6 +15,7 @@ import {
   SPEC_VERSION,
   stageSchema,
   type ArchetypeId,
+  type CreationBrief,
   type DesignDoc,
   type FighterCharacter,
   type FighterSpec,
@@ -322,8 +323,10 @@ export interface NewJobInputs {
   promptText: string;
   sourceKind: 'voice' | 'preset' | 'surprise';
   presetId?: string;
-  /** Explicit genre chosen by Surprise; authoritative over model classification. */
+  /** Explicit engine chosen by the player; authoritative over model classification. */
   requestedArchetype?: ArchetypeId;
+  /** User-approved guided creation inputs. */
+  creationBrief?: CreationBrief;
   photo?: Buffer;
   idempotencyKey: string;
 }
@@ -368,7 +371,7 @@ const PLATFORMER_PROP_ASSET_ROLES = {
   enemyProjectile: 'platformerPropEnemyProjectile',
 } as const satisfies Record<GeneratedPlatformerProp, GeneratedGameAssetRole>;
 
-/** Surprise's structured genre is authoritative; the design model still gets
+/** The player's structured engine choice is authoritative; the design model still gets
  * the instruction, but cannot silently relabel the job by returning another id. */
 export function enforceRequestedArchetype(
   design: DesignDoc,
@@ -595,6 +598,7 @@ export class GenerationRunner {
         sourceKind: inputs.sourceKind,
         ...(inputs.presetId ? { presetId: inputs.presetId } : {}),
         ...(inputs.requestedArchetype ? { requestedArchetype: inputs.requestedArchetype } : {}),
+        ...(inputs.creationBrief ? { creationBrief: inputs.creationBrief } : {}),
         seed,
         idempotencyKey: inputs.idempotencyKey,
         hasPhoto: !!inputs.photo,
@@ -1267,6 +1271,7 @@ export class GenerationRunner {
           antiCollision: existingGames,
           recentMoods,
           photo: describeInStory ? photo : undefined,
+          creationBrief: job.creationBrief,
           extraNote: requiredArchetypeNote,
           onRepair: recordDesignRedraft,
         });
@@ -1295,6 +1300,7 @@ export class GenerationRunner {
           antiCollision: existingGames,
           recentMoods,
           photo: describeInStory ? photo : undefined,
+          creationBrief: job.creationBrief,
           extraNote: [
             requiredArchetypeNote,
             `Your previous title "${design.title}" was too similar to "${collision}". Choose a clearly different title and premise.`,
@@ -4589,6 +4595,7 @@ export class GenerationRunner {
         sourceKind: job.sourceKind,
         ...(job.presetId ? { presetId: job.presetId } : {}),
         ...(job.requestedArchetype ? { requestedArchetype: job.requestedArchetype } : {}),
+        ...(job.creationBrief ? { creationBrief: job.creationBrief } : {}),
         hadPhoto: !!photo,
         model: stageCfg.model,
         provider: process.env.SPARKADE_PROVIDER ?? stageCfg.provider,
@@ -4752,6 +4759,7 @@ export class GenerationRunner {
       antiCollision: { title: string; tagline: string }[];
       recentMoods?: string[];
       photo?: Buffer;
+      creationBrief?: CreationBrief;
       extraNote?: string;
       onRepair?: (
         before: readonly LintError[],

@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   prompt_text TEXT NOT NULL,
   source_kind TEXT NOT NULL,
   requested_archetype TEXT,
+  creation_brief_json TEXT,
   preset_id TEXT,
   seed INTEGER NOT NULL,
   idempotency_key TEXT NOT NULL UNIQUE,
@@ -162,11 +163,14 @@ export class Db {
     if (!usageCols.some((c) => c.name === 'cached_tokens')) {
       this.db.exec(`ALTER TABLE usage_events ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0`);
     }
-    // Migration: Surprise Me genre is now structured instead of living only
-    // in prompt prose. Nullable keeps all existing voice/preset jobs valid.
+    // Migrations: explicit engine and guided-creation inputs are structured
+    // instead of living only in prompt prose. Nullable keeps legacy jobs valid.
     const jobCols = this.db.prepare(`PRAGMA table_info(jobs)`).all() as { name: string }[];
     if (!jobCols.some((c) => c.name === 'requested_archetype')) {
       this.db.exec(`ALTER TABLE jobs ADD COLUMN requested_archetype TEXT`);
+    }
+    if (!jobCols.some((c) => c.name === 'creation_brief_json')) {
+      this.db.exec(`ALTER TABLE jobs ADD COLUMN creation_brief_json TEXT`);
     }
     if (!jobCols.some((c) => c.name === 'image_price_snapshot_json')) {
       this.db.exec(`ALTER TABLE jobs ADD COLUMN image_price_snapshot_json TEXT`);
@@ -268,8 +272,8 @@ export class Db {
   ): void {
     this.db
       .prepare(
-        `INSERT INTO jobs (id, game_id, status, stage, detail, prompt_text, source_kind, requested_archetype, preset_id, seed, idempotency_key, has_photo, created_at, started_at, finished_at, error_json, attempt, price_snapshot_json, image_price_snapshot_json)
-         VALUES (@id, @gameId, @status, @stage, @detail, @promptText, @sourceKind, @requestedArchetype, @presetId, @seed, @idempotencyKey, @hasPhoto, @createdAt, @startedAt, @finishedAt, @error, @attempt, @priceSnapshot, @imagePriceSnapshot)`,
+        `INSERT INTO jobs (id, game_id, status, stage, detail, prompt_text, source_kind, requested_archetype, creation_brief_json, preset_id, seed, idempotency_key, has_photo, created_at, started_at, finished_at, error_json, attempt, price_snapshot_json, image_price_snapshot_json)
+         VALUES (@id, @gameId, @status, @stage, @detail, @promptText, @sourceKind, @requestedArchetype, @creationBrief, @presetId, @seed, @idempotencyKey, @hasPhoto, @createdAt, @startedAt, @finishedAt, @error, @attempt, @priceSnapshot, @imagePriceSnapshot)`,
       )
       .run({
         id: job.id,
@@ -280,6 +284,7 @@ export class Db {
         promptText: job.promptText,
         sourceKind: job.sourceKind,
         requestedArchetype: job.requestedArchetype ?? null,
+        creationBrief: job.creationBrief ? JSON.stringify(job.creationBrief) : null,
         presetId: job.presetId ?? null,
         seed: job.seed,
         idempotencyKey: job.idempotencyKey,
@@ -644,6 +649,9 @@ function toJobRecord(r: Record<string, unknown>, costSoFarUsd: number | null): J
     sourceKind: String(r.source_kind) as JobRecord['sourceKind'],
     ...(r.requested_archetype
       ? { requestedArchetype: String(r.requested_archetype) as ArchetypeId }
+      : {}),
+    ...(r.creation_brief_json
+      ? { creationBrief: JSON.parse(String(r.creation_brief_json)) as JobRecord['creationBrief'] }
       : {}),
     ...(r.preset_id ? { presetId: String(r.preset_id) } : {}),
     seed: Number(r.seed),

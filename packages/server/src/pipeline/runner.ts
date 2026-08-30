@@ -183,6 +183,12 @@ import {
   type GeneratedPlatformerProp,
 } from '../assets/platformer-prop';
 import {
+  HSHOOTER_CRAFT_PROMPT_VERSION,
+  buildHShooterCraftPrompt,
+  buildHShooterIdentityReference,
+  processGeneratedHShooterCraft,
+} from '../assets/hshooter-craft';
+import {
   GameAssetWorkspace,
   GeneratedAssetStorageError,
   imagePromptHash,
@@ -1665,16 +1671,102 @@ export class GenerationRunner {
 
       const photoReference = photo ? await prepareImageReference(photo) : undefined;
       const canonicalHeroConcept = spec.meta.heroConcept ?? design.heroConcept;
-      const keyArtPrompt = buildKeyArtPrompt(spec, !!photo, canonicalHeroConcept);
-      const keyArtTask = cachedGeneratedAsset({
-        role: 'keyArt',
-        promptVersion: KEY_ART_PROMPT_VERSION,
-        prompt: keyArtPrompt,
-        policyFallbackPrompt: buildKeyArtPolicyFallbackPrompt(spec, !!photo, canonicalHeroConcept),
-        label: 'Key art',
-        ...(photoReference ? { reference: photoReference } : {}),
-        size: KEY_ART_ASPECT_HINT,
-        normalize: normalizeKeyArt,
+      const hshooterCraftIdentity =
+        spec.archetype === 'hshooter' ? spec.playerCraft : undefined;
+      let hshooterPlayerCraftArtStatus: GameMetaFile['hshooterPlayerCraftArt'] =
+        hshooterCraftIdentity
+          ? {
+              mode: 'procedural',
+              attempted: true,
+              reason: 'Generated H-scroll player craft did not complete',
+            }
+          : undefined;
+      const hshooterCraftTask: Promise<Buffer | null> = hshooterCraftIdentity
+        ? (async () => {
+            const generationStarted = Date.now();
+            try {
+              const craft = await cachedGeneratedAsset({
+                role: 'hshooterPlayerCraft',
+                promptVersion: HSHOOTER_CRAFT_PROMPT_VERSION,
+                prompt: buildHShooterCraftPrompt({
+                  gameTitle: spec.meta.title,
+                  tagline: spec.meta.tagline,
+                  visualConcept: hshooterCraftIdentity.visualConcept,
+                  colors: spec.palette.join(', '),
+                }),
+                label: 'H-scroll player craft',
+                size: '1536x1024',
+                normalize: async (image) => (await processGeneratedHShooterCraft(image)).png,
+              });
+              hshooterPlayerCraftArtStatus = { mode: 'generated', attempted: true };
+              return craft;
+            } catch (error) {
+              if (
+                abort.signal.aborted ||
+                (error instanceof PipelineError &&
+                  error.code !== 'image-invalid' &&
+                  !isOptionalGeneratedArtProviderFailure(error))
+              ) {
+                throw error;
+              }
+              await assetWorkspace.discard(['hshooterPlayerCraft']);
+              const reason =
+                error instanceof Error
+                  ? error.message.slice(0, 240)
+                  : 'Generated H-scroll player craft failed validation';
+              hshooterPlayerCraftArtStatus = {
+                mode: 'procedural',
+                attempted: true,
+                reason,
+              };
+              recordEarlyRepairEvent(
+                'entities',
+                'hshooter-player-craft-fallback',
+                [
+                  {
+                    code: 'HSHOOTER_PLAYER_CRAFT_FALLBACK',
+                    path: '/assets/hshooter-player-craft',
+                    message: reason,
+                  },
+                ],
+                [],
+                generationStarted,
+                'downgraded',
+              );
+              emit(
+                'building-assets',
+                `Generated player craft did not pass; using the stable likeness-free ship (${reason.slice(0, 120)})`,
+              );
+              return null;
+            }
+          })()
+        : Promise.resolve(null);
+      const keyArtTask = hshooterCraftTask.then(async (craft) => {
+        const craftBrief = craft ? hshooterCraftIdentity : undefined;
+        const reference = craft
+          ? await buildHShooterIdentityReference(photoReference, craft)
+          : photoReference;
+        const keyArtPrompt = buildKeyArtPrompt(
+          spec,
+          !!photo,
+          canonicalHeroConcept,
+          craftBrief,
+        );
+        return cachedGeneratedAsset({
+          role: 'keyArt',
+          promptVersion: KEY_ART_PROMPT_VERSION,
+          prompt: keyArtPrompt,
+          policyFallbackPrompt: buildKeyArtPolicyFallbackPrompt(
+            spec,
+            !!photo,
+            canonicalHeroConcept,
+            craftBrief,
+          ),
+          label: 'Key art',
+          ...(reference ? { reference } : {}),
+          size: KEY_ART_ASPECT_HINT,
+          normalize: normalizeKeyArt,
+        });
       });
 
       const identityKey = JSON.stringify({
@@ -1815,7 +1907,7 @@ export class GenerationRunner {
         label: string;
       }[];
       const generateHeads = async (): Promise<void> => {
-        if (!photo) return;
+        if (!photo || hshooterCraftIdentity) return;
         const headShas = Object.fromEntries(
           headDirections.map(({ direction }) => [
             direction,
@@ -1880,22 +1972,27 @@ export class GenerationRunner {
         role: StoryArtRole,
         assetRole: GeneratedGameAssetRole,
       ): Promise<Buffer> =>
-        keyArtTask.then((keyArt) =>
-          cachedGeneratedAsset({
+        Promise.all([keyArtTask, hshooterCraftTask]).then(async ([keyArt, craft]) => {
+          const craftBrief = craft ? hshooterCraftIdentity : undefined;
+          const reference = craft
+            ? await buildHShooterIdentityReference(keyArt, craft)
+            : keyArt;
+          return cachedGeneratedAsset({
             role: assetRole,
             promptVersion: STORY_ART_PROMPT_VERSION,
-            prompt: buildStoryArtPrompt(spec, role, canonicalHeroConcept),
+            prompt: buildStoryArtPrompt(spec, role, canonicalHeroConcept, craftBrief),
             policyFallbackPrompt: buildStoryArtPolicyFallbackPrompt(
               spec,
               role,
               canonicalHeroConcept,
+              craftBrief,
             ),
             label: `${role} scene`,
-            reference: keyArt,
+            reference,
             size: STORY_ART_ASPECT_HINT,
             normalize: normalizeStoryArt,
-          }),
-        );
+          });
+        });
       const storyAssets = {
         intro: storyAssetTask('intro', 'storyIntro'),
         boss: storyAssetTask('boss', 'storyBoss'),
@@ -3757,6 +3854,7 @@ export class GenerationRunner {
         portraitTask,
         portraitDefeatTask,
         headsTask,
+        hshooterCraftTask,
       ]);
       const finishingFailure = finishingAssets.find(
         (result): result is PromiseRejectedResult => result.status === 'rejected',
@@ -3796,6 +3894,9 @@ export class GenerationRunner {
         ...(platformerPropArtStatus ? { platformerPropArt: platformerPropArtStatus } : {}),
         ...(platformerBackdropArtStatus
           ? { platformerBackdropArt: platformerBackdropArtStatus }
+          : {}),
+        ...(hshooterPlayerCraftArtStatus
+          ? { hshooterPlayerCraftArt: hshooterPlayerCraftArtStatus }
           : {}),
       };
       writeFileSync(join(staging, 'meta.json'), JSON.stringify(meta, null, 2));
@@ -4003,6 +4104,9 @@ export class GenerationRunner {
         tagline: design.tagline,
         heroConcept: canonicalHeroConcept,
       },
+      ...(archetype === 'hshooter' && design.vehicleConcept
+        ? { playerCraft: { visualConcept: design.vehicleConcept } }
+        : {}),
       palette: design.palette,
       story: design.story,
       sprites: (parts.entities?.sprites ?? { custom: {}, assign: {} }) as GameSpec['sprites'],
@@ -4033,6 +4137,7 @@ export class GenerationRunner {
               (hasPhoto ? ('detailed' as const) : ('chunky' as const)),
           }
         : {}),
+      ...(archetype === 'hshooter' ? { hshooterArtDensity: 'detailed' as const } : {}),
       ...(archetype === 'platformer' && design.feel ? { feel: design.feel } : {}),
       scoring: design.scoring,
     } as GameSpec;

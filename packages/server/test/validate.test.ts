@@ -6,6 +6,7 @@ import {
   LIB_BOSSES_PLATFORMER,
   type DesignDoc,
   type GameSpec,
+  type HShooterSpec,
   type JobStage,
   type PlatformerSpec,
   type StageName,
@@ -148,6 +149,21 @@ describe('security scan', () => {
     };
 
     expect(designOutputDiagnostics(design)).toEqual([]);
+    const missingCraft = designOutputDiagnostics({ ...design, archetype: 'hshooter' });
+    expect(missingCraft).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'SCHEMA', path: '/vehicleConcept' }),
+      ]),
+    );
+    expect(missingCraft.every(({ code }) => code === 'SCHEMA')).toBe(true);
+    expect(
+      designOutputDiagnostics({
+        ...design,
+        archetype: 'hshooter',
+        vehicleConcept:
+          'A cobalt trench skiff with swept fins, a dark canopy, and twin amber drives',
+      }),
+    ).toEqual([]);
     expect(designOutputDiagnostics({ ...design, title: 'Visit www.bad.example' })).toEqual([
       expect.objectContaining({ code: 'SCAN_REJECTED', path: '/title' }),
     ]);
@@ -233,6 +249,33 @@ describe('platformer geometry schema migration', () => {
 
     const invalid = { ...current, platformerArtDensity: 'smooth' };
     expect(validateGameSchema('platformer', invalid)).not.toEqual([]);
+  });
+});
+
+describe('H-scroll presentation schema migration', () => {
+  it('opts current games into detailed terrain while legacy saves remain valid', () => {
+    const current = golden('hshooter') as HShooterSpec;
+    expect(current.hshooterArtDensity).toBe('detailed');
+    expect(validateGameSchema('hshooter', current)).toEqual([]);
+    expect(current.playerCraft?.visualConcept).toMatch(/Rift Skiff/);
+
+    const chunky = { ...current, hshooterArtDensity: 'chunky' };
+    expect(validateGameSchema('hshooter', chunky)).toEqual([]);
+
+    const legacy = structuredClone(current);
+    delete legacy.hshooterArtDensity;
+    delete legacy.playerCraft;
+    expect(validateGameSchema('hshooter', legacy)).toEqual([]);
+
+    const invalid = { ...current, hshooterArtDensity: 'smooth' };
+    expect(validateGameSchema('hshooter', invalid)).not.toEqual([]);
+
+    expect(
+      validateGameSchema('hshooter', {
+        ...current,
+        playerCraft: { visualConcept: 'tiny' },
+      }),
+    ).not.toEqual([]);
   });
 });
 

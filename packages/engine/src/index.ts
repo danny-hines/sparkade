@@ -85,6 +85,26 @@ export { SfxSynth } from './audio/sfx';
 export { Hud } from './hud';
 export { StoryCards, type CardContent } from './storycard';
 export {
+  SOLID_EAST,
+  SOLID_NEIGHBOR_MASK,
+  SOLID_NORTH,
+  SOLID_SOUTH,
+  SOLID_WEST,
+  ConnectedSolidAutotiles,
+  exposedSolidEdges,
+  inferSolidInnerRef,
+  isSolidInnerLibraryId,
+  renderSolidVariant,
+  resolveSolidInnerRef,
+  roundedSolidCorners,
+  solidNeighborMask,
+  solidTileVariant,
+  terrainAtlasFrame,
+  type SolidCorner,
+  type SolidEdge,
+  type SolidTileVariant,
+} from './connected-tiles';
+export {
   PauseOverlay,
   HowToPlayCard,
   ScoreTally,
@@ -106,6 +126,7 @@ export {
   TILES_PLATFORMER_HD,
   platformerHdMovingPlatformRef,
   platformerHdSpringRef,
+  highDensityTileRef,
   platformerHdTileRef,
   type PlatformerHdTileKind,
 } from './library/platformer-hd';

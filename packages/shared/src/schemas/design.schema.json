@@ -21,6 +21,13 @@
       "maxLength": 120,
       "pattern": "^[ -~]+$"
     },
+    "vehicleConcept": {
+      "description": "H-scroll shooter only. A concrete likeness-independent identity for the player's craft: silhouette, materials, propulsion, canopy, markings, and signature motif. Never describe a human face or body as part of the vehicle.",
+      "type": "string",
+      "minLength": 12,
+      "maxLength": 180,
+      "pattern": "^[ -~]+$"
+    },
     "story": {
       "type": "object",
       "properties": {
@@ -133,12 +140,33 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "gravityScale": { "type": "number", "minimum": 0.72, "maximum": 1, "description": "lower = floatier, more airtime" },
-        "jumpScale": { "type": "number", "minimum": 1, "maximum": 1.25, "description": "higher = taller jump" },
-        "speedScale": { "type": "number", "minimum": 1, "maximum": 1.3, "description": "higher = faster run" }
+        "gravityScale": {
+          "type": "number",
+          "minimum": 0.72,
+          "maximum": 1,
+          "description": "lower = floatier, more airtime"
+        },
+        "jumpScale": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1.25,
+          "description": "higher = taller jump"
+        },
+        "speedScale": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1.3,
+          "description": "higher = faster run"
+        }
       }
     }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "archetype": { "const": "hshooter" } }, "required": ["archetype"] },
+      "then": { "required": ["vehicleConcept"] }
+    }
+  ],
   "required": [
     "title",
     "tagline",

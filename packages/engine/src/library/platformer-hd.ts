@@ -84,8 +84,8 @@ export const TILES_PLATFORMER_HD_BASES: Record<string, LibraryEntry> = Object.fr
 
 export const PLATFORMER_HD_TILE_DENSITY = file.density;
 
-/** Upgrade a validated library ref only when a curated platformer-HD twin exists. */
-export function platformerHdTileRef(ref: string): string {
+/** Upgrade a validated library ref when a curated high-density twin exists. */
+export function highDensityTileRef(ref: string): string {
   const match = /^lib:([a-z][a-z0-9_]*)$/.exec(ref);
   if (!match) return ref;
   const upgraded = `${match[1]}_hd`;
@@ -93,6 +93,9 @@ export function platformerHdTileRef(ref: string): string {
     ? `lib:${upgraded}`
     : ref;
 }
+
+/** Compatibility name retained for platformer callers and external tooling. */
+export const platformerHdTileRef = highDensityTileRef;
 
 /** Infer the curated moving-platform entry from an assigned solid family. */
 export function platformerHdMovingPlatformRef(solidRef: string): string | null {

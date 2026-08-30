@@ -1,6 +1,10 @@
 {
   "specVersion": 1,
   "archetype": "hshooter",
+  "hshooterArtDensity": "detailed",
+  "playerCraft": {
+    "visualConcept": "The Rift Skiff, a low indigo trench fighter with swept silver fins, a dark bubble canopy, twin amber drives, and a forked gold nose marking"
+  },
   "seed": 20260713,
   "meta": {
     "title": "Wyrmgut Run",
@@ -62,6 +66,7 @@
       "shield": "lib:pickup_shield",
       "bomb": "lib:pickup_bomb",
       "tile_solid": "lib:alien_solid",
+      "tile_solid_inner": "lib:alien_solid_inner",
       "tile_hazard": "lib:alien_hazard",
       "tile_deco": "lib:alien_deco"
     }

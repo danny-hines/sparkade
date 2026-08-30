@@ -7,6 +7,19 @@
     "specVersion": { "const": 1 },
     "archetype": { "const": "hshooter" },
     "seed": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
+    "hshooterArtDensity": {
+      "description": "Source-art resolution for terrain. Omitted saved games retain legacy tiles; newly generated games use detailed.",
+      "enum": ["chunky", "detailed"]
+    },
+    "playerCraft": {
+      "description": "Likeness-independent identity for the player vehicle. Omitted saved games retain the legacy likeness-composited ship path.",
+      "type": "object",
+      "properties": {
+        "visualConcept": { "type": "string", "minLength": 12, "maxLength": 180, "pattern": "^[ -~]+$" }
+      },
+      "required": ["visualConcept"],
+      "additionalProperties": false
+    },
     "meta": { "$ref": "#/$defs/meta" },
     "palette": { "$ref": "#/$defs/palette" },
     "story": { "$ref": "#/$defs/story" },
@@ -30,8 +43,18 @@
     "weather": {
       "description": "Ambient weather/particle overlay drawn over gameplay in your palette colors. Match the premise (rain, snow, embers, fog, fireflies, …); keep it subtle; omit or 'none' for clear.",
       "enum": [
-        "none", "rain", "storm", "snow", "embers", "ash",
-        "leaves", "petals", "fog", "bubbles", "fireflies", "dust"
+        "none",
+        "rain",
+        "storm",
+        "snow",
+        "embers",
+        "ash",
+        "leaves",
+        "petals",
+        "fog",
+        "bubbles",
+        "fireflies",
+        "dust"
       ]
     },
     "lighting": {
@@ -116,7 +139,12 @@
             "type": "array",
             "minItems": 4,
             "maxItems": 48,
-            "items": { "type": "string", "minLength": 4, "maxLength": 48, "pattern": "^[0-9a-f.]+$" }
+            "items": {
+              "type": "string",
+              "minLength": 4,
+              "maxLength": 48,
+              "pattern": "^[0-9a-f.]+$"
+            }
           }
         },
         "headSlot": {
@@ -162,8 +190,18 @@
           "items": { "$ref": "#/$defs/text" }
         },
         "bossIntro": { "$ref": "#/$defs/text" },
-        "victory": { "type": "array", "minItems": 1, "maxItems": 3, "items": { "$ref": "#/$defs/text" } },
-        "defeat": { "type": "array", "minItems": 1, "maxItems": 3, "items": { "$ref": "#/$defs/text" } }
+        "victory": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/text" }
+        },
+        "defeat": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/text" }
+        }
       },
       "required": ["intro", "levelIntros", "bossIntro", "victory", "defeat"],
       "additionalProperties": false
@@ -454,7 +492,16 @@
           "items": { "$ref": "#/$defs/levelPickup" }
         }
       },
-      "required": ["name", "musicSong", "scroll", "durationS", "tiles", "legend", "waves", "pickups"],
+      "required": [
+        "name",
+        "musicSong",
+        "scroll",
+        "durationS",
+        "tiles",
+        "legend",
+        "waves",
+        "pickups"
+      ],
       "additionalProperties": false
     },
     "boss": {

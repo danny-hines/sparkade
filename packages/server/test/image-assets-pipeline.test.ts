@@ -51,6 +51,10 @@ const PRESENTATION_ROLES = [
   'storyDefeat',
 ] as const satisfies readonly GeneratedGameAssetRole[];
 
+const HSHOOTER_CRAFT_ROLES = [
+  'hshooterPlayerCraft',
+] as const satisfies readonly GeneratedGameAssetRole[];
+
 const FIGHTER_ROLES = [
   'fighterPlayerAtlas',
   'fighterOpponent1Atlas',
@@ -243,6 +247,22 @@ describe('story art prompts', () => {
     expect(prompt).toContain('No wounds, gore, death');
   });
 
+  it('keeps the H-scroll pilot and exact gameplay craft as separate visual identities', () => {
+    const spec = JSON.parse(
+      readFileSync(join(process.cwd(), 'packages/generation/golden/golden-hshooter.json'), 'utf8'),
+    ) as Extract<GameSpec, { archetype: 'hshooter' }>;
+    const craft = spec.playerCraft!;
+    const keyArt = buildKeyArtPrompt(spec, true, spec.meta.heroConcept, craft);
+    const story = buildStoryArtPrompt(spec, 'intro', spec.meta.heroConcept, craft);
+
+    expect(keyArt).toContain('TOP PANEL');
+    expect(keyArt).toContain('BOTTOM PANEL is the exact player craft used in gameplay');
+    expect(keyArt).toContain(craft.visualConcept);
+    expect(keyArt).toContain('never put the pilot face, head, or body onto the vehicle');
+    expect(story).toContain('BOTTOM PANEL is the exact gameplay craft');
+    expect(story).toContain("Never place the pilot's face or body onto the craft");
+  });
+
   it('provides policy-safe presentation prompts without replaying authored danger text', () => {
     const spec = JSON.parse(
       readFileSync(
@@ -385,6 +405,42 @@ describe.sequential('mock image asset pipeline', () => {
       ...PLATFORMER_PROP_ROLES,
       ...PLATFORMER_BACKDROP_ROLES,
     ]);
+  });
+
+  it('publishes a likeness-free H-scroll craft and skips directional gameplay heads', async () => {
+    const { db, files, runner } = createHarness();
+    const { jobId, gameId } = runner.createJob({
+      promptText: 'A trench pilot races an alien current in a signature cobalt skiff',
+      sourceKind: 'surprise',
+      requestedArchetype: 'hshooter',
+      photo: await testPhoto(),
+      idempotencyKey: 'mock-photo-hshooter-craft-assets',
+    });
+
+    expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done' });
+    const spec = files.readSpec(gameId) as Extract<GameSpec, { archetype: 'hshooter' }>;
+    expect(spec.playerCraft?.visualConcept).toContain('Starling');
+    expect(files.readMeta(gameId)?.hshooterPlayerCraftArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+    });
+    await expectPublishedPngs(files, gameId, [
+      ...PRESENTATION_ROLES,
+      ...PORTRAIT_ROLES,
+      ...HSHOOTER_CRAFT_ROLES,
+    ]);
+
+    const craft = generatedAssetForRole(
+      join(files.gameDir(gameId), 'assets'),
+      'hshooterPlayerCraft',
+    );
+    expect(craft).toMatchObject({ width: 96, height: 64 });
+    expect(
+      HEAD_ROLES.some((role) => generatedAssetForRole(join(files.gameDir(gameId), 'assets'), role)),
+    ).toBe(false);
+    expect(
+      db.usageForGame(gameId).filter((event) => event.stage.startsWith('image:') && !event.failed),
+    ).toHaveLength(8);
   });
 
   it('publishes the complete, distinct 11-pose generated fighter set', async () => {

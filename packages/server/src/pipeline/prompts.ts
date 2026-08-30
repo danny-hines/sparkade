@@ -11,10 +11,10 @@ import {
   LIB_FOES_SHOOTER,
   LIB_HEROES_ADVENTURE,
   LIB_HEROES_PLATFORMER,
+  LIB_HD_TILE_THEMES,
   LIB_ITEMS,
   LIB_NPCS,
   LIB_OBJECTS,
-  LIB_PLATFORMER_ONLY_TILE_THEMES,
   LIB_PICKUPS,
   LIB_PROJECTILES,
   LIB_SHIPS,
@@ -259,7 +259,7 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       `SMALL ART (self-describing): ${small}`,
     ].join('\n'),
     hshooter: [
-      '\nSHIPS (the engine flips them to face RIGHT; all take the generated likeness head in the canopy):',
+      '\nSHIPS (stable likeness-free fallbacks; the generated player craft replaces the selected hero when available):',
       annotated(LIB_SHIPS),
       'FOE BODIES (any body can skin any behavior role; they fly in from the right):',
       annotated(LIB_FOES_SHOOTER),
@@ -294,7 +294,7 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       'tile_door_boss',
       'tile_door_open',
     ],
-    hshooter: ['tile_solid', 'tile_hazard', 'tile_deco'],
+    hshooter: ['tile_solid', 'tile_solid_inner', 'tile_hazard', 'tile_deco'],
     fighter: [],
   };
   const extraRoles: Record<ArchetypeId, string> = {
@@ -310,31 +310,35 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       'Nothing to reskin — fighters, arena and effects are all drawn by the engine from your palette. The player and ladder roster are authored by the levels pass. Here, make the boss unmistakable with a distinct build + outfit + colorSlot.',
   };
   const roles = tileRoles[archetype];
-  const platformerSolidNote =
+  const connectedSolidNote =
+    archetype === 'platformer' || archetype === 'hshooter'
+      ? `
+CONNECTED SOLID PAIR: \`tile_solid\` is the exposed cap and \`tile_solid_inner\` is the buried fill. Assign both from the SAME family (for example \`"tile_solid": "lib:ice_solid"\` plus \`"tile_solid_inner": "lib:ice_solid_inner"\`) or draw a matching custom pair. Each custom cap and inner sprite must be EXACTLY 16×16 and fully opaque. The cap must tile seamlessly left-to-right; the inner must tile seamlessly on both axes, and the cap's bottom edge must join the inner's top edge. Level generation still authors only semantic \`solid\` cells; the engine selects the cap or inner body art from neighbouring solid cells. Never invent separate cap/inner level characters or legend values.
+`
+      : '';
+  const platformerImageFallbackNote =
     archetype === 'platformer'
       ? `
-PLATFORMER SOLID PAIR: \`tile_solid\` is the exposed cap and \`tile_solid_inner\` is the buried fill. Assign both from the SAME family (for example \`"tile_solid": "lib:ice_solid"\` plus \`"tile_solid_inner": "lib:ice_solid_inner"\`) or draw a matching custom pair. Each custom cap and inner sprite must be EXACTLY 16×16 and fully opaque. The cap must tile seamlessly left-to-right; the inner must tile seamlessly on both axes, and the cap's bottom edge must join the inner's top edge. Level generation still authors only semantic \`solid\` cells; the engine selects the cap when no solid is directly above and the inner sprite when another solid is above. Never invent separate cap/inner level characters or legend values.
-
 IMAGE-FIRST CHARACTER FALLBACKS: a later Muse Image stage authors the visible platformer boss and all four ordinary enemies. Set \`boss\`, \`walker\`, \`flyer\`, \`shooter\`, and \`chaser\` to appropriate \`lib:\` sprites as stable fallbacks; do NOT draw custom sprites for those roles. For platformer, this overrides the generic signature-sprite examples above. Spend any bespoke custom-pixel budget on terrain or a gameplay object that remains visible after generated character art loads.
 `
       : '';
   const familyKinds =
-    archetype === 'platformer'
-      ? 'solid/solid_inner/platform/hazard/checkpoint/exit/deco/wall/floor/block/pit/switch/door_locked/door_boss/door_open'
+    archetype === 'platformer' || archetype === 'hshooter'
+      ? archetype === 'platformer'
+        ? 'solid/solid_inner/platform/hazard/checkpoint/exit/deco'
+        : 'solid/solid_inner/hazard/deco'
       : 'solid/platform/hazard/checkpoint/exit/deco/wall/floor/block/pit/switch/door_locked/door_boss/door_open';
-  const platformerOnlyFamilies = LIB_PLATFORMER_ONLY_TILE_THEMES.map((theme) => `${theme}_*`).join(
-    ', ',
-  );
-  const platformerOnlyNote =
-    archetype === 'platformer'
-      ? ` Platformer also has image-authored ${platformerOnlyFamilies}; these cover solid/solid_inner/platform/hazard/checkpoint/exit/deco and are automatically rendered at high density.`
+  const hdFamilies = LIB_HD_TILE_THEMES.map((theme) => `${theme}_*`).join(', ');
+  const highDensityNote =
+    archetype === 'platformer' || archetype === 'hshooter'
+      ? ` These side-view archetypes also have image-authored ${hdFamilies}; they cover solid/solid_inner/platform/hazard/checkpoint/exit/deco and are automatically rendered at high density.`
       : '';
   const reskinNotes =
     (roles.length
       ? `TERRAIN RESKIN — the strongest identity lever after the palette. ALWAYS reskin the terrain — assigning every tile slot is expected, not optional. The example just shows one family for format; pick the family that fits THIS game's world and never leave the tiles on the plain default. Each tile slot (${roles.join(', ')}) can be re-assigned:
-- to a THEMED library family: castle_*, cave_*, wasteland_*, alien_*, ice_*, desert_*, clockwork_* (brass machinery), candy_* (confectionery), coral_* (undersea reef), garden_* (overgrown greenery) — e.g. "tile_solid": "lib:ice_solid". Every core family has every kind (${familyKinds}).${platformerOnlyNote} Pick the family whose material and shapes fit the premise and stay within ONE family for coherence.
+- to a THEMED library family: castle_*, cave_*, wasteland_*, alien_*, ice_*, desert_*, clockwork_* (brass machinery), candy_* (confectionery), coral_* (undersea reef), garden_* (overgrown greenery) — e.g. "tile_solid": "lib:ice_solid". Every core family has every kind (${familyKinds}).${highDensityNote} Pick the family whose material and shapes fit the premise and stay within ONE family for coherence.
 - or to a custom 16×16 sprite you draw (must be EXACTLY 16×16; solid/wall/floor tiles should be fully opaque and tile seamlessly edge-to-edge). When unsure, use a themed family — it always looks professional.
-${platformerSolidNote}`
+${connectedSolidNote}${platformerImageFallbackNote}`
       : 'This archetype has no terrain tiles; its look comes from palette, backdrop, ship/foe sprites and wave choreography.\n') +
     extraRoles[archetype] +
     '\n\n' +

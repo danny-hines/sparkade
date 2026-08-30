@@ -30,7 +30,19 @@ describe('archetype schemas', () => {
   it('declare every contract field with bounds', () => {
     for (const [id, schema] of Object.entries(ARCHETYPE_SCHEMAS)) {
       const s = schema as { properties: Record<string, unknown>; required: string[] };
-      for (const key of ['specVersion', 'archetype', 'seed', 'meta', 'palette', 'story', 'sprites', 'levels', 'boss', 'music', 'scoring']) {
+      for (const key of [
+        'specVersion',
+        'archetype',
+        'seed',
+        'meta',
+        'palette',
+        'story',
+        'sprites',
+        'levels',
+        'boss',
+        'music',
+        'scoring',
+      ]) {
         expect(s.properties[key], `${id}.${key}`).toBeDefined();
         expect(s.required, `${id} requires ${key}`).toContain(key);
       }
@@ -114,13 +126,36 @@ describe('archetype schemas', () => {
     expect(schema.required).not.toContain('platformerArtDensity');
   });
 
+  it('keeps H-scroll art density bounded and optional for saved-game compatibility', () => {
+    const schema = ARCHETYPE_SCHEMAS.hshooter as {
+      properties: Record<string, { enum?: string[] }>;
+      required: string[];
+    };
+    expect(schema.properties['hshooterArtDensity']?.enum).toEqual(['chunky', 'detailed']);
+    expect(schema.required).not.toContain('hshooterArtDensity');
+  });
+
+  it('keeps the H-scroll craft identity optional for saved-game compatibility', () => {
+    const schema = ARCHETYPE_SCHEMAS.hshooter as {
+      properties: Record<string, { properties?: Record<string, unknown> }>;
+      required: string[];
+    };
+    expect(schema.properties['playerCraft']?.properties?.['visualConcept']).toBeDefined();
+    expect(schema.required).not.toContain('playerCraft');
+  });
+
   it('music channels are exactly 16 steps with the documented syntax', () => {
-    const defs = (ARCHETYPE_SCHEMAS.shooter as { $defs: Record<string, { minItems?: number; maxItems?: number; pattern?: string } > }).$defs;
+    const defs = (
+      ARCHETYPE_SCHEMAS.shooter as {
+        $defs: Record<string, { minItems?: number; maxItems?: number; pattern?: string }>;
+      }
+    ).$defs;
     expect(defs.noteChannel!.minItems).toBe(16);
     expect(defs.noteChannel!.maxItems).toBe(16);
     const re = new RegExp(defs.noteStep!.pattern!);
     for (const good of ['-', 'C4:2', 'Eb3:4', 'F#5:1', 'A7:16', 'G1:9']) expect(good).toMatch(re);
-    for (const bad of ['C4', 'H4:2', 'C8:2', 'C4:0', 'C4:17', 'c4:2', '']) expect(bad).not.toMatch(re);
+    for (const bad of ['C4', 'H4:2', 'C8:2', 'C4:0', 'C4:17', 'c4:2', ''])
+      expect(bad).not.toMatch(re);
   });
 
   it('stageSchema extracts self-contained per-stage schemas', () => {
@@ -174,8 +209,20 @@ describe('archetype schemas', () => {
 
   it('design schema exists and demands the full doc', () => {
     const s = DESIGN_SCHEMA as { required: string[] };
-    for (const key of ['title', 'archetype', 'palette', 'story', 'levelPlan', 'cast', 'musicBrief', 'scoring', 'difficulty']) {
+    for (const key of [
+      'title',
+      'archetype',
+      'palette',
+      'story',
+      'levelPlan',
+      'cast',
+      'musicBrief',
+      'scoring',
+      'difficulty',
+    ]) {
       expect(s.required).toContain(key);
     }
+    expect((DESIGN_SCHEMA as { properties: Record<string, unknown> }).properties.vehicleConcept).toBeDefined();
+    expect(s.required).not.toContain('vehicleConcept');
   });
 });

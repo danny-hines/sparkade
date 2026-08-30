@@ -31,6 +31,8 @@ When a likeness photo exists, the photo is immutable identity truth from the nec
 
 When no photo exists, `heroConcept` may establish the original hero's complete head-to-toe appearance as well as their outfit.
 
+For **hshooter**, the person and vehicle are two separate identities. `heroConcept` describes the pilot and their story-world outfit only. You MUST also write `vehicleConcept`: a concrete player-craft design with a readable side-view silhouette, materials, propulsion, canopy, palette markings, and one memorable motif. The craft must fit the premise (starfighter, mini-sub, sky skiff, burrowing pod, etc.) but must never incorporate the player's face, head, body, clothing, initials, or other likeness traits. The same vehicle identity will be used in gameplay, key art, and any story scene where the craft appears.
+
 ## Make it clearly different
 
 The user message lists the games already on this cabinet. Make something CLEARLY different from every one of them in title, premise, palette mood, musical key AND musical genre/feel (don't let every game be a minor-key march at a slightly different tempo).

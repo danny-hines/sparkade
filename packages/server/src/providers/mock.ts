@@ -141,6 +141,12 @@ export class MockProvider implements Provider {
           palette: [...golden.palette],
           heroConcept:
             'An indigo expedition jacket with brass fasteners, sturdy tan trousers, and dark trail boots',
+          ...(archetype === 'hshooter'
+            ? {
+                vehicleConcept:
+                  'The Starling, a low cobalt trench skiff with swept brass fins, a dark bubble canopy, twin amber drives, and a bright forked nose mark',
+              }
+            : {}),
           story: structuredClone(golden.story),
           levelPlan: [
             { name: 'Opening', summary: 'Learn the ropes in a gentle first stretch' },
@@ -200,10 +206,19 @@ export class MockProvider implements Provider {
 
   private pickArchetype(prompt: string): ArchetypeId {
     const p = prompt.toLowerCase();
-    if (/(fight|versus|brawl|duel|karate|kung.?fu|boxer|boxing|martial|kombat|tournament.*(fight|duel)|street.?fight)/.test(p)) return 'fighter';
-    if (/(r-?type|gradius|side.?scroll|horizontal|cavern.?flight|through the (cave|tunnel))/.test(p)) return 'hshooter';
+    if (
+      /(fight|versus|brawl|duel|karate|kung.?fu|boxer|boxing|martial|kombat|tournament.*(fight|duel)|street.?fight)/.test(
+        p,
+      )
+    )
+      return 'fighter';
+    if (
+      /(r-?type|gradius|side.?scroll|horizontal|cavern.?flight|through the (cave|tunnel))/.test(p)
+    )
+      return 'hshooter';
     if (/(shoot|ship|space|plane|fly|blast)/.test(p)) return 'shooter';
-    if (/(dungeon|explore|zelda|adventure|museum|quest|garden(?!.*(defend|orbit)))/.test(p)) return 'adventure';
+    if (/(dungeon|explore|zelda|adventure|museum|quest|garden(?!.*(defend|orbit)))/.test(p))
+      return 'adventure';
     if (/(platform|jump|climb|run|tower|mountain)/.test(p)) return 'platformer';
     const all: ArchetypeId[] = ['platformer', 'shooter', 'adventure', 'hshooter', 'fighter'];
     return all[prompt.length % all.length]!;
@@ -216,7 +231,8 @@ type MockStage = 'likeness' | 'design' | 'levels' | 'entities' | 'music' | 'repa
 function detectStage(req: CompleteRequest): MockStage {
   const title = String((req.jsonSchema as { title?: string } | undefined)?.title ?? '');
   const hay = `${title}\n${req.system.slice(0, 400)}`;
-  if (/face likeness analysis|portrait artist analyzing one face photo/i.test(hay)) return 'likeness';
+  if (/face likeness analysis|portrait artist analyzing one face photo/i.test(hay))
+    return 'likeness';
   if (/design pass/i.test(hay)) return 'design';
   if (/levels stage/i.test(hay)) return 'levels';
   if (/entities stage/i.test(hay)) return 'entities';
@@ -227,11 +243,18 @@ function detectStage(req: CompleteRequest): MockStage {
 
 function detectArchetype(req: CompleteRequest): ArchetypeId | null {
   const title = String((req.jsonSchema as { title?: string } | undefined)?.title ?? '');
-  const hay = `${title}\n${req.system.slice(0, 400)}`;
-  const m = /(hshooter|horizontal shooter|fighting game|fighter|platformer|shooter|adventure)/i.exec(hay);
+  const required = /REQUIRED ARCHETYPE:\s*(platformer|shooter|adventure|hshooter|fighter)/i.exec(
+    req.user,
+  );
+  if (required) return required[1]!.toLowerCase() as ArchetypeId;
+  const hay = `${title}\n${req.system.slice(0, 400)}\n${req.user}`;
+  const m =
+    /(hshooter|horizontal shooter|fighting game|fighter|platformer|shooter|adventure)/i.exec(hay);
   if (!m) return null;
   const w = m[1]!.toLowerCase();
-  return (w === 'horizontal shooter' ? 'hshooter' : w === 'fighting game' ? 'fighter' : w) as ArchetypeId;
+  return (
+    w === 'horizontal shooter' ? 'hshooter' : w === 'fighting game' ? 'fighter' : w
+  ) as ArchetypeId;
 }
 
 function clamp(s: string, n: number): string {

@@ -68,6 +68,20 @@ describe('entities prompt likeness casting', () => {
     expect(adventure).not.toContain('city_*');
   });
 
+  it('teaches H-scroll art generation the shared high-density connected terrain contract', () => {
+    const hshooterDesign = { ...design, archetype: 'hshooter' } as DesignDoc;
+    const system = buildEntitiesPrompt('hshooter', hshooterDesign, false).system;
+
+    expect(system).toContain('tile_solid, tile_solid_inner, tile_hazard, tile_deco');
+    expect(system).toContain('CONNECTED SOLID PAIR');
+    expect(system).toContain('`tile_solid_inner` is the buried fill');
+    expect(system).toContain('city_*');
+    expect(system).toContain('spaceship_*');
+    expect(system).toContain('automatically rendered at high density');
+    expect(system).toContain('stable likeness-free fallbacks');
+    expect(system).not.toContain('all take the generated likeness head in the canopy');
+  });
+
   it('keeps image-generated platformer characters on lightweight library fallbacks', () => {
     const system = buildEntitiesPrompt('platformer', design, false).system;
 

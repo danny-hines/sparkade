@@ -7,10 +7,17 @@
 // shooter's pools / boss engine / charge+bomb, flipped to the horizontal axis.
 // Controls: d-pad move, Y fire (hold), X charge shot, B bomb, A speed toggle.
 import {
+  ConnectedSolidAutotiles,
+  LIBRARY,
   drawTileLayer,
+  highDensityTileRef,
+  isSolidInnerLibraryId,
   makeBackdrop,
   moveAABB,
   pickVariant,
+  resolveSolidInnerRef,
+  solidNeighborMask,
+  terrainAtlasFrame,
   type AABB,
   type Backdrop,
   type BackdropVariant,
@@ -38,6 +45,7 @@ import {
   type ShooterPickupType,
   type ShooterWave,
 } from '@sparkade/shared';
+import { corridorSurfaceDecorations } from './decor';
 import { estimateHShooterDurationS } from './lint';
 
 const W = INTERNAL_WIDTH;
@@ -174,8 +182,29 @@ function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
-function hitDims(s: ResolvedSprite): { w: number; h: number } {
-  return { w: Math.max(8, s.w - 4), h: Math.max(8, s.h - 4) };
+function legacyHitDimensions(sprite: ResolvedSprite): { w: number; h: number } {
+  return { w: Math.max(8, sprite.w - 4), h: Math.max(8, sprite.h - 4) };
+}
+
+export function usesDetailedHShooterPresentation(
+  artDensity: HShooterSpec['hshooterArtDensity'],
+): boolean {
+  return artDensity === 'detailed';
+}
+
+export function usesHShooterCraftIdentity(playerCraft: HShooterSpec['playerCraft']): boolean {
+  return !!playerCraft?.visualConcept.trim();
+}
+
+/** Top-down shooter art is rotated clockwise into the horizontal flight plane. */
+export function horizontalSpriteDimensions(
+  sprite: { w: number; h: number },
+  inset = 0,
+): { w: number; h: number } {
+  return {
+    w: Math.max(8, sprite.h - inset),
+    h: Math.max(8, sprite.w - inset),
+  };
 }
 
 export function createHShooterGame(engine: EngineContext, spec: HShooterSpec): GameInstance {
@@ -203,7 +232,10 @@ class HShooterGame implements GameInstance {
     rows: 0,
     kind: () => 'empty',
   };
-  private tileFrames: Record<string, HTMLCanvasElement[]> = {};
+  private tileFrames: Record<string, readonly CanvasImageSource[]> = {};
+  private solidAutotiles: ConnectedSolidAutotiles | null = null;
+  private highDensitySolidTerrain = false;
+  private decorations: Array<{ x: number; y: number }> = [];
 
   private foes: Foe[] = Array.from({ length: 24 }, () => ({
     active: false,
@@ -282,7 +314,12 @@ class HShooterGame implements GameInstance {
 
   private sprites: Record<string, ResolvedSprite> = {};
   private pickupSprites: Record<ShooterPickupType, ResolvedSprite>;
+  private detailedPresentation: boolean;
+  private craftIdentity: boolean;
+  private generatedPlayerCraft: CanvasImageSource | null;
   private foeDims: Record<ShooterEnemyType, { w: number; h: number }>;
+  private bossDims: { w: number; h: number };
+  private bossVisualDims: { w: number; h: number };
   private diff!: DifficultyScale;
   private pbox: AABB = { x: 0, y: 0, w: PW, h: PH };
   private ebox: AABB = { x: 0, y: 0, w: ECOLL * 2, h: ECOLL * 2 };
@@ -293,9 +330,16 @@ class HShooterGame implements GameInstance {
     private spec: HShooterSpec,
   ) {
     this.diff = difficultyScale(this.spec.difficulty);
+    this.detailedPresentation = usesDetailedHShooterPresentation(this.spec.hshooterArtDensity);
+    this.craftIdentity = usesHShooterCraftIdentity(this.spec.playerCraft);
+    this.generatedPlayerCraft = this.craftIdentity ? engine.hshooterPlayerCraft : null;
     this.bgVariant = pickVariant(this.spec.palette, this.spec.seed, this.spec.backdrop);
     for (const role of Object.keys(ROLE_FALLBACK)) {
-      this.sprites[role] = engine.sprites.byRole(role, ROLE_FALLBACK[role]!);
+      const fallback = ROLE_FALLBACK[role]!;
+      this.sprites[role] =
+        role === 'hero' && this.craftIdentity
+          ? engine.sprites.byRef(fallback, false)
+          : engine.sprites.byRole(role, fallback);
     }
     this.pickupSprites = {
       spread: engine.sprites.byRole('pickup_spread', 'lib:pickup_spread'),
@@ -303,13 +347,24 @@ class HShooterGame implements GameInstance {
       shield: engine.sprites.byRole('pickup_shield', 'lib:pickup_shield'),
       bomb: engine.sprites.byRole('pickup_bomb', 'lib:pickup_bomb'),
     };
+    const foeDimensions = (sprite: ResolvedSprite) =>
+      this.detailedPresentation
+        ? horizontalSpriteDimensions(sprite, 4)
+        : legacyHitDimensions(sprite);
     this.foeDims = {
-      popcorn: hitDims(this.sprites['popcorn']!),
-      weaver: hitDims(this.sprites['weaver']!),
-      tank: hitDims(this.sprites['tank']!),
-      turret: hitDims(this.sprites['turret']!),
-      kamikaze: hitDims(this.sprites['kamikaze']!),
+      popcorn: foeDimensions(this.sprites['popcorn']!),
+      weaver: foeDimensions(this.sprites['weaver']!),
+      tank: foeDimensions(this.sprites['tank']!),
+      turret: foeDimensions(this.sprites['turret']!),
+      kamikaze: foeDimensions(this.sprites['kamikaze']!),
     };
+    const bossSprite = this.sprites['boss']!;
+    this.bossDims = this.detailedPresentation
+      ? horizontalSpriteDimensions(bossSprite, 8)
+      : { w: bossSprite.w - 8, h: bossSprite.h - 8 };
+    this.bossVisualDims = this.detailedPresentation
+      ? horizontalSpriteDimensions(bossSprite)
+      : { w: bossSprite.w, h: bossSprite.h };
   }
 
   start(): void {
@@ -362,9 +417,85 @@ class HShooterGame implements GameInstance {
       decoration: 'lib:tile_deco',
     };
     this.tileFrames = {};
-    for (const [kind, ref] of Object.entries(art)) {
-      this.tileFrames[kind] = this.engine.sprites.byRole(ref.slice(4), ref, { bob: false }).frames;
+    this.solidAutotiles = null;
+    this.highDensitySolidTerrain = false;
+
+    // Omitted art density is the compatibility path for published games. New
+    // specs opt into the source-authored terrain resolver during assembly.
+    if (this.spec.hshooterArtDensity !== 'detailed') {
+      for (const [kind, ref] of Object.entries(art)) {
+        this.tileFrames[kind] = this.engine.sprites.byRole(ref.slice(4), ref, {
+          bob: false,
+        }).frames;
+      }
+      return;
     }
+
+    for (const [kind, ref] of Object.entries(art)) {
+      if (kind === 'solid') continue;
+      const assigned = this.spec.sprites.assign[ref.slice(4)] ?? ref;
+      this.tileFrames[kind] = this.engine.sprites.byRef(highDensityTileRef(assigned), false, {
+        bob: false,
+      }).frames;
+    }
+
+    const capRef = this.spec.sprites.assign['tile_solid'] ?? 'lib:tile_solid';
+    const cap = this.engine.sprites.byRef(highDensityTileRef(capRef), false, { bob: false });
+    const refExists = (ref: string): boolean => {
+      const [kind, id] = ref.split(':', 2);
+      if (!id) return false;
+      if (kind === 'lib') {
+        const entry = LIBRARY[id];
+        return (
+          isSolidInnerLibraryId(id) &&
+          entry !== undefined &&
+          entry.frames.every((frame) => frame.w === TILE && frame.h === TILE)
+        );
+      }
+      if (kind === 'custom') {
+        const sprite = this.spec.sprites.custom[id];
+        const rowsAreOpaque = (spriteRows: readonly string[]): boolean =>
+          spriteRows.length === TILE &&
+          spriteRows.every((row) => row.length === TILE && !/[.0]/.test(row));
+        return (
+          sprite?.w === TILE &&
+          sprite.h === TILE &&
+          rowsAreOpaque(sprite.rows) &&
+          (sprite.frames?.every(rowsAreOpaque) ?? true)
+        );
+      }
+      return false;
+    };
+    const innerRef = resolveSolidInnerRef(
+      capRef,
+      this.spec.sprites.assign['tile_solid_inner'],
+      refExists,
+    );
+    const inner = innerRef
+      ? this.engine.sprites.byRef(highDensityTileRef(innerRef), false, { bob: false })
+      : cap;
+    this.highDensitySolidTerrain =
+      (cap.frames[0]?.width ?? TILE) > TILE && (inner.frames[0]?.width ?? TILE) > TILE;
+    this.solidAutotiles = new ConnectedSolidAutotiles(
+      cap.frames,
+      inner.frames,
+      this.spec.palette[1] ?? '#111111',
+    );
+  }
+
+  private tileCanvasAt(tx: number, ty: number, frameIx: number): CanvasImageSource | null {
+    const kind = this.grid.kind(tx, ty);
+    if (kind === 'empty') return null;
+    if (kind === 'solid' && this.solidAutotiles) {
+      const mask = solidNeighborMask((x, y) => this.grid.kind(x, y) === 'solid', tx, ty);
+      return this.solidAutotiles.frame(
+        mask,
+        this.highDensitySolidTerrain ? terrainAtlasFrame(tx, ty) : frameIx,
+      );
+    }
+    const frames = this.tileFrames[kind];
+    if (!frames?.length) return null;
+    return frames[frameIx % frames.length] ?? frames[0] ?? null;
   }
 
   private solidity(tx: number, ty: number): Solidity {
@@ -438,6 +569,10 @@ class HShooterGame implements GameInstance {
     this.level = level;
     this.backdrop = makeBackdrop(this.spec.palette, this.spec.seed + ix * 101, this.bgVariant);
     this.buildGrid(level.tiles, level.legend);
+    this.decorations =
+      this.spec.hshooterArtDensity === 'detailed'
+        ? corridorSurfaceDecorations(level, this.spec.seed + ix * 101 + 0xc0771d0)
+        : [];
     this.scrollX = 0;
     this.clock = 0;
     this.lastWaveT = 0;
@@ -484,6 +619,7 @@ class HShooterGame implements GameInstance {
       Array.from({ length: rows }, () => '.'.repeat(cols)),
       {},
     );
+    this.decorations = [];
     this.backdrop = makeBackdrop(this.spec.palette, this.spec.seed + 777, this.bgVariant);
     this.clearPools();
     this.spawnPlayer();
@@ -504,7 +640,6 @@ class HShooterGame implements GameInstance {
       flashT: 0,
       chargeSeq: 0,
     };
-    const bossSprite = this.sprites['boss']!;
     this.pods = [];
     for (let i = 0; i < b.pods; i++) {
       const side = i % 2 === 0 ? -1 : 1;
@@ -513,7 +648,7 @@ class HShooterGame implements GameInstance {
         alive: true,
         hp: b.podHp,
         ox: -8 - (rank - 1) * 24,
-        oy: side * (bossSprite.h / 2 + 6 + (rank - 1) * 12),
+        oy: side * (this.bossVisualDims.h / 2 + 6 + (rank - 1) * 12),
         fireT: i * 0.4,
         flashT: 0,
         chargeSeq: 0,
@@ -1003,8 +1138,6 @@ class HShooterGame implements GameInstance {
     if (!b.active) return;
     b.t += dt;
     b.flashT = Math.max(0, b.flashT - dt);
-    const bossSprite = this.sprites['boss']!;
-
     if (b.entranceT < BOSS_ENTRANCE_S) {
       b.entranceT = Math.min(BOSS_ENTRANCE_S, b.entranceT + dt);
       b.x = this.scrollX + W + 60 - (W + 60 - BOSS_SX) * (b.entranceT / BOSS_ENTRANCE_S);
@@ -1104,7 +1237,7 @@ class HShooterGame implements GameInstance {
 
     if (
       this.invulnT <= 0 &&
-      this.overlap(b.x, b.y, bossSprite.w - 8, bossSprite.h - 8, this.px, this.py, 4, 4)
+      this.overlap(b.x, b.y, this.bossDims.w, this.bossDims.h, this.px, this.py, 4, 4)
     ) {
       this.hurtPlayer(1);
       if (this.phase !== 'play') return;
@@ -1223,7 +1356,6 @@ class HShooterGame implements GameInstance {
 
   private updatePlayerShots(dt: number): void {
     const b = this.boss;
-    const bossSprite = this.sprites['boss']!;
     for (const p of this.pshots) {
       if (!p.active) continue;
       p.t += dt;
@@ -1266,7 +1398,7 @@ class HShooterGame implements GameInstance {
         if (
           p.active &&
           !(p.pierce && b.chargeSeq === p.seq) &&
-          this.overlap(p.x, p.y, pw, ph, b.x, b.y, bossSprite.w - 8, bossSprite.h - 8)
+          this.overlap(p.x, p.y, pw, ph, b.x, b.y, this.bossDims.w, this.bossDims.h)
         ) {
           b.hp -= p.dmg;
           b.flashT = 0.12;
@@ -1464,12 +1596,17 @@ class HShooterGame implements GameInstance {
     // tile stage
     const frameIx = Math.floor(this.animT * 4) % 2;
     drawTileLayer(r, cam, this.grid.cols, this.grid.rows, TILE, (tx, ty) => {
-      const k = this.grid.kind(tx, ty);
-      if (k === 'empty') return null;
-      const frames = this.tileFrames[k];
-      if (!frames || frames.length === 0) return null;
-      return frames[frameIx % frames.length] ?? frames[0]!;
+      return this.tileCanvasAt(tx, ty, frameIx);
     });
+
+    const decorationFrames = this.tileFrames['decoration'];
+    if (decorationFrames?.length) {
+      const decoration =
+        decorationFrames[frameIx % decorationFrames.length] ?? decorationFrames[0]!;
+      for (const cell of this.decorations) {
+        r.drawScaled(decoration, cell.x * TILE - cam.x, cell.y * TILE - cam.y, TILE, TILE);
+      }
+    }
 
     // pickups
     for (const p of this.picks) {
@@ -1485,16 +1622,23 @@ class HShooterGame implements GameInstance {
       if (!p.active) continue;
       const img = this.engine.sprites.frame(projSprite, 'idle', p.t);
       const s = p.pierce ? 2 : 1;
-      this.drawRight(img, p.x - cam.x, p.y, projSprite.w * s, projSprite.h * s);
+      this.drawHorizontal(img, p.x - cam.x, p.y, projSprite.w * s, projSprite.h * s);
     }
 
-    // enemies (flipped to face left)
+    // Detailed specs rotate top-down foes into their correct side-view plane.
+    // The legacy branch intentionally preserves published-game presentation.
     for (const e of this.foes) {
       if (!e.active) continue;
       const sprite = this.sprites[e.type]!;
       const img =
-        e.flashT > 0 ? sprite.flash[0]! : this.engine.sprites.frame(sprite, 'fly', e.t, true);
-      r.draw(img, e.x - cam.x - sprite.w / 2, e.y - sprite.h / 2);
+        e.flashT > 0
+          ? sprite.flash[0]!
+          : this.engine.sprites.frame(sprite, 'fly', e.t, !this.detailedPresentation);
+      if (this.detailedPresentation) {
+        this.drawHorizontal(img, e.x - cam.x, e.y, sprite.w, sprite.h);
+      } else {
+        r.draw(img, e.x - cam.x - sprite.w / 2, e.y - sprite.h / 2);
+      }
     }
 
     // boss + pods
@@ -1504,16 +1648,24 @@ class HShooterGame implements GameInstance {
       const img =
         b.flashT > 0
           ? sprite.flash[0]!
-          : this.engine.sprites.frame(sprite, 'idle', this.animT, true);
-      r.draw(img, b.x - cam.x - sprite.w / 2, b.y - sprite.h / 2);
+          : this.engine.sprites.frame(sprite, 'idle', this.animT, !this.detailedPresentation);
+      if (this.detailedPresentation) {
+        this.drawHorizontal(img, b.x - cam.x, b.y, sprite.w, sprite.h);
+      } else {
+        r.draw(img, b.x - cam.x - sprite.w / 2, b.y - sprite.h / 2);
+      }
       const podSprite = this.sprites['pod']!;
       for (const pod of this.pods) {
         if (!pod.alive) continue;
         const pimg =
           pod.flashT > 0
             ? podSprite.flash[0]!
-            : this.engine.sprites.frame(podSprite, 'fly', this.animT, true);
-        r.draw(pimg, b.x + pod.ox - cam.x - podSprite.w / 2, b.y + pod.oy - podSprite.h / 2);
+            : this.engine.sprites.frame(podSprite, 'fly', this.animT, !this.detailedPresentation);
+        if (this.detailedPresentation) {
+          this.drawHorizontal(pimg, b.x + pod.ox - cam.x, b.y + pod.oy, podSprite.w, podSprite.h);
+        } else {
+          r.draw(pimg, b.x + pod.ox - cam.x - podSprite.w / 2, b.y + pod.oy - podSprite.h / 2);
+        }
       }
     }
 
@@ -1525,12 +1677,16 @@ class HShooterGame implements GameInstance {
       r.draw(img, sh.x - cam.x - shotSprite.w / 2, sh.y - shotSprite.h / 2);
     }
 
-    // ship (rotated to face right; invuln flicker)
+    // Ship (native generated side view, or rotated library fallback).
     if (this.invulnT <= 0 || Math.floor(this.animT * 12) % 2 === 0) {
       const hero = this.sprites['hero']!;
-      const img = this.engine.sprites.frame(hero, 'idle', this.animT);
       const sxp = this.px - cam.x;
-      this.drawRight(img, sxp, this.py, hero.w, hero.h);
+      if (this.generatedPlayerCraft) {
+        this.drawGeneratedPlayerCraft(this.generatedPlayerCraft, sxp, this.py);
+      } else {
+        const img = this.engine.sprites.frame(hero, 'idle', this.animT);
+        this.drawHorizontal(img, sxp, this.py, hero.w, hero.h);
+      }
       if (this.shieldUp) r.frame(sxp - 11, this.py - 11, 22, 22, this.spec.palette[4] ?? '#41a6f6');
       if (this.chargeT > 0.15) {
         const size = 10 + Math.min(1, this.chargeT / CHARGE_TIME) * 8;
@@ -1543,13 +1699,33 @@ class HShooterGame implements GameInstance {
     }
   }
 
-  /** Draw an up-facing library sprite rotated 90° clockwise so it points RIGHT. */
-  private drawRight(img: CanvasImageSource, cx: number, cy: number, w: number, h: number): void {
+  /** Rotate top-down library art into the horizontal flight plane. */
+  private drawHorizontal(
+    img: CanvasImageSource,
+    cx: number,
+    cy: number,
+    w: number,
+    h: number,
+  ): void {
     const ctx = this.engine.renderer.ctx;
     ctx.save();
     ctx.translate(Math.round(cx), Math.round(cy));
     ctx.rotate(Math.PI / 2);
     ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.restore();
+  }
+
+  /** One rigid craft gains banking from movement without paying for pose calls. */
+  private drawGeneratedPlayerCraft(img: CanvasImageSource, cx: number, cy: number): void {
+    const ctx = this.engine.renderer.ctx;
+    const width = 30;
+    const height = 20;
+    const bank = clamp(this.pvy / SPEED_HIGH, -1, 1) * 0.14;
+    ctx.save();
+    ctx.translate(Math.round(cx), Math.round(cy));
+    ctx.rotate(bank);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(img, -width / 2, -height / 2, width, height);
     ctx.restore();
   }
 }

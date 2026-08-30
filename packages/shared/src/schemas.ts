@@ -42,8 +42,7 @@ export function stageSchema(archetype: ArchetypeId, stage: SpecStage): Record<st
   };
   const base = STAGE_PROPERTIES[stage];
   // The fighter levels pass is its roster pass, so it owns the player's
-  // fighter alongside the three ladder opponents. `player` remains optional
-  // in the persisted schema so older games continue to validate.
+  // fighter alongside the three ladder opponents.
   const required = [
     ...(archetype === 'fighter' && stage === 'levels' ? ['player'] : []),
     ...base.required,
@@ -59,19 +58,8 @@ export function stageSchema(archetype: ArchetypeId, stage: SpecStage): Record<st
     string,
     { required?: string[]; properties?: Record<string, unknown> } | undefined
   >;
-  // New fighter-stage output always carries an authored outfit, while the full
-  // schema keeps it optional for backwards compatibility.
-  if (archetype === 'fighter' && stage === 'levels') {
-    const fighter = defs['fighter'];
-    if (fighter?.required && !fighter.required.includes('outfit')) {
-      fighter.required.push('outfit');
-    }
-  }
   if (archetype === 'fighter' && stage === 'entities') {
     const boss = defs['boss'];
-    if (boss?.required && !boss.required.includes('outfit')) {
-      boss.required.push('outfit');
-    }
     if (boss?.properties) {
       // Levels and entities are generated in parallel. Reserving slot 11 for
       // the separately-authored boss makes color separation deterministic.

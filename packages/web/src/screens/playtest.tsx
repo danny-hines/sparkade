@@ -11,9 +11,8 @@ import type { GameSpec } from '@sparkade/shared';
 import { api } from '../api';
 import { loadLikenessAssets } from '../likeness-assets';
 import goldenHshooter from '../../../generation/golden/golden-hshooter.json';
-import goldenFighter from '../../../generation/golden/golden-fighter.json';
 
-const GOLDENS: Record<string, unknown> = { hshooter: goldenHshooter, fighter: goldenFighter };
+const GOLDENS: Record<string, unknown> = { hshooter: goldenHshooter };
 
 export function PlaytestScreen(): ComponentChildren {
   const ref = useRef<HTMLCanvasElement>(null);

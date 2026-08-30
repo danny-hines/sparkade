@@ -5,8 +5,11 @@ the player (their likeness becomes the hero) and a voice prompt. Runs on a dev P
 production target: a Raspberry Pi 3B+ inside a 3D-printed mini cabinet with a 1024×600 display,
 USB webcam + mic, and arcade controls on a Zero Delay USB encoder.
 
-Five hand-crafted **golden games** ship preinstalled, so the cabinet is playable out of the box
-with no API key. Everything except the AI API calls works fully offline.
+Four hand-crafted **golden games** currently ship preinstalled, so the cabinet is playable out of
+the box with no API key. Everything except the AI API calls works fully offline.
+`golden-fighter.json` remains a generation/test fixture until a curated
+`golden-fighter.assets/` pack with a valid manifest and all five atlases is committed; the golden
+seeder deliberately excludes it until then.
 
 ---
 
@@ -65,6 +68,29 @@ verdict is retained under the gitignored
 `data/experiments/platformer-poses/` directory for comparison. Use
 `SPARKADE_PROVIDER=mock SPARKADE_MOCK_FAST=1 npm run dev` for a zero-cost UI pass.
 Completed runs can be reopened after a server restart by adding `&run=<run-id>` to the lab URL.
+
+**Fighter poses lab (dev only):** `http://localhost:5173/?dev=fighter-poses` isolates the production
+Fighter avatar path without generating a full game. Upload a photo and describe the costume to generate
+three identity foundations; Muse Spark selects the strongest anchor before Muse Image edits two fixed
+3×2 boards containing twelve movement, attack, defense, damage, and knockout states. The server splits
+the boards at deterministic coordinates, labels connected foreground components across the full sheet,
+and assigns each component to the cell containing most of its pixels. An owned pose may reclaim up to
+64px across its nominal boundary while neighboring components are excluded. Remaining clipped or distant
+islands are removed only when one centered fighter is unambiguous; ambiguous cells still fail closed and
+receive up to two isolated recovery attempts. Spark then scores every valid state against the same
+anchor, requests two alternatives for at most four semantically weak poses, and chooses the final
+combination. A selectable twelve-isolated-call mode remains as the comparison baseline. The page shows
+the raw boards and normalized cells, both review boards, structured scores, retry evidence, an animated
+state preview, and the packed 4×4 runtime atlas. Runs and human verdicts persist under
+`data/experiments/fighter-poses/` and can be reopened with `&run=<run-id>`.
+
+Full Fighter game generation applies that sheet pipeline independently to all five roster members.
+The happy path uses fifteen identity-foundation images plus ten pose sheets; only mechanically rejected
+cells and up to four Spark-identified weak poses per fighter use isolated generation calls. Spark gets
+one bounded retry round, after which the highest-scoring locally valid combination wins even if the set
+is still rejected. A state with no mechanically valid result reuses the closest valid pose rather than
+failing the game. Each completed fighter atlas is checkpointed independently, so a job retry regenerates
+only unfinished roster slots.
 
 To hit the real models, copy `.env.example` to `.env`, set `META_API_KEY`, and use `npm run dev`.
 The same key is used for Muse Spark 1.2 Contributor and Muse Image 1.0.
@@ -160,6 +186,10 @@ No SSH needed to update: **Settings → System info → Check for updates** runs
 A "game" is `engine + archetype(spec)`. Specs are validated by the same JSON Schemas that are
 embedded verbatim in the prompt templates (`packages/shared/src/schemas/`).
 
+Forward-looking gameplay customization ideas are tracked in the
+[archetype roadmaps](docs/roadmaps/README.md), with a separate file for each game type as its
+direction develops.
+
 **Generated art:** after the spec passes validation, Muse Image 1.0 authors landscape key art and
 four consistent story scenes (intro, boss, victory, defeat). Every platformer also derives three
 isolated 192×192 boss candidates from its boss story scene; Muse Spark selects the most faithful
@@ -174,9 +204,11 @@ Photo games additionally require
 neutral and story-aware defeat-expression portraits plus generated 12/16px player-head sprites;
 there is no quantized-photo fallback or UI toggle. Detailed platformer photo games additionally
 attempt a native 112×128 five-pose player set (front idle, side idle, two chained side-run contacts,
-and side jump), while
-fighter photo games attempt one complete 11-pose player set. Each runtime activates its generated
-set only if every pose passes green-screen, crop, size, and transparency checks. Platformer run
+and side jump). Fighter games generate five distinct roster identities—player, three ladder opponents,
+and boss—then branch each selected foundation into thirteen 96×96 combat states and publish one
+4×4 atlas per fighter. A supplied player photo is the identity truth; key and boss story art guide the
+other roster slots. The runtime activates the roster atomically only when all five atlases pass local
+validation. Platformer run
 contacts must also show substantial lower-body silhouette motion; an arm-only or prop-only change
 regenerates just the opposing stride. A rejected optional pose set keeps the stable procedural
 player rather than failing an otherwise complete game. Platformer camera scale (`compact`/`heroic`)
@@ -223,8 +255,8 @@ no half-written game is ever visible as playable, and existing games/scores can'
 
 Every terminal pipeline failure is recorded under `incidents/<timestamp>--<jobId>--attempt-N/`.
 Sparkade also records a `recovered` incident when a game publishes only after a substantive model
-repair, level regeneration, compile retry, collision redraft, content fallback, or fighter-art
-fallback. Routine deterministic normalization remains in aggregate repair telemetry without
+repair, level regeneration, compile retry, collision redraft, or content fallback. Routine
+deterministic normalization remains in aggregate repair telemetry without
 creating a noisy incident for every harmless cleanup.
 
 Each incident has an `incident.json` machine-readable snapshot and a `notes.md` file with lifecycle

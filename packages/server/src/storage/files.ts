@@ -12,10 +12,14 @@ import {
   type CoverData,
   type GameMetaFile,
   type GameSpec,
+  type GeneratedGameAssetRole,
   type PartialSpec,
   type SpriteData,
 } from '@sparkade/shared';
-import { PRIVATE_GENERATED_ASSET_FILENAMES } from '../assets/manifest';
+import {
+  generatedAssetForRole,
+  PRIVATE_GENERATED_ASSET_FILENAMES,
+} from '../assets/manifest';
 import { atomicWriteFile, ensureDir, nowIso, readJson, repoRoot } from '../util';
 import type { Db, GameRow } from './db';
 
@@ -311,7 +315,16 @@ function assertRawStageName(stage: string): asserts stage is RawStageName {
   }
 }
 
-/** Seed the five golden games from packages/generation/golden on first boot. */
+const REQUIRED_FIGHTER_GOLDEN_ASSETS = [
+  'fighterPlayerAtlas',
+  'fighterOpponent1Atlas',
+  'fighterOpponent2Atlas',
+  'fighterOpponent3Atlas',
+  'fighterBossAtlas',
+] as const satisfies readonly GeneratedGameAssetRole[];
+
+/** Seed only complete playable goldens from packages/generation/golden. Generated
+ * art lives beside its JSON as `<id>.assets/` and must pass manifest integrity. */
 export function seedGoldenGames(
   files: GameFiles,
   db: Db,
@@ -323,7 +336,24 @@ export function seedGoldenGames(
     if (!file.endsWith('.json')) continue;
     const id = file.replace(/\.json$/, '');
     const srcPath = join(goldenDir, file);
+    const spec = readJson<GameSpec>(srcPath);
+    if (!spec) continue;
     const existing = db.getGame(id);
+    const sourceAssets = join(goldenDir, `${id}.assets`);
+    if (
+      spec.archetype === 'fighter' &&
+      !REQUIRED_FIGHTER_GOLDEN_ASSETS.every((role) =>
+        generatedAssetForRole(sourceAssets, role),
+      )
+    ) {
+      // The checked-in Fighter JSON remains useful as a validation and prompt
+      // fixture, but it is not a playable golden until its atlas pack lands.
+      if (existing?.golden) {
+        files.deleteGame(id);
+        db.deleteGame(id);
+      }
+      continue;
+    }
     if (existing) {
       // Built-in goldens must always match their source file. Skip only if the
       // stored copy is byte-identical; otherwise fall through to RE-SEED (the
@@ -340,10 +370,11 @@ export function seedGoldenGames(
         continue;
       }
     }
-    const spec = readJson<GameSpec>(srcPath);
-    if (!spec) continue;
     const dir = ensureDir(files.gameDir(id));
-    ensureDir(join(dir, 'assets'));
+    const assetsDir = join(dir, 'assets');
+    rmSync(assetsDir, { recursive: true, force: true });
+    ensureDir(assetsDir);
+    if (existsSync(sourceAssets)) cpSync(sourceAssets, assetsDir, { recursive: true });
     cpSync(srcPath, join(dir, 'game.json'));
     const meta: GameMetaFile = {
       id,

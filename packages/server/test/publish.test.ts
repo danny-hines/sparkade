@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Db } from '../src/storage/db';
-import { GameFiles, reconcileGames } from '../src/storage/files';
+import { GameFiles, reconcileGames, seedGoldenGames } from '../src/storage/files';
 import { ensureDir } from '../src/util';
 
 let dir: string;
@@ -72,22 +72,22 @@ describe('atomic publish', () => {
     writeFileSync(join(staging, 'meta.json'), FAKE_META('game2'));
     writeFileSync(join(staging, 'photo.jpg'), Buffer.from([0xff, 0xd8])); // privacy: must not survive
     const assets = ensureDir(join(staging, 'assets'));
-    const fighterReference = join(assets, '.fighter-player-reference.png');
-    const fighterReferenceMeta = `${fighterReference}.json`;
-    writeFileSync(fighterReference, Buffer.from('retry reference'));
-    writeFileSync(fighterReferenceMeta, '{}');
-    expect(existsSync(fighterReference)).toBe(true);
-    expect(existsSync(fighterReferenceMeta)).toBe(true);
+    const platformerReference = join(assets, '.platformer-player-reference.png');
+    const platformerReferenceMeta = `${platformerReference}.json`;
+    writeFileSync(platformerReference, Buffer.from('retry reference'));
+    writeFileSync(platformerReferenceMeta, '{}');
+    expect(existsSync(platformerReference)).toBe(true);
+    expect(existsSync(platformerReferenceMeta)).toBe(true);
 
     files.publish('job2', 'game2');
 
     expect(existsSync(join(files.gameDir('game2'), 'game.json'))).toBe(true);
     expect(existsSync(join(files.gameDir('game2'), 'photo.jpg'))).toBe(false);
     expect(
-      existsSync(join(files.gameDir('game2'), 'assets', '.fighter-player-reference.png')),
+      existsSync(join(files.gameDir('game2'), 'assets', '.platformer-player-reference.png')),
     ).toBe(false);
     expect(
-      existsSync(join(files.gameDir('game2'), 'assets', '.fighter-player-reference.png.json')),
+      existsSync(join(files.gameDir('game2'), 'assets', '.platformer-player-reference.png.json')),
     ).toBe(false);
     expect(existsSync(staging)).toBe(false);
     expect(
@@ -125,6 +125,22 @@ describe('atomic publish', () => {
     writeFileSync(join(staging, 'photo.jpg'), Buffer.from([1]));
     files.discardStaging('job5');
     expect(existsSync(staging)).toBe(false);
+  });
+});
+
+describe('playable golden seeding', () => {
+  it('does not publish the Fighter spec fixture without its committed atlas pack', () => {
+    seedGoldenGames(files, db, {
+      platformer: '1.0.0',
+      shooter: '1.0.0',
+      adventure: '1.0.0',
+      hshooter: '1.0.0',
+      fighter: '1.0.0',
+    });
+
+    expect(db.getGame('golden-fighter')).toBeNull();
+    expect(existsSync(files.gameDir('golden-fighter'))).toBe(false);
+    expect(db.getGame('golden-platformer')?.status).toBe('ready');
   });
 });
 

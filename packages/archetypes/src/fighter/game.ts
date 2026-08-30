@@ -1,6 +1,6 @@
 // Fighter gameplay (1v1 arcade ladder, Street Fighter / Mortal Kombat feel).
-// Two procedural articulated fighters on one stage; the player climbs a ladder
-// of AI opponents, each a best-of-3 match, up to a boss fighter. The move set +
+// Two generated-atlas fighters share one stage; the player climbs a ladder of
+// AI opponents, each a best-of-3 match, up to a boss fighter. The move set +
 // frame data + round/match FSM + AI are hand-authored here (the model only
 // authors bounded roster/story data — balance stays fixed). Controls per the
 // canonical map: Y high punch, X high kick, B low punch, A low kick, L/R block,
@@ -18,28 +18,20 @@ import {
 } from '@sparkade/engine';
 import {
   FEEL,
+  FIGHTER_POSES,
+  GENERATED_FIGHTER_ATLAS_CELL_SIZE,
+  GENERATED_FIGHTER_ATLAS_COLUMNS,
+  GENERATED_FIGHTER_ROSTER_SIZE,
   INTERNAL_HEIGHT,
   INTERNAL_WIDTH,
   difficultyScale,
   type DifficultyScale,
   type FighterBuild,
   type FighterCharacter,
-  type FighterOutfit,
+  type FighterPose,
   type FighterSpec,
 } from '@sparkade/shared';
-import {
-  FIGHTER_POSES,
-  drawFighter,
-  fighterIdentitySeed,
-  fighterColorsForPalette,
-  fighterScaleForBuild,
-  resolveFighterAvatarHead,
-  type FighterAvatarHead,
-  type FighterColors,
-  type FighterPose,
-} from './figure';
 import { estimateFighterDurationS } from './lint';
-import { FIGHTER_OUTFIT_IDS } from './outfits';
 
 const W = INTERNAL_WIDTH;
 const H = INTERNAL_HEIGHT;
@@ -58,7 +50,7 @@ const PLAYER_ATTACK_BUFFER_S = 0.14;
 const AI_COUNTER_WINDOW_S = 0.2;
 const AI_WHIFF_OPENING_S = 0.16;
 
-type MoveId = 'punchHigh' | 'punchLow' | 'kickHigh' | 'kickLow' | 'airKick';
+type MoveId = 'punchHigh' | 'punchLow' | 'kickHigh' | 'kickLow' | 'airPunch' | 'airKick';
 type Height = 'high' | 'low' | 'overhead';
 
 interface Move {
@@ -131,7 +123,7 @@ const MOVES: Record<MoveId, Move> = {
     blockstun: 0.22,
   },
   airKick: {
-    pose: 'kickHigh',
+    pose: 'airKick',
     startup: 0.06,
     active: 0.16,
     recovery: 0.08,
@@ -142,6 +134,19 @@ const MOVES: Record<MoveId, Move> = {
     knockback: 30,
     hitstun: 0.3,
     blockstun: 0.18,
+  },
+  airPunch: {
+    pose: 'airPunch',
+    startup: 0.05,
+    active: 0.12,
+    recovery: 0.09,
+    dmg: 7,
+    reach: 25,
+    hitY: -25,
+    height: 'overhead',
+    knockback: 24,
+    hitstun: 0.26,
+    blockstun: 0.16,
   },
 };
 
@@ -169,11 +174,8 @@ interface Actor {
   bufferedMove: MoveId | null;
   bufferT: number;
   scale: number;
-  build: FighterBuild;
-  outfit: FighterOutfit;
-  colors: FighterColors;
-  identitySeed: number;
-  avatarHead: FighterAvatarHead;
+  /** 0=player, 1-3=ladder rungs, 4=boss; matches generated atlas order. */
+  identitySlot: number;
   speedScale: number;
   powerScale: number;
   // AI
@@ -186,40 +188,17 @@ interface Actor {
   aiGuardingFoeMove: number;
 }
 
-type GeneratedFighterPoses = Readonly<Record<FighterPose, CanvasImageSource>>;
-
-/**
- * Take a stable snapshot only when every runtime pose is available. Generated
- * art is deliberately all-or-nothing so an incomplete upload can never make
- * the player alternate between generated and procedural identities mid-fight.
- */
-function completeGeneratedFighterPoses(
-  poses: Readonly<Record<string, CanvasImageSource>> | null,
-): GeneratedFighterPoses | null {
-  if (!poses) return null;
-  const complete = {} as Record<FighterPose, CanvasImageSource>;
-  for (const pose of FIGHTER_POSES) {
-    const image = poses[pose];
-    if (!image) return null;
-    complete[pose] = image;
+function requireGeneratedFighterAtlases(
+  atlases: readonly CanvasImageSource[] | null,
+): readonly CanvasImageSource[] {
+  if (!atlases || atlases.length !== GENERATED_FIGHTER_ROSTER_SIZE || !atlases.every(Boolean)) {
+    throw new Error('Fighter requires one complete five-character generated atlas roster');
   }
-  return complete;
+  return [...atlases];
 }
 
-/** Stable visual fallback for pre-outfit games; never consumes gameplay RNG. */
-export function fallbackFighterOutfit(
-  seed: number,
-  name: string,
-  build: FighterBuild,
-  colorSlot: number,
-): FighterOutfit {
-  let hash = (seed ^ Math.imul(colorSlot + 1, 0x9e3779b1)) >>> 0;
-  const key = `${name}:${build}`;
-  for (let i = 0; i < key.length; i++) {
-    hash ^= key.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return FIGHTER_OUTFIT_IDS[hash % FIGHTER_OUTFIT_IDS.length]!;
+function fighterScaleForBuild(build: FighterBuild): number {
+  return build === 'nimble' ? 0.94 : build === 'heavy' ? 1.16 : 1.05;
 }
 
 export function createFighterGame(engine: EngineContext, spec: FighterSpec): GameInstance {
@@ -243,8 +222,7 @@ class FighterGame implements GameInstance {
 
   private p!: Actor;
   private o!: Actor;
-  private playerLikenessHead: CanvasImageSource | null;
-  private playerGeneratedPoses: GeneratedFighterPoses | null;
+  private generatedFighterAtlases: readonly CanvasImageSource[];
   private backdrop: Backdrop;
   private bgVariant: BackdropVariant;
 
@@ -253,8 +231,7 @@ class FighterGame implements GameInstance {
     private spec: FighterSpec,
   ) {
     this.diff = difficultyScale(this.spec.difficulty);
-    this.playerLikenessHead = this.engine.sprites.likenessHead(16, 'side');
-    this.playerGeneratedPoses = completeGeneratedFighterPoses(this.engine.fighterPoses);
+    this.generatedFighterAtlases = requireGeneratedFighterAtlases(this.engine.fighterAtlases);
     this.bgVariant = pickVariant(this.spec.palette, this.spec.seed, this.spec.backdrop);
     this.backdrop = makeBackdrop(this.spec.palette, this.spec.seed, this.bgVariant);
     // Init both actors so render() is safe during the pre-fight story cards.
@@ -264,29 +241,21 @@ class FighterGame implements GameInstance {
 
   // ------------------------------------------------------------------- setup
 
-  private colorsFor(slot: number): FighterColors {
-    return fighterColorsForPalette(this.spec.palette, slot);
-  }
-
   private makeActor(
-    c: FighterCharacter | undefined,
+    c: FighterCharacter,
     ai: boolean,
     aggression: number,
     identitySlot: number,
   ): Actor {
-    const build = c?.build ?? 'balanced';
-    const colorSlot = c?.colorSlot ?? (ai ? 8 : 5);
-    const name = c?.name ?? (ai ? 'RIVAL' : 'HERO');
-    const outfit = c?.outfit ?? fallbackFighterOutfit(this.spec.seed, name, build, colorSlot);
-    const identitySeed = fighterIdentitySeed(this.spec.seed, identitySlot, name);
+    const build = c.build;
     return {
       x: ai ? STAGE_MAX - 80 : STAGE_MIN + 80,
       y: FLOOR_Y,
       vx: 0,
       vy: 0,
       facing: ai ? -1 : 1,
-      hp: c?.hp ?? 100,
-      maxHp: c?.hp ?? 100,
+      hp: c.hp,
+      maxHp: c.hp,
       state: 'idle',
       move: null,
       moveT: 0,
@@ -300,13 +269,9 @@ class FighterGame implements GameInstance {
       bufferedMove: null,
       bufferT: 0,
       scale: fighterScaleForBuild(build),
-      build,
-      outfit,
-      colors: this.colorsFor(colorSlot),
-      identitySeed,
-      avatarHead: resolveFighterAvatarHead(identitySeed),
-      speedScale: Math.max(0.85, Math.min(1.15, c?.speedScale ?? 1)),
-      powerScale: Math.max(0.85, Math.min(1.15, c?.powerScale ?? 1)),
+      identitySlot,
+      speedScale: Math.max(0.85, Math.min(1.15, c.speedScale ?? 1)),
+      powerScale: Math.max(0.85, Math.min(1.15, c.powerScale ?? 1)),
       ai,
       aiT: 0,
       aiIntent: 'wait',
@@ -318,7 +283,7 @@ class FighterGame implements GameInstance {
   }
 
   private playerChar(): FighterCharacter {
-    return this.spec.player ?? { name: 'HERO', build: 'balanced', colorSlot: 5, hp: 100 };
+    return this.spec.player;
   }
 
   private opponentChar(): FighterCharacter {
@@ -326,6 +291,7 @@ class FighterGame implements GameInstance {
     if (this.isBoss()) {
       return {
         name: boss.name,
+        visualConcept: boss.visualConcept,
         build: boss.build,
         colorSlot: boss.colorSlot,
         hp: boss.hp,
@@ -576,7 +542,7 @@ class FighterGame implements GameInstance {
         (input.Y.pressed || input.X.pressed || input.A.pressed || input.B.pressed)
       ) {
         a.airMove = true;
-        this.startMove(a, 'airKick');
+        this.startMove(a, input.Y.pressed || input.B.pressed ? 'airPunch' : 'airKick');
       }
     }
   }
@@ -940,13 +906,14 @@ class FighterGame implements GameInstance {
     return 'idle';
   }
 
-  private drawGeneratedPlayer(a: Actor, pose: FighterPose, flash: boolean): boolean {
-    const image = this.playerGeneratedPoses?.[pose];
-    if (a !== this.p || !image) return false;
+  private drawGeneratedFighter(a: Actor, pose: FighterPose, flash: boolean): void {
+    const atlas = this.generatedFighterAtlases[a.identitySlot]!;
 
     const ctx = this.engine.renderer.ctx;
-    const x = Math.round(a.x) - 32;
-    const y = Math.round(a.y) - 60;
+    const size = GENERATED_FIGHTER_ATLAS_CELL_SIZE;
+    const bottomPadding = 4;
+    const x = Math.round(a.x) - size / 2;
+    const y = Math.round(a.y) - (size - bottomPadding);
     ctx.save();
     ctx.imageSmoothingEnabled = false;
     if (a.facing === -1) {
@@ -956,9 +923,11 @@ class FighterGame implements GameInstance {
       ctx.scale(-1, 1);
     }
     if (flash) ctx.filter = 'brightness(0) invert(1)';
-    ctx.drawImage(image, x, y, 64, 64);
+    const index = FIGHTER_POSES.indexOf(pose);
+    const sx = (index % GENERATED_FIGHTER_ATLAS_COLUMNS) * size;
+    const sy = Math.floor(index / GENERATED_FIGHTER_ATLAS_COLUMNS) * size;
+    ctx.drawImage(atlas, sx, sy, size, size, x, y, size, size);
     ctx.restore();
-    return true;
   }
 
   render(): void {
@@ -990,22 +959,7 @@ class FighterGame implements GameInstance {
       const flick = a.state === 'hitstun' && Math.floor(this.phaseT * 30) % 2 === 0;
       const pose = this.poseOf(a);
       const flash = a.flashT > 0 || flick;
-      if (this.drawGeneratedPlayer(a, pose, flash)) continue;
-      drawFighter(r.ctx, {
-        cx: a.x,
-        feetY: a.y,
-        facing: a.facing,
-        pose,
-        t: a.moveT,
-        anim: this.phaseT,
-        scale: a.scale,
-        build: a.build,
-        outfit: a.outfit,
-        colors: a.colors,
-        avatarHead: a.avatarHead,
-        likenessHead: a === this.p ? this.playerLikenessHead : null,
-        flash,
-      });
+      this.drawGeneratedFighter(a, pose, flash);
     }
 
     this.renderUi(r);

@@ -30,8 +30,18 @@
     "weather": {
       "description": "Ambient weather/particle overlay drawn over gameplay in your palette colors. Match the premise (rain, snow, embers, fog, fireflies, …); keep it subtle; omit or 'none' for clear.",
       "enum": [
-        "none", "rain", "storm", "snow", "embers", "ash",
-        "leaves", "petals", "fog", "bubbles", "fireflies", "dust"
+        "none",
+        "rain",
+        "storm",
+        "snow",
+        "embers",
+        "ash",
+        "leaves",
+        "petals",
+        "fog",
+        "bubbles",
+        "fireflies",
+        "dust"
       ]
     },
     "lighting": {
@@ -69,6 +79,7 @@
     "palette",
     "story",
     "sprites",
+    "player",
     "levels",
     "boss",
     "music",
@@ -118,7 +129,12 @@
             "type": "array",
             "minItems": 4,
             "maxItems": 48,
-            "items": { "type": "string", "minLength": 4, "maxLength": 48, "pattern": "^[0-9a-f.]+$" }
+            "items": {
+              "type": "string",
+              "minLength": 4,
+              "maxLength": 48,
+              "pattern": "^[0-9a-f.]+$"
+            }
           }
         },
         "headSlot": {
@@ -164,8 +180,18 @@
           "items": { "$ref": "#/$defs/text" }
         },
         "bossIntro": { "$ref": "#/$defs/text" },
-        "victory": { "type": "array", "minItems": 1, "maxItems": 3, "items": { "$ref": "#/$defs/text" } },
-        "defeat": { "type": "array", "minItems": 1, "maxItems": 3, "items": { "$ref": "#/$defs/text" } }
+        "victory": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/text" }
+        },
+        "defeat": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/text" }
+        }
       },
       "required": ["intro", "levelIntros", "bossIntro", "victory", "defeat"],
       "additionalProperties": false
@@ -372,14 +398,21 @@
       "additionalProperties": false
     },
     "fighterOutfit": {
-      "description": "Purely visual clothing silhouette; it never changes hitboxes, moves, frame data, or stats.",
+      "description": "Broad costume family used to direct generated character art; it never changes hitboxes, moves, frame data, or stats.",
       "enum": ["gi", "boxer", "wrestler", "street", "robe", "armor"]
     },
     "fighter": {
-      "description": "A fighter: a build + a palette body color + round HP + optional light stat leans. The move set and frame data are the same for everyone (the engine owns balance) — only look and small leans vary.",
+      "description": "A generated fighter identity plus round HP and optional light stat leans. The move set and frame data are the same for everyone because the engine owns balance.",
       "type": "object",
       "properties": {
         "name": { "$ref": "#/$defs/shortName" },
+        "visualConcept": {
+          "description": "Concrete, identity-defining head-to-toe art direction for generated character art: apparent adult age, face/hair silhouette, signature costume details, footwear, and one memorable motif. Never invent facial traits for a photographed player.",
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 220,
+          "pattern": "^[ -~]+$"
+        },
         "build": {
           "description": "Body silhouette: nimble (small/quick), balanced, heavy (big/slow).",
           "enum": ["nimble", "balanced", "heavy"]
@@ -400,7 +433,7 @@
         "speedScale": { "type": "number", "minimum": 0.85, "maximum": 1.15 },
         "powerScale": { "type": "number", "minimum": 0.85, "maximum": 1.15 }
       },
-      "required": ["name", "build", "colorSlot", "hp"],
+      "required": ["name", "visualConcept", "build", "outfit", "colorSlot", "hp"],
       "additionalProperties": false
     },
     "level": {
@@ -423,6 +456,13 @@
       "type": "object",
       "properties": {
         "name": { "$ref": "#/$defs/shortName" },
+        "visualConcept": {
+          "description": "Concrete, identity-defining head-to-toe art direction for the generated final opponent.",
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 220,
+          "pattern": "^[ -~]+$"
+        },
         "build": { "enum": ["nimble", "balanced", "heavy"] },
         "outfit": { "$ref": "#/$defs/fighterOutfit" },
         "colorSlot": { "type": "integer", "minimum": 5, "maximum": 11 },
@@ -444,7 +484,7 @@
           }
         }
       },
-      "required": ["name", "build", "colorSlot", "hp", "phases"],
+      "required": ["name", "visualConcept", "build", "outfit", "colorSlot", "hp", "phases"],
       "additionalProperties": false
     }
   }

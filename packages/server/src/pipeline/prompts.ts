@@ -268,7 +268,7 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       `SMALL ART (self-describing): ${small}`,
     ].join('\n'),
     fighter: [
-      '\nFIGHTER APPEARANCES DO NOT USE sprites.assign body art. Set sprites.assign.hero and sprites.assign.boss to any library sprite (both are unused schema placeholders), e.g. "hero": "lib:hero_squire", "boss": "lib:boss_titan". The runtime renders opponents and the boss procedurally; their look comes from build (nimble/balanced/heavy), outfit silhouette (gi/boxer/wrestler/street/robe/armor), palette colorSlot, and deterministic identity. A no-photo player and the stable fallback are procedural too. When a photo exists, a later image-asset stage may replace the player with one complete validated pose set; the photo supplies identity while the roster build/outfit/color guides the game-world costume. Never add unsupported face fields or encode the player as a custom sprite.',
+      '\nFIGHTER APPEARANCES DO NOT USE sprites.assign body art. Set sprites.assign.hero and sprites.assign.boss to any library sprite (both are unused schema placeholders), e.g. "hero": "lib:hero_squire", "boss": "lib:boss_titan". A later image-asset stage generates one complete 13-state atlas for the player, three ladder opponents, and boss from their required visualConcept, build, outfit family, and palette colorSlot. A supplied photo is identity truth for the player. The five-atlas roster is atomic and generation fails if any character remains incomplete. Never add unsupported face fields or encode the player as a custom sprite.',
     ].join('\n'),
   };
   const tileRoles: Record<ArchetypeId, string[]> = {

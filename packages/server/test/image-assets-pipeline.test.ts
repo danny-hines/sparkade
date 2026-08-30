@@ -9,8 +9,13 @@ import {
   type GeneratedGameAssetRole,
   type JobRecord,
 } from '@sparkade/shared';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { generatedAssetForRole, readGameAssetManifest, sha256 } from '../src/assets/manifest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+  GameAssetWorkspace,
+  generatedAssetForRole,
+  readGameAssetManifest,
+  sha256,
+} from '../src/assets/manifest';
 import { GENERATED_FIGHTER_POSES } from '../src/assets/fighter-pose';
 import {
   buildKeyArtPrompt,
@@ -47,17 +52,11 @@ const PRESENTATION_ROLES = [
 ] as const satisfies readonly GeneratedGameAssetRole[];
 
 const FIGHTER_ROLES = [
-  'fighterIdle',
-  'fighterWalk',
-  'fighterCrouch',
-  'fighterJump',
-  'fighterPunchHigh',
-  'fighterPunchLow',
-  'fighterKickHigh',
-  'fighterKickLow',
-  'fighterBlock',
-  'fighterHit',
-  'fighterKo',
+  'fighterPlayerAtlas',
+  'fighterOpponent1Atlas',
+  'fighterOpponent2Atlas',
+  'fighterOpponent3Atlas',
+  'fighterBossAtlas',
 ] as const satisfies readonly GeneratedGameAssetRole[];
 
 const PLATFORMER_ROLES = [
@@ -407,15 +406,36 @@ describe.sequential('mock image asset pipeline', () => {
 
     const assetsDir = join(files.gameDir(gameId), 'assets');
     const fighterEntries = FIGHTER_ROLES.map((role) => generatedAssetForRole(assetsDir, role)!);
-    expect(FIGHTER_ROLES).toHaveLength(GENERATED_FIGHTER_POSES.length);
-    expect(new Set(fighterEntries.map((entry) => entry.sha256)).size).toBe(
-      GENERATED_FIGHTER_POSES.length,
+    expect(fighterEntries).toHaveLength(5);
+    expect(new Set(fighterEntries.map((entry) => entry.sha256)).size).toBe(5);
+    expect(fighterEntries.every((entry) => entry.width === 384 && entry.height === 384)).toBe(true);
+    const playerAtlas = readFileSync(join(assetsDir, fighterEntries[0]!.filename));
+    const poseHashes = await Promise.all(
+      GENERATED_FIGHTER_POSES.map(async (_pose, index) =>
+        sha256(
+          await sharp(playerAtlas)
+            .extract({
+              left: (index % 4) * 96,
+              top: Math.floor(index / 4) * 96,
+              width: 96,
+              height: 96,
+            })
+            .png()
+            .toBuffer(),
+        ),
+      ),
     );
-    expect(fighterEntries.every((entry) => entry.width === 64 && entry.height === 64)).toBe(true);
+    expect(new Set(poseHashes).size).toBe(GENERATED_FIGHTER_POSES.length);
     expect(files.readMeta(gameId)?.fighterArt).toEqual({
       mode: 'generated',
       attempted: true,
     });
+    const successfulImageStages = db
+      .usageForGame(gameId)
+      .filter((event) => event.stage.startsWith('image:') && !event.failed)
+      .map((event) => event.stage);
+    expect(successfulImageStages).toHaveLength(32);
+    expect(successfulImageStages.filter((stage) => stage.includes('-sheet-'))).toHaveLength(10);
   });
 
   it('reuses the complete fighter image set on retry after a late failure', async () => {
@@ -434,7 +454,7 @@ describe.sequential('mock image asset pipeline', () => {
     const successfulImagesBeforeRetry = db
       .usageForGame(gameId)
       .filter((event) => event.stage.startsWith('image:') && !event.failed);
-    expect(successfulImagesBeforeRetry).toHaveLength(18);
+    expect(successfulImagesBeforeRetry).toHaveLength(32);
 
     expect(runner.retryJob(gameId)).toEqual({ jobId });
     expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done', attempt: 2 });
@@ -447,5 +467,63 @@ describe.sequential('mock image asset pipeline', () => {
       ...PORTRAIT_ROLES,
       ...FIGHTER_ROLES,
     ]);
+  });
+
+  it('checkpoints completed fighter atlases and regenerates only an unfinished roster slot', async () => {
+    const originalStore = GameAssetWorkspace.prototype.store;
+    let failBossOnce = true;
+    const storeSpy = vi
+      .spyOn(GameAssetWorkspace.prototype, 'store')
+      .mockImplementation(async function (
+        this: GameAssetWorkspace,
+        role,
+        image,
+        promptVersion,
+        promptSha256,
+      ) {
+        if (role === 'fighterBossAtlas' && failBossOnce) {
+          failBossOnce = false;
+          throw new Error('synthetic boss atlas checkpoint failure');
+        }
+        return originalStore.call(this, role, image, promptVersion, promptSha256);
+      });
+    try {
+      const { db, files, runner } = createHarness();
+      const { jobId, gameId } = runner.createJob({
+        promptText: 'A checkpointed subway martial arts tournament',
+        sourceKind: 'surprise',
+        requestedArchetype: 'fighter',
+        photo: await testPhoto(),
+        idempotencyKey: 'mock-photo-fighter-partial-roster-cache',
+      });
+
+      const firstAttempt = await waitForTerminal(db, jobId);
+      expect(firstAttempt).toMatchObject({ status: 'failed', attempt: 1 });
+      expect(firstAttempt.error?.message).toContain('synthetic boss atlas checkpoint failure');
+      const successfulBeforeRetry = db
+        .usageForGame(gameId)
+        .filter((event) => event.stage.startsWith('image:') && !event.failed);
+      expect(successfulBeforeRetry).toHaveLength(32);
+
+      storeSpy.mockRestore();
+      expect(runner.retryJob(gameId)).toEqual({ jobId });
+      expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done', attempt: 2 });
+      const successfulAfterRetry = db
+        .usageForGame(gameId)
+        .filter((event) => event.stage.startsWith('image:') && !event.failed);
+      expect(successfulAfterRetry).toHaveLength(37);
+      const retryStages = successfulAfterRetry
+        .slice(successfulBeforeRetry.length)
+        .map(({ stage }) => stage);
+      expect(retryStages.filter((stage) => stage.includes('fighter-boss-'))).toHaveLength(5);
+      expect(retryStages.some((stage) => /fighter-(player|opponent\d)-/.test(stage))).toBe(false);
+      await expectPublishedPngs(files, gameId, [
+        ...PRESENTATION_ROLES,
+        ...PORTRAIT_ROLES,
+        ...FIGHTER_ROLES,
+      ]);
+    } finally {
+      storeSpy.mockRestore();
+    }
   });
 });

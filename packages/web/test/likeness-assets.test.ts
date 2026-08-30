@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GENERATED_GAME_ASSET_FILES, type GeneratedGameAssetRole } from '@sparkade/shared';
 import type { GameDetail } from '../src/api';
 import {
-  FIGHTER_POSE_ASSETS,
+  FIGHTER_ROSTER_ATLAS_ASSETS,
+  HSHOOTER_PLAYER_CRAFT_ASSET,
   PLATFORMER_BACKDROP_ASSETS,
   PLATFORMER_ENEMY_ASSETS,
   PLATFORMER_POSE_ASSETS,
@@ -114,52 +115,57 @@ describe('loadLikenessAssets', () => {
     expect(requested).toContain('/api/games/story-game/assets/portrait-defeat.png');
   });
 
-  it('exposes fighter poses only after the complete 11-pose set loads', async () => {
-    const fighterAvailability = Object.fromEntries(
-      FIGHTER_POSE_ASSETS.map(([, role]) => [role, true]),
-    );
-    const result = await loadLikenessAssets('fighter-game', {
-      ...legacyAssets,
-      ...fighterAvailability,
+  it('loads a generated H-scroll craft without requiring likeness heads', async () => {
+    const result = await loadLikenessAssets('hscroll-game', {
+      head12: false,
+      head12Side: false,
+      head12Back: false,
+      head16: false,
+      head16Side: false,
+      head16Back: false,
+      portrait: false,
+      ...unavailableGeneratedAssets,
+      [HSHOOTER_PLAYER_CRAFT_ASSET]: true,
     });
 
-    expect(Object.keys(result?.fighterPoses ?? {})).toEqual(
-      FIGHTER_POSE_ASSETS.map(([pose]) => pose),
-    );
-    for (const [, role] of FIGHTER_POSE_ASSETS) {
-      expect(requested).toContain(
-        `/api/games/fighter-game/assets/${GENERATED_GAME_ASSET_FILES[role]}`,
-      );
-    }
+    expect(result?.hshooterPlayerCraft).not.toBeNull();
+    expect(requested).toEqual([
+      `/api/games/hscroll-game/assets/${GENERATED_GAME_ASSET_FILES.hshooterPlayerCraft}`,
+    ]);
   });
 
-  it('rejects the entire generated fighter set when one pose fails to load', async () => {
-    const fighterAvailability = Object.fromEntries(
-      FIGHTER_POSE_ASSETS.map(([, role]) => [role, true]),
+  it('loads the complete generated fighter roster as five stable identity atlases', async () => {
+    const rosterAvailability = Object.fromEntries(
+      FIGHTER_ROSTER_ATLAS_ASSETS.map((role) => [role, true]),
     );
-    failing.add(`/api/games/broken-fighter/assets/${GENERATED_GAME_ASSET_FILES.fighterHit}`);
-
-    const result = await loadLikenessAssets('broken-fighter', {
+    const result = await loadLikenessAssets('roster-fighter', {
       ...legacyAssets,
-      ...fighterAvailability,
+      ...rosterAvailability,
     });
 
-    expect(result?.fighterPoses).toBeNull();
-    expect(requested.filter((url) => url.includes('/assets/fighter-player-'))).toHaveLength(11);
+    expect(result?.fighterAtlases).toHaveLength(5);
+    expect(requested.filter((url) => url.includes('-atlas.png'))).toEqual(
+      FIGHTER_ROSTER_ATLAS_ASSETS.map(
+        (role) => `/api/games/roster-fighter/assets/${GENERATED_GAME_ASSET_FILES[role]}`,
+      ),
+    );
   });
 
-  it('does not start loading an incomplete fighter pose set', async () => {
-    const fighterAvailability = Object.fromEntries(
-      FIGHTER_POSE_ASSETS.map(([, role]) => [role, role !== 'fighterKo']),
+  it('does not expose a partially loaded fighter roster', async () => {
+    const rosterAvailability = Object.fromEntries(
+      FIGHTER_ROSTER_ATLAS_ASSETS.map((role) => [role, true]),
+    );
+    failing.add(
+      `/api/games/broken-roster/assets/${GENERATED_GAME_ASSET_FILES.fighterOpponent2Atlas}`,
     );
 
-    const result = await loadLikenessAssets('partial-fighter', {
+    const result = await loadLikenessAssets('broken-roster', {
       ...legacyAssets,
-      ...fighterAvailability,
+      ...rosterAvailability,
     });
 
-    expect(result?.fighterPoses).toBeNull();
-    expect(requested.some((url) => url.includes('/assets/fighter-player-'))).toBe(false);
+    expect(result?.fighterAtlases).toBeNull();
+    expect(requested.filter((url) => url.includes('-atlas.png'))).toHaveLength(5);
   });
 
   it('exposes platformer poses only after the complete five-frame set loads', async () => {

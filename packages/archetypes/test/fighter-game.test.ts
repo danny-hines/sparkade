@@ -1,10 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { LOGICAL_BUTTONS, type FighterSpec, type LogicalButton } from '@sparkade/shared';
+import {
+  LOGICAL_BUTTONS,
+  type FighterPose,
+  type FighterSpec,
+  type LogicalButton,
+} from '@sparkade/shared';
 import { STEP, type EngineContext, type GameInstance, type InputSnapshot } from '@sparkade/engine';
 import { createFighterGame } from '../src/fighter/game';
-import { FIGHTER_POSES, type FighterPose } from '../src/fighter/figure';
 
 vi.mock('@sparkade/engine', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@sparkade/engine')>();
@@ -17,7 +21,7 @@ vi.mock('@sparkade/engine', async (importOriginal) => {
   };
 });
 
-type MoveId = 'punchHigh' | 'punchLow' | 'kickHigh' | 'kickLow' | 'airKick';
+type MoveId = 'punchHigh' | 'punchLow' | 'kickHigh' | 'kickLow' | 'airPunch' | 'airKick';
 type ActorState =
   'idle' | 'walk' | 'crouch' | 'jump' | 'attack' | 'block' | 'hitstun' | 'blockstun' | 'ko';
 
@@ -41,6 +45,7 @@ interface TestActor {
   aiIntent: 'approach' | 'retreat' | 'attack' | 'block' | 'jump' | 'wait';
   aggression: number;
   aiRecoveryT: number;
+  identitySlot: number;
 }
 
 interface FighterHarness extends GameInstance {
@@ -48,16 +53,16 @@ interface FighterHarness extends GameInstance {
   roundPhase: 'ready' | 'fight' | 'over';
   p: TestActor;
   o: TestActor;
-  playerGeneratedPoses: Readonly<Record<FighterPose, CanvasImageSource>> | null;
+  generatedFighterAtlases: readonly CanvasImageSource[];
   startMove(actor: TestActor, move: MoveId): void;
   aiControl(actor: TestActor, foe: TestActor, dt: number): void;
   stepActor(actor: TestActor, dt: number): void;
-  drawGeneratedPlayer(actor: TestActor, pose: FighterPose, flash: boolean): boolean;
+  drawGeneratedFighter(actor: TestActor, pose: FighterPose, flash: boolean): void;
 }
 
 interface HarnessOptions {
   chance?: boolean | ((probability: number) => boolean);
-  fighterPoses?: Readonly<Record<string, CanvasImageSource>> | null;
+  fighterAtlases?: readonly CanvasImageSource[] | null;
   rangeUnit?: number;
 }
 
@@ -68,11 +73,19 @@ interface GeneratedDrawEvent {
   width: number;
   height: number;
   filter: string;
+  source?: { x: number; y: number; width: number; height: number };
 }
 
 function loadSpec(): FighterSpec {
   const path = join(__dirname, '..', '..', 'generation', 'golden', 'golden-fighter.json');
   return JSON.parse(readFileSync(path, 'utf8')) as FighterSpec;
+}
+
+function stubFighterAtlases(): readonly CanvasImageSource[] {
+  return Array.from(
+    { length: 5 },
+    (_, identitySlot) => ({ identitySlot }) as unknown as CanvasImageSource,
+  );
 }
 
 function snapshot(options: { block?: boolean; press?: LogicalButton } = {}): InputSnapshot {
@@ -107,8 +120,32 @@ function makeHarness(options: HarnessOptions = {}): {
     restore: noop,
     translate: (x: number, y: number) => transforms.push(['translate', x, y]),
     scale: (x: number, y: number) => transforms.push(['scale', x, y]),
-    drawImage: (image: CanvasImageSource, x: number, y: number, width: number, height: number) =>
-      generatedDraws.push({ image, x, y, width, height, filter: ctx.filter }),
+    drawImage: (image: CanvasImageSource, ...values: number[]) => {
+      if (values.length === 8) {
+        const [sx, sy, sw, sh, x, y, width, height] = values as [
+          number,
+          number,
+          number,
+          number,
+          number,
+          number,
+          number,
+          number,
+        ];
+        generatedDraws.push({
+          image,
+          x,
+          y,
+          width,
+          height,
+          filter: ctx.filter,
+          source: { x: sx, y: sy, width: sw, height: sh },
+        });
+        return;
+      }
+      const [x, y, width, height] = values as [number, number, number, number];
+      generatedDraws.push({ image, x, y, width, height, filter: ctx.filter });
+    },
   };
   const engine = {
     renderer: { ctx },
@@ -130,7 +167,8 @@ function makeHarness(options: HarnessOptions = {}): {
     particles: { burst: noop },
     camera: { snap: noop },
     portrait: null,
-    fighterPoses: options.fighterPoses ?? null,
+    fighterAtlases:
+      options.fighterAtlases === undefined ? stubFighterAtlases() : options.fighterAtlases,
     attract: false,
     shake: noop,
     hitStop: noop,
@@ -142,12 +180,6 @@ function makeHarness(options: HarnessOptions = {}): {
   game.phase = 'fight';
   game.roundPhase = 'fight';
   return { game, sfxEvents, chanceEvents, generatedDraws, transforms };
-}
-
-function generatedPoseSet(): Record<FighterPose, CanvasImageSource> {
-  return Object.fromEntries(
-    FIGHTER_POSES.map((pose) => [pose, { pose } as unknown as CanvasImageSource]),
-  ) as Record<FighterPose, CanvasImageSource>;
 }
 
 function putAtLeftWall(game: FighterHarness): void {
@@ -258,48 +290,56 @@ describe('fighter pressure and counter windows', () => {
   });
 });
 
-describe('generated fighter player poses', () => {
-  it('uses generated art only when the complete pose set is available', () => {
-    const complete = generatedPoseSet();
-    const ready = makeHarness({ fighterPoses: complete });
+describe('generated fighter art', () => {
+  it('requires one complete five-atlas roster', () => {
+    const complete = stubFighterAtlases();
+    const ready = makeHarness({ fighterAtlases: complete });
+    expect(ready.game.generatedFighterAtlases).toEqual(complete);
+    expect(ready.game.drawGeneratedFighter(ready.game.p, 'idle', false)).toBeUndefined();
 
-    expect(ready.game.playerGeneratedPoses).not.toBeNull();
-    expect(ready.game.drawGeneratedPlayer(ready.game.p, 'idle', false)).toBe(true);
-    expect(ready.generatedDraws).toEqual([
-      {
-        image: complete.idle,
-        x: Math.round(ready.game.p.x) - 32,
-        y: Math.round(ready.game.p.y) - 60,
-        width: 64,
-        height: 64,
-        filter: 'none',
-      },
-    ]);
-
-    const incomplete = generatedPoseSet();
-    delete (incomplete as Partial<Record<FighterPose, CanvasImageSource>>).ko;
-    const fallback = makeHarness({ fighterPoses: incomplete });
-
-    expect(fallback.game.playerGeneratedPoses).toBeNull();
-    expect(fallback.game.drawGeneratedPlayer(fallback.game.p, 'idle', false)).toBe(false);
-    expect(fallback.generatedDraws).toHaveLength(0);
+    expect(() => makeHarness({ fighterAtlases: complete.slice(0, 4) })).toThrow(
+      'Fighter requires one complete five-character generated atlas roster',
+    );
+    expect(() => makeHarness({ fighterAtlases: null })).toThrow(
+      'Fighter requires one complete five-character generated atlas roster',
+    );
   });
 
   it('mirrors left-facing art and preserves the hit-flash filter', () => {
-    const poses = generatedPoseSet();
-    const { game, generatedDraws, transforms } = makeHarness({ fighterPoses: poses });
+    const atlases = stubFighterAtlases();
+    const { game, generatedDraws, transforms } = makeHarness({ fighterAtlases: atlases });
     game.p.facing = -1;
 
-    expect(game.drawGeneratedPlayer(game.p, 'hit', true)).toBe(true);
+    expect(game.drawGeneratedFighter(game.p, 'hit', true)).toBeUndefined();
     expect(transforms).toEqual([
       ['translate', Math.round(game.p.x) * 2, 0],
       ['scale', -1, 1],
     ]);
     expect(generatedDraws[0]).toMatchObject({
-      image: poses.hit,
-      width: 64,
-      height: 64,
+      image: atlases[0],
+      source: { x: 288, y: 192, width: 96, height: 96 },
+      width: 96,
+      height: 96,
       filter: 'brightness(0) invert(1)',
     });
+  });
+
+  it('crops each pose and opponent identity from the roster atlases', () => {
+    const atlases = stubFighterAtlases();
+    const { game, generatedDraws } = makeHarness({ fighterAtlases: atlases });
+
+    expect(game.generatedFighterAtlases).toEqual(atlases);
+    expect(game.drawGeneratedFighter(game.o, 'airKick', false)).toBeUndefined();
+    expect(generatedDraws).toEqual([
+      {
+        image: atlases[game.o.identitySlot],
+        source: { x: 96, y: 192, width: 96, height: 96 },
+        x: Math.round(game.o.x) - 48,
+        y: Math.round(game.o.y) - 92,
+        width: 96,
+        height: 96,
+        filter: 'none',
+      },
+    ]);
   });
 });

@@ -201,12 +201,110 @@ export interface PlatformerPoseLabStatus {
   error?: string;
 }
 
-export type PlatformerLevelLabStage =
-  | 'layouts'
-  | 'parse'
-  | 'repair'
-  | 'selection'
-  | 'hydrate';
+export type FighterPoseName =
+  | 'idle'
+  | 'walk'
+  | 'crouch'
+  | 'jump'
+  | 'punchHigh'
+  | 'punchLow'
+  | 'kickHigh'
+  | 'kickLow'
+  | 'airPunch'
+  | 'airKick'
+  | 'block'
+  | 'hit'
+  | 'ko';
+
+export type FighterPoseLabStage =
+  | 'source'
+  | 'foundations'
+  | 'identity-judge'
+  | 'poses'
+  | 'pose-judge'
+  | 'retry'
+  | 'atlas'
+  | 'complete';
+
+export interface FighterPoseLabEvent {
+  seq: number;
+  runId: string;
+  at: string;
+  type: 'stage' | 'asset' | 'judge-response' | 'selection' | 'human-verdict' | 'done' | 'failed';
+  stage: FighterPoseLabStage;
+  status: 'started' | 'complete' | 'rejected' | 'failed';
+  message: string;
+  elapsedMs?: number;
+  data?: Record<string, unknown>;
+}
+
+export interface FighterIdentityJudgeDecision {
+  candidateReviews: Array<{
+    id: string;
+    slot: string;
+    scores: {
+      identity: number;
+      concept: number;
+      costume: number;
+      silhouette: number;
+      technical: number;
+    };
+    fatalIssues: string[];
+    summary: string;
+  }>;
+  selections: Array<{
+    slot: string;
+    accepted: boolean;
+    candidateId: string;
+    confidence: number;
+    rationale: string;
+    retryGuidance: string;
+  }>;
+  castReview: {
+    distinctiveness: number;
+    styleConsistency: number;
+    fatalIssues: string[];
+    summary: string;
+  };
+}
+
+export interface FighterPoseJudgeDecision {
+  candidateReviews: Array<{
+    id: string;
+    pose: FighterPoseName;
+    scores: { identity: number; costume: number; pose: number; technical: number };
+    fatalIssues: string[];
+    summary: string;
+  }>;
+  selections: Array<{ pose: FighterPoseName; candidateId: string; rationale: string }>;
+  setReview: {
+    accepted: boolean;
+    identityConsistency: number;
+    costumeConsistency: number;
+    scaleConsistency: number;
+    poseReadability: number;
+    fatalIssues: string[];
+    summary: string;
+  };
+  retryPoses: Array<{ pose: FighterPoseName; guidance: string }>;
+}
+
+export interface FighterPoseLabStatus {
+  runId: string;
+  status: 'running' | 'done' | 'failed';
+  generationMode: 'sheets' | 'individual';
+  events: FighterPoseLabEvent[];
+  imageCalls: number;
+  imageCostUsd: number;
+  judgeCalls: number;
+  judgeCostUsd: number | null;
+  identityDecision?: FighterIdentityJudgeDecision;
+  poseDecision?: FighterPoseJudgeDecision;
+  humanVerdict?: { accepted: boolean; notes: string; at: string };
+  error?: string;
+}
+
+export type PlatformerLevelLabStage = 'layouts' | 'parse' | 'repair' | 'selection' | 'hydrate';
 
 export interface PlatformerLevelLabEvent {
   seq: number;
@@ -319,6 +417,38 @@ export const api = {
     });
     return json(response);
   },
+  startFighterPoseLab: async (opts: {
+    photo: Blob;
+    name: string;
+    visualConcept: string;
+    build: string;
+    outfit: string;
+    colors: string;
+    generationMode: 'sheets' | 'individual';
+  }): Promise<{ runId: string }> => {
+    const form = new FormData();
+    form.append('photo', opts.photo, 'fighter-reference.png');
+    form.append('name', opts.name);
+    form.append('visualConcept', opts.visualConcept);
+    form.append('build', opts.build);
+    form.append('outfit', opts.outfit);
+    form.append('colors', opts.colors);
+    form.append('generationMode', opts.generationMode);
+    const response = await fetch('/api/dev/fighter-poses/runs', { method: 'POST', body: form });
+    return json(response);
+  },
+  fighterPoseLabStatus: (runId: string) =>
+    fetch(`/api/dev/fighter-poses/runs/${encodeURIComponent(runId)}`).then((response) =>
+      json<FighterPoseLabStatus>(response),
+    ),
+  saveFighterPoseHumanVerdict: (runId: string, input: { accepted: boolean; notes?: string }) =>
+    fetch(`/api/dev/fighter-poses/runs/${encodeURIComponent(runId)}/human-verdict`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    }).then((response) =>
+      json<{ humanVerdict: { accepted: boolean; notes: string; at: string } }>(response),
+    ),
   platformerPoseLabStatus: (runId: string) =>
     fetch(`/api/dev/platformer-poses/runs/${encodeURIComponent(runId)}`).then((response) =>
       json<PlatformerPoseLabStatus>(response),
@@ -455,6 +585,24 @@ export function subscribePlatformerPoseLab(
   source.onmessage = (message) => {
     try {
       onEvent(JSON.parse(message.data) as PlatformerPoseLabEvent);
+    } catch {
+      /* malformed dev frame — ignore */
+    }
+  };
+  source.onerror = () => onDisconnect?.();
+  return () => source.close();
+}
+
+/** Subscribe to the isolated Fighter avatar generation experiment. */
+export function subscribeFighterPoseLab(
+  runId: string,
+  onEvent: (event: FighterPoseLabEvent) => void,
+  onDisconnect?: () => void,
+): () => void {
+  const source = new EventSource(`/api/dev/fighter-poses/runs/${encodeURIComponent(runId)}/events`);
+  source.onmessage = (message) => {
+    try {
+      onEvent(JSON.parse(message.data) as FighterPoseLabEvent);
     } catch {
       /* malformed dev frame — ignore */
     }

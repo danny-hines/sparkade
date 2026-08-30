@@ -8,11 +8,9 @@ export function lintFighter(spec: FighterSpec): LintError[] {
   out.push(...lintMusic(spec), ...lintSpriteRefs(spec));
 
   const player = spec.player;
-  const pSlot = player?.colorSlot ?? 5;
-  const seenColors = new Map<number, string>([[pSlot, player?.name ?? 'the player']]);
-  const seenStyles = new Map<string, string>();
-  if (player?.outfit) seenStyles.set(`${player.build}:${player.outfit}`, player.name);
-  const authoredOutfits = player?.outfit ? [player.outfit] : [];
+  const seenColors = new Map<number, string>([[player.colorSlot, player.name]]);
+  const seenStyles = new Map<string, string>([[`${player.build}:${player.outfit}`, player.name]]);
+  const authoredOutfits = [player.outfit];
 
   spec.levels.forEach((lv, i) => {
     const path = `/levels/${i}`;
@@ -24,19 +22,17 @@ export function lintFighter(spec: FighterSpec): LintError[] {
       seenColors.set(lv.opponent.colorSlot, lv.opponent.name);
     }
 
-    if (lv.opponent.outfit) {
-      authoredOutfits.push(lv.opponent.outfit);
-      const style = `${lv.opponent.build}:${lv.opponent.outfit}`;
-      const priorStyle = seenStyles.get(style);
-      if (priorStyle) {
-        out.push(err('FIGHT_STYLE_CLASH', `${path}/opponent/outfit`, `${lv.opponent.name} repeats ${priorStyle}'s ${lv.opponent.build} + ${lv.opponent.outfit} silhouette; vary the build or outfit`));
-      } else {
-        seenStyles.set(style, lv.opponent.name);
-      }
+    authoredOutfits.push(lv.opponent.outfit);
+    const style = `${lv.opponent.build}:${lv.opponent.outfit}`;
+    const priorStyle = seenStyles.get(style);
+    if (priorStyle) {
+      out.push(err('FIGHT_STYLE_CLASH', `${path}/opponent/outfit`, `${lv.opponent.name} repeats ${priorStyle}'s ${lv.opponent.build} + ${lv.opponent.outfit} silhouette; vary the build or outfit`));
+    } else {
+      seenStyles.set(style, lv.opponent.name);
     }
   });
 
-  if (authoredOutfits.length === spec.levels.length + (player ? 1 : 0) && authoredOutfits.length >= 3 && new Set(authoredOutfits).size < 3) {
+  if (authoredOutfits.length >= 3 && new Set(authoredOutfits).size < 3) {
     out.push(err('FIGHT_OUTFIT_VARIETY', '/levels', `the player and ladder use only ${new Set(authoredOutfits).size} outfit silhouette(s); use at least 3`));
   }
 
@@ -44,7 +40,7 @@ export function lintFighter(spec: FighterSpec): LintError[] {
   if (bossColorOwner) {
     out.push(err('FIGHT_BOSS_COLOR', '/boss/colorSlot', `boss shares colorSlot ${spec.boss.colorSlot} with ${bossColorOwner}; use the reserved boss slot 11`));
   }
-  if (player?.outfit && spec.boss.outfit && player.build === spec.boss.build && player.outfit === spec.boss.outfit) {
+  if (player.build === spec.boss.build && player.outfit === spec.boss.outfit) {
     out.push(err('FIGHT_BOSS_STYLE', '/boss/outfit', `boss repeats the player's ${player.build} + ${player.outfit} silhouette; vary the build or outfit`));
   }
   if (spec.levels.length < 3) {

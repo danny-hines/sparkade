@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify from 'fastify';
 import sharp from 'sharp';
+import { GENERATED_GAME_ASSET_FILES } from '@sparkade/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { registerRoutes } from '../src/api/routes';
 import { sha256 } from '../src/assets/manifest';
@@ -74,7 +75,7 @@ describe('published generated asset routes', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('reports manifest-backed generated assets and every fighter pose flag', async () => {
+  it('reports manifest-backed generated assets and every fighter art flag', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/games/game-1' });
 
     expect(response.statusCode).toBe(200);
@@ -84,7 +85,9 @@ describe('published generated asset routes', () => {
     expect(assets.storyIntro).toBe(false);
     expect(assets.storyDefeat).toBe(false);
     expect(assets.generatedPortraitDefeat).toBe(false);
-    expect(Object.keys(assets).filter((name) => name.startsWith('fighter'))).toHaveLength(11);
+    expect(Object.keys(assets).filter((name) => name.startsWith('fighter'))).toHaveLength(
+      Object.keys(GENERATED_GAME_ASSET_FILES).filter((name) => name.startsWith('fighter')).length,
+    );
     expect(
       Object.entries(assets)
         .filter(([name]) => name.startsWith('fighter'))

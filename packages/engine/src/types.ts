@@ -59,9 +59,10 @@ export interface LikenessAssets {
   storyBoss?: CanvasImageSource | null;
   storyVictory?: CanvasImageSource | null;
   storyDefeat?: CanvasImageSource | null;
-  /** Optional image-generated player poses. The fighter uses these when a
-   * complete enough set is present and otherwise keeps its procedural figure. */
-  fighterPoses?: Readonly<Record<string, CanvasImageSource>> | null;
+  /** Likeness-independent native side-view H-scroll player craft. */
+  hshooterPlayerCraft?: CanvasImageSource | null;
+  /** Five complete generated Fighter atlases in player, rung 1-3, boss order. */
+  fighterAtlases?: readonly CanvasImageSource[] | null;
   /** Native generated platformer poses. Activated only as one complete set. */
   platformerPoses?: Readonly<Record<string, CanvasImageSource>> | null;
   /** High-density signature boss generated from the platformer's story art. */

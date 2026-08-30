@@ -402,20 +402,13 @@ describe('fighter roster lints', () => {
 
   it('requires at least three authored outfit silhouettes across player + ladder', () => {
     const spec = golden<FighterSpec>('fighter');
-    spec.player!.outfit = 'gi';
+    spec.player.outfit = 'gi';
     spec.levels[0]!.opponent.outfit = 'gi';
     spec.levels[1]!.opponent.outfit = 'boxer';
     spec.levels[2]!.opponent.outfit = 'boxer';
     expect(codes(archetypes.fighter.lint(spec))).toContain('FIGHT_OUTFIT_VARIETY');
   });
 
-  it('keeps legacy outfit-less fighter saves valid', () => {
-    const spec = golden<FighterSpec>('fighter');
-    delete spec.player!.outfit;
-    for (const level of spec.levels) delete level.opponent.outfit;
-    delete spec.boss.outfit;
-    expect(codes(archetypes.fighter.lint(spec))).not.toContain('FIGHT_OUTFIT_VARIETY');
-  });
 });
 
 describe('adventure lints (key/lock topology)', () => {

@@ -16,10 +16,10 @@ import { RemapScreen } from './screens/remap';
 import { AssetsGalleryScreen } from './screens/assets-gallery';
 import { LikenessLabScreen } from './screens/likeness-lab';
 import { SpriteEditorScreen } from './screens/sprite-editor';
-import { FighterEditorScreen } from './screens/fighter-editor';
 import { PlaytestScreen } from './screens/playtest';
 import { PlatformerPosesLabScreen } from './screens/platformer-poses-lab';
 import { PlatformerLevelsLabScreen } from './screens/platformer-levels-lab';
+import { FighterPosesLabScreen } from './screens/fighter-poses-lab';
 
 export type Screen =
   | { name: 'attract' }
@@ -42,9 +42,9 @@ export function App(): ComponentChildren {
     if (dev === 'assets') return <AssetsGalleryScreen />;
     if (dev === 'likeness') return <LikenessLabScreen />;
     if (dev === 'sprite-editor') return <SpriteEditorScreen />;
-    if (dev === 'fighter-editor') return <FighterEditorScreen />;
     if (dev === 'playtest') return <PlaytestScreen />;
     if (dev === 'platformer-poses') return <PlatformerPosesLabScreen />;
+    if (dev === 'fighter-poses') return <FighterPosesLabScreen />;
     if (dev === 'platformer-levels') return <PlatformerLevelsLabScreen />;
   }
   return <KioskApp />;

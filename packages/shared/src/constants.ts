@@ -21,9 +21,13 @@ export const TILE_SIZE = 16;
 export const PLATFORMER_SCALES = ['compact', 'heroic'] as const;
 export type PlatformerScale = (typeof PLATFORMER_SCALES)[number];
 
-/** Source-art resolution, independent from the platformer's camera framing. */
-export const PLATFORMER_ART_DENSITIES = ['chunky', 'detailed'] as const;
-export type PlatformerArtDensity = (typeof PLATFORMER_ART_DENSITIES)[number];
+/** Source-art resolution, independent from an archetype's camera framing. */
+export const GAMEPLAY_ART_DENSITIES = ['chunky', 'detailed'] as const;
+export type GameplayArtDensity = (typeof GAMEPLAY_ART_DENSITIES)[number];
+
+/** Compatibility name retained for the original platformer contract. */
+export const PLATFORMER_ART_DENSITIES = GAMEPLAY_ART_DENSITIES;
+export type PlatformerArtDensity = GameplayArtDensity;
 
 // ---------------------------------------------------------------------------
 // Performance budgets (validators reject specs that exceed them; engine enforces at runtime)
@@ -298,17 +302,12 @@ export const GENERATED_GAME_ASSET_FILES = {
   storyBoss: 'story-boss.png',
   storyVictory: 'story-victory.png',
   storyDefeat: 'story-defeat.png',
-  fighterIdle: 'fighter-player-idle.png',
-  fighterWalk: 'fighter-player-walk.png',
-  fighterCrouch: 'fighter-player-crouch.png',
-  fighterJump: 'fighter-player-jump.png',
-  fighterPunchHigh: 'fighter-player-punch-high.png',
-  fighterPunchLow: 'fighter-player-punch-low.png',
-  fighterKickHigh: 'fighter-player-kick-high.png',
-  fighterKickLow: 'fighter-player-kick-low.png',
-  fighterBlock: 'fighter-player-block.png',
-  fighterHit: 'fighter-player-hit.png',
-  fighterKo: 'fighter-player-ko.png',
+  hshooterPlayerCraft: 'hshooter-player-craft.png',
+  fighterPlayerAtlas: 'fighter-player-atlas.png',
+  fighterOpponent1Atlas: 'fighter-opponent-1-atlas.png',
+  fighterOpponent2Atlas: 'fighter-opponent-2-atlas.png',
+  fighterOpponent3Atlas: 'fighter-opponent-3-atlas.png',
+  fighterBossAtlas: 'fighter-boss-atlas.png',
   platformerIdle: 'platformer-player-idle.png',
   platformerSideIdle: 'platformer-player-side-idle.png',
   platformerWalk1: 'platformer-player-walk-1.png',
@@ -343,6 +342,27 @@ export const GENERATED_GAME_ASSET_FILES = {
 } as const;
 
 export type GeneratedGameAssetRole = keyof typeof GENERATED_GAME_ASSET_FILES;
+
+/** Runtime and generation contract for each generated Fighter roster atlas. */
+export const GENERATED_FIGHTER_ATLAS_CELL_SIZE = 96;
+export const GENERATED_FIGHTER_ATLAS_COLUMNS = 4;
+export const GENERATED_FIGHTER_ROSTER_SIZE = 5;
+export const FIGHTER_POSES = [
+  'idle',
+  'walk',
+  'crouch',
+  'jump',
+  'punchHigh',
+  'punchLow',
+  'kickHigh',
+  'kickLow',
+  'airPunch',
+  'airKick',
+  'block',
+  'hit',
+  'ko',
+] as const;
+export type FighterPose = (typeof FIGHTER_POSES)[number];
 
 // ---------------------------------------------------------------------------
 // Built-in sprite library ids (the contract between engine art, schemas,
@@ -517,10 +537,8 @@ export const LIB_TILE_THEMES = [
   'garden',
 ] as const;
 
-/** Muse-authored families currently available only to the platformer. Other
- * archetypes keep the complete legacy families until their tile paths receive
- * the same high-density treatment. */
-export const LIB_PLATFORMER_ONLY_TILE_THEMES = [
+/** Additional Muse-authored terrain families beyond the original core set. */
+export const LIB_HD_TILE_THEMES = [
   'city',
   'circuitry',
   'volcano',
@@ -531,10 +549,10 @@ export const LIB_PLATFORMER_ONLY_TILE_THEMES = [
   'industrial',
 ] as const;
 
-export const LIB_PLATFORMER_TILE_THEMES = [
-  ...LIB_TILE_THEMES,
-  ...LIB_PLATFORMER_ONLY_TILE_THEMES,
-] as const;
+/** Compatibility name retained for existing platformer authoring tools. */
+export const LIB_PLATFORMER_ONLY_TILE_THEMES = LIB_HD_TILE_THEMES;
+
+export const LIB_PLATFORMER_TILE_THEMES = [...LIB_TILE_THEMES, ...LIB_HD_TILE_THEMES] as const;
 
 export const LIB_PLATFORMER_TILE_KINDS = [
   'solid',

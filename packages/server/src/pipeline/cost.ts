@@ -79,13 +79,14 @@ export function formatUsd(v: number | null): string {
   return `$${v.toFixed(3)}`;
 }
 
-/** Happy-path returned image count. When a photographed free-voice request has
- * no selected archetype yet, use the image-rich platformer upper bound so the
- * review screen never advertises a ten-image price for a 40-image game. */
+/** Happy-path returned image count. Fighter action states use two six-pose
+ * sheets per roster member; rejected cells and semantic retries cost extra. */
 export function estimateImageCount(hasPhoto: boolean, archetype?: ArchetypeId): number {
   if (archetype === 'platformer') return hasPhoto ? 40 : 25;
-  if (!hasPhoto) return archetype === undefined ? 25 : 5;
-  if (archetype === undefined) return 40;
-  if (archetype === 'fighter') return 21;
+  if (archetype === 'fighter') return hasPhoto ? 32 : 30;
+  // H-scroll replaces three likeness-head calls with one vehicle-identity call.
+  if (archetype === 'hshooter') return hasPhoto ? 8 : 6;
+  if (archetype === undefined) return hasPhoto ? 40 : 30;
+  if (!hasPhoto) return 5;
   return 10;
 }

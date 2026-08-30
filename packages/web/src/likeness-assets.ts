@@ -2,21 +2,14 @@ import type { LikenessAssets } from '@sparkade/engine';
 import { GENERATED_GAME_ASSET_FILES, type GeneratedGameAssetRole } from '@sparkade/shared';
 import { api, type GameDetail } from './api';
 
-export const FIGHTER_POSE_ASSETS = [
-  ['idle', 'fighterIdle'],
-  ['walk', 'fighterWalk'],
-  ['crouch', 'fighterCrouch'],
-  ['jump', 'fighterJump'],
-  ['punchHigh', 'fighterPunchHigh'],
-  ['punchLow', 'fighterPunchLow'],
-  ['kickHigh', 'fighterKickHigh'],
-  ['kickLow', 'fighterKickLow'],
-  ['block', 'fighterBlock'],
-  ['hit', 'fighterHit'],
-  ['ko', 'fighterKo'],
-] as const satisfies readonly (readonly [string, GeneratedGameAssetRole])[];
-
-export type FighterPoseName = (typeof FIGHTER_POSE_ASSETS)[number][0];
+/** Published in the same stable order used by Fighter identity slots. */
+export const FIGHTER_ROSTER_ATLAS_ASSETS = [
+  'fighterPlayerAtlas',
+  'fighterOpponent1Atlas',
+  'fighterOpponent2Atlas',
+  'fighterOpponent3Atlas',
+  'fighterBossAtlas',
+] as const satisfies readonly GeneratedGameAssetRole[];
 
 export const PLATFORMER_POSE_ASSETS = [
   ['idle', 'platformerIdle'],
@@ -56,6 +49,9 @@ export const PLATFORMER_BACKDROP_ASSETS = [
 
 export type PlatformerBackdropName = (typeof PLATFORMER_BACKDROP_ASSETS)[number][0];
 
+export const HSHOOTER_PLAYER_CRAFT_ASSET =
+  'hshooterPlayerCraft' as const satisfies GeneratedGameAssetRole;
+
 function loadImage(url: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -65,16 +61,13 @@ function loadImage(url: string): Promise<HTMLImageElement | null> {
   });
 }
 
-/**
- * Load all runtime game art in parallel. Fighter poses are intentionally
- * all-or-nothing: one failed/missing pose keeps the procedural fighter active
- * for the whole session instead of visibly changing styles mid-match.
- */
+/** Load runtime game art in parallel. Fighter atlases activate only as one
+ * complete five-character roster; the Fighter runtime rejects anything less. */
 export async function loadLikenessAssets(
   gameId: string,
   assets: GameDetail['assets'],
 ): Promise<LikenessAssets | null> {
-  const hasCompleteFighterSet = FIGHTER_POSE_ASSETS.every(([, role]) => assets[role]);
+  const hasCompleteFighterRoster = FIGHTER_ROSTER_ATLAS_ASSETS.every((role) => assets[role]);
   const hasCompletePlatformerSet = PLATFORMER_POSE_ASSETS.every(([, role]) => assets[role]);
   if (
     !assets.head12 &&
@@ -85,11 +78,12 @@ export async function loadLikenessAssets(
     !assets.storyBoss &&
     !assets.storyVictory &&
     !assets.storyDefeat &&
+    !assets.hshooterPlayerCraft &&
     !assets.platformerBoss &&
     !PLATFORMER_ENEMY_ASSETS.some(([, role]) => assets[role]) &&
     !PLATFORMER_PROP_ASSETS.some(([, role]) => assets[role]) &&
     !PLATFORMER_BACKDROP_ASSETS.some(([, role]) => assets[role]) &&
-    !hasCompleteFighterSet &&
+    !hasCompleteFighterRoster &&
     !hasCompletePlatformerSet
   ) {
     return null;
@@ -119,19 +113,18 @@ export async function loadLikenessAssets(
       ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES.storyDefeat))
       : null,
   ]);
-  const fighterPromise: Promise<Record<FighterPoseName, HTMLImageElement> | null> =
-    hasCompleteFighterSet
-      ? Promise.all(
-          FIGHTER_POSE_ASSETS.map(([, role]) =>
-            loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[role])),
-          ),
-        ).then((images) => {
-          if (images.some((image) => image === null)) return null;
-          return Object.fromEntries(
-            FIGHTER_POSE_ASSETS.map(([pose], index) => [pose, images[index]!]),
-          ) as Record<FighterPoseName, HTMLImageElement>;
-        })
-      : Promise.resolve(null);
+  const hshooterPlayerCraftPromise = assets.hshooterPlayerCraft
+    ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES.hshooterPlayerCraft))
+    : Promise.resolve(null);
+  const fighterRosterPromise: Promise<readonly HTMLImageElement[] | null> = hasCompleteFighterRoster
+    ? Promise.all(
+        FIGHTER_ROSTER_ATLAS_ASSETS.map((role) =>
+          loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[role])),
+        ),
+      ).then((images) =>
+        images.some((image) => image === null) ? null : (images as HTMLImageElement[]),
+      )
+    : Promise.resolve(null);
   const platformerPromise: Promise<Record<PlatformerPoseName, HTMLImageElement> | null> =
     hasCompletePlatformerSet
       ? Promise.all(
@@ -194,21 +187,23 @@ export async function loadLikenessAssets(
   const [
     [head12, head12Side, head12Back, head16, head16Side, head16Back, portrait, portraitDefeat],
     [storyIntro, storyBoss, storyVictory, storyDefeat],
-    fighterPoses,
+    fighterAtlases,
     platformerPoses,
     platformerBoss,
     platformerEnemies,
     platformerProps,
     platformerBackdrops,
+    hshooterPlayerCraft,
   ] = await Promise.all([
     likenessPromise,
     storyPromise,
-    fighterPromise,
+    fighterRosterPromise,
     platformerPromise,
     platformerBossPromise,
     platformerEnemiesPromise,
     platformerPropsPromise,
     platformerBackdropsPromise,
+    hshooterPlayerCraftPromise,
   ]);
 
   return {
@@ -224,11 +219,12 @@ export async function loadLikenessAssets(
     storyBoss,
     storyVictory,
     storyDefeat,
-    fighterPoses,
+    fighterAtlases,
     platformerPoses,
     platformerBoss,
     platformerEnemies,
     platformerProps,
     platformerBackdrops,
+    hshooterPlayerCraft,
   };
 }

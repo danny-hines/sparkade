@@ -1,5 +1,6 @@
 import sharp from 'sharp';
-import type { GameSpec } from '@sparkade/shared';
+import { FIGHTER_POSES, type FighterPose, type GameSpec } from '@sparkade/shared';
+import { FIGHTER_POSE_SHEET_SIZE, fighterPoseSheetCellRect } from './fighter-pose-sheet';
 
 export const KEY_ART_PROMPT_VERSION = 'key-art-v2';
 export const STORY_ART_PROMPT_VERSION = 'story-scenes-v1';
@@ -29,7 +30,7 @@ function visualBrief(spec: GameSpec, heroConcept?: string): string {
     `Opening: ${clean(spec.story.intro.join(' '))}`,
     `Main villain: ${clean(spec.boss.name)}. ${clean(spec.story.bossIntro)}`,
     fighterPlayer
-      ? `Player fighter design: ${clean(fighterPlayer.name)}; ${clean(fighterPlayer.build)} build; outfit: ${clean(fighterPlayer.outfit ?? 'classic arcade gear')}.`
+      ? `Player fighter design: ${clean(fighterPlayer.name)}; ${clean(fighterPlayer.visualConcept)}; ${clean(fighterPlayer.build)} build; outfit: ${clean(fighterPlayer.outfit ?? 'classic arcade gear')}.`
       : wardrobeBrief(canonicalHeroConcept),
     `Use this exact limited color direction: ${spec.palette.join(', ')}.`,
   ].join(' ');
@@ -159,6 +160,8 @@ async function normalizeLandscape(image: Buffer, width: number, height: number):
  * provider. It exercises the exact normalization/manifest/runtime path without
  * pretending that a local placeholder came from Muse Image. */
 export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
+  const sheetPoses = mockFighterPoseSheetPoses(prompt);
+  if (sheetPoses) return mockGeneratedFighterPoseSheet(sheetPoses);
   // A 256px fixture is plenty for deterministic pipeline coverage and keeps
   // mock photo-fighter generation fast. Silhouette helpers use a 512px design
   // grid so their coordinates stay easy to reason about.
@@ -207,6 +210,67 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
     .toBuffer();
 }
 
+const MOCK_FIGHTER_POSE_HINTS: Record<FighterPose, string> = {
+  idle: 'neutral ready fighting stance',
+  walk: 'mid-stride',
+  crouch: 'low stationary crouching',
+  jump: 'airborne fighting pose',
+  punchHigh: 'high straight punch',
+  punchLow: 'low body punch',
+  kickHigh: 'high side kick',
+  kickLow: 'low sweeping kick',
+  airPunch: 'airborne fighting pose high straight punch',
+  airKick: 'airborne fighting pose high side kick',
+  block: 'defensive guard',
+  hit: 'hurt recoil',
+  ko: 'non-violent post-match defeat pose',
+};
+
+function mockFighterPoseSheetPoses(prompt: string): FighterPose[] | null {
+  const match = /FIGHTER POSE SHEET CONTRACT: [a-z-]+ \[([^\]]+)\]/.exec(prompt);
+  if (!match) return null;
+  const valid = new Set<string>(FIGHTER_POSES);
+  const poses = match[1]!.split(',').map((pose) => pose.trim());
+  return poses.length === 6 && poses.every((pose) => valid.has(pose))
+    ? (poses as FighterPose[])
+    : null;
+}
+
+/** Deterministic six-cell fixture for the sheet-mode lab and mock pipeline. */
+export async function mockGeneratedFighterPoseSheet(
+  poses: readonly FighterPose[],
+): Promise<Buffer> {
+  if (poses.length !== 6) throw new RangeError('mock fighter pose sheet requires six poses');
+  const cells = await Promise.all(
+    poses.map(async (pose, index): Promise<sharp.OverlayOptions> => {
+      const rect = fighterPoseSheetCellRect(index);
+      const image = await mockGeneratedImage(
+        `One fighting-game sprite on #00ff00. ${MOCK_FIGHTER_POSE_HINTS[pose]}.`,
+      );
+      const input = await sharp(image)
+        .resize(rect.width, rect.height, {
+          fit: 'contain',
+          kernel: sharp.kernel.nearest,
+          background: { r: 0, g: 255, b: 0, alpha: 1 },
+        })
+        .png()
+        .toBuffer();
+      return { input, left: rect.left, top: rect.top };
+    }),
+  );
+  return sharp({
+    create: {
+      width: FIGHTER_POSE_SHEET_SIZE,
+      height: FIGHTER_POSE_SHEET_SIZE,
+      channels: 4,
+      background: { r: 0, g: 255, b: 0, alpha: 1 },
+    },
+  })
+    .composite(cells)
+    .png()
+    .toBuffer();
+}
+
 function mockHeadSubject(x: number, y: number, prompt: string): boolean {
   const side = prompt.includes('side-view');
   const back = prompt.includes('back-view');
@@ -219,7 +283,10 @@ function mockHeadSubject(x: number, y: number, prompt: string): boolean {
 }
 
 function mockFighterSubject(x: number, y: number, prompt: string): boolean {
-  if (prompt.includes('knocked-out pose')) {
+  if (
+    prompt.includes('knocked-out pose') ||
+    prompt.includes('non-violent post-match defeat pose')
+  ) {
     return (
       circle(x, y, 126, 365, 34) ||
       thickSegment(x, y, 155, 366, 330, 366, 35) ||

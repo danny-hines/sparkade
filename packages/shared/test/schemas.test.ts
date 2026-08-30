@@ -140,15 +140,16 @@ describe('archetype schemas', () => {
     }
   });
 
-  it('requires a complete authored roster for new fighter stages without breaking old specs', () => {
+  it('requires a complete authored roster in persisted specs and generation stages', () => {
     const full = ARCHETYPE_SCHEMAS.fighter as {
       required: string[];
       $defs: Record<string, { required?: string[] }>;
     };
-    // Persisted pre-roster/pre-outfit specs keep their engine fallbacks.
-    expect(full.required).not.toContain('player');
-    expect(full.$defs.fighter!.required).not.toContain('outfit');
-    expect(full.$defs.boss!.required).not.toContain('outfit');
+    expect(full.required).toContain('player');
+    expect(full.$defs.fighter!.required).toEqual(
+      expect.arrayContaining(['visualConcept', 'outfit']),
+    );
+    expect(full.$defs.boss!.required).toEqual(expect.arrayContaining(['visualConcept', 'outfit']));
 
     const levels = stageSchema('fighter', 'levels') as {
       properties: Record<string, unknown>;

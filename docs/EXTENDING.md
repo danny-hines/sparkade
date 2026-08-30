@@ -51,9 +51,9 @@ Recorded here (and in `shared/constants.ts` → `DEFERRED_CONTROL_MAPS`) so they
 | **Racing** | **B** accelerate · **Y** brake · **A** item/boost · **L/R** hop/drift |
 
 Fighter is now a supported archetype: the model authors bounded roster data while the hand-written
-runtime owns AI, hitboxes, move/frame data and the procedural renderer. A photographed player may
-receive a complete Muse Image pose set after spec validation; opponents, the boss and any rejected
-or incomplete player set use the procedural renderer.
+runtime owns AI, hitboxes, and move/frame data. Muse Image generates a complete five-character
+atlas roster after validation, and incomplete art fails the generation job instead of publishing a
+body-piece fallback.
 
 Racing remains deferred because it needs validated track topology plus kart physics. When built,
 its spec should follow the same pattern: the model authors bounded track data while the state
@@ -92,8 +92,12 @@ The command saves raw outputs, prompts, processed assets, and a cost manifest un
 `data/experiments/platformer-tilesets/`. After visual review, promote the candidate path printed by
 the command with `npm run tilesets:promote`. Promotion palette-indexes the art and checks it into the
 runtime library; it never happens automatically. Photo games additionally require neutral and
-story-aware defeat-expression portraits plus generated player-head sprites. Fighter photo games
-attempt an all-or-nothing 11-pose player set. Platformer photo games whose design selects
+story-aware defeat-expression portraits plus generated player-head sprites. Fighter games generate
+an atomic five-character roster: the player, three opponents, and the boss. Each character starts
+with three identity candidates; Spark selects the foundation, twelve action states branch from that
+exact anchor, weak states receive bounded targeted retries, and the thirteen selected states are
+packed into a 4x4 atlas of 96px cells. A supplied player photo is identity truth; key art and boss
+story art guide the remaining roster. Platformer photo games whose design selects
 `platformerArtDensity: "detailed"` attempt an all-or-nothing five-pose 112×128 player set. The
 neutral side view anchors two opposing run contacts and the jump, while the runtime uses a
 speed-driven gait from those coherent key frames. Pair validation measures the
@@ -107,6 +111,27 @@ workspace, and recorded in `assets/manifest.json` with model, prompt-version and
 Do not silently substitute local placeholder art in a real-provider run. The deterministic fixture
 path is only for `SPARKADE_PROVIDER=mock`; documented runtime fallbacks must stay visually stable
 and activate atomically rather than mixing partial generated sets.
+
+### Fighter pose experiments
+
+Run `npm run dev` and open `/?dev=fighter-poses` before changing the production Fighter pose graph.
+The isolated lab mirrors one roster member's production flow without generating a game: three identity foundations, Spark
+selection, two ordered six-state sheets, deterministic local splitting, independent cell validation,
+semantic review, bounded retries for weak poses, atlas packing, and a human accept/reject verdict.
+Connected foreground components are labeled across the full sheet and owned by the cell containing most
+of their pixels. The splitter may reclaim an owned component up to 64 source pixels beyond its nominal
+cell while excluding neighbor-owned pixels, so a limb or head is neither duplicated nor amputated by the
+grid. Remaining clipped or distant islands are removed only when a centered primary fighter is clearly
+dominant; two plausible subjects remain a validation error.
+When a sheet cell still fails mechanical validation, keep the other five and recover only that pose with
+up to two bounded isolated attempts. The lab also exposes the original twelve-isolated-pose mode for direct quality,
+latency, and cost comparisons. Production always uses sheet mode for all five roster members, retaining
+isolated generation only for rejected cells and one bounded Spark-directed retry round. A semantic
+rejection selects the highest-scoring locally valid combination; a mechanically missing state reuses
+the closest valid pose so one frame cannot fail the game. Production checkpoints each completed roster
+atlas and resumes only unfinished fighters after a job retry. The lab exposes prompts and review evidence at every stage and stores
+the complete run under `data/experiments/fighter-poses/<run-id>/`. Append `&run=<run-id>` to reopen a
+persisted run after a dev-server restart.
 
 ### Platformer pose experiments
 

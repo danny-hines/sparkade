@@ -643,10 +643,10 @@ export function AssetsGalleryScreen(): ComponentChildren {
             → sprite editor
           </a>{' '}
           <a
-            href="/?dev=fighter-editor"
+            href="/?dev=fighter-poses"
             style="color:var(--cyan);text-decoration:none;font-size:14px"
           >
-            → fighter workshop
+            → fighter poses
           </a>
         </h1>
         <div class="gal-controls">

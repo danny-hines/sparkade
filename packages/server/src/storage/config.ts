@@ -83,8 +83,8 @@ Edit with \`sparkade config edit\` (or any editor; restart the service after).
   intro/boss/victory/defeat scenes, and—when a photo is supplied—the neutral and defeat-expression
   portraits plus player sprites.
   There is intentionally no kiosk toggle or pixel-photo fallback: photo games require the generated
-  portrait/player head to pass validation. Fighter pose art is a complete-set quality gate and falls
-  back internally to the stable procedural fighter only if the full pose set cannot be validated.
+  portrait/player head to pass validation. Fighter art is a required five-character quality gate;
+  an incomplete roster fails the job and remains retryable.
 - likeness.describeInStory: when true, the design stage may see the player's photo to reference
   appearance in the story (observable features only). Ships OFF. The default hero-generation flow
   still sends an accepted photo to Meta's APIs, as disclosed in the wizard.

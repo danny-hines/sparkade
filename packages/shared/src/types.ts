@@ -7,6 +7,7 @@ import type {
   BackdropVariantId,
   Difficulty,
   GeneratedGameAssetRole,
+  GameplayArtDensity,
   HeroFeel,
   JobStage,
   LightingMode,
@@ -292,21 +293,21 @@ export interface HShooterLevel {
 // Fighter spec (1v1 arcade-ladder fighting game)
 // ---------------------------------------------------------------------------
 
-/** A build for the procedural articulated fighter: which palette slots color the
- *  body, and a size/bulk lean. The move set + frame data are hand-authored in
- *  the engine (identical for all fighters) — only look + light stat leans vary. */
+/** A generated fighter's body silhouette. The move set and frame data remain
+ * hand-authored and identical for every character. */
 export type FighterBuild = 'nimble' | 'balanced' | 'heavy';
 
-/** Purely visual clothing silhouette. It never changes hitboxes, frame data,
- * move properties, or stats. Optional so pre-outfit saved games remain valid. */
+/** Broad costume family used to direct generated character art. */
 export type FighterOutfit = 'gi' | 'boxer' | 'wrestler' | 'street' | 'robe' | 'armor';
 
 export interface FighterCharacter {
   name: string;
+  /** Concrete head-to-toe art direction used to establish generated identity. */
+  visualConcept: string;
   build: FighterBuild;
-  /** Procedural clothing silhouette; omitted -> a deterministic engine default. */
-  outfit?: FighterOutfit;
-  /** Palette slot (5-a) for the body's main color; trims derive from it. */
+  /** Broad costume family used by the image-generation prompt. */
+  outfit: FighterOutfit;
+  /** Palette slot (5-a) used to guide the generated costume colors. */
   colorSlot: number;
   hp: number;
   /** Light, clamped stat leans (0.85-1.15); balance is guaranteed by clamping. */
@@ -328,9 +329,11 @@ export interface FighterPhase {
 
 export interface FighterBoss {
   name: string;
+  /** Concrete head-to-toe art direction used to establish generated identity. */
+  visualConcept: string;
   build: FighterBuild;
-  /** Procedural clothing silhouette; omitted -> a deterministic engine default. */
-  outfit?: FighterOutfit;
+  /** Broad costume family used by the image-generation prompt. */
+  outfit: FighterOutfit;
   colorSlot: number;
   hp: number;
   speedScale?: number;
@@ -342,8 +345,8 @@ export interface FighterSpec extends GameSpecBase {
   archetype: 'fighter';
   /** Backdrop behind the arena (horizontal scene); omitted → seed pick. */
   backdrop?: BackdropVariantId;
-  /** The player's fighter; omitted → an engine default. */
-  player?: FighterCharacter;
+  /** The generated player's authored identity and gameplay attributes. */
+  player: FighterCharacter;
   /** Ladder rungs (AI opponents), fought in order; boss is the final rung. */
   levels: FighterLevel[];
   boss: FighterBoss;
@@ -462,6 +465,13 @@ export interface AdventureSpec extends GameSpecBase {
 
 export interface HShooterSpec extends GameSpecBase {
   archetype: 'hshooter';
+  /** Source-authored terrain detail; omitted saved games retain legacy tiles. */
+  hshooterArtDensity?: GameplayArtDensity;
+  /** Authored vehicle identity. Presence opts the game into a likeness-free
+   * craft renderer; omitted saved games retain the legacy hero-head ship. */
+  playerCraft?: {
+    visualConcept: string;
+  };
   /** Far backdrop behind the terrain (horizontal scene); omitted → seed pick. */
   backdrop?: BackdropVariantId;
   levels: HShooterLevel[];
@@ -482,6 +492,8 @@ export interface DesignDoc {
   /** Canonical player visual brief. With a photo, this directs the story-specific
    * wardrobe below the neck while the photo remains truth for head identity. */
   heroConcept: string;
+  /** Shooter-only vehicle identity, authored independently from player likeness. */
+  vehicleConcept?: string;
   story: StoryBlock;
   levelPlan: { name: string; summary: string }[];
   cast: { role: string; concept: string }[];
@@ -570,12 +582,10 @@ export interface GameMetaFile {
   priceSnapshot: Record<string, PriceRow>;
   /** Fixed image price captured by this run (separate from token pricing). */
   imagePriceSnapshot?: { model: string; perImageUsd: number | null };
-  /** QA/readiness signal for the experimental generated fighter pose set. */
+  /** Confirms that the required generated Fighter roster was published. */
   fighterArt?: {
-    mode: 'generated' | 'procedural';
-    attempted: boolean;
-    /** Present when the generated set was skipped or rejected. */
-    reason?: string;
+    mode: 'generated';
+    attempted: true;
   };
   /** QA/readiness signal for the generated high-density platformer player. */
   platformerPlayerArt?: {
@@ -618,6 +628,13 @@ export interface GameMetaFile {
     /** Stage plates whose generated art was published. */
     generatedRoles?: Array<'level1' | 'level2' | 'level3' | 'boss'>;
     /** Present when at least one stage retained its procedural backdrop. */
+    reason?: string;
+  };
+  /** QA/readiness signal for the likeness-independent H-scroll player craft. */
+  hshooterPlayerCraftArt?: {
+    mode: 'generated' | 'procedural';
+    attempted: boolean;
+    /** Present when the generated craft retained its stable library fallback. */
     reason?: string;
   };
   golden?: boolean;

@@ -21,3 +21,15 @@ The completed correction:
   entity family with deterministic regression fixtures.
 
 Published games remain unchanged; the correction applies while normalizing newly generated specs.
+
+## Fighter presentation follow-ups
+
+- Have Muse Spark choose one roster-wide proportion and rendering aesthetic (for example, cartoony
+  or realistic) and carry that contract through every player and enemy image prompt.
+- Establish the player's canonical outfit during story/design generation, then reuse the same
+  concrete outfit identity in story cards, presentation art, and gameplay pose generation.
+- Give walking immediate motion by alternating the idle and walk states; later evaluate whether a
+  second dedicated walk frame is worth the extra generation cost.
+- Generate arena backgrounds and a small set of premise-specific backdrop props.
+- Profile Fighter generation latency and spend, then reduce redundant image/review work through
+  bounded candidates, checkpoint reuse, batching, and parallelism without lowering output quality.

@@ -34,8 +34,7 @@ import { LIKENESS_ASSET_FILES } from '../likeness/likeness';
 import { registerDevAssetRoutes } from './dev-assets';
 import { registerDevLikenessRoutes } from './dev-likeness';
 import { registerDevSpriteRoutes } from './dev-sprite';
-import { registerDevFighterRoutes } from './dev-fighter';
-import { registerDevFighterOutfitRoutes } from './dev-fighter-outfits';
+import { registerDevFighterPoseRoutes } from './dev-fighter-poses';
 import { registerDevPlatformerPoseRoutes } from './dev-platformer-poses';
 import { registerDevPlatformerLevelRoutes } from './dev-platformer-levels';
 import { isSameHttpOrigin } from './origin';
@@ -65,8 +64,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     registerDevAssetRoutes(app);
     registerDevLikenessRoutes(app, configStore);
     registerDevSpriteRoutes(app);
-    registerDevFighterRoutes(app, files, db);
-    registerDevFighterOutfitRoutes(app);
+    registerDevFighterPoseRoutes(app, configStore, files.dir);
     registerDevPlatformerPoseRoutes(app, configStore, files.dir);
     registerDevPlatformerLevelRoutes(app, configStore, files.dir);
   }

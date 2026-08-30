@@ -55,6 +55,7 @@
   },
   "player": {
     "name": "RONIN",
+    "visualConcept": "A masterless rooftop duelist in a cropped indigo gi, moon-white sash, wrapped forearms, split-toe boots, and a small brass lantern crest at the shoulder.",
     "build": "balanced",
     "outfit": "gi",
     "colorSlot": 5,
@@ -64,21 +65,22 @@
     {
       "name": "The Tile Gate",
       "musicSong": "theme",
-      "opponent": { "name": "TILE", "build": "nimble", "outfit": "street", "colorSlot": 8, "hp": 85 }
+      "opponent": { "name": "TILE", "visualConcept": "A lean young adult courier with a sharp black bob, cropped rust street jacket, checker-tile scarf, fingerless gloves, and light rooftop shoes.", "build": "nimble", "outfit": "street", "colorSlot": 8, "hp": 85 }
     },
     {
       "name": "The Long Balcony",
       "musicSong": "theme",
-      "opponent": { "name": "BRASS", "build": "heavy", "outfit": "wrestler", "colorSlot": 6, "hp": 120, "powerScale": 1.12 }
+      "opponent": { "name": "BRASS", "visualConcept": "A massive middle-aged bell-foundry wrestler with a square beard, bronze singlet, leather lifting belt, taped fists, heavy kneepads, and bell-clapper tassels.", "build": "heavy", "outfit": "wrestler", "colorSlot": 6, "hp": 120, "powerScale": 1.12 }
     },
     {
       "name": "Lantern Row",
       "musicSong": "theme",
-      "opponent": { "name": "VESPER", "build": "balanced", "outfit": "robe", "colorSlot": 9, "hp": 105, "speedScale": 1.12 }
+      "opponent": { "name": "VESPER", "visualConcept": "An elegant adult lantern dancer with a long silver braid, fitted plum fighting robe, wide split sleeves, soft boots, and crescent-shaped cuffs.", "build": "balanced", "outfit": "robe", "colorSlot": 9, "hp": 105, "speedScale": 1.12 }
     }
   ],
   "boss": {
     "name": "The Moth King",
+    "visualConcept": "An imposing older rooftop monarch with a severe silver topknot, moth-wing crown, layered charcoal lamellar armor, pale fur mantle, plated boots, and crescent gauntlets.",
     "build": "heavy",
     "outfit": "armor",
     "colorSlot": 11,

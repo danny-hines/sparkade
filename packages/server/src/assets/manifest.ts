@@ -12,7 +12,6 @@ import { atomicWriteFile, ensureDir, readJson } from '../util';
 
 export const GAME_ASSET_MANIFEST_FILE = 'manifest.json';
 const PRIVATE_GENERATED_ASSET_FILES = {
-  fighterReference: '.fighter-player-reference.png',
   platformerReference: '.platformer-player-reference.png',
   platformerSideReference: '.platformer-player-side-reference.png',
 } as const;
@@ -122,7 +121,7 @@ export class GameAssetWorkspace {
   }
 
   /** Load a retry-only generated artifact that must never enter the public
-   * delivery allowlist (currently the high-resolution fighter idle reference). */
+   * delivery allowlist. */
   loadPrivate(
     role: PrivateGeneratedAssetRole,
     promptVersion: string,

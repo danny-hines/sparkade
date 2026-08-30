@@ -16,6 +16,8 @@ import {
   stageSchema,
   type ArchetypeId,
   type DesignDoc,
+  type FighterCharacter,
+  type FighterSpec,
   type GameMetaFile,
   type GeneratedGameAssetRole,
   type GameSpec,
@@ -60,13 +62,49 @@ import {
   type StoryArtRole,
 } from '../assets/game-art';
 import {
+  GENERATED_FIGHTER_ATLAS_PROMPT_VERSION,
   GENERATED_FIGHTER_POSES,
   GENERATED_FIGHTER_POSE_PROMPT_VERSION,
+  bestAvailableFighterPoseFallback,
+  buildFighterIdentityCandidatePrompt,
+  buildGeneratedFighterAtlas,
   buildFighterPosePrompt,
   prepareGeneratedFighterReference,
   processGeneratedFighterPose,
+  validateGeneratedFighterAtlas,
   type GeneratedFighterPose,
 } from '../assets/fighter-pose';
+import {
+  FIGHTER_POSE_SHEET_GROUPS,
+  FIGHTER_POSE_SHEET_PROMPT_VERSION,
+  actionPosesFromSheets,
+  buildFighterPoseSheetPrompt,
+  buildFighterPoseSheetSeed,
+  recoverRejectedFighterSheetCells,
+  splitGeneratedFighterPoseSheet,
+  type FighterPoseSheetCellResult,
+  type FighterPoseSheetGroup,
+} from '../assets/fighter-pose-sheet';
+import {
+  FIGHTER_IDENTITY_JUDGE_PROMPT_VERSION,
+  FIGHTER_POSE_JUDGE_PROMPT_VERSION,
+  FIGHTER_ROSTER_PIPELINE_PROMPT_VERSION,
+  FIGHTER_ROSTER_SLOTS,
+  bestFighterIdentityCandidateIds,
+  bestFighterPoseCandidateIds,
+  buildFighterIdentityJudgeBoard,
+  buildFighterIdentityJudgePrompt,
+  buildFighterIdentityJudgeSchema,
+  buildFighterPoseJudgeBoard,
+  buildFighterPoseJudgePrompt,
+  buildFighterPoseJudgeSchema,
+  fighterPosesNeedingRetry,
+  normalizeFighterIdentityJudgeDecision,
+  normalizeFighterPoseJudgeDecision,
+  type FighterIdentityCandidateDescriptor,
+  type FighterPoseCandidateDescriptor,
+  type FighterRosterSlot,
+} from '../assets/fighter-pose-judge';
 import {
   GENERATED_PLATFORMER_POSES,
   GENERATED_PLATFORMER_POSE_PROMPT_VERSION,
@@ -237,19 +275,13 @@ export interface NewJobInputs {
   idempotencyKey: string;
 }
 
-const FIGHTER_ASSET_ROLES = {
-  idle: 'fighterIdle',
-  walk: 'fighterWalk',
-  crouch: 'fighterCrouch',
-  jump: 'fighterJump',
-  punchHigh: 'fighterPunchHigh',
-  punchLow: 'fighterPunchLow',
-  kickHigh: 'fighterKickHigh',
-  kickLow: 'fighterKickLow',
-  block: 'fighterBlock',
-  hit: 'fighterHit',
-  ko: 'fighterKo',
-} as const satisfies Record<GeneratedFighterPose, GeneratedGameAssetRole>;
+const FIGHTER_ROSTER_ASSET_ROLES = {
+  player: 'fighterPlayerAtlas',
+  opponent1: 'fighterOpponent1Atlas',
+  opponent2: 'fighterOpponent2Atlas',
+  opponent3: 'fighterOpponent3Atlas',
+  boss: 'fighterBossAtlas',
+} as const satisfies Record<FighterRosterSlot, GeneratedGameAssetRole>;
 
 const PLATFORMER_ASSET_ROLES = {
   idle: 'platformerIdle',
@@ -2636,178 +2668,589 @@ export class GenerationRunner {
             })
           : Promise.resolve();
 
-      let fighterArtStatus: GameMetaFile['fighterArt'] =
-        spec.archetype === 'fighter'
-          ? photoReference
-            ? {
-                mode: 'procedural',
-                attempted: true,
-                reason: 'Generated fighter art did not complete',
-              }
-            : {
-                mode: 'procedural',
-                attempted: false,
-                reason: 'No player photo was supplied',
-              }
-          : undefined;
+      let fighterArtStatus: GameMetaFile['fighterArt'];
 
       const fighterTask =
-        photoReference && spec.archetype === 'fighter'
+        spec.archetype === 'fighter'
           ? (async (): Promise<void> => {
-              const fighterGenerationStarted = Date.now();
-              let idleReference = photoReference;
-              const identity = describeVisibleTraits(feat);
-              const outfit =
-                spec.player?.outfit ?? spec.player?.build ?? 'distinctive arcade fighter';
-              const colors = spec.palette
-                .filter((hex) => {
-                  const r = Number.parseInt(hex.slice(1, 3), 16);
-                  const g = Number.parseInt(hex.slice(3, 5), 16);
-                  const b = Number.parseInt(hex.slice(5, 7), 16);
-                  return !(g > r * 1.15 && g > b * 1.15);
-                })
-                .join(', ');
-              const generatePose = async (pose: GeneratedFighterPose): Promise<Buffer> => {
-                const role = FIGHTER_ASSET_ROLES[pose];
-                const basePrompt = buildFighterPosePrompt(pose, { identity, outfit, colors });
-                const prompts = [
-                  basePrompt,
-                  `${basePrompt} RETRY CORRECTION: use one complete, uncropped silhouette on perfectly uniform #00ff00 and obey the requested pose exactly.`,
-                ];
-                const candidates = prompts.map((prompt) => ({
-                  prompt,
-                  promptSha: imagePromptHash(prompt, idleReference),
-                }));
-                for (const candidate of candidates) {
-                  const cached = assetWorkspace.load(
-                    role,
-                    GENERATED_FIGHTER_POSE_PROMPT_VERSION,
-                    candidate.promptSha,
-                  );
-                  const cachedReference =
-                    pose === 'idle'
-                      ? assetWorkspace.loadPrivate(
-                          'fighterReference',
-                          GENERATED_FIGHTER_POSE_PROMPT_VERSION,
-                          candidate.promptSha,
-                        )
-                      : null;
-                  if (cached && (pose !== 'idle' || cachedReference)) {
-                    if (cachedReference) idleReference = cachedReference;
-                    return cached;
-                  }
-                }
-                let lastError: unknown;
-                for (const { prompt, promptSha } of candidates) {
-                  const raw = await callImage({
-                    role,
-                    label: `Player ${pose} pose`,
-                    prompt,
-                    reference: idleReference,
-                    size: '1024x1024',
-                  });
-                  try {
-                    const processed = await processGeneratedFighterPose(raw);
-                    if (pose === 'idle') {
-                      const reference = await prepareGeneratedFighterReference(raw);
-                      await Promise.all([
-                        assetWorkspace.store(
-                          role,
-                          processed.png,
-                          GENERATED_FIGHTER_POSE_PROMPT_VERSION,
-                          promptSha,
-                        ),
-                        assetWorkspace.storePrivate(
-                          'fighterReference',
-                          reference,
-                          GENERATED_FIGHTER_POSE_PROMPT_VERSION,
-                          promptSha,
-                        ),
-                      ]);
-                      idleReference = reference;
-                    } else {
-                      await assetWorkspace.store(
-                        role,
-                        processed.png,
-                        GENERATED_FIGHTER_POSE_PROMPT_VERSION,
-                        promptSha,
-                      );
-                    }
-                    return processed.png;
-                  } catch (error) {
-                    if (error instanceof GeneratedAssetStorageError) {
-                      throw new PipelineError('storage', error.message, 'building-assets');
-                    }
-                    lastError = error;
-                    validationFailure(role);
-                    emit('building-assets', `Repainting the player ${pose} pose…`);
-                  }
-                }
-                throw lastError instanceof Error
-                  ? lastError
-                  : new Error(`player ${pose} pose failed validation`);
-              };
-
-              try {
-                const idle = await generatePose('idle');
-                const remaining = GENERATED_FIGHTER_POSES.filter((pose) => pose !== 'idle');
-                const results = await Promise.allSettled(remaining.map(generatePose));
-                const failure = results.find(
-                  (result): result is PromiseRejectedResult => result.status === 'rejected',
-                );
-                if (failure) throw failure.reason;
-                const poseBytes = [
-                  idle,
-                  ...results.map((result) => (result as PromiseFulfilledResult<Buffer>).value),
-                ];
-                if (new Set(poseBytes.map(sha256)).size !== GENERATED_FIGHTER_POSES.length) {
-                  throw new Error('generated fighter pose set contained duplicate frames');
-                }
-                fighterArtStatus = { mode: 'generated', attempted: true };
-              } catch (error) {
-                if (
-                  abort.signal.aborted ||
-                  (error instanceof PipelineError && !isOptionalGeneratedArtProviderFailure(error))
-                ) {
-                  throw error;
-                }
-                await Promise.all([
-                  assetWorkspace.discard(Object.values(FIGHTER_ASSET_ROLES)),
-                  assetWorkspace.discardPrivate('fighterReference'),
-                ]);
-                fighterArtStatus = {
-                  mode: 'procedural',
-                  attempted: true,
-                  reason:
-                    error instanceof Error
-                      ? error.message.slice(0, 240)
-                      : 'Generated fighter pose set failed validation',
+                const fighterSpec = spec as FighterSpec;
+                const [keyArt, bossArt] = await Promise.all([keyArtTask, storyAssets.boss]);
+                const player: FighterCharacter = fighterSpec.player;
+                const boss: FighterCharacter = {
+                  name: fighterSpec.boss.name,
+                  visualConcept: fighterSpec.boss.visualConcept,
+                  build: fighterSpec.boss.build,
+                  outfit: fighterSpec.boss.outfit,
+                  colorSlot: fighterSpec.boss.colorSlot,
+                  hp: fighterSpec.boss.hp,
+                  speedScale: fighterSpec.boss.speedScale,
+                  powerScale: fighterSpec.boss.powerScale,
                 };
-                recordEarlyRepairEvent(
-                  'entities',
-                  'fighter-art-fallback',
+                interface RosterEntry {
+                  slot: FighterRosterSlot;
+                  character: FighterCharacter;
+                  source: Buffer;
+                  sourceKind: 'photo' | 'key-art' | 'boss-art';
+                  photoIdentity: boolean;
+                }
+                const roster: RosterEntry[] = [
+                  {
+                    slot: 'player',
+                    character: player,
+                    source: photoReference ?? keyArt,
+                    sourceKind: photoReference ? 'photo' : 'key-art',
+                    photoIdentity: !!photoReference,
+                  },
+                  ...fighterSpec.levels.map((level, index): RosterEntry => ({
+                    slot: `opponent${index + 1}` as FighterRosterSlot,
+                    character: level.opponent,
+                    source: keyArt,
+                    sourceKind: 'key-art',
+                    photoIdentity: false,
+                  })),
+                  {
+                    slot: 'boss',
+                    character: boss,
+                    source: bossArt,
+                    sourceKind: 'boss-art',
+                    photoIdentity: false,
+                  },
+                ];
+                if (
+                  roster.length !== FIGHTER_ROSTER_SLOTS.length ||
+                  !FIGHTER_ROSTER_SLOTS.every((slot, index) => roster[index]?.slot === slot)
+                ) {
+                  throw new Error('fighter roster does not match the five-slot atlas contract');
+                }
+
+                const conceptFor = (character: FighterCharacter): string => character.visualConcept;
+                const colorsFor = (character: FighterCharacter): string =>
                   [
-                    {
-                      code: 'FIGHTER_ART_FALLBACK',
-                      path: '/assets/fighter',
-                      message:
-                        error instanceof Error
-                          ? error.message.slice(0, 240)
-                          : 'generated fighter pose set failed validation',
-                    },
-                  ],
-                  [],
-                  fighterGenerationStarted,
-                  'downgraded',
-                );
-                // Fighter poses are a complete-set experiment. The web loader
-                // activates them atomically; a partial/invalid set therefore
-                // leaves the stable procedural fighter in place without flicker.
+                    fighterSpec.palette[character.colorSlot],
+                    fighterSpec.palette[Math.max(5, character.colorSlot - 1)],
+                    fighterSpec.palette[13],
+                    fighterSpec.palette[14],
+                    fighterSpec.palette[15],
+                  ]
+                    .filter((color): color is string => !!color)
+                    .filter((hex) => {
+                      const r = Number.parseInt(hex.slice(1, 3), 16);
+                      const g = Number.parseInt(hex.slice(3, 5), 16);
+                      const b = Number.parseInt(hex.slice(5, 7), 16);
+                      return !(g > r * 1.15 && g > b * 1.15);
+                    })
+                    .join(', ');
+                const identity = photoReference ? describeVisibleTraits(feat) : undefined;
+                const pipelineFingerprint = JSON.stringify({
+                  promptVersions: {
+                    identity: GENERATED_FIGHTER_POSE_PROMPT_VERSION,
+                    poseSheet: FIGHTER_POSE_SHEET_PROMPT_VERSION,
+                    atlas: GENERATED_FIGHTER_ATLAS_PROMPT_VERSION,
+                    identityJudge: FIGHTER_IDENTITY_JUDGE_PROMPT_VERSION,
+                    poseJudge: FIGHTER_POSE_JUDGE_PROMPT_VERSION,
+                    pipeline: FIGHTER_ROSTER_PIPELINE_PROMPT_VERSION,
+                  },
+                  roster: roster.map(({ slot, character, photoIdentity }) => ({
+                    slot,
+                    character,
+                    photoIdentity,
+                  })),
+                  keyArt: sha256(keyArt),
+                  bossArt: sha256(bossArt),
+                  photo: photoReference ? sha256(photoReference) : null,
+                });
+                const pipelineSha = imagePromptHash(pipelineFingerprint);
+                const cached = Object.fromEntries(
+                  FIGHTER_ROSTER_SLOTS.map((slot) => [
+                    slot,
+                    assetWorkspace.load(
+                      FIGHTER_ROSTER_ASSET_ROLES[slot],
+                      FIGHTER_ROSTER_PIPELINE_PROMPT_VERSION,
+                      pipelineSha,
+                    ),
+                  ]),
+                ) as Record<FighterRosterSlot, Buffer | null>;
+                for (const slot of FIGHTER_ROSTER_SLOTS) {
+                  const atlas = cached[slot];
+                  if (!atlas) continue;
+                  try {
+                    await validateGeneratedFighterAtlas(atlas);
+                  } catch {
+                    cached[slot] = null;
+                    await assetWorkspace.discard([FIGHTER_ROSTER_ASSET_ROLES[slot]]);
+                  }
+                }
+                const pendingRoster = roster.filter((entry) => !cached[entry.slot]);
+                const restoredCount = roster.length - pendingRoster.length;
+                if (restoredCount > 0) {
+                  emit(
+                    'building-assets',
+                    `Restored ${restoredCount}/5 completed fighter atlases; generating only the unfinished roster slots`,
+                  );
+                }
+                if (pendingRoster.length === 0) {
+                  fighterArtStatus = { mode: 'generated', attempted: true };
+                  return;
+                }
+
+                interface IdentityCandidate extends FighterIdentityCandidateDescriptor {
+                  raw: Buffer;
+                  processed: Buffer;
+                }
+                interface PoseCandidate extends FighterPoseCandidateDescriptor {
+                  processed: Buffer;
+                }
+                const generatedCandidate = async (opts: {
+                  role: string;
+                  label: string;
+                  prompt: string;
+                  reference: Buffer;
+                }): Promise<{ raw: Buffer; processed: Buffer } | null> => {
+                  let raw: Buffer;
+                  try {
+                    raw = await callImage({
+                      role: opts.role,
+                      label: opts.label,
+                      prompt: opts.prompt,
+                      reference: opts.reference,
+                      size: '1024x1024',
+                    });
+                  } catch (error) {
+                    if (abort.signal.aborted) throw error;
+                    if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
+                    validationFailure(opts.role);
+                    emit('building-assets', `${opts.label} was unavailable; continuing the pool…`);
+                    return null;
+                  }
+                  try {
+                    const processed = await processGeneratedFighterPose(raw, {
+                      removeGreenSpill: true,
+                    });
+                    return { raw, processed: processed.png };
+                  } catch {
+                    validationFailure(opts.role);
+                    emit('building-assets', `${opts.label} failed local sprite validation`);
+                    return null;
+                  }
+                };
+
                 emit(
                   'building-assets',
-                  `Generated fighter poses did not pass as a complete set; using the stable fighter (${error instanceof Error ? error.message.slice(0, 120) : 'validation failed'})`,
+                  `Painting ${pendingRoster.length * 3} fighter identity foundations for ${pendingRoster.length} unfinished roster slot${pendingRoster.length === 1 ? '' : 's'}…`,
                 );
-              }
+                const identityCandidates = (
+                  await Promise.all(
+                    pendingRoster.flatMap((entry) =>
+                      [1, 2, 3].map(async (index): Promise<IdentityCandidate | null> => {
+                        const id = `${entry.slot}-I${index}`;
+                        const result = await generatedCandidate({
+                          role: `fighter-${id}`,
+                          label: `${entry.character.name} identity ${index}`,
+                          prompt: buildFighterIdentityCandidatePrompt({
+                            candidateId: id,
+                            name: entry.character.name,
+                            visualConcept: conceptFor(entry.character),
+                            build: entry.character.build,
+                            outfit: entry.character.outfit,
+                            colors: colorsFor(entry.character),
+                            source: entry.sourceKind,
+                            ...(entry.photoIdentity && identity ? { identity } : {}),
+                          }),
+                          reference: entry.source,
+                        });
+                        return result
+                          ? {
+                              id,
+                              slot: entry.slot,
+                              name: entry.character.name,
+                              visualConcept: conceptFor(entry.character),
+                              photoIdentity: entry.photoIdentity,
+                              ...result,
+                            }
+                          : null;
+                      }),
+                    ),
+                  )
+                ).filter((candidate): candidate is IdentityCandidate => candidate !== null);
+                for (const entry of pendingRoster) {
+                  if (!identityCandidates.some((candidate) => candidate.slot === entry.slot)) {
+                    throw new Error(
+                      `${entry.character.name} has no locally valid identity foundation`,
+                    );
+                  }
+                }
+
+                const identityDescriptors: FighterIdentityCandidateDescriptor[] =
+                  identityCandidates.map(({ id, slot, name, visualConcept, photoIdentity }) => ({
+                    id,
+                    slot,
+                    name,
+                    visualConcept,
+                    photoIdentity,
+                  }));
+                const identityBoard = await buildFighterIdentityJudgeBoard({
+                  ...(photoReference ? { sourcePhoto: photoReference } : {}),
+                  keyArt,
+                  bossArt,
+                  candidates: identityCandidates,
+                });
+                const firstIdentityBySlot = Object.fromEntries(
+                  pendingRoster.map(({ slot }) => [
+                    slot,
+                    identityDescriptors.find((candidate) => candidate.slot === slot)!,
+                  ]),
+                ) as Partial<Record<FighterRosterSlot, FighterIdentityCandidateDescriptor>>;
+                const mockIdentityDecision = {
+                  candidateReviews: identityDescriptors.map(({ id, slot }) => ({
+                    id,
+                    slot,
+                    scores: { identity: 5, concept: 5, costume: 5, silhouette: 5, technical: 5 },
+                    fatalIssues: [],
+                    summary: 'Mock identity-safe roster foundation.',
+                  })),
+                  selections: pendingRoster.map(({ slot }) => ({
+                    slot,
+                    accepted: true,
+                    candidateId: firstIdentityBySlot[slot]!.id,
+                    confidence: 1,
+                    rationale: 'Mock selection.',
+                    retryGuidance: '',
+                  })),
+                  castReview: {
+                    distinctiveness: 5,
+                    styleConsistency: 5,
+                    fatalIssues: [],
+                    summary: 'Mock coherent and distinct cast.',
+                  },
+                };
+                let rawIdentityDecision: unknown = mockIdentityDecision;
+                if (!mockImages) {
+                  const prompt = buildFighterIdentityJudgePrompt(identityDescriptors);
+                  rawIdentityDecision = await callLlm(
+                    'design',
+                    {
+                      ...prompt,
+                      jsonSchema: buildFighterIdentityJudgeSchema(identityDescriptors),
+                      maxTokens: 5200,
+                      timeoutMs: 120_000,
+                    },
+                    {
+                      stage: 'building-assets',
+                      label: 'Spark selected the fighter identity foundations',
+                      image: identityBoard,
+                      reasoningEffort: 'low',
+                    },
+                  );
+                }
+                const identityDecision = normalizeFighterIdentityJudgeDecision(
+                  rawIdentityDecision,
+                  identityDescriptors,
+                );
+                const selectedIdentityIds = bestFighterIdentityCandidateIds(identityDecision);
+                const selectedFoundations = Object.fromEntries(
+                  pendingRoster.map(({ slot }) => {
+                    const selected = identityCandidates.find(
+                      (candidate) =>
+                        candidate.slot === slot && candidate.id === selectedIdentityIds[slot],
+                    );
+                    if (!selected) throw new Error(`Spark did not select a ${slot} identity`);
+                    return [slot, selected];
+                  }),
+                ) as Partial<Record<FighterRosterSlot, IdentityCandidate>>;
+                emit(
+                  'building-assets',
+                  `Spark selected ${pendingRoster.length} fighter identit${pendingRoster.length === 1 ? 'y' : 'ies'}`,
+                );
+
+                const actionPoses = actionPosesFromSheets();
+                const atlasResults = await Promise.allSettled(
+                  pendingRoster.map(async (entry): Promise<readonly [FighterRosterSlot, Buffer]> => {
+                    const foundation = selectedFoundations[entry.slot]!;
+                    const anchor = await prepareGeneratedFighterReference(foundation.raw);
+                    const generatePoseCandidate = async (
+                      pose: GeneratedFighterPose,
+                      suffix: string,
+                      retryGuidance?: string,
+                    ): Promise<PoseCandidate | null> => {
+                      const id = `${entry.slot}-${pose}-${suffix}`;
+                      const result = await generatedCandidate({
+                        role: `fighter-${id}`,
+                        label: `${entry.character.name} ${pose} ${suffix}`,
+                        prompt: buildFighterPosePrompt(pose, {
+                          outfit: conceptFor(entry.character),
+                          colors: colorsFor(entry.character),
+                          candidateId: id,
+                          ...(entry.photoIdentity && identity ? { identity } : {}),
+                          ...(retryGuidance ? { retryGuidance } : {}),
+                        }),
+                        reference: anchor,
+                      });
+                      return result ? { id, pose, processed: result.processed } : null;
+                    };
+
+                    const sheetSeed = await buildFighterPoseSheetSeed(anchor);
+                    const generatePoseSheet = async (
+                      group: FighterPoseSheetGroup,
+                    ): Promise<PoseCandidate[]> => {
+                      const id = `${entry.slot}-sheet-${group.id}`;
+                      let raw: Buffer;
+                      try {
+                        raw = await callImage({
+                          role: `fighter-${id}`,
+                          label: `${entry.character.name} ${group.label.toLowerCase()} sheet`,
+                          prompt: buildFighterPoseSheetPrompt(group, {
+                            outfit: conceptFor(entry.character),
+                            colors: colorsFor(entry.character),
+                            candidateId: id,
+                            ...(entry.photoIdentity && identity ? { identity } : {}),
+                          }),
+                          reference: sheetSeed,
+                          size: '1024x1024',
+                        });
+                      } catch (error) {
+                        if (abort.signal.aborted) throw error;
+                        if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
+                        validationFailure(`fighter-${id}`);
+                        emit(
+                          'building-assets',
+                          `${entry.character.name}'s ${group.id} sheet was unavailable; recovering its poses individually…`,
+                        );
+                        return [];
+                      }
+
+                      let cells: FighterPoseSheetCellResult[];
+                      try {
+                        cells = await splitGeneratedFighterPoseSheet(raw, group);
+                      } catch {
+                        validationFailure(`fighter-${id}`);
+                        emit(
+                          'building-assets',
+                          `${entry.character.name}'s ${group.id} sheet could not be split; recovering its poses individually…`,
+                        );
+                        return [];
+                      }
+                      const valid = cells.flatMap((cell): PoseCandidate[] => {
+                        if (!cell.processed) {
+                          validationFailure(`fighter-${entry.slot}-${cell.pose}-sheet-cell`);
+                          emit(
+                            'building-assets',
+                            `${entry.character.name}'s ${cell.pose} sheet cell failed local validation`,
+                          );
+                          return [];
+                        }
+                        return [
+                          {
+                            id: `${entry.slot}-${cell.pose}-S`,
+                            pose: cell.pose,
+                            processed: cell.processed,
+                          },
+                        ];
+                      });
+                      const reclaimed = cells.reduce(
+                        (total, cell) => total + cell.segmentation.reclaimedBleedPixels,
+                        0,
+                      );
+                      const excluded = cells.reduce(
+                        (total, cell) => total + cell.segmentation.excludedNeighborPixels,
+                        0,
+                      );
+                      emit(
+                        'building-assets',
+                        `${entry.character.name}'s ${group.id} sheet yielded ${valid.length}/6 poses${reclaimed || excluded ? ` (${reclaimed} bleed pixels reclaimed, ${excluded} neighbor pixels reassigned)` : ''}`,
+                      );
+                      return valid;
+                    };
+
+                    const candidates = (
+                      await Promise.all(
+                        FIGHTER_POSE_SHEET_GROUPS.map((group) => generatePoseSheet(group)),
+                      )
+                    ).flat();
+                    const missing = actionPoses.filter(
+                      (pose) => !candidates.some((candidate) => candidate.pose === pose),
+                    );
+                    if (missing.length > 0) {
+                      emit(
+                        'building-assets',
+                        `Repainting ${missing.length} rejected ${entry.character.name} sheet cells individually, with one bounded second attempt if needed…`,
+                      );
+                      const recoveries = await recoverRejectedFighterSheetCells(
+                        missing,
+                        generatePoseCandidate,
+                      );
+                      candidates.push(...recoveries);
+                    }
+                    const unrecovered = actionPoses.filter(
+                      (pose) => !candidates.some((candidate) => candidate.pose === pose),
+                    );
+                    const availablePoses = new Set<GeneratedFighterPose>([
+                      'idle',
+                      ...candidates.map(({ pose }) => pose),
+                    ]);
+                    const mechanicalFallbacks: Array<{
+                      pose: GeneratedFighterPose;
+                      sourcePose: GeneratedFighterPose;
+                    }> = [];
+                    for (const pose of unrecovered) {
+                      const sourcePose = bestAvailableFighterPoseFallback(pose, availablePoses);
+                      const processed =
+                        sourcePose === 'idle'
+                          ? foundation.processed
+                          : candidates.find((candidate) => candidate.pose === sourcePose)?.processed;
+                      if (!sourcePose || !processed) {
+                        throw new Error(
+                          `${entry.character.name} has no mechanically valid fallback for ${pose}`,
+                        );
+                      }
+                      candidates.push({
+                        id: `${entry.slot}-${pose}-F-${sourcePose}`,
+                        pose,
+                        processed,
+                      });
+                      mechanicalFallbacks.push({ pose, sourcePose });
+                    }
+                    if (mechanicalFallbacks.length > 0) {
+                      emit(
+                        'building-assets',
+                        `${entry.character.name} kept playable fallback states after bounded recovery: ${mechanicalFallbacks.map(({ pose, sourcePose }) => `${pose}←${sourcePose}`).join(', ')}`,
+                      );
+                    }
+
+                    const review = async (
+                      pool: readonly PoseCandidate[],
+                    ): Promise<ReturnType<typeof normalizeFighterPoseJudgeDecision>> => {
+                      const descriptors: FighterPoseCandidateDescriptor[] = pool.map(
+                        ({ id, pose }) => ({ id, pose }),
+                      );
+                      const board = await buildFighterPoseJudgeBoard({
+                        fighterName: entry.character.name,
+                        anchor: foundation.processed,
+                        candidates: pool,
+                      });
+                      const firstByPose = Object.fromEntries(
+                        actionPoses.map((pose) => [
+                          pose,
+                          descriptors.find((candidate) => candidate.pose === pose)!,
+                        ]),
+                      ) as Record<GeneratedFighterPose, FighterPoseCandidateDescriptor>;
+                      const mockDecision = {
+                        candidateReviews: descriptors.map(({ id, pose }) => ({
+                          id,
+                          pose,
+                          scores: { identity: 5, costume: 5, pose: 5, technical: 5 },
+                          fatalIssues: [],
+                          summary: 'Mock identity-consistent pose.',
+                        })),
+                        selections: actionPoses.map((pose) => ({
+                          pose,
+                          candidateId: firstByPose[pose].id,
+                          rationale: 'Mock selection.',
+                        })),
+                        setReview: {
+                          accepted: true,
+                          identityConsistency: 5,
+                          costumeConsistency: 5,
+                          scaleConsistency: 5,
+                          poseReadability: 5,
+                          fatalIssues: [],
+                          summary: 'Mock complete pose set.',
+                        },
+                        retryPoses: [],
+                      };
+                      let rawDecision: unknown = mockDecision;
+                      if (!mockImages) {
+                        const prompt = buildFighterPoseJudgePrompt(
+                          entry.character.name,
+                          descriptors,
+                          actionPoses,
+                        );
+                        rawDecision = await callLlm(
+                          'design',
+                          {
+                            ...prompt,
+                            jsonSchema: buildFighterPoseJudgeSchema(descriptors, actionPoses),
+                            maxTokens: 6200,
+                            timeoutMs: 120_000,
+                          },
+                          {
+                            stage: 'building-assets',
+                            label: `Spark reviewed ${entry.character.name}'s complete pose set`,
+                            image: board,
+                            reasoningEffort: 'low',
+                          },
+                        );
+                      }
+                      return normalizeFighterPoseJudgeDecision(
+                        rawDecision,
+                        descriptors,
+                        actionPoses,
+                      );
+                    };
+
+                    let decision = await review(candidates);
+                    if (!decision.setReview.accepted) {
+                      const retryPoses = fighterPosesNeedingRetry(decision, actionPoses, 4);
+                      if (retryPoses.length > 0) {
+                        emit(
+                          'building-assets',
+                          `Repainting ${retryPoses.length} weak ${entry.character.name} poses with Spark guidance…`,
+                        );
+                        const alternatives = (
+                          await Promise.all(
+                            retryPoses.flatMap(({ pose, guidance }) => [
+                              generatePoseCandidate(pose, 'B', guidance),
+                              generatePoseCandidate(pose, 'C', guidance),
+                            ]),
+                          )
+                        ).filter((candidate): candidate is PoseCandidate => candidate !== null);
+                        candidates.push(...alternatives);
+                        decision = await review(candidates);
+                      }
+                    }
+                    if (!decision.setReview.accepted) {
+                      emit(
+                        'building-assets',
+                        `Spark still rejected ${entry.character.name}'s pose set after the bounded retry; using its highest-scoring locally valid combination`,
+                      );
+                    }
+                    const selectedIds = bestFighterPoseCandidateIds(decision, actionPoses);
+                    const selectedPoses = { idle: foundation.processed } as Record<
+                      GeneratedFighterPose,
+                      Buffer
+                    >;
+                    for (const pose of actionPoses) {
+                      const selected = candidates.find(
+                        (candidate) =>
+                          candidate.pose === pose && candidate.id === selectedIds[pose],
+                      );
+                      if (!selected)
+                        throw new Error(`Spark did not select ${entry.character.name} ${pose}`);
+                      selectedPoses[pose] = selected.processed;
+                    }
+                    if (
+                      mechanicalFallbacks.length === 0 &&
+                      new Set(GENERATED_FIGHTER_POSES.map((pose) => sha256(selectedPoses[pose])))
+                        .size !== GENERATED_FIGHTER_POSES.length
+                    ) {
+                      throw new Error(
+                        `${entry.character.name} pose set contained duplicate states`,
+                      );
+                    }
+                    const atlas = await buildGeneratedFighterAtlas(selectedPoses);
+                    await validateGeneratedFighterAtlas(atlas);
+                    await assetWorkspace.store(
+                      FIGHTER_ROSTER_ASSET_ROLES[entry.slot],
+                      atlas,
+                      FIGHTER_ROSTER_PIPELINE_PROMPT_VERSION,
+                      pipelineSha,
+                    );
+                    return [entry.slot, atlas] as const;
+                  }),
+                );
+                for (const result of atlasResults) {
+                  if (result.status === 'rejected') throw result.reason;
+                }
+                fighterArtStatus = { mode: 'generated', attempted: true };
             })()
           : Promise.resolve();
 
@@ -3294,11 +3737,12 @@ export class GenerationRunner {
       const fullBodyTask = spec.archetype === 'fighter' ? fighterTask : platformerPlayerTask;
       const headsTask = deferHeadsUntilFullBodyResult
         ? fullBodyTask.then(async () => {
-            const generated =
-              spec.archetype === 'fighter'
-                ? fighterArtStatus?.mode === 'generated'
-                : platformerPlayerArtStatus?.mode === 'generated';
-            if (!generated) await generateHeads();
+            if (
+              spec.archetype === 'platformer' &&
+              platformerPlayerArtStatus?.mode !== 'generated'
+            ) {
+              await generateHeads();
+            }
           })
         : generateHeads();
 
@@ -3547,6 +3991,9 @@ export class GenerationRunner {
     parts: SpecParts,
     hasPhoto: boolean,
   ): GameSpec {
+    const fighterPlayer =
+      archetype === 'fighter' ? (parts.player as FighterCharacter | undefined) : undefined;
+    const canonicalHeroConcept = fighterPlayer?.visualConcept ?? design.heroConcept;
     return {
       specVersion: 1,
       archetype,
@@ -3554,7 +4001,7 @@ export class GenerationRunner {
       meta: {
         title: design.title,
         tagline: design.tagline,
-        heroConcept: design.heroConcept,
+        heroConcept: canonicalHeroConcept,
       },
       palette: design.palette,
       story: design.story,

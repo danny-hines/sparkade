@@ -58,8 +58,10 @@ export interface EngineContext {
   portrait: CanvasImageSource | null;
   /** Emotionally appropriate photo-conditioned portrait for defeat cards. */
   portraitDefeat: CanvasImageSource | null;
-  /** Image-generated player combat poses, when this game's asset set includes them. */
-  fighterPoses: Readonly<Record<string, CanvasImageSource>> | null;
+  /** Likeness-independent generated H-scroll player vehicle. */
+  hshooterPlayerCraft: CanvasImageSource | null;
+  /** Complete image-generated roster, ordered player → three rungs → boss. */
+  fighterAtlases: readonly CanvasImageSource[] | null;
   /** Image-generated high-density platformer poses, when complete. */
   platformerPoses: Readonly<Record<string, CanvasImageSource>> | null;
   /** Image-generated platformer finale boss, when available. */
@@ -182,7 +184,8 @@ export class GameHost {
       hud: new Hud(opts.spec.palette),
       portrait: opts.likeness?.portrait ?? null,
       portraitDefeat: opts.likeness?.portraitDefeat ?? opts.likeness?.portrait ?? null,
-      fighterPoses: opts.likeness?.fighterPoses ?? null,
+      hshooterPlayerCraft: opts.likeness?.hshooterPlayerCraft ?? null,
+      fighterAtlases: opts.likeness?.fighterAtlases ?? null,
       platformerPoses: opts.likeness?.platformerPoses ?? null,
       platformerBoss: opts.likeness?.platformerBoss ?? null,
       platformerEnemies: opts.likeness?.platformerEnemies ?? null,
@@ -427,7 +430,8 @@ export class GameHost {
         r.endWorld();
         this.engineCtx.hud.render(r, this.instance.hud, {
           showKeys: this.opts.spec.archetype === 'adventure',
-          showBombs: this.opts.spec.archetype === 'shooter',
+          showBombs:
+            this.opts.spec.archetype === 'shooter' || this.opts.spec.archetype === 'hshooter',
           showCollectibles: this.opts.spec.archetype === 'platformer',
           healthIcon:
             this.opts.spec.archetype === 'platformer'

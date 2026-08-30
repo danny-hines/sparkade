@@ -63,6 +63,8 @@ export interface LikenessAssets {
   hshooterPlayerCraft?: CanvasImageSource | null;
   /** Five complete generated Fighter atlases in player, rung 1-3, boss order. */
   fighterAtlases?: readonly CanvasImageSource[] | null;
+  /** Two stacked generated Fighter arena plates: reusable ladder, then boss. */
+  fighterArenaAtlas?: CanvasImageSource | null;
   /** Native generated platformer poses. Activated only as one complete set. */
   platformerPoses?: Readonly<Record<string, CanvasImageSource>> | null;
   /** High-density signature boss generated from the platformer's story art. */

@@ -129,7 +129,11 @@ latency, and cost comparisons. Production always uses sheet mode for all five ro
 isolated generation only for rejected cells and one bounded Spark-directed retry round. A semantic
 rejection selects the highest-scoring locally valid combination; a mechanically missing state reuses
 the closest valid pose so one frame cannot fail the game. Production checkpoints each completed roster
-atlas and resumes only unfinished fighters after a job retry. The lab exposes prompts and review evidence at every stage and stores
+atlas and resumes only unfinished fighters after a job retry. A design-stage Fighter art contract locks
+the roster's proportions/rendering and the player's exact outfit across key art, story scenes, and pose
+generation. The runtime alternates idle and walk cells while moving. Production also spends one image
+call on a stacked ladder/boss arena sheet, normalizes it into two fixed panels, and falls back to the
+procedural arena when that optional asset is unavailable. The lab exposes prompts and review evidence at every stage and stores
 the complete run under `data/experiments/fighter-poses/<run-id>/`. Append `&run=<run-id>` to reopen a
 persisted run after a dev-server restart.
 

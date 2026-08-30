@@ -11,7 +11,7 @@ export type GeneratedFighterPose = FighterPose;
 
 export const GENERATED_FIGHTER_POSE_SIZE = GENERATED_FIGHTER_ATLAS_CELL_SIZE;
 export const GENERATED_FIGHTER_POSE_PADDING = 4;
-export const GENERATED_FIGHTER_POSE_PROMPT_VERSION = 'fighter-pose-v3';
+export const GENERATED_FIGHTER_POSE_PROMPT_VERSION = 'fighter-pose-v4';
 export const GENERATED_FIGHTER_ATLAS_PROMPT_VERSION = 'fighter-roster-atlas-v1';
 
 const GENERATED_FIGHTER_POSE_SET = new Set<string>(GENERATED_FIGHTER_POSES);
@@ -64,10 +64,14 @@ export function bestAvailableFighterPoseFallback(
   pose: GeneratedFighterPose,
   available: ReadonlySet<GeneratedFighterPose>,
 ): GeneratedFighterPose | null {
-  return GENERATED_FIGHTER_POSE_FALLBACKS[pose].find((candidate) => available.has(candidate)) ?? null;
+  return (
+    GENERATED_FIGHTER_POSE_FALLBACKS[pose].find((candidate) => available.has(candidate)) ?? null
+  );
 }
 
 export interface FighterPosePromptOptions {
+  /** Immutable roster-wide aesthetic, proportions, and rendering contract. */
+  artDirection?: string;
   /** Optional generated-game costume; keep it concise and visually concrete. */
   outfit?: string;
   /** Optional generated-game palette guidance. Green is always forbidden. */
@@ -86,6 +90,8 @@ export interface FighterIdentityCandidatePromptOptions {
   visualConcept: string;
   build: string;
   outfit: string;
+  /** Immutable roster-wide aesthetic, proportions, and rendering contract. */
+  artDirection?: string;
   colors?: string;
   /** A photo is identity truth; illustrations provide character/world direction. */
   source: 'photo' | 'key-art' | 'boss-art';
@@ -114,6 +120,7 @@ export function buildFighterIdentityCandidatePrompt(
   const identity = cleanPromptFragment(options.identity);
   const colors = cleanPromptFragment(options.colors);
   const retry = cleanPromptFragment(options.retryGuidance);
+  const artDirection = cleanPromptFragment(options.artDirection);
   const sourceDirection =
     options.source === 'photo'
       ? 'The attached photo is the only identity truth. Preserve the exact recognizable adult person: apparent age, face and head shape, skin tone, hairline, hair texture/style, facial hair, eyewear, headwear, and body proportions. The game concept may change clothing, never physical identity.'
@@ -123,6 +130,7 @@ export function buildFighterIdentityCandidatePrompt(
   return [
     `Create exactly ONE isolated full-body identity-foundation sprite for ${name}, variation ${options.candidateId}. Do not render the candidate label.`,
     sourceDirection,
+    artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
     identity ? `Visible identity details that must remain: ${identity}.` : '',
     `Character direction: ${concept}. Build: ${options.build}. Broad outfit family: ${options.outfit}.`,
     colors ? `Costume color direction: ${colors}.` : '',
@@ -153,8 +161,10 @@ export function buildFighterPosePrompt(
   const identity = cleanPromptFragment(options.identity);
   const candidateId = cleanPromptFragment(options.candidateId);
   const retryGuidance = cleanPromptFragment(options.retryGuidance);
+  const artDirection = cleanPromptFragment(options.artDirection);
   const details = [
     identity ? `Identity details to retain: ${identity}.` : null,
+    artDirection ? `Immutable roster-wide art direction: ${artDirection}` : null,
     outfit ? `Costume: ${outfit}.` : null,
     colors ? `Costume colors: ${colors}.` : null,
     candidateId

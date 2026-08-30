@@ -63,6 +63,10 @@ const FIGHTER_ROLES = [
   'fighterBossAtlas',
 ] as const satisfies readonly GeneratedGameAssetRole[];
 
+const FIGHTER_ARENA_ROLES = [
+  'fighterArenaAtlas',
+] as const satisfies readonly GeneratedGameAssetRole[];
+
 const PLATFORMER_ROLES = [
   'platformerIdle',
   'platformerSideIdle',
@@ -263,6 +267,20 @@ describe('story art prompts', () => {
     expect(story).toContain("Never place the pilot's face or body onto the craft");
   });
 
+  it('keeps the Fighter player outfit and roster aesthetic immutable across presentation art', () => {
+    const spec = JSON.parse(
+      readFileSync(join(process.cwd(), 'packages/generation/golden/golden-fighter.json'), 'utf8'),
+    ) as Extract<GameSpec, { archetype: 'fighter' }>;
+    const keyArt = buildKeyArtPrompt(spec, true, spec.meta.heroConcept);
+    const story = buildStoryArtPrompt(spec, 'intro', spec.meta.heroConcept);
+
+    expect(spec.meta.heroConcept).toBe(spec.player.visualConcept);
+    expect(keyArt).toContain(spec.player.visualConcept);
+    expect(story).toContain(spec.player.visualConcept);
+    expect(keyArt).toContain(spec.artDirection.proportions);
+    expect(story).toContain(spec.artDirection.rendering);
+  });
+
   it('provides policy-safe presentation prompts without replaying authored danger text', () => {
     const spec = JSON.parse(
       readFileSync(
@@ -458,6 +476,7 @@ describe.sequential('mock image asset pipeline', () => {
       ...PRESENTATION_ROLES,
       ...PORTRAIT_ROLES,
       ...FIGHTER_ROLES,
+      ...FIGHTER_ARENA_ROLES,
     ]);
 
     const assetsDir = join(files.gameDir(gameId), 'assets');
@@ -486,11 +505,18 @@ describe.sequential('mock image asset pipeline', () => {
       mode: 'generated',
       attempted: true,
     });
+    expect(files.readMeta(gameId)?.fighterArenaArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+    });
+    expect(FIGHTER_ARENA_ROLES.map((role) => generatedAssetForRole(assetsDir, role))).toEqual([
+      expect.objectContaining({ width: 512, height: 600 }),
+    ]);
     const successfulImageStages = db
       .usageForGame(gameId)
       .filter((event) => event.stage.startsWith('image:') && !event.failed)
       .map((event) => event.stage);
-    expect(successfulImageStages).toHaveLength(32);
+    expect(successfulImageStages).toHaveLength(33);
     expect(successfulImageStages.filter((stage) => stage.includes('-sheet-'))).toHaveLength(10);
   });
 
@@ -510,7 +536,7 @@ describe.sequential('mock image asset pipeline', () => {
     const successfulImagesBeforeRetry = db
       .usageForGame(gameId)
       .filter((event) => event.stage.startsWith('image:') && !event.failed);
-    expect(successfulImagesBeforeRetry).toHaveLength(32);
+    expect(successfulImagesBeforeRetry).toHaveLength(33);
 
     expect(runner.retryJob(gameId)).toEqual({ jobId });
     expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done', attempt: 2 });
@@ -522,6 +548,7 @@ describe.sequential('mock image asset pipeline', () => {
       ...PRESENTATION_ROLES,
       ...PORTRAIT_ROLES,
       ...FIGHTER_ROLES,
+      ...FIGHTER_ARENA_ROLES,
     ]);
   });
 
@@ -559,7 +586,7 @@ describe.sequential('mock image asset pipeline', () => {
       const successfulBeforeRetry = db
         .usageForGame(gameId)
         .filter((event) => event.stage.startsWith('image:') && !event.failed);
-      expect(successfulBeforeRetry).toHaveLength(32);
+      expect(successfulBeforeRetry).toHaveLength(33);
 
       storeSpy.mockRestore();
       expect(runner.retryJob(gameId)).toEqual({ jobId });
@@ -567,7 +594,7 @@ describe.sequential('mock image asset pipeline', () => {
       const successfulAfterRetry = db
         .usageForGame(gameId)
         .filter((event) => event.stage.startsWith('image:') && !event.failed);
-      expect(successfulAfterRetry).toHaveLength(37);
+      expect(successfulAfterRetry).toHaveLength(38);
       const retryStages = successfulAfterRetry
         .slice(successfulBeforeRetry.length)
         .map(({ stage }) => stage);
@@ -577,6 +604,7 @@ describe.sequential('mock image asset pipeline', () => {
         ...PRESENTATION_ROLES,
         ...PORTRAIT_ROLES,
         ...FIGHTER_ROLES,
+        ...FIGHTER_ARENA_ROLES,
       ]);
     } finally {
       storeSpy.mockRestore();

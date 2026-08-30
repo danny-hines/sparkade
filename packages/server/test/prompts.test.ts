@@ -30,7 +30,16 @@ describe('entities prompt likeness casting', () => {
   });
 
   it('requires new fighter rosters to include a styled player and a slot-11 boss', () => {
-    const fighterDesign = { ...design, archetype: 'fighter' } as DesignDoc;
+    const fighterDesign = {
+      ...design,
+      archetype: 'fighter',
+      heroConcept: 'A cobalt tournament coat with gold cuffs and black split-toe boots',
+      fighterArtDirection: {
+        aesthetic: 'stylized',
+        proportions: 'Six-head athletic adults with normally sized expressive faces',
+        rendering: 'Dark one-pixel outlines and restrained three-step cel shading',
+      },
+    } as DesignDoc;
     const levels = buildLevelsPrompt('fighter', fighterDesign);
     const levelSchema = levels.jsonSchema as {
       required: string[];
@@ -39,6 +48,8 @@ describe('entities prompt likeness casting', () => {
     expect(levelSchema.required).toEqual(['player', 'levels']);
     expect(levelSchema.$defs.fighter!.required).toContain('outfit');
     expect(levels.system).toContain('`wrestler`');
+    expect(levels.system).toContain("Copy the design document's `heroConcept` VERBATIM");
+    expect(levels.user).toContain('Six-head athletic adults');
 
     const entitySchema = buildEntitiesPrompt('fighter', fighterDesign, true).jsonSchema as {
       $defs: Record<string, { properties?: Record<string, { const?: number }> }>;

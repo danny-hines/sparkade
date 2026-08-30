@@ -308,6 +308,7 @@ export const GENERATED_GAME_ASSET_FILES = {
   fighterOpponent2Atlas: 'fighter-opponent-2-atlas.png',
   fighterOpponent3Atlas: 'fighter-opponent-3-atlas.png',
   fighterBossAtlas: 'fighter-boss-atlas.png',
+  fighterArenaAtlas: 'fighter-arena-atlas.png',
   platformerIdle: 'platformer-player-idle.png',
   platformerSideIdle: 'platformer-player-side-idle.png',
   platformerWalk1: 'platformer-player-walk-1.png',
@@ -347,6 +348,9 @@ export type GeneratedGameAssetRole = keyof typeof GENERATED_GAME_ASSET_FILES;
 export const GENERATED_FIGHTER_ATLAS_CELL_SIZE = 96;
 export const GENERATED_FIGHTER_ATLAS_COLUMNS = 4;
 export const GENERATED_FIGHTER_ROSTER_SIZE = 5;
+export const GENERATED_FIGHTER_ARENA_WIDTH = 512;
+export const GENERATED_FIGHTER_ARENA_HEIGHT = 300;
+export const GENERATED_FIGHTER_ARENA_PANELS = 2;
 export const FIGHTER_POSES = [
   'idle',
   'walk',

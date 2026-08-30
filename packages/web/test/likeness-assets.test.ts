@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GENERATED_GAME_ASSET_FILES, type GeneratedGameAssetRole } from '@sparkade/shared';
 import type { GameDetail } from '../src/api';
 import {
+  FIGHTER_ARENA_ASSET,
   FIGHTER_ROSTER_ATLAS_ASSETS,
   HSHOOTER_PLAYER_CRAFT_ASSET,
   PLATFORMER_BACKDROP_ASSETS,
@@ -148,6 +149,18 @@ describe('loadLikenessAssets', () => {
       FIGHTER_ROSTER_ATLAS_ASSETS.map(
         (role) => `/api/games/roster-fighter/assets/${GENERATED_GAME_ASSET_FILES[role]}`,
       ),
+    );
+  });
+
+  it('loads the generated Fighter ladder and boss arena atlas independently', async () => {
+    const result = await loadLikenessAssets('arena-fighter', {
+      ...legacyAssets,
+      [FIGHTER_ARENA_ASSET]: true,
+    });
+
+    expect(result?.fighterArenaAtlas).not.toBeNull();
+    expect(requested).toContain(
+      `/api/games/arena-fighter/assets/${GENERATED_GAME_ASSET_FILES[FIGHTER_ARENA_ASSET]}`,
     );
   });
 

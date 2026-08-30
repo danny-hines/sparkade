@@ -140,12 +140,17 @@ export class MockProvider implements Provider {
           archetype,
           palette: [...golden.palette],
           heroConcept:
-            'An indigo expedition jacket with brass fasteners, sturdy tan trousers, and dark trail boots',
+            golden.archetype === 'fighter'
+              ? golden.player.visualConcept
+              : 'An indigo expedition jacket with brass fasteners, sturdy tan trousers, and dark trail boots',
           ...(archetype === 'hshooter'
             ? {
                 vehicleConcept:
                   'The Starling, a low cobalt trench skiff with swept brass fins, a dark bubble canopy, twin amber drives, and a bright forked nose mark',
               }
+            : {}),
+          ...(golden.archetype === 'fighter'
+            ? { fighterArtDirection: structuredClone(golden.artDirection) }
             : {}),
           story: structuredClone(golden.story),
           levelPlan: [

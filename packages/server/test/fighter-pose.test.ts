@@ -133,12 +133,15 @@ describe('generated fighter pose prompts', () => {
 
   it('requests one identity-preserving right-facing sprite on controlled green', () => {
     const prompt = buildFighterPosePrompt('kickHigh', {
+      artDirection:
+        'Aesthetic: stylized. Shared character proportions: six-head athletic adults. Shared rendering treatment: crisp dark outlines and three-step cel shading.',
       identity: 'round glasses and a short beard',
       outfit: 'red boxing shorts and white hand wraps',
       colors: 'red, white, and charcoal',
     });
     expect(prompt).toContain('exact person or character in the attached reference image');
     expect(prompt).toContain('round glasses and a short beard');
+    expect(prompt).toContain('six-head athletic adults');
     expect(prompt).toContain('high side kick');
     expect(prompt).toContain('faces toward the RIGHT');
     expect(prompt).toContain('flat solid #00ff00');

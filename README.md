@@ -90,7 +90,11 @@ cells and up to four Spark-identified weak poses per fighter use isolated genera
 one bounded retry round, after which the highest-scoring locally valid combination wins even if the set
 is still rejected. A state with no mechanically valid result reuses the closest valid pose rather than
 failing the game. Each completed fighter atlas is checkpointed independently, so a job retry regenerates
-only unfinished roster slots.
+only unfinished roster slots. The design pass also locks one shared character aesthetic and exact
+player outfit before any presentation or gameplay art is requested. Runtime walking alternates the
+idle and walk cells. One additional image call produces a two-panel ladder/boss arena sheet with
+premise-specific scenery and background props; the generated environment is optional and falls back
+atomically to the stable procedural stage if it cannot be normalized.
 
 To hit the real models, copy `.env.example` to `.env`, set `META_API_KEY`, and use `npm run dev`.
 The same key is used for Muse Spark 1.2 Contributor and Muse Image 1.0.

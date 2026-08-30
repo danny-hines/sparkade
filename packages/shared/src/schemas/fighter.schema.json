@@ -58,6 +58,7 @@
       "description": "Enemy-aggression tier (scales the AI's reactions + aggression). Assembled from the design doc; not authored in this stage.",
       "enum": ["chill", "standard", "spicy"]
     },
+    "artDirection": { "$ref": "#/$defs/fighterArtDirection" },
     "player": { "$ref": "#/$defs/fighter" },
     "levels": {
       "description": "The ladder: 3 AI opponents fought in order (the boss is the 4th bout).",
@@ -79,6 +80,7 @@
     "palette",
     "story",
     "sprites",
+    "artDirection",
     "player",
     "levels",
     "boss",
@@ -400,6 +402,29 @@
     "fighterOutfit": {
       "description": "Broad costume family used to direct generated character art; it never changes hitboxes, moves, frame data, or stats.",
       "enum": ["gi", "boxer", "wrestler", "street", "robe", "armor"]
+    },
+    "fighterArtDirection": {
+      "description": "One immutable visual-language contract shared by presentation art, all five fighters, every pose, and both generated arenas.",
+      "type": "object",
+      "properties": {
+        "aesthetic": { "enum": ["cartoon", "stylized", "semi-realistic"] },
+        "proportions": {
+          "description": "Concrete shared anatomy and head-to-body scale, such as five-head heroic cartoon proportions or seven-head athletic proportions.",
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 140,
+          "pattern": "^[ -~]+$"
+        },
+        "rendering": {
+          "description": "Concrete shared pixel clustering, outline weight, shading, and lighting treatment.",
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 160,
+          "pattern": "^[ -~]+$"
+        }
+      },
+      "required": ["aesthetic", "proportions", "rendering"],
+      "additionalProperties": false
     },
     "fighter": {
       "description": "A generated fighter identity plus round HP and optional light stat leans. The move set and frame data are the same for everyone because the engine owns balance.",

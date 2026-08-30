@@ -19,6 +19,8 @@ import {
 import {
   FEEL,
   FIGHTER_POSES,
+  GENERATED_FIGHTER_ARENA_HEIGHT,
+  GENERATED_FIGHTER_ARENA_WIDTH,
   GENERATED_FIGHTER_ATLAS_CELL_SIZE,
   GENERATED_FIGHTER_ATLAS_COLUMNS,
   GENERATED_FIGHTER_ROSTER_SIZE,
@@ -44,6 +46,18 @@ const WALK = 78;
 const BODY_HALF = 12; // torso half-width for body collision + range
 const ROUND_TIME = 60;
 const ROUNDS_TO_WIN = 2;
+const FIGHTER_ARENA_PRESENTATION_FILTER = 'brightness(82%) saturate(85%)';
+const FIGHTER_SILHOUETTE_FILTER = 'brightness(0) opacity(72%)';
+const FIGHTER_SILHOUETTE_OFFSETS = [
+  [-1, -1],
+  [0, -1],
+  [1, -1],
+  [-1, 0],
+  [1, 0],
+  [-1, 1],
+  [0, 1],
+  [1, 1],
+] as const;
 // Cabinet controls are deliberately forgiving: a counter pressed just before
 // stun ends is remembered, and every AI contact leaves a real punish window.
 const PLAYER_ATTACK_BUFFER_S = 0.14;
@@ -162,6 +176,8 @@ interface Actor {
   hp: number;
   maxHp: number;
   state: State;
+  /** Time spent continuously walking; drives the zero-cost idle/walk cycle. */
+  walkT: number;
   move: MoveId | null;
   moveT: number;
   moveSerial: number;
@@ -201,6 +217,10 @@ function fighterScaleForBuild(build: FighterBuild): number {
   return build === 'nimble' ? 0.94 : build === 'heavy' ? 1.16 : 1.05;
 }
 
+export function fighterWalkPoseAtTime(elapsedS: number): 'idle' | 'walk' {
+  return Math.floor(Math.max(0, elapsedS) * 8) % 2 === 0 ? 'idle' : 'walk';
+}
+
 export function createFighterGame(engine: EngineContext, spec: FighterSpec): GameInstance {
   return new FighterGame(engine, spec);
 }
@@ -223,6 +243,7 @@ class FighterGame implements GameInstance {
   private p!: Actor;
   private o!: Actor;
   private generatedFighterAtlases: readonly CanvasImageSource[];
+  private generatedFighterArena: CanvasImageSource | null;
   private backdrop: Backdrop;
   private bgVariant: BackdropVariant;
 
@@ -232,6 +253,7 @@ class FighterGame implements GameInstance {
   ) {
     this.diff = difficultyScale(this.spec.difficulty);
     this.generatedFighterAtlases = requireGeneratedFighterAtlases(this.engine.fighterAtlases);
+    this.generatedFighterArena = this.engine.fighterArenaAtlas;
     this.bgVariant = pickVariant(this.spec.palette, this.spec.seed, this.spec.backdrop);
     this.backdrop = makeBackdrop(this.spec.palette, this.spec.seed, this.bgVariant);
     // Init both actors so render() is safe during the pre-fight story cards.
@@ -257,6 +279,7 @@ class FighterGame implements GameInstance {
       hp: c.hp,
       maxHp: c.hp,
       state: 'idle',
+      walkT: 0,
       move: null,
       moveT: 0,
       moveSerial: 0,
@@ -398,6 +421,7 @@ class FighterGame implements GameInstance {
     a.facing = ai ? -1 : 1;
     a.hp = a.maxHp;
     a.state = 'idle';
+    a.walkT = 0;
     a.move = null;
     a.moveT = 0;
     a.hitDone = false;
@@ -685,6 +709,8 @@ class FighterGame implements GameInstance {
   }
 
   private stepActor(a: Actor, dt: number): void {
+    if (a.state === 'walk' && Math.abs(a.vx) > 0.5) a.walkT += dt;
+    else a.walkT = 0;
     if (a.state === 'ko') {
       this.stepPhysics(a, dt);
       return;
@@ -902,7 +928,7 @@ class FighterGame implements GameInstance {
     if (a.state === 'attack' && a.move) return MOVES[a.move].pose;
     if (a.y < FLOOR_Y - 0.5) return 'jump';
     if (a.crouch || a.state === 'crouch') return 'crouch';
-    if (a.state === 'walk') return 'walk';
+    if (a.state === 'walk') return fighterWalkPoseAtTime(a.walkT);
     return 'idle';
   }
 
@@ -922,12 +948,45 @@ class FighterGame implements GameInstance {
       ctx.translate(Math.round(a.x) * 2, 0);
       ctx.scale(-1, 1);
     }
-    if (flash) ctx.filter = 'brightness(0) invert(1)';
     const index = FIGHTER_POSES.indexOf(pose);
     const sx = (index % GENERATED_FIGHTER_ATLAS_COLUMNS) * size;
     const sy = Math.floor(index / GENERATED_FIGHTER_ATLAS_COLUMNS) * size;
+    // A translucent one-runtime-pixel silhouette keyline gives every generated
+    // pose stable separation from detailed scenery without softening the art.
+    ctx.filter = FIGHTER_SILHOUETTE_FILTER;
+    for (const [dx, dy] of FIGHTER_SILHOUETTE_OFFSETS) {
+      ctx.drawImage(atlas, sx, sy, size, size, x + dx, y + dy, size, size);
+    }
+    ctx.filter = flash ? 'brightness(0) invert(1)' : 'none';
     ctx.drawImage(atlas, sx, sy, size, size, x, y, size, size);
+    ctx.filter = 'none';
     ctx.restore();
+  }
+
+  private drawArenaBackground(): void {
+    const ctx = this.engine.renderer.ctx;
+    if (this.generatedFighterArena) {
+      const panel = this.isBoss() ? 1 : 0;
+      ctx.save();
+      ctx.imageSmoothingEnabled = false;
+      ctx.filter = FIGHTER_ARENA_PRESENTATION_FILTER;
+      ctx.drawImage(
+        this.generatedFighterArena,
+        0,
+        panel * GENERATED_FIGHTER_ARENA_HEIGHT,
+        GENERATED_FIGHTER_ARENA_WIDTH,
+        GENERATED_FIGHTER_ARENA_HEIGHT,
+        0,
+        0,
+        W,
+        H,
+      );
+      ctx.filter = 'none';
+      ctx.restore();
+      return;
+    }
+    // Stable fallback for an unavailable optional generated environment.
+    this.backdrop.draw(ctx, Math.sin(this.phaseT * 0.2) * 8, 0);
   }
 
   render(): void {
@@ -935,8 +994,7 @@ class FighterGame implements GameInstance {
     const pal = this.spec.palette;
     r.clear(pal[2] ?? '#101020');
 
-    // far backdrop (fixed camera; a touch of sway from the round clock)
-    this.backdrop.draw(r.ctx, Math.sin(this.phaseT * 0.2) * 8, 0);
+    this.drawArenaBackground();
 
     // stage: banded floor + a back wall line
     r.rect(0, FLOOR_Y, W, H - FLOOR_Y, pal[1] ?? '#10122b');

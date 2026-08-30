@@ -8,7 +8,7 @@ import {
   type LogicalButton,
 } from '@sparkade/shared';
 import { STEP, type EngineContext, type GameInstance, type InputSnapshot } from '@sparkade/engine';
-import { createFighterGame } from '../src/fighter/game';
+import { createFighterGame, fighterWalkPoseAtTime } from '../src/fighter/game';
 
 vi.mock('@sparkade/engine', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@sparkade/engine')>();
@@ -33,6 +33,7 @@ interface TestActor {
   hp: number;
   maxHp: number;
   state: ActorState;
+  walkT: number;
   move: MoveId | null;
   moveT: number;
   moveSerial: number;
@@ -54,15 +55,20 @@ interface FighterHarness extends GameInstance {
   p: TestActor;
   o: TestActor;
   generatedFighterAtlases: readonly CanvasImageSource[];
+  generatedFighterArena: CanvasImageSource | null;
+  bout: number;
   startMove(actor: TestActor, move: MoveId): void;
   aiControl(actor: TestActor, foe: TestActor, dt: number): void;
   stepActor(actor: TestActor, dt: number): void;
+  poseOf(actor: TestActor): FighterPose;
+  drawArenaBackground(): void;
   drawGeneratedFighter(actor: TestActor, pose: FighterPose, flash: boolean): void;
 }
 
 interface HarnessOptions {
   chance?: boolean | ((probability: number) => boolean);
   fighterAtlases?: readonly CanvasImageSource[] | null;
+  fighterArenaAtlas?: CanvasImageSource | null;
   rangeUnit?: number;
 }
 
@@ -169,6 +175,7 @@ function makeHarness(options: HarnessOptions = {}): {
     portrait: null,
     fighterAtlases:
       options.fighterAtlases === undefined ? stubFighterAtlases() : options.fighterAtlases,
+    fighterArenaAtlas: options.fighterArenaAtlas ?? null,
     attract: false,
     shake: noop,
     hitStop: noop,
@@ -291,6 +298,54 @@ describe('fighter pressure and counter windows', () => {
 });
 
 describe('generated fighter art', () => {
+  it('alternates idle and walk at eight frames per second while moving', () => {
+    expect(fighterWalkPoseAtTime(0)).toBe('idle');
+    expect(fighterWalkPoseAtTime(0.13)).toBe('walk');
+    expect(fighterWalkPoseAtTime(0.26)).toBe('idle');
+
+    const { game } = makeHarness();
+    game.p.state = 'walk';
+    game.p.vx = 78;
+    for (let frame = 0; frame < 8; frame++) game.stepActor(game.p, STEP);
+    expect(game.poseOf(game.p)).toBe('walk');
+    game.p.state = 'idle';
+    game.stepActor(game.p, STEP);
+    expect(game.p.walkT).toBe(0);
+    expect(game.poseOf(game.p)).toBe('idle');
+  });
+
+  it('uses the reusable ladder panel and distinct boss panel from one arena atlas', () => {
+    const arena = { kind: 'fighter-arena' } as unknown as CanvasImageSource;
+    const { game, generatedDraws } = makeHarness({ fighterArenaAtlas: arena });
+
+    game.bout = 0;
+    game.drawArenaBackground();
+    game.bout = 3;
+    game.drawArenaBackground();
+
+    expect(game.generatedFighterArena).toBe(arena);
+    expect(generatedDraws).toEqual([
+      {
+        image: arena,
+        source: { x: 0, y: 0, width: 512, height: 300 },
+        x: 0,
+        y: 0,
+        width: 512,
+        height: 300,
+        filter: 'brightness(82%) saturate(85%)',
+      },
+      {
+        image: arena,
+        source: { x: 0, y: 300, width: 512, height: 300 },
+        x: 0,
+        y: 0,
+        width: 512,
+        height: 300,
+        filter: 'brightness(82%) saturate(85%)',
+      },
+    ]);
+  });
+
   it('requires one complete five-atlas roster', () => {
     const complete = stubFighterAtlases();
     const ready = makeHarness({ fighterAtlases: complete });
@@ -315,7 +370,11 @@ describe('generated fighter art', () => {
       ['translate', Math.round(game.p.x) * 2, 0],
       ['scale', -1, 1],
     ]);
-    expect(generatedDraws[0]).toMatchObject({
+    expect(generatedDraws).toHaveLength(9);
+    expect(
+      generatedDraws.slice(0, 8).every((draw) => draw.filter === 'brightness(0) opacity(72%)'),
+    ).toBe(true);
+    expect(generatedDraws[8]).toMatchObject({
       image: atlases[0],
       source: { x: 288, y: 192, width: 96, height: 96 },
       width: 96,
@@ -330,16 +389,37 @@ describe('generated fighter art', () => {
 
     expect(game.generatedFighterAtlases).toEqual(atlases);
     expect(game.drawGeneratedFighter(game.o, 'airKick', false)).toBeUndefined();
-    expect(generatedDraws).toEqual([
-      {
+    expect(generatedDraws).toHaveLength(9);
+    const x = Math.round(game.o.x) - 48;
+    const y = Math.round(game.o.y) - 92;
+    expect(generatedDraws.slice(0, 8)).toEqual(
+      [
+        [-1, -1],
+        [0, -1],
+        [1, -1],
+        [-1, 0],
+        [1, 0],
+        [-1, 1],
+        [0, 1],
+        [1, 1],
+      ].map(([dx, dy]) => ({
         image: atlases[game.o.identitySlot],
         source: { x: 96, y: 192, width: 96, height: 96 },
-        x: Math.round(game.o.x) - 48,
-        y: Math.round(game.o.y) - 92,
+        x: x + dx!,
+        y: y + dy!,
         width: 96,
         height: 96,
-        filter: 'none',
-      },
-    ]);
+        filter: 'brightness(0) opacity(72%)',
+      })),
+    );
+    expect(generatedDraws[8]).toEqual({
+      image: atlases[game.o.identitySlot],
+      source: { x: 96, y: 192, width: 96, height: 96 },
+      x,
+      y,
+      width: 96,
+      height: 96,
+      filter: 'none',
+    });
   });
 });

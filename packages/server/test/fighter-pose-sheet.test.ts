@@ -97,6 +97,7 @@ describe('fighter pose sheets', () => {
     });
 
     const prompt = buildFighterPoseSheetPrompt(FIGHTER_POSE_SHEET_GROUPS[1]!, {
+      artDirection: 'Aesthetic: stylized. Shared character proportions: six-head athletic adults.',
       outfit: 'indigo jacket',
       colors: '#315a9c',
     });
@@ -104,6 +105,8 @@ describe('fighter pose sheets', () => {
       'FIGHTER POSE SHEET CONTRACT: attacks [punchHigh,punchLow,kickHigh,kickLow,airPunch,airKick].',
     );
     expect(prompt).toContain('exactly SIX');
+    expect(prompt).toContain('IMMUTABLE ROSTER-WIDE ART DIRECTION');
+    expect(prompt).toContain('six-head athletic adults');
     expect(prompt).toContain('do not swap, omit, duplicate, or merge states');
     expect(prompt).toContain('Do not draw grid lines, borders, labels, text');
   });

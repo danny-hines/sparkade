@@ -80,13 +80,14 @@ export function formatUsd(v: number | null): string {
 }
 
 /** Happy-path returned image count. Fighter action states use two six-pose
- * sheets per roster member; rejected cells and semantic retries cost extra. */
+ * sheets per roster member plus one shared two-panel arena sheet; rejected
+ * cells and semantic retries cost extra. */
 export function estimateImageCount(hasPhoto: boolean, archetype?: ArchetypeId): number {
   if (archetype === 'platformer') return hasPhoto ? 40 : 25;
-  if (archetype === 'fighter') return hasPhoto ? 32 : 30;
+  if (archetype === 'fighter') return hasPhoto ? 33 : 31;
   // H-scroll replaces three likeness-head calls with one vehicle-identity call.
   if (archetype === 'hshooter') return hasPhoto ? 8 : 6;
-  if (archetype === undefined) return hasPhoto ? 40 : 30;
+  if (archetype === undefined) return hasPhoto ? 40 : 31;
   if (!hasPhoto) return 5;
   return 10;
 }

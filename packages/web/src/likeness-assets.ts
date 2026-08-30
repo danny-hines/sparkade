@@ -11,6 +11,8 @@ export const FIGHTER_ROSTER_ATLAS_ASSETS = [
   'fighterBossAtlas',
 ] as const satisfies readonly GeneratedGameAssetRole[];
 
+export const FIGHTER_ARENA_ASSET = 'fighterArenaAtlas' as const satisfies GeneratedGameAssetRole;
+
 export const PLATFORMER_POSE_ASSETS = [
   ['idle', 'platformerIdle'],
   ['sideIdle', 'platformerSideIdle'],
@@ -79,6 +81,7 @@ export async function loadLikenessAssets(
     !assets.storyVictory &&
     !assets.storyDefeat &&
     !assets.hshooterPlayerCraft &&
+    !assets[FIGHTER_ARENA_ASSET] &&
     !assets.platformerBoss &&
     !PLATFORMER_ENEMY_ASSETS.some(([, role]) => assets[role]) &&
     !PLATFORMER_PROP_ASSETS.some(([, role]) => assets[role]) &&
@@ -124,6 +127,9 @@ export async function loadLikenessAssets(
       ).then((images) =>
         images.some((image) => image === null) ? null : (images as HTMLImageElement[]),
       )
+    : Promise.resolve(null);
+  const fighterArenaPromise = assets[FIGHTER_ARENA_ASSET]
+    ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[FIGHTER_ARENA_ASSET]))
     : Promise.resolve(null);
   const platformerPromise: Promise<Record<PlatformerPoseName, HTMLImageElement> | null> =
     hasCompletePlatformerSet
@@ -188,6 +194,7 @@ export async function loadLikenessAssets(
     [head12, head12Side, head12Back, head16, head16Side, head16Back, portrait, portraitDefeat],
     [storyIntro, storyBoss, storyVictory, storyDefeat],
     fighterAtlases,
+    fighterArenaAtlas,
     platformerPoses,
     platformerBoss,
     platformerEnemies,
@@ -198,6 +205,7 @@ export async function loadLikenessAssets(
     likenessPromise,
     storyPromise,
     fighterRosterPromise,
+    fighterArenaPromise,
     platformerPromise,
     platformerBossPromise,
     platformerEnemiesPromise,
@@ -220,6 +228,7 @@ export async function loadLikenessAssets(
     storyVictory,
     storyDefeat,
     fighterAtlases,
+    fighterArenaAtlas,
     platformerPoses,
     platformerBoss,
     platformerEnemies,

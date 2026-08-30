@@ -178,9 +178,15 @@ describe('archetype schemas', () => {
   it('requires a complete authored roster in persisted specs and generation stages', () => {
     const full = ARCHETYPE_SCHEMAS.fighter as {
       required: string[];
-      $defs: Record<string, { required?: string[] }>;
+      $defs: Record<string, { required?: string[]; properties?: Record<string, unknown> }>;
     };
     expect(full.required).toContain('player');
+    expect(full.required).toContain('artDirection');
+    expect(full.$defs.fighterArtDirection!.required).toEqual([
+      'aesthetic',
+      'proportions',
+      'rendering',
+    ]);
     expect(full.$defs.fighter!.required).toEqual(
       expect.arrayContaining(['visualConcept', 'outfit']),
     );
@@ -224,5 +230,8 @@ describe('archetype schemas', () => {
     }
     expect((DESIGN_SCHEMA as { properties: Record<string, unknown> }).properties.vehicleConcept).toBeDefined();
     expect(s.required).not.toContain('vehicleConcept');
+    expect(
+      (DESIGN_SCHEMA as { properties: Record<string, unknown> }).properties.fighterArtDirection,
+    ).toBeDefined();
   });
 });

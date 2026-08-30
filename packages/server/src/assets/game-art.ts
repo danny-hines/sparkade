@@ -1,9 +1,10 @@
 import sharp from 'sharp';
 import { FIGHTER_POSES, type FighterPose, type GameSpec } from '@sparkade/shared';
+import { fighterArtDirectionPrompt } from './fighter-art-direction';
 import { FIGHTER_POSE_SHEET_SIZE, fighterPoseSheetCellRect } from './fighter-pose-sheet';
 
-export const KEY_ART_PROMPT_VERSION = 'key-art-v2';
-export const STORY_ART_PROMPT_VERSION = 'story-scenes-v1';
+export const KEY_ART_PROMPT_VERSION = 'key-art-v3';
+export const STORY_ART_PROMPT_VERSION = 'story-scenes-v2';
 export const KEY_ART_SIZE = { width: 480, height: 270 } as const;
 export const STORY_ART_SIZE = { width: 420, height: 180 } as const;
 export const KEY_ART_ASPECT_HINT = '1792x1024';
@@ -39,6 +40,9 @@ function visualBrief(
     fighterPlayer
       ? `Player fighter design: ${clean(fighterPlayer.name)}; ${clean(fighterPlayer.visualConcept)}; ${clean(fighterPlayer.build)} build; outfit: ${clean(fighterPlayer.outfit ?? 'classic arcade gear')}.`
       : wardrobeBrief(canonicalHeroConcept),
+    spec.archetype === 'fighter'
+      ? `Immutable Fighter art direction for every character and environment: ${fighterArtDirectionPrompt(spec.artDirection)}`
+      : '',
     playerCraft
       ? `Canonical player craft identity, wholly separate from the pilot's likeness: ${clean(playerCraft.visualConcept)}.`
       : '',
@@ -95,7 +99,10 @@ export function buildKeyArtPolicyFallbackPrompt(
         ? 'Render the adult person in the TOP PANEL of the reference board as the friendly player pilot. Preserve their recognizable identity from the neck up, including face, skin tone, hair, eyewear, headwear, and visible head accessories. Replace their source clothing below the neck with the canonical game-world outfit.'
         : 'Render the adult person in the reference image as the friendly player character. Preserve their recognizable identity from the neck up, including face, skin tone, hair, eyewear, headwear, and visible head accessories. Replace their source clothing below the neck with the canonical game-world outfit.'
       : 'Create one friendly original player character.',
-    spec.archetype === 'fighter' ? '' : wardrobeBrief(canonicalHeroConcept),
+    wardrobeBrief(canonicalHeroConcept),
+    spec.archetype === 'fighter'
+      ? `Immutable Fighter art direction: ${fighterArtDirectionPrompt(spec.artDirection)}`
+      : '',
     playerCraft
       ? `Preserve the separate exact player vehicle shown in the ${hasPlayerPhoto ? 'BOTTOM PANEL' : 'reference image'}: ${clean(playerCraft.visualConcept)}. Never merge the person and vehicle identities.`
       : '',
@@ -126,7 +133,10 @@ export function buildStoryArtPrompt(
       ? 'The TOP PANEL of the reference board is the immutable key-art visual bible and the BOTTOM PANEL is the exact gameplay craft. Create a new landscape story illustration from the same game.'
       : 'Using the reference key art as the immutable visual bible, create a new landscape story illustration from the same game.',
     `Preserve the exact same player hero identity, costume, villain design, palette, pixel-art technique, and world. ${beat}.`,
-    spec.archetype === 'fighter' ? '' : wardrobeBrief(canonicalHeroConcept),
+    wardrobeBrief(canonicalHeroConcept),
+    spec.archetype === 'fighter'
+      ? `Immutable Fighter art direction: ${fighterArtDirectionPrompt(spec.artDirection)}`
+      : '',
     playerCraft
       ? `Whenever the player vehicle is visible, preserve the BOTTOM PANEL's exact separate craft identity: ${clean(playerCraft.visualConcept)}. Never place the pilot's face or body onto the craft.`
       : '',
@@ -163,7 +173,10 @@ export function buildStoryArtPolicyFallbackPrompt(
       ? 'Use the TOP PANEL as the key-art visual guide and the BOTTOM PANEL as the exact separate player-craft guide. Create a new family-friendly landscape story illustration from the same game.'
       : 'Using the reference key art as the visual guide, create a new family-friendly landscape story illustration from the same game.',
     `Preserve the same adult player character identity, costume, palette, pixel-art technique, and world. ${scene}`,
-    spec.archetype === 'fighter' ? '' : wardrobeBrief(canonicalHeroConcept),
+    wardrobeBrief(canonicalHeroConcept),
+    spec.archetype === 'fighter'
+      ? `Immutable Fighter art direction: ${fighterArtDirectionPrompt(spec.artDirection)}`
+      : '',
     playerCraft
       ? `If the vehicle appears, preserve this exact craft identity and never merge it with the pilot: ${clean(playerCraft.visualConcept)}.`
       : '',

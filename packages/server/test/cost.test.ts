@@ -12,11 +12,11 @@ const SNAPSHOT = { 'muse-spark-1.1': { inputPerM: 1.25, outputPerM: 4.25, cached
 
 describe('cost calculator', () => {
   it('accounts for batched fighter pose sheets and uses the richest unknown-archetype path', () => {
-    expect(estimateImageCount(false)).toBe(30);
-    expect(estimateImageCount(false, 'fighter')).toBe(30);
+    expect(estimateImageCount(false)).toBe(31);
+    expect(estimateImageCount(false, 'fighter')).toBe(31);
     expect(estimateImageCount(false, 'platformer')).toBe(25);
     expect(estimateImageCount(true, 'platformer')).toBe(40);
-    expect(estimateImageCount(true, 'fighter')).toBe(32);
+    expect(estimateImageCount(true, 'fighter')).toBe(33);
     expect(estimateImageCount(false, 'hshooter')).toBe(6);
     expect(estimateImageCount(true, 'hshooter')).toBe(8);
     expect(estimateImageCount(true)).toBe(40);

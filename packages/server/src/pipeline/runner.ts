@@ -61,6 +61,13 @@ import {
   STORY_ART_PROMPT_VERSION,
   type StoryArtRole,
 } from '../assets/game-art';
+import { fighterArtDirectionPrompt } from '../assets/fighter-art-direction';
+import {
+  FIGHTER_ARENA_ASSET_ROLE,
+  FIGHTER_ARENA_PROMPT_VERSION,
+  buildFighterArenaPrompt,
+  normalizeFighterArenaAtlas,
+} from '../assets/fighter-arena';
 import {
   GENERATED_FIGHTER_ATLAS_PROMPT_VERSION,
   GENERATED_FIGHTER_POSES,
@@ -2765,6 +2772,52 @@ export class GenerationRunner {
             })
           : Promise.resolve();
 
+      let fighterArenaArtStatus: GameMetaFile['fighterArenaArt'] =
+        spec.archetype === 'fighter'
+          ? {
+              mode: 'procedural',
+              attempted: true,
+              reason: 'Generated Fighter arenas did not complete',
+            }
+          : undefined;
+      const fighterArenaTask =
+        spec.archetype === 'fighter'
+          ? keyArtTask.then(async (keyArt): Promise<void> => {
+              const fighterSpec = spec as FighterSpec;
+              try {
+                await cachedGeneratedAsset({
+                  role: FIGHTER_ARENA_ASSET_ROLE,
+                  promptVersion: FIGHTER_ARENA_PROMPT_VERSION,
+                  prompt: buildFighterArenaPrompt(fighterSpec),
+                  label: 'Fighter ladder and boss arenas',
+                  reference: keyArt,
+                  size: '1024x1024',
+                  normalize: normalizeFighterArenaAtlas,
+                });
+                fighterArenaArtStatus = { mode: 'generated', attempted: true };
+                emit('building-assets', 'Finished the generated ladder and boss arenas');
+              } catch (error) {
+                if (
+                  abort.signal.aborted ||
+                  error instanceof GeneratedAssetStorageError ||
+                  (error instanceof PipelineError && !isOptionalGeneratedArtProviderFailure(error))
+                ) {
+                  throw error;
+                }
+                await assetWorkspace.discard([FIGHTER_ARENA_ASSET_ROLE]);
+                const reason =
+                  error instanceof Error
+                    ? error.message.slice(0, 240)
+                    : 'Generated Fighter arenas failed validation';
+                fighterArenaArtStatus = { mode: 'procedural', attempted: true, reason };
+                emit(
+                  'building-assets',
+                  `Generated arenas did not pass; using the stable stage backdrop (${reason.slice(0, 120)})`,
+                );
+              }
+            })
+          : Promise.resolve();
+
       let fighterArtStatus: GameMetaFile['fighterArt'];
 
       const fighterTask =
@@ -2838,6 +2891,7 @@ export class GenerationRunner {
                     })
                     .join(', ');
                 const identity = photoReference ? describeVisibleTraits(feat) : undefined;
+                const artDirection = fighterArtDirectionPrompt(fighterSpec.artDirection);
                 const pipelineFingerprint = JSON.stringify({
                   promptVersions: {
                     identity: GENERATED_FIGHTER_POSE_PROMPT_VERSION,
@@ -2852,6 +2906,7 @@ export class GenerationRunner {
                     character,
                     photoIdentity,
                   })),
+                  artDirection: fighterSpec.artDirection,
                   keyArt: sha256(keyArt),
                   bossArt: sha256(bossArt),
                   photo: photoReference ? sha256(photoReference) : null,
@@ -2949,6 +3004,7 @@ export class GenerationRunner {
                             visualConcept: conceptFor(entry.character),
                             build: entry.character.build,
                             outfit: entry.character.outfit,
+                            artDirection,
                             colors: colorsFor(entry.character),
                             source: entry.sourceKind,
                             ...(entry.photoIdentity && identity ? { identity } : {}),
@@ -3022,7 +3078,10 @@ export class GenerationRunner {
                 };
                 let rawIdentityDecision: unknown = mockIdentityDecision;
                 if (!mockImages) {
-                  const prompt = buildFighterIdentityJudgePrompt(identityDescriptors);
+                  const prompt = buildFighterIdentityJudgePrompt(
+                    identityDescriptors,
+                    fighterSpec.artDirection,
+                  );
                   rawIdentityDecision = await callLlm(
                     'design',
                     {
@@ -3074,6 +3133,7 @@ export class GenerationRunner {
                         role: `fighter-${id}`,
                         label: `${entry.character.name} ${pose} ${suffix}`,
                         prompt: buildFighterPosePrompt(pose, {
+                          artDirection,
                           outfit: conceptFor(entry.character),
                           colors: colorsFor(entry.character),
                           candidateId: id,
@@ -3096,6 +3156,7 @@ export class GenerationRunner {
                           role: `fighter-${id}`,
                           label: `${entry.character.name} ${group.label.toLowerCase()} sheet`,
                           prompt: buildFighterPoseSheetPrompt(group, {
+                            artDirection,
                             outfit: conceptFor(entry.character),
                             colors: colorsFor(entry.character),
                             candidateId: id,
@@ -3260,6 +3321,7 @@ export class GenerationRunner {
                           entry.character.name,
                           descriptors,
                           actionPoses,
+                          fighterSpec.artDirection,
                         );
                         rawDecision = await callLlm(
                           'design',
@@ -3849,6 +3911,7 @@ export class GenerationRunner {
         platformerBossTask,
         platformerEnemyTask,
         platformerPropTask,
+        fighterArenaTask,
         fighterTask,
         platformerPlayerTask,
         portraitTask,
@@ -3888,6 +3951,7 @@ export class GenerationRunner {
           perImageUsd: mockImages ? 0 : imagePrice,
         },
         ...(fighterArtStatus ? { fighterArt: fighterArtStatus } : {}),
+        ...(fighterArenaArtStatus ? { fighterArenaArt: fighterArenaArtStatus } : {}),
         ...(platformerPlayerArtStatus ? { platformerPlayerArt: platformerPlayerArtStatus } : {}),
         ...(platformerBossArtStatus ? { platformerBossArt: platformerBossArtStatus } : {}),
         ...(platformerEnemyArtStatus ? { platformerEnemyArt: platformerEnemyArtStatus } : {}),
@@ -4092,9 +4156,12 @@ export class GenerationRunner {
     parts: SpecParts,
     hasPhoto: boolean,
   ): GameSpec {
-    const fighterPlayer =
+    const authoredFighterPlayer =
       archetype === 'fighter' ? (parts.player as FighterCharacter | undefined) : undefined;
-    const canonicalHeroConcept = fighterPlayer?.visualConcept ?? design.heroConcept;
+    const fighterPlayer = authoredFighterPlayer
+      ? { ...authoredFighterPlayer, visualConcept: design.heroConcept }
+      : undefined;
+    const canonicalHeroConcept = design.heroConcept;
     return {
       specVersion: 1,
       archetype,
@@ -4107,10 +4174,13 @@ export class GenerationRunner {
       ...(archetype === 'hshooter' && design.vehicleConcept
         ? { playerCraft: { visualConcept: design.vehicleConcept } }
         : {}),
+      ...(archetype === 'fighter' && design.fighterArtDirection
+        ? { artDirection: design.fighterArtDirection }
+        : {}),
       palette: design.palette,
       story: design.story,
       sprites: (parts.entities?.sprites ?? { custom: {}, assign: {} }) as GameSpec['sprites'],
-      ...(archetype === 'fighter' && parts.player ? { player: parts.player } : {}),
+      ...(archetype === 'fighter' && fighterPlayer ? { player: fighterPlayer } : {}),
       levels: (parts.levels ?? []) as never,
       boss: (parts.entities?.boss ?? {}) as never,
       music: (parts.music ?? {}) as never,

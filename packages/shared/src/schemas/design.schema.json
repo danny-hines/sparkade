@@ -18,7 +18,7 @@
       "description": "Canonical visual brief for the player hero. When a likeness photo exists, describe the story-specific outfit from the neck down (garments, colors, materials, footwear, and body-worn costume details) without inventing or changing the person's face, hair, eyewear, or headwear.",
       "type": "string",
       "minLength": 1,
-      "maxLength": 120,
+      "maxLength": 220,
       "pattern": "^[ -~]+$"
     },
     "vehicleConcept": {
@@ -27,6 +27,27 @@
       "minLength": 12,
       "maxLength": 180,
       "pattern": "^[ -~]+$"
+    },
+    "fighterArtDirection": {
+      "description": "Fighter only. One immutable visual-language contract shared by story art, the complete roster, all combat poses, and generated arenas.",
+      "type": "object",
+      "properties": {
+        "aesthetic": { "enum": ["cartoon", "stylized", "semi-realistic"] },
+        "proportions": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 140,
+          "pattern": "^[ -~]+$"
+        },
+        "rendering": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 160,
+          "pattern": "^[ -~]+$"
+        }
+      },
+      "required": ["aesthetic", "proportions", "rendering"],
+      "additionalProperties": false
     },
     "story": {
       "type": "object",
@@ -165,6 +186,10 @@
     {
       "if": { "properties": { "archetype": { "const": "hshooter" } }, "required": ["archetype"] },
       "then": { "required": ["vehicleConcept"] }
+    },
+    {
+      "if": { "properties": { "archetype": { "const": "fighter" } }, "required": ["archetype"] },
+      "then": { "required": ["fighterArtDirection"] }
     }
   ],
   "required": [

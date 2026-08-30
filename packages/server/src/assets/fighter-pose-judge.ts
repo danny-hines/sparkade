@@ -1,9 +1,11 @@
 import sharp from 'sharp';
+import type { FighterArtDirection } from '@sparkade/shared';
+import { fighterArtDirectionPrompt } from './fighter-art-direction';
 import type { GeneratedFighterPose } from './fighter-pose';
 
-export const FIGHTER_IDENTITY_JUDGE_PROMPT_VERSION = 'fighter-identity-judge-v1';
-export const FIGHTER_POSE_JUDGE_PROMPT_VERSION = 'fighter-pose-judge-v1';
-export const FIGHTER_ROSTER_PIPELINE_PROMPT_VERSION = 'fighter-roster-pipeline-v2';
+export const FIGHTER_IDENTITY_JUDGE_PROMPT_VERSION = 'fighter-identity-judge-v2';
+export const FIGHTER_POSE_JUDGE_PROMPT_VERSION = 'fighter-pose-judge-v2';
+export const FIGHTER_ROSTER_PIPELINE_PROMPT_VERSION = 'fighter-roster-pipeline-v3';
 
 export const FIGHTER_ROSTER_SLOTS = [
   'player',
@@ -150,14 +152,7 @@ export function buildFighterIdentityJudgeSchema(
         items: {
           type: 'object',
           additionalProperties: false,
-          required: [
-            'slot',
-            'accepted',
-            'candidateId',
-            'confidence',
-            'rationale',
-            'retryGuidance',
-          ],
+          required: ['slot', 'accepted', 'candidateId', 'confidence', 'rationale', 'retryGuidance'],
           properties: {
             slot: { type: 'string', enum: slots },
             accepted: { type: 'boolean' },
@@ -185,19 +180,23 @@ export function buildFighterIdentityJudgeSchema(
 
 export function buildFighterIdentityJudgePrompt(
   candidates: readonly FighterIdentityCandidateDescriptor[],
+  artDirection?: FighterArtDirection,
 ): { system: string; user: string } {
   const list = candidates
-    .map(({ id, slot, name, photoIdentity }) =>
-      `${id}=${slot}/${name}${photoIdentity ? '/PHOTO-IDENTITY' : ''}`,
+    .map(
+      ({ id, slot, name, photoIdentity }) =>
+        `${id}=${slot}/${name}${photoIdentity ? '/PHOTO-IDENTITY' : ''}`,
     )
     .join(', ');
   const slots = FIGHTER_ROSTER_SLOTS.filter((slot) =>
     candidates.some((candidate) => candidate.slot === slot),
   );
-  const concepts = slots.map((slot) => {
-    const item = candidates.find((candidate) => candidate.slot === slot);
-    return item ? `${slot} ${item.name}: ${item.visualConcept}` : `${slot}: missing`;
-  }).join('\n');
+  const concepts = slots
+    .map((slot) => {
+      const item = candidates.find((candidate) => candidate.slot === slot);
+      return item ? `${slot} ${item.name}: ${item.visualConcept}` : `${slot}: missing`;
+    })
+    .join('\n');
   return {
     system: [
       'You are the exacting roster art director for a premium SNES-style fighting game.',
@@ -208,7 +207,7 @@ export function buildFighterIdentityJudgePrompt(
       'Score 0 (unusable) to 5 (excellent). Select one candidate per roster slot only when it has no fatal issue and identity/concept, costume, silhouette, and technical quality are each at least 4. Otherwise return accepted=false for that slot but still review every candidate and give concrete retry guidance.',
       'Finally judge whether the five selected-looking identities form one coherent art style while remaining unmistakable from one another. Return only the requested JSON.',
     ].join(' '),
-    user: `Candidate labels: ${list}.\nCharacter directions:\n${concepts}\nReview every candidate, choose one foundation per slot, and assess the cast as a whole.`,
+    user: `Candidate labels: ${list}.\n${artDirection ? `Immutable roster-wide art direction: ${fighterArtDirectionPrompt(artDirection)}\n` : ''}Character directions:\n${concepts}\nReview every candidate, choose one foundation per slot, and assess the cast as a whole.`,
   };
 }
 
@@ -308,6 +307,7 @@ export function buildFighterPoseJudgePrompt(
   fighterName: string,
   candidates: readonly FighterPoseCandidateDescriptor[],
   poses: readonly GeneratedFighterPose[],
+  artDirection?: FighterArtDirection,
 ): { system: string; user: string } {
   const list = candidates.map(({ id, pose }) => `${id}=${pose}`).join(', ');
   return {
@@ -320,7 +320,7 @@ export function buildFighterPoseJudgePrompt(
       'Review every candidate, then select the strongest candidate for every requested pose. Judge the selected combination as one set. accepted=true requires no fatal issue and scores of at least 4 for identity consistency, costume consistency, scale consistency, and pose readability.',
       'If the set is not accepted, request retries for at most four poses that most limit the set. Give concrete pose-specific corrections; do not request a retry merely for taste. Return only the requested JSON.',
     ].join(' '),
-    user: `Review ${fighterName}. Candidate labels: ${list}. Required poses: ${poses.join(', ')}. Select the most identity-consistent complete combination and identify only the highest-value retry poses when needed.`,
+    user: `Review ${fighterName}. ${artDirection ? `Immutable roster-wide art direction: ${fighterArtDirectionPrompt(artDirection)} ` : ''}Candidate labels: ${list}. Required poses: ${poses.join(', ')}. Select the most identity-consistent complete combination and identify only the highest-value retry poses when needed.`,
   };
 }
 
@@ -341,14 +341,15 @@ function text(value: unknown, max = 1200): string {
 
 function strings(value: unknown): string[] {
   return Array.isArray(value)
-    ? value.map((item) => text(item, 240)).filter(Boolean).slice(0, 8)
+    ? value
+        .map((item) => text(item, 240))
+        .filter(Boolean)
+        .slice(0, 8)
     : [];
 }
 
 function confidence(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value)
-    ? Math.max(0, Math.min(1, value))
-    : 0;
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
 }
 
 function isRosterSlot(value: string): value is FighterRosterSlot {
@@ -505,7 +506,9 @@ export function normalizeFighterPoseJudgeDecision(
   const selections = poses.map((pose) => {
     const item = rawSelections.get(pose) ?? {};
     const candidateId = text(item.candidateId, 32);
-    const valid = candidates.some((candidate) => candidate.pose === pose && candidate.id === candidateId);
+    const valid = candidates.some(
+      (candidate) => candidate.pose === pose && candidate.id === candidateId,
+    );
     return { pose, candidateId: valid ? candidateId : '', rationale: text(item.rationale) };
   });
   const set = record(root.setReview);
@@ -578,7 +581,13 @@ export function fighterPosesNeedingRetry(
       const fatal = review?.fatalIssues.length ?? 1;
       return { pose, review, weakness: fatal * 10 + (5 - minimum) };
     })
-    .filter(({ pose, review }) => requested.has(pose) || !review || review.fatalIssues.length > 0 || Object.values(review.scores).some((value) => value < 4))
+    .filter(
+      ({ pose, review }) =>
+        requested.has(pose) ||
+        !review ||
+        review.fatalIssues.length > 0 ||
+        Object.values(review.scores).some((value) => value < 4),
+    )
     .sort((a, b) => b.weakness - a.weakness)
     .slice(0, max);
   return ranked.map(({ pose, review }) => ({
@@ -637,7 +646,11 @@ export async function buildFighterIdentityJudgeBoard(input: {
     const left = 30 + (index % columns) * (panelWidth + 12);
     const y = top + Math.floor(index / columns) * panelHeight;
     layers.push({
-      input: panelSvg(panelWidth, panelHeight - 12, `${candidate.id} · ${candidate.slot} · ${candidate.name}`),
+      input: panelSvg(
+        panelWidth,
+        panelHeight - 12,
+        `${candidate.id} · ${candidate.slot} · ${candidate.name}`,
+      ),
       left,
       top: y,
     });
@@ -723,7 +736,9 @@ function panelSvg(width: number, height: number, label: string): Buffer {
 }
 
 function svg(width: number, height: number, body: string): Buffer {
-  return Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">${body}</svg>`);
+  return Buffer.from(
+    `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">${body}</svg>`,
+  );
 }
 
 async function enlargedSprite(sprite: Buffer, width: number, height: number): Promise<Buffer> {
@@ -736,7 +751,10 @@ async function enlargedSprite(sprite: Buffer, width: number, height: number): Pr
     .resize(width, height, { fit: 'contain', kernel: sharp.kernel.nearest })
     .png()
     .toBuffer();
-  return sharp(checker).composite([{ input: enlarged }]).png().toBuffer();
+  return sharp(checker)
+    .composite([{ input: enlarged }])
+    .png()
+    .toBuffer();
 }
 
 function escapeXml(value: string): string {

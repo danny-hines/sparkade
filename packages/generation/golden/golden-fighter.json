@@ -4,7 +4,13 @@
   "seed": 20260714,
   "meta": {
     "title": "Nine Fists",
-    "tagline": "Climb a moonlit rooftop ladder. Nine fists to the crown."
+    "tagline": "Climb a moonlit rooftop ladder. Nine fists to the crown.",
+    "heroConcept": "A masterless rooftop duelist in a cropped indigo gi, moon-white sash, wrapped forearms, split-toe boots, and a small brass lantern crest at the shoulder."
+  },
+  "artDirection": {
+    "aesthetic": "stylized",
+    "proportions": "Consistent six-head athletic adult proportions with expressive but normally sized heads and strong readable hands and feet.",
+    "rendering": "Crisp premium SNES pixel clusters, dark one-pixel outlines, restrained three-step cel shading, and warm moonlit rim light."
   },
   "palette": [
     "#000000",

@@ -62,6 +62,8 @@ export interface EngineContext {
   hshooterPlayerCraft: CanvasImageSource | null;
   /** Complete image-generated roster, ordered player → three rungs → boss. */
   fighterAtlases: readonly CanvasImageSource[] | null;
+  /** Two stacked generated Fighter arena plates: reusable ladder, then boss. */
+  fighterArenaAtlas: CanvasImageSource | null;
   /** Image-generated high-density platformer poses, when complete. */
   platformerPoses: Readonly<Record<string, CanvasImageSource>> | null;
   /** Image-generated platformer finale boss, when available. */
@@ -186,6 +188,7 @@ export class GameHost {
       portraitDefeat: opts.likeness?.portraitDefeat ?? opts.likeness?.portrait ?? null,
       hshooterPlayerCraft: opts.likeness?.hshooterPlayerCraft ?? null,
       fighterAtlases: opts.likeness?.fighterAtlases ?? null,
+      fighterArenaAtlas: opts.likeness?.fighterArenaAtlas ?? null,
       platformerPoses: opts.likeness?.platformerPoses ?? null,
       platformerBoss: opts.likeness?.platformerBoss ?? null,
       platformerEnemies: opts.likeness?.platformerEnemies ?? null,

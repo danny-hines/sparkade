@@ -164,6 +164,24 @@ describe('security scan', () => {
           'A cobalt trench skiff with swept fins, a dark canopy, and twin amber drives',
       }),
     ).toEqual([]);
+    expect(designOutputDiagnostics({ ...design, archetype: 'fighter' })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'SCHEMA', path: '/fighterArtDirection' }),
+      ]),
+    );
+    expect(
+      designOutputDiagnostics({
+        ...design,
+        archetype: 'fighter',
+        fighterArtDirection: {
+          aesthetic: 'stylized',
+          proportions:
+            'Six-head athletic adult proportions with consistently sized expressive faces',
+          rendering:
+            'Crisp dark outlines, compact pixel clusters, and restrained three-step cel shading',
+        },
+      }),
+    ).toEqual([]);
     expect(designOutputDiagnostics({ ...design, title: 'Visit www.bad.example' })).toEqual([
       expect.objectContaining({ code: 'SCAN_REJECTED', path: '/title' }),
     ]);

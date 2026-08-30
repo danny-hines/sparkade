@@ -300,6 +300,16 @@ export type FighterBuild = 'nimble' | 'balanced' | 'heavy';
 /** Broad costume family used to direct generated character art. */
 export type FighterOutfit = 'gi' | 'boxer' | 'wrestler' | 'street' | 'robe' | 'armor';
 
+/** One immutable visual-language contract selected during the design pass and
+ * reused by presentation art, every roster identity, combat poses, and arenas. */
+export interface FighterArtDirection {
+  aesthetic: 'cartoon' | 'stylized' | 'semi-realistic';
+  /** Concrete head-to-body scale and anatomy rules shared by the whole cast. */
+  proportions: string;
+  /** Concrete pixel clustering, outline, lighting, and shading treatment. */
+  rendering: string;
+}
+
 export interface FighterCharacter {
   name: string;
   /** Concrete head-to-toe art direction used to establish generated identity. */
@@ -343,6 +353,8 @@ export interface FighterBoss {
 
 export interface FighterSpec extends GameSpecBase {
   archetype: 'fighter';
+  /** Roster-wide visual language authored once during the story/design pass. */
+  artDirection: FighterArtDirection;
   /** Backdrop behind the arena (horizontal scene); omitted → seed pick. */
   backdrop?: BackdropVariantId;
   /** The generated player's authored identity and gameplay attributes. */
@@ -494,6 +506,9 @@ export interface DesignDoc {
   heroConcept: string;
   /** Shooter-only vehicle identity, authored independently from player likeness. */
   vehicleConcept?: string;
+  /** Fighter-only roster-wide visual language. Required by the design schema
+   * when the selected archetype is Fighter. */
+  fighterArtDirection?: FighterArtDirection;
   story: StoryBlock;
   levelPlan: { name: string; summary: string }[];
   cast: { role: string; concept: string }[];
@@ -586,6 +601,13 @@ export interface GameMetaFile {
   fighterArt?: {
     mode: 'generated';
     attempted: true;
+  };
+  /** QA/readiness signal for the one-call ladder/boss Fighter arena sheet. */
+  fighterArenaArt?: {
+    mode: 'generated' | 'procedural';
+    attempted: boolean;
+    /** Present when the stable procedural backdrop remains active. */
+    reason?: string;
   };
   /** QA/readiness signal for the generated high-density platformer player. */
   platformerPlayerArt?: {

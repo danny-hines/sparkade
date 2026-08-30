@@ -9,7 +9,7 @@ import {
   type GeneratedFighterPose,
 } from './fighter-pose';
 
-export const FIGHTER_POSE_SHEET_PROMPT_VERSION = 'fighter-pose-sheet-v2';
+export const FIGHTER_POSE_SHEET_PROMPT_VERSION = 'fighter-pose-sheet-v3';
 export const FIGHTER_POSE_SHEET_SIZE = 1024;
 export const FIGHTER_POSE_SHEET_COLUMNS = 3;
 export const FIGHTER_POSE_SHEET_ROWS = 2;
@@ -78,6 +78,15 @@ export interface FighterPoseSheetCellResult {
   error?: string;
 }
 
+/** Geometry-aware raw cell extraction shared by Fighter and other character
+ * pipelines that use the same fixed 3x2 board contract. */
+export interface FighterPoseSheetSegmentedCell {
+  rect: FighterPoseSheetCellRect;
+  raw: Buffer;
+  segmentation: FighterPoseSheetSegmentationMetrics;
+  error?: string;
+}
+
 export interface FighterPoseSheetSegmentationMetrics {
   ownedComponentCount: number;
   reclaimedBleedPixels: number;
@@ -140,6 +149,7 @@ export function buildFighterPoseSheetPrompt(
   options: FighterPosePromptOptions = {},
 ): string {
   const identity = clean(options.identity);
+  const artDirection = clean(options.artDirection);
   const outfit = clean(options.outfit);
   const colors = clean(options.colors);
   const candidateId = clean(options.candidateId) ?? group.id;
@@ -153,6 +163,7 @@ export function buildFighterPoseSheetPrompt(
     `FIGHTER POSE SHEET CONTRACT: ${group.id} [${group.poses.join(',')}].`,
     `Edit the attached fixed 3-column by 2-row board into exactly SIX isolated full-body fighting-game sprites of the same character, candidate ${candidateId}.`,
     'The attached board already repeats the exact identity once in every cell. Preserve the cell boundaries, character identity, face, hair, costume construction, colors, body proportions, right-facing direction, scale, and ground line.',
+    artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}.` : '',
     identity ? `Identity details to retain in every cell: ${identity}.` : '',
     outfit ? `Costume direction shared by every cell: ${outfit}.` : '',
     colors ? `Costume colors shared by every cell: ${colors}.` : '',
@@ -366,6 +377,54 @@ export async function splitGeneratedFighterPoseSheet(
   image: Buffer,
   group: FighterPoseSheetGroup,
 ): Promise<FighterPoseSheetCellResult[]> {
+  const segmented = await segmentGeneratedFighterPoseSheet(image);
+  return Promise.all(
+    group.poses.map(async (pose, index): Promise<FighterPoseSheetCellResult> => {
+      const cell = segmented[index]!;
+      const id = `${pose}-S`;
+      if (cell.error) {
+        return {
+          id,
+          pose,
+          rect: cell.rect,
+          raw: cell.raw,
+          segmentation: cell.segmentation,
+          error: cell.error,
+        };
+      }
+      try {
+        const processed = await processGeneratedFighterPose(cell.raw, {
+          removeGreenSpill: true,
+          isolatePrimarySubject: true,
+        });
+        return {
+          id,
+          pose,
+          rect: cell.rect,
+          raw: cell.raw,
+          processed: processed.png,
+          metrics: processed.metrics,
+          segmentation: cell.segmentation,
+        };
+      } catch (error) {
+        return {
+          id,
+          pose,
+          rect: cell.rect,
+          raw: cell.raw,
+          segmentation: cell.segmentation,
+          error: error instanceof Error ? error.message.slice(0, 800) : String(error).slice(0, 800),
+        };
+      }
+    }),
+  );
+}
+
+/** Normalize one six-cell sheet and assign complete foreground components to
+ * their most likely cell before any archetype-specific sprite processing. */
+export async function segmentGeneratedFighterPoseSheet(
+  image: Buffer,
+): Promise<FighterPoseSheetSegmentedCell[]> {
   const normalized = await sharp(image)
     .rotate()
     .resize(FIGHTER_POSE_SHEET_SIZE, FIGHTER_POSE_SHEET_SIZE, {
@@ -382,45 +441,19 @@ export async function splitGeneratedFighterPoseSheet(
     normalized.info.height,
   );
   return Promise.all(
-    group.poses.map(async (pose, index): Promise<FighterPoseSheetCellResult> => {
+    Array.from({ length: 6 }, async (_, index): Promise<FighterPoseSheetSegmentedCell> => {
       const rect = fighterPoseSheetCellRect(index);
       const owned = await buildOwnedSheetCell(normalized.data, componentAt, components, index);
       const raw = owned.raw;
-      const id = `${pose}-S`;
       if (owned.overflow) {
         return {
-          id,
-          pose,
           rect,
           raw,
           segmentation: owned.segmentation,
           error: `owned fighter exceeds the ${FIGHTER_POSE_SHEET_BLEED_TOLERANCE}px sheet-cell bleed tolerance`,
         };
       }
-      try {
-        const processed = await processGeneratedFighterPose(raw, {
-          removeGreenSpill: true,
-          isolatePrimarySubject: true,
-        });
-        return {
-          id,
-          pose,
-          rect,
-          raw,
-          processed: processed.png,
-          metrics: processed.metrics,
-          segmentation: owned.segmentation,
-        };
-      } catch (error) {
-        return {
-          id,
-          pose,
-          rect,
-          raw,
-          segmentation: owned.segmentation,
-          error: error instanceof Error ? error.message.slice(0, 800) : String(error).slice(0, 800),
-        };
-      }
+      return { rect, raw, segmentation: owned.segmentation };
     }),
   );
 }

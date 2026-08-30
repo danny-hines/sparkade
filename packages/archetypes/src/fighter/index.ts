@@ -5,7 +5,7 @@ import { createFighterGame } from './game';
 
 export const fighter: Archetype = {
   id: 'fighter',
-  version: '1.0.0',
+  version: '1.1.0',
   schema: ARCHETYPE_SCHEMAS.fighter,
   lint: (spec: GameSpec) => lintFighter(spec as FighterSpec),
   estimateDurationS: (spec: GameSpec) => estimateFighterDurationS(spec as FighterSpec),
@@ -26,6 +26,10 @@ export const fighter: Archetype = {
     levels: 3,
     enemyTypes: 4,
     bossPhases: 2,
-    extras: ['a 4-bout ladder (3 rungs + boss)', 'best-of-3 rounds', 'the boss fighter is visually distinct'],
+    extras: [
+      'a 4-bout ladder (3 rungs + boss)',
+      'best-of-3 rounds',
+      'the boss fighter is visually distinct',
+    ],
   },
 };

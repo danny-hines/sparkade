@@ -24,12 +24,13 @@ Published games remain unchanged; the correction applies while normalizing newly
 
 ## Fighter presentation follow-ups
 
-- Have Muse Spark choose one roster-wide proportion and rendering aesthetic (for example, cartoony
-  or realistic) and carry that contract through every player and enemy image prompt.
-- Establish the player's canonical outfit during story/design generation, then reuse the same
-  concrete outfit identity in story cards, presentation art, and gameplay pose generation.
-- Give walking immediate motion by alternating the idle and walk states; later evaluate whether a
-  second dedicated walk frame is worth the extra generation cost.
-- Generate arena backgrounds and a small set of premise-specific backdrop props.
+Resolved on 2026-08-29: the design pass now locks one roster-wide aesthetic, proportion, and
+rendering contract plus the player's exact canonical outfit. Those contracts feed presentation art,
+story scenes, every roster prompt, and Spark's pose reviews. Walking alternates the idle and walk
+states at runtime. One additional image call produces a locally split ladder/boss arena atlas with
+premise-specific background props; invalid arena art falls back atomically to the procedural stage.
+
+Remaining:
+
 - Profile Fighter generation latency and spend, then reduce redundant image/review work through
   bounded candidates, checkpoint reuse, batching, and parallelism without lowering output quality.

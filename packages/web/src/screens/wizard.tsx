@@ -120,7 +120,6 @@ export function WizardScreen(props: {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordingCanceledRef = useRef(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const modeRef = useRef({ step, photoMode, entryMode, recordTarget, cursor });
   modeRef.current = { step, photoMode, entryMode, recordTarget, cursor };
 
@@ -455,15 +454,14 @@ export function WizardScreen(props: {
 
         if (mode.step === 'photo') {
           if (mode.photoMode === 'choice') {
-            const count = import.meta.env.DEV ? 3 : 2;
-            if (nav(count)) return;
+            if (nav(2)) return;
             if (button === 'A') {
               shellInput.blip('select');
               if (mode.cursor === 0) setPhotoMode('camera');
-              else if (mode.cursor === 1) {
+              else {
                 setPhotoBlob(null);
                 goToName();
-              } else fileInputRef.current?.click();
+              }
             } else if (button === 'B') {
               shellInput.blip('back');
               props.go({ name: 'home' });
@@ -509,18 +507,14 @@ export function WizardScreen(props: {
 
         if (mode.step === 'name') {
           if (mode.entryMode === 'choice') {
-            const count = import.meta.env.DEV ? 3 : 2;
-            if (nav(count)) return;
+            if (nav(2)) return;
             if (button === 'A') {
               shellInput.blip('select');
               if (mode.cursor === 0) {
                 setEntryMode('record');
                 void startRecording('name');
-              } else if (mode.cursor === 1) {
-                setHeroName('');
-                goToArchetype();
               } else {
-                setHeroName('Nova');
+                setHeroName('');
                 goToArchetype();
               }
             } else if (button === 'B') {
@@ -569,8 +563,7 @@ export function WizardScreen(props: {
 
         if (mode.step === 'details') {
           if (mode.entryMode === 'choice') {
-            const count = import.meta.env.DEV ? 4 : 3;
-            if (nav(count)) return;
+            if (nav(3)) return;
             if (button === 'A') {
               shellInput.blip('select');
               if (mode.cursor === 0) {
@@ -580,13 +573,6 @@ export function WizardScreen(props: {
                 setEntryMode('cards');
                 setCursor(0);
               } else if (mode.cursor === 2) surpriseDetails();
-              else {
-                setDetails('Escaping a neon zombie wasteland before the last train leaves');
-                setSourceKind('voice');
-                setPresetId(undefined);
-                setStep('review');
-                setCursor(0);
-              }
             } else if (button === 'B') {
               shellInput.blip('back');
               goToArchetype();
@@ -713,31 +699,7 @@ export function WizardScreen(props: {
                 </span>{' '}
                 Skip
               </div>
-              {import.meta.env.DEV ? (
-                <div class={`focusable menu-item ${cursor === 2 ? 'focused' : ''}`}>
-                  <span class="icon">
-                    <Icon name="folder" />
-                  </span>{' '}
-                  Upload photo (dev)
-                </div>
-              ) : null}
             </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              style="display:none"
-              onChange={(event) => {
-                const file = (event.target as HTMLInputElement).files?.[0];
-                if (!file) return;
-                setPhotoBlob(file);
-                setPhotoUrl((old) => {
-                  if (old) URL.revokeObjectURL(old);
-                  return URL.createObjectURL(file);
-                });
-                goToName();
-              }}
-            />
           </div>
         )}
 
@@ -810,14 +772,6 @@ export function WizardScreen(props: {
                 </span>{' '}
                 Let Spark choose
               </div>
-              {import.meta.env.DEV ? (
-                <div class={`focusable menu-item ${cursor === 2 ? 'focused' : ''}`}>
-                  <span class="icon">
-                    <Icon name="keyboard" />
-                  </span>{' '}
-                  Nova (dev)
-                </div>
-              ) : null}
             </div>
           </div>
         )}
@@ -916,14 +870,6 @@ export function WizardScreen(props: {
                 </span>{' '}
                 Surprise me
               </div>
-              {import.meta.env.DEV ? (
-                <div class={`focusable menu-item ${cursor === 3 ? 'focused' : ''}`}>
-                  <span class="icon">
-                    <Icon name="keyboard" />
-                  </span>{' '}
-                  Zombie escape (dev)
-                </div>
-              ) : null}
             </div>
           </div>
         )}

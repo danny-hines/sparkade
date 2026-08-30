@@ -147,6 +147,8 @@ describe('generated likeness heads', () => {
     });
     expect(request?.prompt).toContain('front-facing head-and-shoulders portrait');
     expect(request?.prompt).toContain('likeness from the neck up');
+    expect(request?.prompt).toContain('Preserve visible glasses, headwear, hair, facial hair');
+    expect(request?.prompt).toContain('never invent one that is absent');
     expect(request?.prompt).toContain('silver pressure suit with cobalt shoulder panels');
     expect(request?.prompt).toContain("source photo's clothing below the neck is not identity");
     const inputMeta = await sharp(request!.image).metadata();

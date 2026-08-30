@@ -46,6 +46,8 @@ export function estimateGenerationCost(
     platformerPoseJudges?: boolean;
     platformerBossJudge?: boolean;
     platformerEnemyJudge?: boolean;
+    adventurePlayerIdentityJudge?: boolean;
+    adventurePlayerSetJudge?: boolean;
   } = {},
 ): number | null {
   const price = snapshot[model];
@@ -67,6 +69,12 @@ export function estimateGenerationCost(
     ...(options.platformerEnemyJudge
       ? [{ input: 2200, output: 2800 }] // one board selects two candidates for all four enemies
       : []),
+    ...(options.adventurePlayerIdentityJudge
+      ? [{ input: 1200, output: 900 }] // source-photo identity foundation selection
+      : []),
+    ...(options.adventurePlayerSetJudge
+      ? [{ input: 1900, output: 2200 }] // complete two-sheet direction and motion selection
+      : []),
   ];
   let total = 0;
   for (const u of typical)
@@ -85,6 +93,9 @@ export function formatUsd(v: number | null): string {
 export function estimateImageCount(hasPhoto: boolean, archetype?: ArchetypeId): number {
   if (archetype === 'platformer') return hasPhoto ? 40 : 25;
   if (archetype === 'fighter') return hasPhoto ? 33 : 31;
+  // Adventure adds three identity candidates and two six-pose sheets. With a
+  // photo, a successful full player set replaces the three legacy head calls.
+  if (archetype === 'adventure') return hasPhoto ? 13 : 11;
   // H-scroll replaces three likeness-head calls with one vehicle-identity call.
   if (archetype === 'hshooter') return hasPhoto ? 8 : 6;
   if (archetype === undefined) return hasPhoto ? 40 : 31;

@@ -74,6 +74,10 @@ export interface EngineContext {
   platformerProps: Readonly<Record<string, CanvasImageSource>> | null;
   /** Image-generated platformer stage plates, independently available by stage. */
   platformerBackdrops: Readonly<Record<string, CanvasImageSource>> | null;
+  /** Image-generated Adventure entrance, ordinary, deep, and finale room surfaces. */
+  adventureRoomPlates: CanvasImageSource | null;
+  /** Complete image-generated Adventure player set, keyed by direction and motion. */
+  adventurePlayerPoses: Readonly<Record<string, CanvasImageSource>> | null;
   spec: GameSpec;
   /** True when the host runs as a self-playing library demo — archetypes can
    *  read this to drive themselves (e.g. the fighter runs both sides on AI). */
@@ -194,6 +198,8 @@ export class GameHost {
       platformerEnemies: opts.likeness?.platformerEnemies ?? null,
       platformerProps: opts.likeness?.platformerProps ?? null,
       platformerBackdrops: opts.likeness?.platformerBackdrops ?? null,
+      adventureRoomPlates: opts.likeness?.adventureRoomPlates ?? null,
+      adventurePlayerPoses: opts.likeness?.adventurePlayerPoses ?? null,
       spec: opts.spec,
       attract: !!opts.attract,
       shake: (ms = FEEL.screenShakeMs, magnitude = 3) => this.renderer.shake(ms, magnitude),

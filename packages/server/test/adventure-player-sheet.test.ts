@@ -1,0 +1,109 @@
+import sharp from 'sharp';
+import { describe, expect, it } from 'vitest';
+import { mockGeneratedImage } from '../src/assets/game-art';
+import {
+  ADVENTURE_PLAYER_SHEET_CANDIDATES,
+  buildAdventurePlayerSheetPrompt,
+  buildAdventurePlayerSheetSeed,
+  splitGeneratedAdventurePlayerSheet,
+} from '../src/assets/adventure-player-sheet';
+import {
+  ADVENTURE_PLAYER_POSE_HEIGHT,
+  ADVENTURE_PLAYER_POSE_WIDTH,
+  GENERATED_ADVENTURE_PLAYER_POSES,
+  buildAdventurePlayerIdentityPrompt,
+  processGeneratedAdventurePlayerPose,
+} from '../src/assets/adventure-player';
+import { fighterPoseSheetCellRect } from '../src/assets/fighter-pose-sheet';
+
+async function identityAnchor(): Promise<Buffer> {
+  return processGeneratedAdventurePlayerPose(
+    await mockGeneratedImage(buildAdventurePlayerIdentityPrompt('I1', { hasPhoto: false })),
+  );
+}
+
+describe('Adventure player pose sheets', () => {
+  it('defines two competing sheets with one exact six-cell contract', () => {
+    expect(ADVENTURE_PLAYER_SHEET_CANDIDATES).toEqual(['A', 'B']);
+    const prompt = buildAdventurePlayerSheetPrompt('A', {
+      heroConcept: 'a sand-tan canvas wayfinder vest with teal trim and amber sash',
+      colors: '#c9a468, #23a89a, #f0a83c',
+    });
+
+    expect(prompt).toContain(
+      'ADVENTURE PLAYER POSE SHEET CONTRACT: A [downIdle,downWalk,upIdle,upWalk,sideIdle,sideWalk]',
+    );
+    expect(prompt).toContain('exact selected gameplay hero once in every cell');
+    expect(prompt).toContain('Never invent an absent accessory');
+    expect(prompt).toContain('source-photo clothing is not identity');
+    expect(prompt).toContain('Cell 3 (row 1, column 3) — upIdle');
+    expect(prompt).toContain('no face on the back of the head');
+    expect(prompt).toContain('Cell 6 (row 2, column 3) — sideWalk');
+    expect(prompt).toContain('No body part may cross into another cell');
+    expect(prompt).toContain('clean darkest outer contour');
+    expect(prompt).toContain('light, dark, noisy, or similarly colored floor');
+  });
+
+  it('repeats the selected native identity in every seed-board cell', async () => {
+    const seed = await buildAdventurePlayerSheetSeed(await identityAnchor());
+    await expect(sharp(seed).metadata()).resolves.toMatchObject({
+      width: 1024,
+      height: 1024,
+      format: 'png',
+    });
+
+    const { data, info } = await sharp(seed).raw().toBuffer({ resolveWithObject: true });
+    for (let index = 0; index < 6; index++) {
+      const rect = fighterPoseSheetCellRect(index);
+      let nonGreen = 0;
+      for (let y = rect.top; y < rect.top + rect.height; y++) {
+        for (let x = rect.left; x < rect.left + rect.width; x++) {
+          const offset = (y * info.width + x) * info.channels;
+          if (!(data[offset] === 0 && data[offset + 1] === 255 && data[offset + 2] === 0)) {
+            nonGreen++;
+          }
+        }
+      }
+      expect(nonGreen).toBeGreaterThan(1000);
+    }
+  });
+
+  it('segments one generated sheet into six native foot-anchored poses', async () => {
+    const raw = await mockGeneratedImage(buildAdventurePlayerSheetPrompt('A'));
+    const cells = await splitGeneratedAdventurePlayerSheet(raw, 'A');
+
+    expect(cells.map(({ pose }) => pose)).toEqual(GENERATED_ADVENTURE_PLAYER_POSES);
+    expect(cells.every(({ processed }) => processed)).toBe(true);
+    for (const cell of cells) {
+      await expect(sharp(cell.processed!).metadata()).resolves.toMatchObject({
+        width: ADVENTURE_PLAYER_POSE_WIDTH,
+        height: ADVENTURE_PLAYER_POSE_HEIGHT,
+        isPalette: true,
+      });
+    }
+  });
+
+  it('retains five healthy cells when one sheet cell is empty', async () => {
+    const raw = await mockGeneratedImage(buildAdventurePlayerSheetPrompt('B'));
+    const damagedRect = fighterPoseSheetCellRect(3);
+    const green = await sharp({
+      create: {
+        width: damagedRect.width,
+        height: damagedRect.height,
+        channels: 4,
+        background: { r: 0, g: 255, b: 0, alpha: 1 },
+      },
+    })
+      .png()
+      .toBuffer();
+    const damaged = await sharp(raw)
+      .composite([{ input: green, left: damagedRect.left, top: damagedRect.top }])
+      .png()
+      .toBuffer();
+    const cells = await splitGeneratedAdventurePlayerSheet(damaged, 'B');
+
+    expect(cells.filter(({ processed }) => processed)).toHaveLength(5);
+    expect(cells.find(({ pose }) => pose === 'upWalk')?.processed).toBeUndefined();
+    expect(cells.find(({ pose }) => pose === 'upWalk')?.error).toContain('empty');
+  });
+});

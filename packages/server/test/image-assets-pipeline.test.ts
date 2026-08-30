@@ -101,6 +101,19 @@ const PLATFORMER_BACKDROP_ROLES = [
   'platformerBackdropBoss',
 ] as const satisfies readonly GeneratedGameAssetRole[];
 
+const ADVENTURE_ROOM_PLATE_ROLES = [
+  'adventureRoomPlates',
+] as const satisfies readonly GeneratedGameAssetRole[];
+
+const ADVENTURE_PLAYER_ROLES = [
+  'adventurePlayerDownIdle',
+  'adventurePlayerDownWalk',
+  'adventurePlayerUpIdle',
+  'adventurePlayerUpWalk',
+  'adventurePlayerSideIdle',
+  'adventurePlayerSideWalk',
+] as const satisfies readonly GeneratedGameAssetRole[];
+
 interface Harness {
   root: string;
   db: Db;
@@ -281,6 +294,25 @@ describe('story art prompts', () => {
     expect(story).toContain(spec.artDirection.rendering);
   });
 
+  it('treats the selected Adventure gameplay hero as story identity and wardrobe truth', () => {
+    const spec = JSON.parse(
+      readFileSync(join(process.cwd(), 'packages/generation/golden/golden-adventure.json'), 'utf8'),
+    ) as Extract<GameSpec, { archetype: 'adventure' }>;
+
+    const story = buildStoryArtPrompt(spec, 'intro', spec.meta.heroConcept, undefined, true);
+    const fallback = buildStoryArtPolicyFallbackPrompt(
+      spec,
+      'intro',
+      spec.meta.heroConcept,
+      undefined,
+      true,
+    );
+
+    expect(story).toContain('BOTTOM PANEL is the exact selected gameplay hero');
+    expect(story).toContain('head identity, head accessories, and neck-down wardrobe truth');
+    expect(fallback).toContain('BOTTOM PANEL as the exact selected gameplay hero');
+  });
+
   it('provides policy-safe presentation prompts without replaying authored danger text', () => {
     const spec = JSON.parse(
       readFileSync(
@@ -301,6 +333,89 @@ describe('story art prompts', () => {
 });
 
 describe.sequential('mock image asset pipeline', () => {
+  it('publishes the room atlas and complete six-pose player for Adventure games', async () => {
+    const { db, files, runner } = createHarness();
+    const { jobId, gameId } = runner.createJob({
+      promptText: 'A diver relights a drowned clockwork observatory',
+      sourceKind: 'surprise',
+      requestedArchetype: 'adventure',
+      idempotencyKey: 'mock-adventure-room-plates',
+    });
+
+    expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done' });
+    expect(files.readMeta(gameId)?.adventureRoomPlateArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+    });
+    expect(files.readMeta(gameId)?.adventurePlayerArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+    });
+    await expectPublishedPngs(files, gameId, [
+      ...PRESENTATION_ROLES,
+      ...ADVENTURE_ROOM_PLATE_ROLES,
+      ...ADVENTURE_PLAYER_ROLES,
+    ]);
+    expect(
+      generatedAssetForRole(join(files.gameDir(gameId), 'assets'), 'adventureRoomPlates'),
+    ).toMatchObject({
+      width: 1792,
+      height: 896,
+    });
+    for (const role of ADVENTURE_PLAYER_ROLES) {
+      expect(generatedAssetForRole(join(files.gameDir(gameId), 'assets'), role)).toMatchObject({
+        width: 112,
+        height: 128,
+      });
+    }
+    const successfulImageStages = db
+      .usageForGame(gameId)
+      .filter((event) => event.stage.startsWith('image:') && !event.failed)
+      .map(({ stage }) => stage);
+    expect(successfulImageStages).toHaveLength(11);
+    expect(
+      successfulImageStages.filter((stage) => stage.includes('adventure-player-sheet-')),
+    ).toHaveLength(2);
+    expect(
+      successfulImageStages.some((stage) => stage.includes('adventure-player-downWalk-')),
+    ).toBe(false);
+  });
+
+  it('uses photo identity for the Adventure player without publishing legacy heads', async () => {
+    const { db, files, runner } = createHarness();
+    const { jobId, gameId } = runner.createJob({
+      promptText: 'A bespectacled navigator repairs a flooded moon observatory',
+      sourceKind: 'surprise',
+      requestedArchetype: 'adventure',
+      photo: await testPhoto(),
+      idempotencyKey: 'mock-photo-adventure-player',
+    });
+
+    expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done' });
+    expect(files.readMeta(gameId)?.adventurePlayerArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+    });
+    await expectPublishedPngs(files, gameId, [
+      ...PRESENTATION_ROLES,
+      ...PORTRAIT_ROLES,
+      ...ADVENTURE_ROOM_PLATE_ROLES,
+      ...ADVENTURE_PLAYER_ROLES,
+    ]);
+    const manifest = readGameAssetManifest(join(files.gameDir(gameId), 'assets'))!;
+    expect(
+      manifest.assets.some(({ role }) => HEAD_ROLES.includes(role as (typeof HEAD_ROLES)[number])),
+    ).toBe(false);
+    const successfulImageStages = db
+      .usageForGame(gameId)
+      .filter((event) => event.stage.startsWith('image:') && !event.failed)
+      .map(({ stage }) => stage);
+    expect(successfulImageStages).toHaveLength(13);
+    expect(
+      successfulImageStages.filter((stage) => stage.includes('adventure-player-sheet-')),
+    ).toHaveLength(2);
+  });
+
   it('publishes key/story art and portraits without redundant heads when full-body art succeeds', async () => {
     const { db, files, runner } = createHarness();
     const { jobId, gameId } = runner.createJob({

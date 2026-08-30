@@ -182,6 +182,46 @@ import {
   type GeneratedPlatformerBackdrop,
 } from '../assets/platformer-backdrop';
 import {
+  ADVENTURE_ROOM_PLATE_ASPECT_HINT,
+  ADVENTURE_ROOM_PLATE_PROMPT_VERSION,
+  ADVENTURE_ROOM_PLATE_ROLE,
+  buildAdventureRoomPlatePrompt,
+  normalizeAdventureRoomPlates,
+} from '../assets/adventure-room-plates';
+import {
+  ADVENTURE_PLAYER_PIPELINE_PROMPT_VERSION,
+  ADVENTURE_PLAYER_POSE_PROMPT_VERSION,
+  GENERATED_ADVENTURE_PLAYER_POSES,
+  buildAdventurePlayerIdentityJudgePrompt,
+  buildAdventurePlayerIdentityPrompt,
+  buildAdventurePlayerIdentityReference,
+  buildAdventurePlayerPosePrompt,
+  buildAdventureStoryIdentityReference,
+  prepareGeneratedAdventurePlayerReference,
+  processGeneratedAdventurePlayerPose,
+  validateGeneratedAdventurePlayerPoseSet,
+  type GeneratedAdventurePlayerPose,
+} from '../assets/adventure-player';
+import {
+  ADVENTURE_PLAYER_SHEET_CANDIDATES,
+  ADVENTURE_PLAYER_SHEET_PROMPT_VERSION,
+  buildAdventurePlayerSheetPrompt,
+  buildAdventurePlayerSheetSeed,
+  splitGeneratedAdventurePlayerSheet,
+  type AdventurePlayerSheetCandidate,
+} from '../assets/adventure-player-sheet';
+import {
+  ADVENTURE_PLAYER_SET_JUDGE_PROMPT_VERSION,
+  adventurePlayerPosesNeedingRetry,
+  bestAdventurePlayerCandidateIds,
+  buildAdventurePlayerSetJudgeBoard,
+  buildAdventurePlayerSetJudgePrompt,
+  buildAdventurePlayerSetJudgeSchema,
+  normalizeAdventurePlayerSetJudgeDecision,
+  type AdventurePlayerCandidateDescriptor,
+  type AdventurePlayerSetJudgeDecision,
+} from '../assets/adventure-player-judge';
+import {
   GENERATED_PLATFORMER_PROPS,
   PLATFORMER_PROP_PIPELINE_PROMPT_VERSION,
   PLATFORMER_PROP_PROMPT_VERSION,
@@ -303,6 +343,15 @@ const PLATFORMER_ASSET_ROLES = {
   walk2: 'platformerWalk2',
   jump: 'platformerJump',
 } as const satisfies Record<GeneratedPlatformerPose, GeneratedGameAssetRole>;
+
+const ADVENTURE_PLAYER_ASSET_ROLES = {
+  downIdle: 'adventurePlayerDownIdle',
+  downWalk: 'adventurePlayerDownWalk',
+  upIdle: 'adventurePlayerUpIdle',
+  upWalk: 'adventurePlayerUpWalk',
+  sideIdle: 'adventurePlayerSideIdle',
+  sideWalk: 'adventurePlayerSideWalk',
+} as const satisfies Record<GeneratedAdventurePlayerPose, GeneratedGameAssetRole>;
 
 const PLATFORMER_ENEMY_ASSET_ROLES = {
   walker: 'platformerEnemyWalker',
@@ -1678,8 +1727,7 @@ export class GenerationRunner {
 
       const photoReference = photo ? await prepareImageReference(photo) : undefined;
       const canonicalHeroConcept = spec.meta.heroConcept ?? design.heroConcept;
-      const hshooterCraftIdentity =
-        spec.archetype === 'hshooter' ? spec.playerCraft : undefined;
+      const hshooterCraftIdentity = spec.archetype === 'hshooter' ? spec.playerCraft : undefined;
       let hshooterPlayerCraftArtStatus: GameMetaFile['hshooterPlayerCraftArt'] =
         hshooterCraftIdentity
           ? {
@@ -1753,12 +1801,7 @@ export class GenerationRunner {
         const reference = craft
           ? await buildHShooterIdentityReference(photoReference, craft)
           : photoReference;
-        const keyArtPrompt = buildKeyArtPrompt(
-          spec,
-          !!photo,
-          canonicalHeroConcept,
-          craftBrief,
-        );
+        const keyArtPrompt = buildKeyArtPrompt(spec, !!photo, canonicalHeroConcept, craftBrief);
         return cachedGeneratedAsset({
           role: 'keyArt',
           promptVersion: KEY_ART_PROMPT_VERSION,
@@ -1975,31 +2018,562 @@ export class GenerationRunner {
         );
       };
 
+      let adventurePlayerArtStatus: GameMetaFile['adventurePlayerArt'] =
+        spec.archetype === 'adventure'
+          ? {
+              mode: 'procedural',
+              attempted: true,
+              reason: 'Generated Adventure player art did not complete',
+            }
+          : undefined;
+      const adventurePlayerTask: Promise<Buffer | null> =
+        spec.archetype === 'adventure'
+          ? keyArtTask.then(async (keyArt): Promise<Buffer | null> => {
+              const generationStarted = Date.now();
+              const colors = spec.palette
+                .filter((hex) => {
+                  const r = Number.parseInt(hex.slice(1, 3), 16);
+                  const g = Number.parseInt(hex.slice(3, 5), 16);
+                  const b = Number.parseInt(hex.slice(5, 7), 16);
+                  return !(g > r * 1.15 && g > b * 1.15);
+                })
+                .join(', ');
+              try {
+                const identityReference = await buildAdventurePlayerIdentityReference(
+                  keyArt,
+                  photoReference,
+                );
+                const pipelineFingerprint = JSON.stringify({
+                  promptVersions: {
+                    pose: ADVENTURE_PLAYER_POSE_PROMPT_VERSION,
+                    sheet: ADVENTURE_PLAYER_SHEET_PROMPT_VERSION,
+                    setJudge: ADVENTURE_PLAYER_SET_JUDGE_PROMPT_VERSION,
+                  },
+                  heroConcept: canonicalHeroConcept,
+                  colors,
+                  hasPhoto: !!photoReference,
+                });
+                const pipelineSha = imagePromptHash(pipelineFingerprint, identityReference);
+                const cached = Object.fromEntries(
+                  GENERATED_ADVENTURE_PLAYER_POSES.map((pose) => [
+                    pose,
+                    assetWorkspace.load(
+                      ADVENTURE_PLAYER_ASSET_ROLES[pose],
+                      ADVENTURE_PLAYER_PIPELINE_PROMPT_VERSION,
+                      pipelineSha,
+                    ),
+                  ]),
+                ) as Record<GeneratedAdventurePlayerPose, Buffer | null>;
+                if (GENERATED_ADVENTURE_PLAYER_POSES.every((pose) => cached[pose])) {
+                  const restored = cached as Record<GeneratedAdventurePlayerPose, Buffer>;
+                  await validateGeneratedAdventurePlayerPoseSet(restored);
+                  adventurePlayerArtStatus = { mode: 'generated', attempted: true };
+                  emit('building-assets', 'Restored the generated Adventure player');
+                  return restored.downIdle;
+                }
+
+                interface Candidate {
+                  id: string;
+                  reference: Buffer;
+                  png: Buffer;
+                }
+                interface PoseCandidate extends Candidate {
+                  pose: GeneratedAdventurePlayerPose;
+                }
+                const generateCandidate = async (
+                  id: string,
+                  label: string,
+                  prompt: string,
+                  reference: Buffer,
+                ): Promise<Candidate | null> => {
+                  let raw: Buffer;
+                  try {
+                    raw = await callImage({
+                      role: `adventure-player-${id}`,
+                      label,
+                      prompt,
+                      reference,
+                      size: '1024x1024',
+                    });
+                  } catch (error) {
+                    if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
+                    validationFailure(`adventure-player-${id}`);
+                    emit('building-assets', `${label} was rejected; continuing…`);
+                    return null;
+                  }
+                  try {
+                    let normalizedReference = raw;
+                    let png: Buffer;
+                    try {
+                      png = await processGeneratedAdventurePlayerPose(raw);
+                    } catch (initialError) {
+                      const recovery = await recoverGeneratedPlatformerGreenPanel(raw);
+                      if (!recovery.recovered) throw initialError;
+                      normalizedReference = recovery.image;
+                      png = await processGeneratedAdventurePlayerPose(normalizedReference);
+                    }
+                    return { id, reference: normalizedReference, png };
+                  } catch (_error) {
+                    validationFailure(`adventure-player-${id}`);
+                    emit('building-assets', `${label} failed local sprite validation`);
+                    return null;
+                  }
+                };
+
+                let downIdle: Candidate | null = null;
+                let retryGuidance = '';
+                for (let round = 1; round <= 2 && !downIdle; round++) {
+                  emit(
+                    'building-assets',
+                    round === 1
+                      ? 'Painting three Adventure player identity foundations…'
+                      : 'Repainting the Adventure player identity with Spark guidance…',
+                  );
+                  const offset = (round - 1) * 3;
+                  const candidates = (
+                    await Promise.all(
+                      [1, 2, 3].map((index) => {
+                        const id = `I${offset + index}`;
+                        return generateCandidate(
+                          id,
+                          `Adventure player identity candidate ${id}`,
+                          buildAdventurePlayerIdentityPrompt(id, {
+                            hasPhoto: !!photoReference,
+                            heroConcept: canonicalHeroConcept,
+                            colors,
+                            ...(retryGuidance ? { retryGuidance } : {}),
+                          }),
+                          identityReference,
+                        );
+                      }),
+                    )
+                  ).filter((candidate): candidate is Candidate => candidate !== null);
+                  if (candidates.length === 0) {
+                    retryGuidance =
+                      'Return exactly one centered, uncropped adult in a down-facing top-down three-quarter idle on flat green';
+                    continue;
+                  }
+                  if (!photoReference) {
+                    downIdle = candidates[0]!;
+                    break;
+                  }
+
+                  const descriptors: PlatformerIdleCandidateDescriptor[] = candidates.map(
+                    ({ id }) => ({ id }),
+                  );
+                  const board = await buildPlatformerIdleJudgeBoard({
+                    source: photoReference,
+                    candidates: candidates.map(({ id, reference: raw, png: processed }) => ({
+                      id,
+                      raw,
+                      processed,
+                    })),
+                  });
+                  const mockDecision = {
+                    sourceReview: { eyewear: 'uncertain', summary: 'Mock source identity.' },
+                    candidateReviews: descriptors.map(({ id }) => ({
+                      id,
+                      eyewear: 'absent',
+                      eyewearMatch: true,
+                      scores: {
+                        identity: 5,
+                        faceAndHair: 5,
+                        accessories: 5,
+                        costume: 5,
+                        proportions: 5,
+                        pose: 5,
+                        technical: 5,
+                      },
+                      fatalIssues: [],
+                      summary: 'Mock identity-safe Adventure foundation.',
+                    })),
+                    selection: {
+                      accepted: true,
+                      candidateId: descriptors[0]!.id,
+                      confidence: 1,
+                      rationale: 'Mock selection.',
+                      retryGuidance: '',
+                    },
+                  };
+                  const rawDecision = mockImages
+                    ? mockDecision
+                    : await callLlm(
+                        'design',
+                        {
+                          ...buildAdventurePlayerIdentityJudgePrompt(
+                            descriptors,
+                            canonicalHeroConcept,
+                          ),
+                          jsonSchema: buildPlatformerIdleJudgeSchema(descriptors),
+                          maxTokens: 2600,
+                          timeoutMs: 120_000,
+                        },
+                        {
+                          stage: 'building-assets',
+                          label: 'Spark selected the Adventure player identity',
+                          image: board,
+                          reasoningEffort: 'low',
+                        },
+                      );
+                  const decision = normalizePlatformerIdleJudgeDecision(rawDecision, descriptors);
+                  const selectedId = decision.selection.accepted
+                    ? decision.selection.candidateId
+                    : bestPlatformerIdleCandidateId(decision);
+                  downIdle = candidates.find(({ id }) => id === selectedId) ?? null;
+                  retryGuidance = decision.selection.retryGuidance;
+                }
+                if (!downIdle) {
+                  throw new Error('no identity-safe Adventure player foundation was available');
+                }
+
+                const downIdlePose: PoseCandidate = { ...downIdle, pose: 'downIdle' };
+                const downReference = await prepareGeneratedAdventurePlayerReference(
+                  downIdle.reference,
+                );
+                const sheetSeed = await buildAdventurePlayerSheetSeed(downIdle.png);
+                const generateSheet = async (
+                  sheet: AdventurePlayerSheetCandidate,
+                ): Promise<PoseCandidate[]> => {
+                  let raw: Buffer;
+                  try {
+                    raw = await callImage({
+                      role: `adventure-player-sheet-${sheet}`,
+                      label: `Adventure player directional sheet ${sheet}`,
+                      prompt: buildAdventurePlayerSheetPrompt(sheet, {
+                        heroConcept: canonicalHeroConcept,
+                        colors,
+                      }),
+                      reference: sheetSeed,
+                      size: '1024x1024',
+                    });
+                  } catch (error) {
+                    if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
+                    validationFailure(`adventure-player-sheet-${sheet}`);
+                    emit(
+                      'building-assets',
+                      `Adventure player sheet ${sheet} was unavailable; retaining the other candidate pool…`,
+                    );
+                    return [];
+                  }
+                  let cells;
+                  try {
+                    cells = await splitGeneratedAdventurePlayerSheet(raw, sheet);
+                  } catch (_error) {
+                    validationFailure(`adventure-player-sheet-${sheet}`);
+                    emit(
+                      'building-assets',
+                      `Adventure player sheet ${sheet} could not be segmented`,
+                    );
+                    return [];
+                  }
+                  return cells.flatMap((cell): PoseCandidate[] => {
+                    if (cell.pose === 'downIdle') return [];
+                    if (!cell.processed) {
+                      validationFailure(`adventure-player-${cell.pose}-sheet-${sheet}`);
+                      emit(
+                        'building-assets',
+                        `Adventure player ${cell.pose} from sheet ${sheet} failed local validation`,
+                      );
+                      return [];
+                    }
+                    return [
+                      {
+                        id: cell.id,
+                        pose: cell.pose,
+                        reference: cell.raw,
+                        png: cell.processed,
+                      },
+                    ];
+                  });
+                };
+
+                emit('building-assets', 'Painting two Adventure directional pose sheets…');
+                const poseCandidates: PoseCandidate[] = [
+                  downIdlePose,
+                  ...(
+                    await Promise.all(
+                      ADVENTURE_PLAYER_SHEET_CANDIDATES.map((sheet) => generateSheet(sheet)),
+                    )
+                  ).flat(),
+                ];
+
+                const generateIsolatedPose = async (
+                  pose: Exclude<GeneratedAdventurePlayerPose, 'downIdle'>,
+                  suffix: string,
+                  guidance: string,
+                  reference: Buffer,
+                ): Promise<PoseCandidate | null> => {
+                  const correction = guidance
+                    ? ` RETRY CORRECTION FROM THE ART DIRECTOR: ${guidance}. Preserve every other identity, accessory, wardrobe, scale, camera, and ground-line detail.`
+                    : '';
+                  const candidate = await generateCandidate(
+                    `${pose}-${suffix}`,
+                    `Adventure player ${pose} ${suffix}`,
+                    `${buildAdventurePlayerPosePrompt(pose, {
+                      heroConcept: canonicalHeroConcept,
+                      colors,
+                    })}${correction}`,
+                    reference,
+                  );
+                  return candidate ? { ...candidate, pose } : null;
+                };
+
+                const missingAfterSheets = GENERATED_ADVENTURE_PLAYER_POSES.filter(
+                  (pose): pose is Exclude<GeneratedAdventurePlayerPose, 'downIdle'> =>
+                    pose !== 'downIdle' &&
+                    !poseCandidates.some((candidate) => candidate.pose === pose),
+                );
+                if (missingAfterSheets.length > 0) {
+                  emit(
+                    'building-assets',
+                    `Recovering ${missingAfterSheets.length} Adventure poses missing from both sheets…`,
+                  );
+                  const recoveries = await Promise.all(
+                    missingAfterSheets.map(async (pose) => {
+                      for (let attempt = 1; attempt <= 2; attempt++) {
+                        const candidate = await generateIsolatedPose(
+                          pose,
+                          `sheet-recovery-${attempt}`,
+                          'Both grouped-sheet cells failed extraction. Return one complete uncropped silhouette on perfectly flat #00ff00 and make the requested direction and motion unmistakable',
+                          downReference,
+                        );
+                        if (candidate) return candidate;
+                      }
+                      return null;
+                    }),
+                  );
+                  for (const candidate of recoveries) {
+                    if (candidate) poseCandidates.push(candidate);
+                  }
+                }
+                const stillMissing = GENERATED_ADVENTURE_PLAYER_POSES.filter(
+                  (pose) => !poseCandidates.some((candidate) => candidate.pose === pose),
+                );
+                if (stillMissing.length > 0) {
+                  throw new Error(
+                    `no locally valid Adventure candidate was available for ${stillMissing.join(', ')}`,
+                  );
+                }
+
+                const reviewPoseSet = async (
+                  pool: readonly PoseCandidate[],
+                ): Promise<AdventurePlayerSetJudgeDecision> => {
+                  const descriptors: AdventurePlayerCandidateDescriptor[] = pool.map(
+                    ({ id, pose }) => ({ id, pose }),
+                  );
+                  const board = await buildAdventurePlayerSetJudgeBoard({
+                    anchor: downIdle.png,
+                    candidates: pool.map(({ id, pose, png: processed }) => ({
+                      id,
+                      pose,
+                      processed,
+                    })),
+                  });
+                  const firstByPose = Object.fromEntries(
+                    GENERATED_ADVENTURE_PLAYER_POSES.map((pose) => [
+                      pose,
+                      descriptors.find((candidate) => candidate.pose === pose)!,
+                    ]),
+                  ) as Record<GeneratedAdventurePlayerPose, AdventurePlayerCandidateDescriptor>;
+                  const mockDecision = {
+                    candidateReviews: descriptors.map(({ id, pose }) => ({
+                      id,
+                      pose,
+                      scores: {
+                        identity: 5,
+                        accessories: 5,
+                        costume: 5,
+                        orientation: 5,
+                        motion: 5,
+                        technical: 5,
+                      },
+                      fatalIssues: [],
+                      summary: 'Mock identity-consistent Adventure pose.',
+                    })),
+                    selections: GENERATED_ADVENTURE_PLAYER_POSES.map((pose) => ({
+                      pose,
+                      candidateId: firstByPose[pose].id,
+                      rationale: 'Mock selection.',
+                    })),
+                    setReview: {
+                      accepted: true,
+                      identityConsistency: 5,
+                      accessoryConsistency: 5,
+                      costumeConsistency: 5,
+                      directionReadability: 5,
+                      motionReadability: 5,
+                      scaleConsistency: 5,
+                      fatalIssues: [],
+                      summary: 'Mock complete directional set.',
+                    },
+                    retryPoses: [],
+                  };
+                  const rawDecision = mockImages
+                    ? mockDecision
+                    : await callLlm(
+                        'design',
+                        {
+                          ...buildAdventurePlayerSetJudgePrompt(descriptors, canonicalHeroConcept),
+                          jsonSchema: buildAdventurePlayerSetJudgeSchema(descriptors),
+                          maxTokens: 4800,
+                          timeoutMs: 120_000,
+                        },
+                        {
+                          stage: 'building-assets',
+                          label: 'Spark reviewed the complete Adventure player set',
+                          image: board,
+                          reasoningEffort: 'low',
+                        },
+                      );
+                  return normalizeAdventurePlayerSetJudgeDecision(rawDecision, descriptors);
+                };
+
+                let setDecision = await reviewPoseSet(poseCandidates);
+                if (!setDecision.setReview.accepted) {
+                  const retryPoses = adventurePlayerPosesNeedingRetry(setDecision, 3);
+                  if (retryPoses.length > 0) {
+                    emit(
+                      'building-assets',
+                      `Repainting ${retryPoses.length} weak Adventure poses with Spark guidance…`,
+                    );
+                    const selectedIds = bestAdventurePlayerCandidateIds(setDecision);
+                    const alternatives = (
+                      await Promise.all(
+                        retryPoses.flatMap(({ pose, guidance }) => {
+                          if (pose === 'downIdle') return [];
+                          const directionAnchorPose =
+                            pose === 'upWalk'
+                              ? 'upIdle'
+                              : pose === 'sideWalk'
+                                ? 'sideIdle'
+                                : 'downIdle';
+                          const directionAnchor = poseCandidates.find(
+                            (candidate) =>
+                              candidate.pose === directionAnchorPose &&
+                              candidate.id === selectedIds[directionAnchorPose],
+                          );
+                          const referenceTask = directionAnchor
+                            ? prepareGeneratedAdventurePlayerReference(directionAnchor.reference)
+                            : Promise.resolve(downReference);
+                          return ['R1', 'R2'].map(async (suffix) =>
+                            generateIsolatedPose(pose, suffix, guidance, await referenceTask),
+                          );
+                        }),
+                      )
+                    ).filter((candidate): candidate is PoseCandidate => candidate !== null);
+                    poseCandidates.push(...alternatives);
+                    setDecision = await reviewPoseSet(poseCandidates);
+                  }
+                }
+                if (!setDecision.setReview.accepted) {
+                  throw new Error(
+                    `Spark rejected the complete Adventure player set: ${setDecision.setReview.summary || setDecision.setReview.fatalIssues.join('; ') || 'identity, direction, or motion remained inconsistent'}`,
+                  );
+                }
+                const selectedIds = bestAdventurePlayerCandidateIds(setDecision);
+                const generated = Object.fromEntries(
+                  GENERATED_ADVENTURE_PLAYER_POSES.map((pose) => {
+                    const selected = poseCandidates.find(
+                      (candidate) => candidate.pose === pose && candidate.id === selectedIds[pose],
+                    );
+                    if (!selected) throw new Error(`Spark did not select Adventure ${pose}`);
+                    return [pose, selected.png];
+                  }),
+                ) as Record<GeneratedAdventurePlayerPose, Buffer>;
+                await validateGeneratedAdventurePlayerPoseSet(generated);
+                await Promise.all(
+                  GENERATED_ADVENTURE_PLAYER_POSES.map((pose) =>
+                    assetWorkspace.store(
+                      ADVENTURE_PLAYER_ASSET_ROLES[pose],
+                      generated[pose],
+                      ADVENTURE_PLAYER_PIPELINE_PROMPT_VERSION,
+                      pipelineSha,
+                    ),
+                  ),
+                );
+                adventurePlayerArtStatus = { mode: 'generated', attempted: true };
+                emit('building-assets', 'Finished the generated Adventure player');
+                return generated.downIdle;
+              } catch (error) {
+                if (
+                  abort.signal.aborted ||
+                  error instanceof GeneratedAssetStorageError ||
+                  (error instanceof PipelineError && !isOptionalGeneratedArtProviderFailure(error))
+                ) {
+                  throw error;
+                }
+                await assetWorkspace.discard(Object.values(ADVENTURE_PLAYER_ASSET_ROLES));
+                const reason =
+                  error instanceof Error
+                    ? error.message.slice(0, 240)
+                    : 'Generated Adventure player set failed validation';
+                adventurePlayerArtStatus = {
+                  mode: 'procedural',
+                  attempted: true,
+                  reason,
+                };
+                recordEarlyRepairEvent(
+                  'entities',
+                  'adventure-player-art-fallback',
+                  [
+                    {
+                      code: 'ADVENTURE_PLAYER_ART_FALLBACK',
+                      path: '/assets/adventure-player',
+                      message: reason,
+                    },
+                  ],
+                  [],
+                  generationStarted,
+                  'downgraded',
+                );
+                emit(
+                  'building-assets',
+                  `Generated Adventure player did not pass as a complete set; using the stable hero (${reason.slice(0, 120)})`,
+                );
+                return null;
+              }
+            })
+          : Promise.resolve(null);
+
       const storyAssetTask = (
         role: StoryArtRole,
         assetRole: GeneratedGameAssetRole,
       ): Promise<Buffer> =>
-        Promise.all([keyArtTask, hshooterCraftTask]).then(async ([keyArt, craft]) => {
-          const craftBrief = craft ? hshooterCraftIdentity : undefined;
-          const reference = craft
-            ? await buildHShooterIdentityReference(keyArt, craft)
-            : keyArt;
-          return cachedGeneratedAsset({
-            role: assetRole,
-            promptVersion: STORY_ART_PROMPT_VERSION,
-            prompt: buildStoryArtPrompt(spec, role, canonicalHeroConcept, craftBrief),
-            policyFallbackPrompt: buildStoryArtPolicyFallbackPrompt(
-              spec,
-              role,
-              canonicalHeroConcept,
-              craftBrief,
-            ),
-            label: `${role} scene`,
-            reference,
-            size: STORY_ART_ASPECT_HINT,
-            normalize: normalizeStoryArt,
-          });
-        });
+        Promise.all([keyArtTask, hshooterCraftTask, adventurePlayerTask]).then(
+          async ([keyArt, craft, adventurePlayer]) => {
+            const craftBrief = craft ? hshooterCraftIdentity : undefined;
+            const adventureReference = adventurePlayer
+              ? await buildAdventureStoryIdentityReference(keyArt, adventurePlayer)
+              : null;
+            const reference = adventureReference
+              ? adventureReference
+              : craft
+                ? await buildHShooterIdentityReference(keyArt, craft)
+                : keyArt;
+            return cachedGeneratedAsset({
+              role: assetRole,
+              promptVersion: STORY_ART_PROMPT_VERSION,
+              prompt: buildStoryArtPrompt(
+                spec,
+                role,
+                canonicalHeroConcept,
+                craftBrief,
+                !!adventureReference,
+              ),
+              policyFallbackPrompt: buildStoryArtPolicyFallbackPrompt(
+                spec,
+                role,
+                canonicalHeroConcept,
+                craftBrief,
+                !!adventureReference,
+              ),
+              label: `${role} scene`,
+              reference,
+              size: STORY_ART_ASPECT_HINT,
+              normalize: normalizeStoryArt,
+            });
+          },
+        );
       const storyAssets = {
         intro: storyAssetTask('intro', 'storyIntro'),
         boss: storyAssetTask('boss', 'storyBoss'),
@@ -2112,6 +2686,78 @@ export class GenerationRunner {
                 generationStarted,
                 'downgraded',
               );
+            })
+          : Promise.resolve();
+
+      let adventureRoomPlateArtStatus: GameMetaFile['adventureRoomPlateArt'] =
+        spec.archetype === 'adventure'
+          ? {
+              mode: 'procedural',
+              attempted: true,
+              reason: 'Generated Adventure room surfaces did not complete',
+            }
+          : undefined;
+      const adventureRoomPlateTask =
+        spec.archetype === 'adventure'
+          ? keyArtTask.then(async (keyArt): Promise<void> => {
+              const generationStarted = Date.now();
+              try {
+                emit('building-assets', 'Painting the Adventure room surfaces…');
+                await cachedGeneratedAsset({
+                  role: ADVENTURE_ROOM_PLATE_ROLE,
+                  promptVersion: ADVENTURE_ROOM_PLATE_PROMPT_VERSION,
+                  prompt: buildAdventureRoomPlatePrompt({
+                    gameTitle: spec.meta.title,
+                    tagline: spec.meta.tagline,
+                    backdrop: spec.backdrop ?? 'the game-specific environment shown in the key art',
+                    colors: spec.palette.join(', '),
+                  }),
+                  label: 'Adventure room-surface atlas',
+                  reference: keyArt,
+                  size: ADVENTURE_ROOM_PLATE_ASPECT_HINT,
+                  normalize: normalizeAdventureRoomPlates,
+                });
+                adventureRoomPlateArtStatus = { mode: 'generated', attempted: true };
+                emit('building-assets', 'Finished the Adventure room surfaces');
+              } catch (error) {
+                if (
+                  abort.signal.aborted ||
+                  error instanceof GeneratedAssetStorageError ||
+                  (error instanceof PipelineError &&
+                    error.code !== 'image-invalid' &&
+                    !isOptionalGeneratedArtProviderFailure(error))
+                ) {
+                  throw error;
+                }
+                await assetWorkspace.discard([ADVENTURE_ROOM_PLATE_ROLE]);
+                const reason =
+                  error instanceof Error
+                    ? error.message.slice(0, 240)
+                    : 'Generated Adventure room surfaces failed validation';
+                adventureRoomPlateArtStatus = {
+                  mode: 'procedural',
+                  attempted: true,
+                  reason,
+                };
+                recordEarlyRepairEvent(
+                  'entities',
+                  'adventure-room-plate-art-fallback',
+                  [
+                    {
+                      code: 'ADVENTURE_ROOM_PLATE_ART_FALLBACK',
+                      path: '/assets/adventure-room-plates',
+                      message: reason,
+                    },
+                  ],
+                  [],
+                  generationStarted,
+                  'downgraded',
+                );
+                emit(
+                  'building-assets',
+                  `Adventure room surfaces were unavailable; using the compact floor (${reason.slice(0, 120)})`,
+                );
+              }
             })
           : Promise.resolve();
 
@@ -2772,6 +3418,7 @@ export class GenerationRunner {
             })
           : Promise.resolve();
 
+      let fighterArtStatus: GameMetaFile['fighterArt'];
       let fighterArenaArtStatus: GameMetaFile['fighterArenaArt'] =
         spec.archetype === 'fighter'
           ? {
@@ -2818,598 +3465,589 @@ export class GenerationRunner {
             })
           : Promise.resolve();
 
-      let fighterArtStatus: GameMetaFile['fighterArt'];
-
       const fighterTask =
         spec.archetype === 'fighter'
           ? (async (): Promise<void> => {
-                const fighterSpec = spec as FighterSpec;
-                const [keyArt, bossArt] = await Promise.all([keyArtTask, storyAssets.boss]);
-                const player: FighterCharacter = fighterSpec.player;
-                const boss: FighterCharacter = {
-                  name: fighterSpec.boss.name,
-                  visualConcept: fighterSpec.boss.visualConcept,
-                  build: fighterSpec.boss.build,
-                  outfit: fighterSpec.boss.outfit,
-                  colorSlot: fighterSpec.boss.colorSlot,
-                  hp: fighterSpec.boss.hp,
-                  speedScale: fighterSpec.boss.speedScale,
-                  powerScale: fighterSpec.boss.powerScale,
-                };
-                interface RosterEntry {
-                  slot: FighterRosterSlot;
-                  character: FighterCharacter;
-                  source: Buffer;
-                  sourceKind: 'photo' | 'key-art' | 'boss-art';
-                  photoIdentity: boolean;
-                }
-                const roster: RosterEntry[] = [
-                  {
-                    slot: 'player',
-                    character: player,
-                    source: photoReference ?? keyArt,
-                    sourceKind: photoReference ? 'photo' : 'key-art',
-                    photoIdentity: !!photoReference,
-                  },
-                  ...fighterSpec.levels.map((level, index): RosterEntry => ({
-                    slot: `opponent${index + 1}` as FighterRosterSlot,
-                    character: level.opponent,
-                    source: keyArt,
-                    sourceKind: 'key-art',
-                    photoIdentity: false,
-                  })),
-                  {
-                    slot: 'boss',
-                    character: boss,
-                    source: bossArt,
-                    sourceKind: 'boss-art',
-                    photoIdentity: false,
-                  },
-                ];
-                if (
-                  roster.length !== FIGHTER_ROSTER_SLOTS.length ||
-                  !FIGHTER_ROSTER_SLOTS.every((slot, index) => roster[index]?.slot === slot)
-                ) {
-                  throw new Error('fighter roster does not match the five-slot atlas contract');
-                }
+              const fighterSpec = spec as FighterSpec;
+              const [keyArt, bossArt] = await Promise.all([keyArtTask, storyAssets.boss]);
+              const player: FighterCharacter = fighterSpec.player;
+              const boss: FighterCharacter = {
+                name: fighterSpec.boss.name,
+                visualConcept: fighterSpec.boss.visualConcept,
+                build: fighterSpec.boss.build,
+                outfit: fighterSpec.boss.outfit,
+                colorSlot: fighterSpec.boss.colorSlot,
+                hp: fighterSpec.boss.hp,
+                speedScale: fighterSpec.boss.speedScale,
+                powerScale: fighterSpec.boss.powerScale,
+              };
+              interface RosterEntry {
+                slot: FighterRosterSlot;
+                character: FighterCharacter;
+                source: Buffer;
+                sourceKind: 'photo' | 'key-art' | 'boss-art';
+                photoIdentity: boolean;
+              }
+              const roster: RosterEntry[] = [
+                {
+                  slot: 'player',
+                  character: player,
+                  source: photoReference ?? keyArt,
+                  sourceKind: photoReference ? 'photo' : 'key-art',
+                  photoIdentity: !!photoReference,
+                },
+                ...fighterSpec.levels.map((level, index): RosterEntry => ({
+                  slot: `opponent${index + 1}` as FighterRosterSlot,
+                  character: level.opponent,
+                  source: keyArt,
+                  sourceKind: 'key-art',
+                  photoIdentity: false,
+                })),
+                {
+                  slot: 'boss',
+                  character: boss,
+                  source: bossArt,
+                  sourceKind: 'boss-art',
+                  photoIdentity: false,
+                },
+              ];
+              if (
+                roster.length !== FIGHTER_ROSTER_SLOTS.length ||
+                !FIGHTER_ROSTER_SLOTS.every((slot, index) => roster[index]?.slot === slot)
+              ) {
+                throw new Error('fighter roster does not match the five-slot atlas contract');
+              }
 
-                const conceptFor = (character: FighterCharacter): string => character.visualConcept;
-                const colorsFor = (character: FighterCharacter): string =>
-                  [
-                    fighterSpec.palette[character.colorSlot],
-                    fighterSpec.palette[Math.max(5, character.colorSlot - 1)],
-                    fighterSpec.palette[13],
-                    fighterSpec.palette[14],
-                    fighterSpec.palette[15],
-                  ]
-                    .filter((color): color is string => !!color)
-                    .filter((hex) => {
-                      const r = Number.parseInt(hex.slice(1, 3), 16);
-                      const g = Number.parseInt(hex.slice(3, 5), 16);
-                      const b = Number.parseInt(hex.slice(5, 7), 16);
-                      return !(g > r * 1.15 && g > b * 1.15);
-                    })
-                    .join(', ');
-                const identity = photoReference ? describeVisibleTraits(feat) : undefined;
-                const artDirection = fighterArtDirectionPrompt(fighterSpec.artDirection);
-                const pipelineFingerprint = JSON.stringify({
-                  promptVersions: {
-                    identity: GENERATED_FIGHTER_POSE_PROMPT_VERSION,
-                    poseSheet: FIGHTER_POSE_SHEET_PROMPT_VERSION,
-                    atlas: GENERATED_FIGHTER_ATLAS_PROMPT_VERSION,
-                    identityJudge: FIGHTER_IDENTITY_JUDGE_PROMPT_VERSION,
-                    poseJudge: FIGHTER_POSE_JUDGE_PROMPT_VERSION,
-                    pipeline: FIGHTER_ROSTER_PIPELINE_PROMPT_VERSION,
-                  },
-                  roster: roster.map(({ slot, character, photoIdentity }) => ({
-                    slot,
-                    character,
-                    photoIdentity,
-                  })),
-                  artDirection: fighterSpec.artDirection,
-                  keyArt: sha256(keyArt),
-                  bossArt: sha256(bossArt),
-                  photo: photoReference ? sha256(photoReference) : null,
-                });
-                const pipelineSha = imagePromptHash(pipelineFingerprint);
-                const cached = Object.fromEntries(
-                  FIGHTER_ROSTER_SLOTS.map((slot) => [
-                    slot,
-                    assetWorkspace.load(
-                      FIGHTER_ROSTER_ASSET_ROLES[slot],
-                      FIGHTER_ROSTER_PIPELINE_PROMPT_VERSION,
-                      pipelineSha,
-                    ),
-                  ]),
-                ) as Record<FighterRosterSlot, Buffer | null>;
-                for (const slot of FIGHTER_ROSTER_SLOTS) {
-                  const atlas = cached[slot];
-                  if (!atlas) continue;
-                  try {
-                    await validateGeneratedFighterAtlas(atlas);
-                  } catch {
-                    cached[slot] = null;
-                    await assetWorkspace.discard([FIGHTER_ROSTER_ASSET_ROLES[slot]]);
-                  }
+              const conceptFor = (character: FighterCharacter): string => character.visualConcept;
+              const colorsFor = (character: FighterCharacter): string =>
+                [
+                  fighterSpec.palette[character.colorSlot],
+                  fighterSpec.palette[Math.max(5, character.colorSlot - 1)],
+                  fighterSpec.palette[13],
+                  fighterSpec.palette[14],
+                  fighterSpec.palette[15],
+                ]
+                  .filter((color): color is string => !!color)
+                  .filter((hex) => {
+                    const r = Number.parseInt(hex.slice(1, 3), 16);
+                    const g = Number.parseInt(hex.slice(3, 5), 16);
+                    const b = Number.parseInt(hex.slice(5, 7), 16);
+                    return !(g > r * 1.15 && g > b * 1.15);
+                  })
+                  .join(', ');
+              const identity = photoReference ? describeVisibleTraits(feat) : undefined;
+              const artDirection = fighterArtDirectionPrompt(fighterSpec.artDirection);
+              const pipelineFingerprint = JSON.stringify({
+                promptVersions: {
+                  identity: GENERATED_FIGHTER_POSE_PROMPT_VERSION,
+                  poseSheet: FIGHTER_POSE_SHEET_PROMPT_VERSION,
+                  atlas: GENERATED_FIGHTER_ATLAS_PROMPT_VERSION,
+                  identityJudge: FIGHTER_IDENTITY_JUDGE_PROMPT_VERSION,
+                  poseJudge: FIGHTER_POSE_JUDGE_PROMPT_VERSION,
+                  pipeline: FIGHTER_ROSTER_PIPELINE_PROMPT_VERSION,
+                },
+                roster: roster.map(({ slot, character, photoIdentity }) => ({
+                  slot,
+                  character,
+                  photoIdentity,
+                })),
+                artDirection: fighterSpec.artDirection,
+                keyArt: sha256(keyArt),
+                bossArt: sha256(bossArt),
+                photo: photoReference ? sha256(photoReference) : null,
+              });
+              const pipelineSha = imagePromptHash(pipelineFingerprint);
+              const cached = Object.fromEntries(
+                FIGHTER_ROSTER_SLOTS.map((slot) => [
+                  slot,
+                  assetWorkspace.load(
+                    FIGHTER_ROSTER_ASSET_ROLES[slot],
+                    FIGHTER_ROSTER_PIPELINE_PROMPT_VERSION,
+                    pipelineSha,
+                  ),
+                ]),
+              ) as Record<FighterRosterSlot, Buffer | null>;
+              for (const slot of FIGHTER_ROSTER_SLOTS) {
+                const atlas = cached[slot];
+                if (!atlas) continue;
+                try {
+                  await validateGeneratedFighterAtlas(atlas);
+                } catch {
+                  cached[slot] = null;
+                  await assetWorkspace.discard([FIGHTER_ROSTER_ASSET_ROLES[slot]]);
                 }
-                const pendingRoster = roster.filter((entry) => !cached[entry.slot]);
-                const restoredCount = roster.length - pendingRoster.length;
-                if (restoredCount > 0) {
-                  emit(
-                    'building-assets',
-                    `Restored ${restoredCount}/5 completed fighter atlases; generating only the unfinished roster slots`,
-                  );
-                }
-                if (pendingRoster.length === 0) {
-                  fighterArtStatus = { mode: 'generated', attempted: true };
-                  return;
-                }
-
-                interface IdentityCandidate extends FighterIdentityCandidateDescriptor {
-                  raw: Buffer;
-                  processed: Buffer;
-                }
-                interface PoseCandidate extends FighterPoseCandidateDescriptor {
-                  processed: Buffer;
-                }
-                const generatedCandidate = async (opts: {
-                  role: string;
-                  label: string;
-                  prompt: string;
-                  reference: Buffer;
-                }): Promise<{ raw: Buffer; processed: Buffer } | null> => {
-                  let raw: Buffer;
-                  try {
-                    raw = await callImage({
-                      role: opts.role,
-                      label: opts.label,
-                      prompt: opts.prompt,
-                      reference: opts.reference,
-                      size: '1024x1024',
-                    });
-                  } catch (error) {
-                    if (abort.signal.aborted) throw error;
-                    if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
-                    validationFailure(opts.role);
-                    emit('building-assets', `${opts.label} was unavailable; continuing the pool…`);
-                    return null;
-                  }
-                  try {
-                    const processed = await processGeneratedFighterPose(raw, {
-                      removeGreenSpill: true,
-                    });
-                    return { raw, processed: processed.png };
-                  } catch {
-                    validationFailure(opts.role);
-                    emit('building-assets', `${opts.label} failed local sprite validation`);
-                    return null;
-                  }
-                };
-
+              }
+              const pendingRoster = roster.filter((entry) => !cached[entry.slot]);
+              const restoredCount = roster.length - pendingRoster.length;
+              if (restoredCount > 0) {
                 emit(
                   'building-assets',
-                  `Painting ${pendingRoster.length * 3} fighter identity foundations for ${pendingRoster.length} unfinished roster slot${pendingRoster.length === 1 ? '' : 's'}…`,
+                  `Restored ${restoredCount}/5 completed fighter atlases; generating only the unfinished roster slots`,
                 );
-                const identityCandidates = (
-                  await Promise.all(
-                    pendingRoster.flatMap((entry) =>
-                      [1, 2, 3].map(async (index): Promise<IdentityCandidate | null> => {
-                        const id = `${entry.slot}-I${index}`;
-                        const result = await generatedCandidate({
-                          role: `fighter-${id}`,
-                          label: `${entry.character.name} identity ${index}`,
-                          prompt: buildFighterIdentityCandidatePrompt({
-                            candidateId: id,
-                            name: entry.character.name,
-                            visualConcept: conceptFor(entry.character),
-                            build: entry.character.build,
-                            outfit: entry.character.outfit,
-                            artDirection,
-                            colors: colorsFor(entry.character),
-                            source: entry.sourceKind,
-                            ...(entry.photoIdentity && identity ? { identity } : {}),
-                          }),
-                          reference: entry.source,
-                        });
-                        return result
-                          ? {
-                              id,
-                              slot: entry.slot,
-                              name: entry.character.name,
-                              visualConcept: conceptFor(entry.character),
-                              photoIdentity: entry.photoIdentity,
-                              ...result,
-                            }
-                          : null;
-                      }),
-                    ),
-                  )
-                ).filter((candidate): candidate is IdentityCandidate => candidate !== null);
-                for (const entry of pendingRoster) {
-                  if (!identityCandidates.some((candidate) => candidate.slot === entry.slot)) {
-                    throw new Error(
-                      `${entry.character.name} has no locally valid identity foundation`,
-                    );
-                  }
-                }
+              }
+              if (pendingRoster.length === 0) {
+                fighterArtStatus = { mode: 'generated', attempted: true };
+                return;
+              }
 
-                const identityDescriptors: FighterIdentityCandidateDescriptor[] =
-                  identityCandidates.map(({ id, slot, name, visualConcept, photoIdentity }) => ({
-                    id,
-                    slot,
-                    name,
-                    visualConcept,
-                    photoIdentity,
-                  }));
-                const identityBoard = await buildFighterIdentityJudgeBoard({
-                  ...(photoReference ? { sourcePhoto: photoReference } : {}),
-                  keyArt,
-                  bossArt,
-                  candidates: identityCandidates,
-                });
-                const firstIdentityBySlot = Object.fromEntries(
-                  pendingRoster.map(({ slot }) => [
-                    slot,
-                    identityDescriptors.find((candidate) => candidate.slot === slot)!,
-                  ]),
-                ) as Partial<Record<FighterRosterSlot, FighterIdentityCandidateDescriptor>>;
-                const mockIdentityDecision = {
-                  candidateReviews: identityDescriptors.map(({ id, slot }) => ({
-                    id,
-                    slot,
-                    scores: { identity: 5, concept: 5, costume: 5, silhouette: 5, technical: 5 },
-                    fatalIssues: [],
-                    summary: 'Mock identity-safe roster foundation.',
-                  })),
-                  selections: pendingRoster.map(({ slot }) => ({
-                    slot,
-                    accepted: true,
-                    candidateId: firstIdentityBySlot[slot]!.id,
-                    confidence: 1,
-                    rationale: 'Mock selection.',
-                    retryGuidance: '',
-                  })),
-                  castReview: {
-                    distinctiveness: 5,
-                    styleConsistency: 5,
-                    fatalIssues: [],
-                    summary: 'Mock coherent and distinct cast.',
-                  },
-                };
-                let rawIdentityDecision: unknown = mockIdentityDecision;
-                if (!mockImages) {
-                  const prompt = buildFighterIdentityJudgePrompt(
-                    identityDescriptors,
-                    fighterSpec.artDirection,
-                  );
-                  rawIdentityDecision = await callLlm(
-                    'design',
-                    {
-                      ...prompt,
-                      jsonSchema: buildFighterIdentityJudgeSchema(identityDescriptors),
-                      maxTokens: 5200,
-                      timeoutMs: 120_000,
-                    },
-                    {
-                      stage: 'building-assets',
-                      label: 'Spark selected the fighter identity foundations',
-                      image: identityBoard,
-                      reasoningEffort: 'low',
-                    },
-                  );
+              interface IdentityCandidate extends FighterIdentityCandidateDescriptor {
+                raw: Buffer;
+                processed: Buffer;
+              }
+              interface PoseCandidate extends FighterPoseCandidateDescriptor {
+                processed: Buffer;
+              }
+              const generatedCandidate = async (opts: {
+                role: string;
+                label: string;
+                prompt: string;
+                reference: Buffer;
+              }): Promise<{ raw: Buffer; processed: Buffer } | null> => {
+                let raw: Buffer;
+                try {
+                  raw = await callImage({
+                    role: opts.role,
+                    label: opts.label,
+                    prompt: opts.prompt,
+                    reference: opts.reference,
+                    size: '1024x1024',
+                  });
+                } catch (error) {
+                  if (abort.signal.aborted) throw error;
+                  if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
+                  validationFailure(opts.role);
+                  emit('building-assets', `${opts.label} was unavailable; continuing the pool…`);
+                  return null;
                 }
-                const identityDecision = normalizeFighterIdentityJudgeDecision(
-                  rawIdentityDecision,
-                  identityDescriptors,
-                );
-                const selectedIdentityIds = bestFighterIdentityCandidateIds(identityDecision);
-                const selectedFoundations = Object.fromEntries(
-                  pendingRoster.map(({ slot }) => {
-                    const selected = identityCandidates.find(
-                      (candidate) =>
-                        candidate.slot === slot && candidate.id === selectedIdentityIds[slot],
-                    );
-                    if (!selected) throw new Error(`Spark did not select a ${slot} identity`);
-                    return [slot, selected];
-                  }),
-                ) as Partial<Record<FighterRosterSlot, IdentityCandidate>>;
-                emit(
-                  'building-assets',
-                  `Spark selected ${pendingRoster.length} fighter identit${pendingRoster.length === 1 ? 'y' : 'ies'}`,
-                );
+                try {
+                  const processed = await processGeneratedFighterPose(raw, {
+                    removeGreenSpill: true,
+                  });
+                  return { raw, processed: processed.png };
+                } catch {
+                  validationFailure(opts.role);
+                  emit('building-assets', `${opts.label} failed local sprite validation`);
+                  return null;
+                }
+              };
 
-                const actionPoses = actionPosesFromSheets();
-                const atlasResults = await Promise.allSettled(
-                  pendingRoster.map(async (entry): Promise<readonly [FighterRosterSlot, Buffer]> => {
-                    const foundation = selectedFoundations[entry.slot]!;
-                    const anchor = await prepareGeneratedFighterReference(foundation.raw);
-                    const generatePoseCandidate = async (
-                      pose: GeneratedFighterPose,
-                      suffix: string,
-                      retryGuidance?: string,
-                    ): Promise<PoseCandidate | null> => {
-                      const id = `${entry.slot}-${pose}-${suffix}`;
+              emit(
+                'building-assets',
+                `Painting ${pendingRoster.length * 3} fighter identity foundations for ${pendingRoster.length} unfinished roster slot${pendingRoster.length === 1 ? '' : 's'}…`,
+              );
+              const identityCandidates = (
+                await Promise.all(
+                  pendingRoster.flatMap((entry) =>
+                    [1, 2, 3].map(async (index): Promise<IdentityCandidate | null> => {
+                      const id = `${entry.slot}-I${index}`;
                       const result = await generatedCandidate({
                         role: `fighter-${id}`,
-                        label: `${entry.character.name} ${pose} ${suffix}`,
-                        prompt: buildFighterPosePrompt(pose, {
+                        label: `${entry.character.name} identity ${index}`,
+                        prompt: buildFighterIdentityCandidatePrompt({
+                          candidateId: id,
+                          name: entry.character.name,
+                          visualConcept: conceptFor(entry.character),
+                          build: entry.character.build,
+                          outfit: entry.character.outfit,
+                          artDirection,
+                          colors: colorsFor(entry.character),
+                          source: entry.sourceKind,
+                          ...(entry.photoIdentity && identity ? { identity } : {}),
+                        }),
+                        reference: entry.source,
+                      });
+                      return result
+                        ? {
+                            id,
+                            slot: entry.slot,
+                            name: entry.character.name,
+                            visualConcept: conceptFor(entry.character),
+                            photoIdentity: entry.photoIdentity,
+                            ...result,
+                          }
+                        : null;
+                    }),
+                  ),
+                )
+              ).filter((candidate): candidate is IdentityCandidate => candidate !== null);
+              for (const entry of pendingRoster) {
+                if (!identityCandidates.some((candidate) => candidate.slot === entry.slot)) {
+                  throw new Error(
+                    `${entry.character.name} has no locally valid identity foundation`,
+                  );
+                }
+              }
+
+              const identityDescriptors: FighterIdentityCandidateDescriptor[] =
+                identityCandidates.map(({ id, slot, name, visualConcept, photoIdentity }) => ({
+                  id,
+                  slot,
+                  name,
+                  visualConcept,
+                  photoIdentity,
+                }));
+              const identityBoard = await buildFighterIdentityJudgeBoard({
+                ...(photoReference ? { sourcePhoto: photoReference } : {}),
+                keyArt,
+                bossArt,
+                candidates: identityCandidates,
+              });
+              const firstIdentityBySlot = Object.fromEntries(
+                pendingRoster.map(({ slot }) => [
+                  slot,
+                  identityDescriptors.find((candidate) => candidate.slot === slot)!,
+                ]),
+              ) as Partial<Record<FighterRosterSlot, FighterIdentityCandidateDescriptor>>;
+              const mockIdentityDecision = {
+                candidateReviews: identityDescriptors.map(({ id, slot }) => ({
+                  id,
+                  slot,
+                  scores: { identity: 5, concept: 5, costume: 5, silhouette: 5, technical: 5 },
+                  fatalIssues: [],
+                  summary: 'Mock identity-safe roster foundation.',
+                })),
+                selections: pendingRoster.map(({ slot }) => ({
+                  slot,
+                  accepted: true,
+                  candidateId: firstIdentityBySlot[slot]!.id,
+                  confidence: 1,
+                  rationale: 'Mock selection.',
+                  retryGuidance: '',
+                })),
+                castReview: {
+                  distinctiveness: 5,
+                  styleConsistency: 5,
+                  fatalIssues: [],
+                  summary: 'Mock coherent and distinct cast.',
+                },
+              };
+              let rawIdentityDecision: unknown = mockIdentityDecision;
+              if (!mockImages) {
+                const prompt = buildFighterIdentityJudgePrompt(
+                  identityDescriptors,
+                  fighterSpec.artDirection,
+                );
+                rawIdentityDecision = await callLlm(
+                  'design',
+                  {
+                    ...prompt,
+                    jsonSchema: buildFighterIdentityJudgeSchema(identityDescriptors),
+                    maxTokens: 5200,
+                    timeoutMs: 120_000,
+                  },
+                  {
+                    stage: 'building-assets',
+                    label: 'Spark selected the fighter identity foundations',
+                    image: identityBoard,
+                    reasoningEffort: 'low',
+                  },
+                );
+              }
+              const identityDecision = normalizeFighterIdentityJudgeDecision(
+                rawIdentityDecision,
+                identityDescriptors,
+              );
+              const selectedIdentityIds = bestFighterIdentityCandidateIds(identityDecision);
+              const selectedFoundations = Object.fromEntries(
+                pendingRoster.map(({ slot }) => {
+                  const selected = identityCandidates.find(
+                    (candidate) =>
+                      candidate.slot === slot && candidate.id === selectedIdentityIds[slot],
+                  );
+                  if (!selected) throw new Error(`Spark did not select a ${slot} identity`);
+                  return [slot, selected];
+                }),
+              ) as Partial<Record<FighterRosterSlot, IdentityCandidate>>;
+              emit(
+                'building-assets',
+                `Spark selected ${pendingRoster.length} fighter identit${pendingRoster.length === 1 ? 'y' : 'ies'}`,
+              );
+
+              const actionPoses = actionPosesFromSheets();
+              const atlasResults = await Promise.allSettled(
+                pendingRoster.map(async (entry): Promise<readonly [FighterRosterSlot, Buffer]> => {
+                  const foundation = selectedFoundations[entry.slot]!;
+                  const anchor = await prepareGeneratedFighterReference(foundation.raw);
+                  const generatePoseCandidate = async (
+                    pose: GeneratedFighterPose,
+                    suffix: string,
+                    retryGuidance?: string,
+                  ): Promise<PoseCandidate | null> => {
+                    const id = `${entry.slot}-${pose}-${suffix}`;
+                    const result = await generatedCandidate({
+                      role: `fighter-${id}`,
+                      label: `${entry.character.name} ${pose} ${suffix}`,
+                      prompt: buildFighterPosePrompt(pose, {
+                        artDirection,
+                        outfit: conceptFor(entry.character),
+                        colors: colorsFor(entry.character),
+                        candidateId: id,
+                        ...(entry.photoIdentity && identity ? { identity } : {}),
+                        ...(retryGuidance ? { retryGuidance } : {}),
+                      }),
+                      reference: anchor,
+                    });
+                    return result ? { id, pose, processed: result.processed } : null;
+                  };
+
+                  const sheetSeed = await buildFighterPoseSheetSeed(anchor);
+                  const generatePoseSheet = async (
+                    group: FighterPoseSheetGroup,
+                  ): Promise<PoseCandidate[]> => {
+                    const id = `${entry.slot}-sheet-${group.id}`;
+                    let raw: Buffer;
+                    try {
+                      raw = await callImage({
+                        role: `fighter-${id}`,
+                        label: `${entry.character.name} ${group.label.toLowerCase()} sheet`,
+                        prompt: buildFighterPoseSheetPrompt(group, {
                           artDirection,
                           outfit: conceptFor(entry.character),
                           colors: colorsFor(entry.character),
                           candidateId: id,
                           ...(entry.photoIdentity && identity ? { identity } : {}),
-                          ...(retryGuidance ? { retryGuidance } : {}),
                         }),
-                        reference: anchor,
+                        reference: sheetSeed,
+                        size: '1024x1024',
                       });
-                      return result ? { id, pose, processed: result.processed } : null;
-                    };
+                    } catch (error) {
+                      if (abort.signal.aborted) throw error;
+                      if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
+                      validationFailure(`fighter-${id}`);
+                      emit(
+                        'building-assets',
+                        `${entry.character.name}'s ${group.id} sheet was unavailable; recovering its poses individually…`,
+                      );
+                      return [];
+                    }
 
-                    const sheetSeed = await buildFighterPoseSheetSeed(anchor);
-                    const generatePoseSheet = async (
-                      group: FighterPoseSheetGroup,
-                    ): Promise<PoseCandidate[]> => {
-                      const id = `${entry.slot}-sheet-${group.id}`;
-                      let raw: Buffer;
-                      try {
-                        raw = await callImage({
-                          role: `fighter-${id}`,
-                          label: `${entry.character.name} ${group.label.toLowerCase()} sheet`,
-                          prompt: buildFighterPoseSheetPrompt(group, {
-                            artDirection,
-                            outfit: conceptFor(entry.character),
-                            colors: colorsFor(entry.character),
-                            candidateId: id,
-                            ...(entry.photoIdentity && identity ? { identity } : {}),
-                          }),
-                          reference: sheetSeed,
-                          size: '1024x1024',
-                        });
-                      } catch (error) {
-                        if (abort.signal.aborted) throw error;
-                        if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
-                        validationFailure(`fighter-${id}`);
+                    let cells: FighterPoseSheetCellResult[];
+                    try {
+                      cells = await splitGeneratedFighterPoseSheet(raw, group);
+                    } catch {
+                      validationFailure(`fighter-${id}`);
+                      emit(
+                        'building-assets',
+                        `${entry.character.name}'s ${group.id} sheet could not be split; recovering its poses individually…`,
+                      );
+                      return [];
+                    }
+                    const valid = cells.flatMap((cell): PoseCandidate[] => {
+                      if (!cell.processed) {
+                        validationFailure(`fighter-${entry.slot}-${cell.pose}-sheet-cell`);
                         emit(
                           'building-assets',
-                          `${entry.character.name}'s ${group.id} sheet was unavailable; recovering its poses individually…`,
+                          `${entry.character.name}'s ${cell.pose} sheet cell failed local validation`,
                         );
                         return [];
                       }
-
-                      let cells: FighterPoseSheetCellResult[];
-                      try {
-                        cells = await splitGeneratedFighterPoseSheet(raw, group);
-                      } catch {
-                        validationFailure(`fighter-${id}`);
-                        emit(
-                          'building-assets',
-                          `${entry.character.name}'s ${group.id} sheet could not be split; recovering its poses individually…`,
-                        );
-                        return [];
-                      }
-                      const valid = cells.flatMap((cell): PoseCandidate[] => {
-                        if (!cell.processed) {
-                          validationFailure(`fighter-${entry.slot}-${cell.pose}-sheet-cell`);
-                          emit(
-                            'building-assets',
-                            `${entry.character.name}'s ${cell.pose} sheet cell failed local validation`,
-                          );
-                          return [];
-                        }
-                        return [
-                          {
-                            id: `${entry.slot}-${cell.pose}-S`,
-                            pose: cell.pose,
-                            processed: cell.processed,
-                          },
-                        ];
-                      });
-                      const reclaimed = cells.reduce(
-                        (total, cell) => total + cell.segmentation.reclaimedBleedPixels,
-                        0,
-                      );
-                      const excluded = cells.reduce(
-                        (total, cell) => total + cell.segmentation.excludedNeighborPixels,
-                        0,
-                      );
-                      emit(
-                        'building-assets',
-                        `${entry.character.name}'s ${group.id} sheet yielded ${valid.length}/6 poses${reclaimed || excluded ? ` (${reclaimed} bleed pixels reclaimed, ${excluded} neighbor pixels reassigned)` : ''}`,
-                      );
-                      return valid;
-                    };
-
-                    const candidates = (
-                      await Promise.all(
-                        FIGHTER_POSE_SHEET_GROUPS.map((group) => generatePoseSheet(group)),
-                      )
-                    ).flat();
-                    const missing = actionPoses.filter(
-                      (pose) => !candidates.some((candidate) => candidate.pose === pose),
-                    );
-                    if (missing.length > 0) {
-                      emit(
-                        'building-assets',
-                        `Repainting ${missing.length} rejected ${entry.character.name} sheet cells individually, with one bounded second attempt if needed…`,
-                      );
-                      const recoveries = await recoverRejectedFighterSheetCells(
-                        missing,
-                        generatePoseCandidate,
-                      );
-                      candidates.push(...recoveries);
-                    }
-                    const unrecovered = actionPoses.filter(
-                      (pose) => !candidates.some((candidate) => candidate.pose === pose),
-                    );
-                    const availablePoses = new Set<GeneratedFighterPose>([
-                      'idle',
-                      ...candidates.map(({ pose }) => pose),
-                    ]);
-                    const mechanicalFallbacks: Array<{
-                      pose: GeneratedFighterPose;
-                      sourcePose: GeneratedFighterPose;
-                    }> = [];
-                    for (const pose of unrecovered) {
-                      const sourcePose = bestAvailableFighterPoseFallback(pose, availablePoses);
-                      const processed =
-                        sourcePose === 'idle'
-                          ? foundation.processed
-                          : candidates.find((candidate) => candidate.pose === sourcePose)?.processed;
-                      if (!sourcePose || !processed) {
-                        throw new Error(
-                          `${entry.character.name} has no mechanically valid fallback for ${pose}`,
-                        );
-                      }
-                      candidates.push({
-                        id: `${entry.slot}-${pose}-F-${sourcePose}`,
-                        pose,
-                        processed,
-                      });
-                      mechanicalFallbacks.push({ pose, sourcePose });
-                    }
-                    if (mechanicalFallbacks.length > 0) {
-                      emit(
-                        'building-assets',
-                        `${entry.character.name} kept playable fallback states after bounded recovery: ${mechanicalFallbacks.map(({ pose, sourcePose }) => `${pose}←${sourcePose}`).join(', ')}`,
-                      );
-                    }
-
-                    const review = async (
-                      pool: readonly PoseCandidate[],
-                    ): Promise<ReturnType<typeof normalizeFighterPoseJudgeDecision>> => {
-                      const descriptors: FighterPoseCandidateDescriptor[] = pool.map(
-                        ({ id, pose }) => ({ id, pose }),
-                      );
-                      const board = await buildFighterPoseJudgeBoard({
-                        fighterName: entry.character.name,
-                        anchor: foundation.processed,
-                        candidates: pool,
-                      });
-                      const firstByPose = Object.fromEntries(
-                        actionPoses.map((pose) => [
-                          pose,
-                          descriptors.find((candidate) => candidate.pose === pose)!,
-                        ]),
-                      ) as Record<GeneratedFighterPose, FighterPoseCandidateDescriptor>;
-                      const mockDecision = {
-                        candidateReviews: descriptors.map(({ id, pose }) => ({
-                          id,
-                          pose,
-                          scores: { identity: 5, costume: 5, pose: 5, technical: 5 },
-                          fatalIssues: [],
-                          summary: 'Mock identity-consistent pose.',
-                        })),
-                        selections: actionPoses.map((pose) => ({
-                          pose,
-                          candidateId: firstByPose[pose].id,
-                          rationale: 'Mock selection.',
-                        })),
-                        setReview: {
-                          accepted: true,
-                          identityConsistency: 5,
-                          costumeConsistency: 5,
-                          scaleConsistency: 5,
-                          poseReadability: 5,
-                          fatalIssues: [],
-                          summary: 'Mock complete pose set.',
+                      return [
+                        {
+                          id: `${entry.slot}-${cell.pose}-S`,
+                          pose: cell.pose,
+                          processed: cell.processed,
                         },
-                        retryPoses: [],
-                      };
-                      let rawDecision: unknown = mockDecision;
-                      if (!mockImages) {
-                        const prompt = buildFighterPoseJudgePrompt(
-                          entry.character.name,
-                          descriptors,
-                          actionPoses,
-                          fighterSpec.artDirection,
-                        );
-                        rawDecision = await callLlm(
-                          'design',
-                          {
-                            ...prompt,
-                            jsonSchema: buildFighterPoseJudgeSchema(descriptors, actionPoses),
-                            maxTokens: 6200,
-                            timeoutMs: 120_000,
-                          },
-                          {
-                            stage: 'building-assets',
-                            label: `Spark reviewed ${entry.character.name}'s complete pose set`,
-                            image: board,
-                            reasoningEffort: 'low',
-                          },
-                        );
-                      }
-                      return normalizeFighterPoseJudgeDecision(
-                        rawDecision,
+                      ];
+                    });
+                    const reclaimed = cells.reduce(
+                      (total, cell) => total + cell.segmentation.reclaimedBleedPixels,
+                      0,
+                    );
+                    const excluded = cells.reduce(
+                      (total, cell) => total + cell.segmentation.excludedNeighborPixels,
+                      0,
+                    );
+                    emit(
+                      'building-assets',
+                      `${entry.character.name}'s ${group.id} sheet yielded ${valid.length}/6 poses${reclaimed || excluded ? ` (${reclaimed} bleed pixels reclaimed, ${excluded} neighbor pixels reassigned)` : ''}`,
+                    );
+                    return valid;
+                  };
+
+                  const candidates = (
+                    await Promise.all(
+                      FIGHTER_POSE_SHEET_GROUPS.map((group) => generatePoseSheet(group)),
+                    )
+                  ).flat();
+                  const missing = actionPoses.filter(
+                    (pose) => !candidates.some((candidate) => candidate.pose === pose),
+                  );
+                  if (missing.length > 0) {
+                    emit(
+                      'building-assets',
+                      `Repainting ${missing.length} rejected ${entry.character.name} sheet cells individually, with one bounded second attempt if needed…`,
+                    );
+                    const recoveries = await recoverRejectedFighterSheetCells(
+                      missing,
+                      generatePoseCandidate,
+                    );
+                    candidates.push(...recoveries);
+                  }
+                  const unrecovered = actionPoses.filter(
+                    (pose) => !candidates.some((candidate) => candidate.pose === pose),
+                  );
+                  const availablePoses = new Set<GeneratedFighterPose>([
+                    'idle',
+                    ...candidates.map(({ pose }) => pose),
+                  ]);
+                  const mechanicalFallbacks: Array<{
+                    pose: GeneratedFighterPose;
+                    sourcePose: GeneratedFighterPose;
+                  }> = [];
+                  for (const pose of unrecovered) {
+                    const sourcePose = bestAvailableFighterPoseFallback(pose, availablePoses);
+                    const processed =
+                      sourcePose === 'idle'
+                        ? foundation.processed
+                        : candidates.find((candidate) => candidate.pose === sourcePose)?.processed;
+                    if (!sourcePose || !processed) {
+                      throw new Error(
+                        `${entry.character.name} has no mechanically valid fallback for ${pose}`,
+                      );
+                    }
+                    candidates.push({
+                      id: `${entry.slot}-${pose}-F-${sourcePose}`,
+                      pose,
+                      processed,
+                    });
+                    mechanicalFallbacks.push({ pose, sourcePose });
+                  }
+                  if (mechanicalFallbacks.length > 0) {
+                    emit(
+                      'building-assets',
+                      `${entry.character.name} kept playable fallback states after bounded recovery: ${mechanicalFallbacks.map(({ pose, sourcePose }) => `${pose}←${sourcePose}`).join(', ')}`,
+                    );
+                  }
+
+                  const review = async (
+                    pool: readonly PoseCandidate[],
+                  ): Promise<ReturnType<typeof normalizeFighterPoseJudgeDecision>> => {
+                    const descriptors: FighterPoseCandidateDescriptor[] = pool.map(
+                      ({ id, pose }) => ({ id, pose }),
+                    );
+                    const board = await buildFighterPoseJudgeBoard({
+                      fighterName: entry.character.name,
+                      anchor: foundation.processed,
+                      candidates: pool,
+                    });
+                    const firstByPose = Object.fromEntries(
+                      actionPoses.map((pose) => [
+                        pose,
+                        descriptors.find((candidate) => candidate.pose === pose)!,
+                      ]),
+                    ) as Record<GeneratedFighterPose, FighterPoseCandidateDescriptor>;
+                    const mockDecision = {
+                      candidateReviews: descriptors.map(({ id, pose }) => ({
+                        id,
+                        pose,
+                        scores: { identity: 5, costume: 5, pose: 5, technical: 5 },
+                        fatalIssues: [],
+                        summary: 'Mock identity-consistent pose.',
+                      })),
+                      selections: actionPoses.map((pose) => ({
+                        pose,
+                        candidateId: firstByPose[pose].id,
+                        rationale: 'Mock selection.',
+                      })),
+                      setReview: {
+                        accepted: true,
+                        identityConsistency: 5,
+                        costumeConsistency: 5,
+                        scaleConsistency: 5,
+                        poseReadability: 5,
+                        fatalIssues: [],
+                        summary: 'Mock complete pose set.',
+                      },
+                      retryPoses: [],
+                    };
+                    let rawDecision: unknown = mockDecision;
+                    if (!mockImages) {
+                      const prompt = buildFighterPoseJudgePrompt(
+                        entry.character.name,
                         descriptors,
                         actionPoses,
+                        fighterSpec.artDirection,
                       );
-                    };
-
-                    let decision = await review(candidates);
-                    if (!decision.setReview.accepted) {
-                      const retryPoses = fighterPosesNeedingRetry(decision, actionPoses, 4);
-                      if (retryPoses.length > 0) {
-                        emit(
-                          'building-assets',
-                          `Repainting ${retryPoses.length} weak ${entry.character.name} poses with Spark guidance…`,
-                        );
-                        const alternatives = (
-                          await Promise.all(
-                            retryPoses.flatMap(({ pose, guidance }) => [
-                              generatePoseCandidate(pose, 'B', guidance),
-                              generatePoseCandidate(pose, 'C', guidance),
-                            ]),
-                          )
-                        ).filter((candidate): candidate is PoseCandidate => candidate !== null);
-                        candidates.push(...alternatives);
-                        decision = await review(candidates);
-                      }
+                      rawDecision = await callLlm(
+                        'design',
+                        {
+                          ...prompt,
+                          jsonSchema: buildFighterPoseJudgeSchema(descriptors, actionPoses),
+                          maxTokens: 6200,
+                          timeoutMs: 120_000,
+                        },
+                        {
+                          stage: 'building-assets',
+                          label: `Spark reviewed ${entry.character.name}'s complete pose set`,
+                          image: board,
+                          reasoningEffort: 'low',
+                        },
+                      );
                     }
-                    if (!decision.setReview.accepted) {
+                    return normalizeFighterPoseJudgeDecision(rawDecision, descriptors, actionPoses);
+                  };
+
+                  let decision = await review(candidates);
+                  if (!decision.setReview.accepted) {
+                    const retryPoses = fighterPosesNeedingRetry(decision, actionPoses, 4);
+                    if (retryPoses.length > 0) {
                       emit(
                         'building-assets',
-                        `Spark still rejected ${entry.character.name}'s pose set after the bounded retry; using its highest-scoring locally valid combination`,
+                        `Repainting ${retryPoses.length} weak ${entry.character.name} poses with Spark guidance…`,
                       );
+                      const alternatives = (
+                        await Promise.all(
+                          retryPoses.flatMap(({ pose, guidance }) => [
+                            generatePoseCandidate(pose, 'B', guidance),
+                            generatePoseCandidate(pose, 'C', guidance),
+                          ]),
+                        )
+                      ).filter((candidate): candidate is PoseCandidate => candidate !== null);
+                      candidates.push(...alternatives);
+                      decision = await review(candidates);
                     }
-                    const selectedIds = bestFighterPoseCandidateIds(decision, actionPoses);
-                    const selectedPoses = { idle: foundation.processed } as Record<
-                      GeneratedFighterPose,
-                      Buffer
-                    >;
-                    for (const pose of actionPoses) {
-                      const selected = candidates.find(
-                        (candidate) =>
-                          candidate.pose === pose && candidate.id === selectedIds[pose],
-                      );
-                      if (!selected)
-                        throw new Error(`Spark did not select ${entry.character.name} ${pose}`);
-                      selectedPoses[pose] = selected.processed;
-                    }
-                    if (
-                      mechanicalFallbacks.length === 0 &&
-                      new Set(GENERATED_FIGHTER_POSES.map((pose) => sha256(selectedPoses[pose])))
-                        .size !== GENERATED_FIGHTER_POSES.length
-                    ) {
-                      throw new Error(
-                        `${entry.character.name} pose set contained duplicate states`,
-                      );
-                    }
-                    const atlas = await buildGeneratedFighterAtlas(selectedPoses);
-                    await validateGeneratedFighterAtlas(atlas);
-                    await assetWorkspace.store(
-                      FIGHTER_ROSTER_ASSET_ROLES[entry.slot],
-                      atlas,
-                      FIGHTER_ROSTER_PIPELINE_PROMPT_VERSION,
-                      pipelineSha,
+                  }
+                  if (!decision.setReview.accepted) {
+                    emit(
+                      'building-assets',
+                      `Spark still rejected ${entry.character.name}'s pose set after the bounded retry; using its highest-scoring locally valid combination`,
                     );
-                    return [entry.slot, atlas] as const;
-                  }),
-                );
-                for (const result of atlasResults) {
-                  if (result.status === 'rejected') throw result.reason;
-                }
-                fighterArtStatus = { mode: 'generated', attempted: true };
+                  }
+                  const selectedIds = bestFighterPoseCandidateIds(decision, actionPoses);
+                  const selectedPoses = { idle: foundation.processed } as Record<
+                    GeneratedFighterPose,
+                    Buffer
+                  >;
+                  for (const pose of actionPoses) {
+                    const selected = candidates.find(
+                      (candidate) => candidate.pose === pose && candidate.id === selectedIds[pose],
+                    );
+                    if (!selected)
+                      throw new Error(`Spark did not select ${entry.character.name} ${pose}`);
+                    selectedPoses[pose] = selected.processed;
+                  }
+                  if (
+                    mechanicalFallbacks.length === 0 &&
+                    new Set(GENERATED_FIGHTER_POSES.map((pose) => sha256(selectedPoses[pose])))
+                      .size !== GENERATED_FIGHTER_POSES.length
+                  ) {
+                    throw new Error(`${entry.character.name} pose set contained duplicate states`);
+                  }
+                  const atlas = await buildGeneratedFighterAtlas(selectedPoses);
+                  await validateGeneratedFighterAtlas(atlas);
+                  await assetWorkspace.store(
+                    FIGHTER_ROSTER_ASSET_ROLES[entry.slot],
+                    atlas,
+                    FIGHTER_ROSTER_PIPELINE_PROMPT_VERSION,
+                    pipelineSha,
+                  );
+                  return [entry.slot, atlas] as const;
+                }),
+              );
+              for (const result of atlasResults) {
+                if (result.status === 'rejected') throw result.reason;
+              }
+              fighterArtStatus = { mode: 'generated', attempted: true };
             })()
           : Promise.resolve();
 
@@ -3892,8 +4530,14 @@ export class GenerationRunner {
       const deferHeadsUntilFullBodyResult =
         !!photo &&
         (spec.archetype === 'fighter' ||
+          spec.archetype === 'adventure' ||
           (spec.archetype === 'platformer' && spec.platformerArtDensity === 'detailed'));
-      const fullBodyTask = spec.archetype === 'fighter' ? fighterTask : platformerPlayerTask;
+      const fullBodyTask =
+        spec.archetype === 'fighter'
+          ? fighterTask
+          : spec.archetype === 'adventure'
+            ? adventurePlayerTask
+            : platformerPlayerTask;
       const headsTask = deferHeadsUntilFullBodyResult
         ? fullBodyTask.then(async () => {
             if (
@@ -3902,18 +4546,23 @@ export class GenerationRunner {
             ) {
               await generateHeads();
             }
+            if (spec.archetype === 'adventure' && adventurePlayerArtStatus?.mode !== 'generated') {
+              await generateHeads();
+            }
           })
         : generateHeads();
 
       const finishingAssets = await Promise.allSettled([
         storyTask,
         platformerBackdropTask,
+        adventureRoomPlateTask,
         platformerBossTask,
         platformerEnemyTask,
         platformerPropTask,
         fighterArenaTask,
         fighterTask,
         platformerPlayerTask,
+        adventurePlayerTask,
         portraitTask,
         portraitDefeatTask,
         headsTask,
@@ -3959,6 +4608,10 @@ export class GenerationRunner {
         ...(platformerBackdropArtStatus
           ? { platformerBackdropArt: platformerBackdropArtStatus }
           : {}),
+        ...(adventureRoomPlateArtStatus
+          ? { adventureRoomPlateArt: adventureRoomPlateArtStatus }
+          : {}),
+        ...(adventurePlayerArtStatus ? { adventurePlayerArt: adventurePlayerArtStatus } : {}),
         ...(hshooterPlayerCraftArtStatus
           ? { hshooterPlayerCraftArt: hshooterPlayerCraftArtStatus }
           : {}),

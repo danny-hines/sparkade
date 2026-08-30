@@ -14,6 +14,7 @@ export {
   decodeSprite,
   flipCanvas,
   outlineCanvas,
+  outlineRgbaPixels,
   flashCanvas,
   SpriteStore,
   anchorSpriteOpaqueTop,
@@ -105,6 +106,12 @@ export {
   type SolidTileVariant,
 } from './connected-tiles';
 export {
+  TopDownConnectedAutotiles,
+  renderTopDownTerrainVariant,
+  type TopDownTerrainColors,
+  type TopDownTerrainRelief,
+} from './topdown-tiles';
+export {
   PauseOverlay,
   HowToPlayCard,
   ScoreTally,
@@ -130,4 +137,10 @@ export {
   platformerHdTileRef,
   type PlatformerHdTileKind,
 } from './library/platformer-hd';
+export {
+  ADVENTURE_HD_TILE_KINDS,
+  TILES_ADVENTURE_HD,
+  adventureHdTileRef,
+  type AdventureHdTileKind,
+} from './library/adventure-hd';
 export { FONT_GLYPHS } from './fontdata';

@@ -7,9 +7,9 @@ The design document arrives in the user message.
 ## How the dungeon works
 
 - `levels` holds EXACTLY ONE dungeon: `{ rooms, items, bossRoom, startRoom }`.
-- 8–14 rooms on a grid. Each room: `id`, `gridPos` {x,y} (0–7; adjacent rooms with facing doors connect), `tiles` (EXACTLY 12 rows of EXACTLY 24 chars), `legend`, `entities`, `doors` {n,s,e,w each: none | open | locked | boss}.
+- 8–14 rooms on a grid. Each room: `id`, `gridPos` {x,y} (0–7; adjacent rooms with facing doors connect), `tiles` (EXACTLY 14 rows of EXACTLY 28 chars), `legend`, `entities`, `doors` {n,s,e,w each: none | open | locked | boss}.
 - Tile types: `wall` (solid — the room's outer border should be wall; the engine carves door openings), `floor` (walkable; `.` is always floor), `hazard` (spikes), `block` (pushable), `pit` (blocks walking), `switch` (pressure plate — while all switches in a room are held down, its hazards retract), `decoration`.
-- Entities at tile coords (x 0–23, y 0–11): `walker`, `flyer` (crosses pits), `shooter`, `chaser`, `bruiser` (tanky), `npc` (props.dialog REQUIRED — one warm hint or lore line), `key`, `heart`, `item` (pedestal granting props.item — MUST equal items.secondary).
+- Entities at tile coords (x 0–27, y 0–13): `walker`, `flyer` (crosses pits), `shooter`, `chaser`, `bruiser` (tanky), `npc` (props.dialog REQUIRED — one warm hint or lore line), `key`, `heart`, `item` (pedestal granting props.item — MUST equal items.secondary).
 - `items.secondary`: boomerang (stuns + fetches) | bombs (area damage) | bow (ranged).
 
 ## Design rules that make it FUN (and pass validation)
@@ -17,6 +17,7 @@ The design document arrives in the user message.
 - DOORS MUST AGREE: if room A's east door is "locked", the room at gridPos x+1 must declare its west door "locked" too. Every door needs a room on the other side.
 - The dungeon graph must be fully connected, and solvable in play order: the validator walks from startRoom collecting keys — every `locked`/`boss` door needs a key REACHABLE BEFORE it. ≥2 locked gates (floor). Boss door guards the bossRoom.
 - Room personalities: a switch puzzle room, a block-push room, a combat gauntlet, a quiet NPC room, a treasure room with the item pedestal. Don't repeat a layout twice.
+- Use the expanded room deliberately: keep broad navigable lanes, distribute encounters across the full 28×14 footprint, and leave clear two-cell approaches to the centered doors. Do not cluster all meaningful content into the old 24×12 center.
 - The bossRoom contains NO regular enemies (the fight owns it) and should sit far from startRoom.
 - 4+ enemy types across rooms (floor), ≥1 NPC with dialog (floor). 3–6 entities per room typical; never more than 10.
 - Hearts near danger; keys behind small challenges, not in the same room as their lock.

@@ -47,6 +47,47 @@ export function flipCanvas(src: HTMLCanvasElement): HTMLCanvasElement {
   return out;
 }
 
+/** Add one 8-connected pixel of contour without changing source pixels. */
+export function outlineRgbaPixels(
+  source: Uint8ClampedArray,
+  width: number,
+  height: number,
+  color = '#1a1c2c',
+): Uint8ClampedArray {
+  const outlined = new Uint8ClampedArray(source.length);
+  const r = parseInt(color.slice(1, 3), 16);
+  const g = parseInt(color.slice(3, 5), 16);
+  const b = parseInt(color.slice(5, 7), 16);
+  const opaque = (x: number, y: number) =>
+    x >= 0 && y >= 0 && x < width && y < height && source[(y * width + x) * 4 + 3]! > 0;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const offset = (y * width + x) * 4;
+      if (source[offset + 3]! > 0) {
+        outlined[offset] = source[offset]!;
+        outlined[offset + 1] = source[offset + 1]!;
+        outlined[offset + 2] = source[offset + 2]!;
+        outlined[offset + 3] = source[offset + 3]!;
+      } else if (
+        opaque(x - 1, y - 1) ||
+        opaque(x, y - 1) ||
+        opaque(x + 1, y - 1) ||
+        opaque(x - 1, y) ||
+        opaque(x + 1, y) ||
+        opaque(x - 1, y + 1) ||
+        opaque(x, y + 1) ||
+        opaque(x + 1, y + 1)
+      ) {
+        outlined[offset] = r;
+        outlined[offset + 1] = g;
+        outlined[offset + 2] = b;
+        outlined[offset + 3] = 255;
+      }
+    }
+  }
+  return outlined;
+}
+
 /** Add a 1px outline of the given color around opaque pixels (load-time). */
 export function outlineCanvas(src: HTMLCanvasElement, color = '#1a1c2c'): HTMLCanvasElement {
   const w = src.width;
@@ -58,27 +99,7 @@ export function outlineCanvas(src: HTMLCanvasElement, color = '#1a1c2c'): HTMLCa
   const octx = out.getContext('2d')!;
   const sd = sctx.getImageData(0, 0, w, h);
   const od = octx.createImageData(w, h);
-  const r = parseInt(color.slice(1, 3), 16);
-  const g = parseInt(color.slice(3, 5), 16);
-  const b = parseInt(color.slice(5, 7), 16);
-  const opaque = (x: number, y: number) =>
-    x >= 0 && y >= 0 && x < w && y < h && sd.data[(y * w + x) * 4 + 3]! > 0;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const o = (y * w + x) * 4;
-      if (sd.data[o + 3]! > 0) {
-        od.data[o] = sd.data[o]!;
-        od.data[o + 1] = sd.data[o + 1]!;
-        od.data[o + 2] = sd.data[o + 2]!;
-        od.data[o + 3] = sd.data[o + 3]!;
-      } else if (opaque(x - 1, y) || opaque(x + 1, y) || opaque(x, y - 1) || opaque(x, y + 1)) {
-        od.data[o] = r;
-        od.data[o + 1] = g;
-        od.data[o + 2] = b;
-        od.data[o + 3] = 255;
-      }
-    }
-  }
+  od.data.set(outlineRgbaPixels(sd.data, w, h, color));
   octx.putImageData(od, 0, 0);
   return out;
 }

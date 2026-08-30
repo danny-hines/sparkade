@@ -77,6 +77,8 @@ describe('entities prompt likeness casting', () => {
       false,
     ).system;
     expect(adventure).not.toContain('city_*');
+    expect(adventure).toContain('automatically renders the selected core family');
+    expect(adventure).toContain('top-down connected edges and spatial variation');
   });
 
   it('teaches H-scroll art generation the shared high-density connected terrain contract', () => {

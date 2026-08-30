@@ -332,7 +332,9 @@ IMAGE-FIRST CHARACTER FALLBACKS: a later Muse Image stage authors the visible pl
   const highDensityNote =
     archetype === 'platformer' || archetype === 'hshooter'
       ? ` These side-view archetypes also have image-authored ${hdFamilies}; they cover solid/solid_inner/platform/hazard/checkpoint/exit/deco and are automatically rendered at high density.`
-      : '';
+      : archetype === 'adventure'
+        ? " Adventure automatically renders the selected core family's wall/pit/block/hazard/deco material at high density with top-down connected edges and spatial variation. The selected floor is a compact resilience fallback; a later Muse Image stage authors the visible room-scale surface plates."
+        : '';
   const reskinNotes =
     (roles.length
       ? `TERRAIN RESKIN — the strongest identity lever after the palette. ALWAYS reskin the terrain — assigning every tile slot is expected, not optional. The example just shows one family for format; pick the family that fits THIS game's world and never leave the tiles on the plain default. Each tile slot (${roles.join(', ')}) can be re-assigned:

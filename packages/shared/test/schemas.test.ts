@@ -144,6 +144,38 @@ describe('archetype schemas', () => {
     expect(schema.required).not.toContain('playerCraft');
   });
 
+  it('uses the expanded 28×14 single-screen Adventure room contract', () => {
+    const defs = (
+      ARCHETYPE_SCHEMAS.adventure as {
+        $defs: {
+          room: {
+            properties: {
+              tiles: {
+                minItems: number;
+                maxItems: number;
+                items: { minLength: number; maxLength: number };
+              };
+            };
+          };
+          entity: {
+            properties: {
+              x: { maximum: number };
+              y: { maximum: number };
+            };
+          };
+        };
+      }
+    ).$defs;
+
+    expect(defs.room.properties.tiles).toMatchObject({
+      minItems: 14,
+      maxItems: 14,
+      items: { minLength: 28, maxLength: 28 },
+    });
+    expect(defs.entity.properties.x.maximum).toBe(27);
+    expect(defs.entity.properties.y.maximum).toBe(13);
+  });
+
   it('music channels are exactly 16 steps with the documented syntax', () => {
     const defs = (
       ARCHETYPE_SCHEMAS.shooter as {

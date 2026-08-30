@@ -17,6 +17,14 @@ export const INTERNAL_HEIGHT = 300;
 export const DISPLAY_SCALE = 2;
 export const TILE_SIZE = 16;
 
+/** Adventure rooms remain single-screen, but fill most of the cabinet viewport.
+ * These dimensions are shared by generation, validation, asset processing, and
+ * runtime rendering so a room cannot silently target the legacy 24×12 grid. */
+export const ADVENTURE_ROOM_COLUMNS = 28;
+export const ADVENTURE_ROOM_ROWS = 14;
+export const ADVENTURE_ROOM_WIDTH = ADVENTURE_ROOM_COLUMNS * TILE_SIZE;
+export const ADVENTURE_ROOM_HEIGHT = ADVENTURE_ROOM_ROWS * TILE_SIZE;
+
 /** Bounded platformer framing modes. Raw tile/camera scale is never model-authored. */
 export const PLATFORMER_SCALES = ['compact', 'heroic'] as const;
 export type PlatformerScale = (typeof PLATFORMER_SCALES)[number];
@@ -328,6 +336,13 @@ export const GENERATED_GAME_ASSET_FILES = {
   platformerBackdropLevel2: 'platformer-backdrop-level-2.png',
   platformerBackdropLevel3: 'platformer-backdrop-level-3.png',
   platformerBackdropBoss: 'platformer-backdrop-boss.png',
+  adventureRoomPlates: 'adventure-room-plates.png',
+  adventurePlayerDownIdle: 'adventure-player-down-idle.png',
+  adventurePlayerDownWalk: 'adventure-player-down-walk.png',
+  adventurePlayerUpIdle: 'adventure-player-up-idle.png',
+  adventurePlayerUpWalk: 'adventure-player-up-walk.png',
+  adventurePlayerSideIdle: 'adventure-player-side-idle.png',
+  adventurePlayerSideWalk: 'adventure-player-side-walk.png',
   // Legacy, read-only compatibility: an experimental pipeline emitted these
   // files for a small number of saved games. New generations no longer create
   // them and the runtime intentionally ignores them in favor of curated packs,

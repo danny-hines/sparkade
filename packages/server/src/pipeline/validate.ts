@@ -4,6 +4,7 @@
 // from the runner via the archetypes registry.
 import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020.js';
 import {
+  ADVENTURE_ROOM_COLUMNS,
   ARCHETYPE_SCHEMAS,
   DESIGN_SCHEMA,
   LIB_BOSSES_PLATFORMER,
@@ -1256,9 +1257,9 @@ function normalizeAdventureContent(out: GameSpec, fixes: NormalizationFix[]): vo
       room.tiles,
       room.legend,
       `/levels/0/rooms/${ri}/tiles`,
-      24,
+      ADVENTURE_ROOM_COLUMNS,
       fixes,
-      24,
+      ADVENTURE_ROOM_COLUMNS,
     );
     const h = room.tiles.length;
     const w = room.tiles[0]?.length ?? 0;
@@ -1492,7 +1493,8 @@ export function normalizeTileGrids(spec: GameSpec): GameSpec {
   } else if (out.archetype === 'adventure') {
     const dungeon = out.levels[0];
     if (dungeon?.rooms) {
-      for (const room of dungeon.rooms) room.tiles = normalizeRows(room.tiles, 24);
+      for (const room of dungeon.rooms)
+        room.tiles = normalizeRows(room.tiles, ADVENTURE_ROOM_COLUMNS);
       // Mirror/agree the two declarations of each shared door so a one-sided
       // door slip doesn't fail generation on ADV_DOOR_MISMATCH.
       reconcileDoors(dungeon);

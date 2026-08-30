@@ -118,6 +118,7 @@ export function buildStoryArtPrompt(
   role: StoryArtRole,
   heroConcept?: string,
   playerCraft?: PlayerCraftArtBrief,
+  gameplayHeroReference = false,
 ): string {
   const canonicalHeroConcept = heroConcept ?? spec.meta.heroConcept;
   const beat =
@@ -129,9 +130,11 @@ export function buildStoryArtPrompt(
           ? `Victory scene: ${clean(spec.story.victory.join(' '))}`
           : `Defeat scene: ${clean(spec.story.defeat.join(' '))}`;
   return [
-    playerCraft
-      ? 'The TOP PANEL of the reference board is the immutable key-art visual bible and the BOTTOM PANEL is the exact gameplay craft. Create a new landscape story illustration from the same game.'
-      : 'Using the reference key art as the immutable visual bible, create a new landscape story illustration from the same game.',
+    gameplayHeroReference
+      ? 'The TOP PANEL of the reference board is the immutable key-art world and story bible. The BOTTOM PANEL is the exact selected gameplay hero: use it as head identity, head accessories, and neck-down wardrobe truth. Create a new landscape story illustration from the same game. Preserve the same person and outfit at story-art scale; never invent or remove glasses, headwear, hair, facial hair, or another head accessory. Do not copy the panel layout or dark reference background.'
+      : playerCraft
+        ? 'The TOP PANEL of the reference board is the immutable key-art visual bible and the BOTTOM PANEL is the exact gameplay craft. Create a new landscape story illustration from the same game.'
+        : 'Using the reference key art as the immutable visual bible, create a new landscape story illustration from the same game.',
     `Preserve the exact same player hero identity, costume, villain design, palette, pixel-art technique, and world. ${beat}.`,
     wardrobeBrief(canonicalHeroConcept),
     spec.archetype === 'fighter'
@@ -158,6 +161,7 @@ export function buildStoryArtPolicyFallbackPrompt(
   role: StoryArtRole,
   heroConcept?: string,
   playerCraft?: PlayerCraftArtBrief,
+  gameplayHeroReference = false,
 ): string {
   const canonicalHeroConcept = heroConcept ?? spec.meta.heroConcept;
   const scene =
@@ -169,9 +173,11 @@ export function buildStoryArtPolicyFallbackPrompt(
           ? 'Show the player character celebrating a successful adventure in warm, welcoming surroundings.'
           : 'Show the player character resting safely after a difficult challenge, looking tired and disappointed while the peaceful world waits for another try.';
   return [
-    playerCraft
-      ? 'Use the TOP PANEL as the key-art visual guide and the BOTTOM PANEL as the exact separate player-craft guide. Create a new family-friendly landscape story illustration from the same game.'
-      : 'Using the reference key art as the visual guide, create a new family-friendly landscape story illustration from the same game.',
+    gameplayHeroReference
+      ? 'Use the TOP PANEL as the key-art world guide and the BOTTOM PANEL as the exact selected gameplay hero identity and wardrobe guide. Preserve its head identity, glasses, headwear, hair, facial hair, other head accessories, and neck-down wardrobe without additions or removals. Create a new family-friendly landscape story illustration from the same game without copying the reference-board layout.'
+      : playerCraft
+        ? 'Use the TOP PANEL as the key-art visual guide and the BOTTOM PANEL as the exact separate player-craft guide. Create a new family-friendly landscape story illustration from the same game.'
+        : 'Using the reference key art as the visual guide, create a new family-friendly landscape story illustration from the same game.',
     `Preserve the same adult player character identity, costume, palette, pixel-art technique, and world. ${scene}`,
     wardrobeBrief(canonicalHeroConcept),
     spec.archetype === 'fighter'
@@ -211,17 +217,21 @@ async function normalizeLandscape(image: Buffer, width: number, height: number):
  * provider. It exercises the exact normalization/manifest/runtime path without
  * pretending that a local placeholder came from Muse Image. */
 export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
+  const adventureSheetPoses = mockAdventurePlayerSheetPoses(prompt);
+  if (adventureSheetPoses) return mockGeneratedAdventurePlayerSheet(adventureSheetPoses);
   const sheetPoses = mockFighterPoseSheetPoses(prompt);
   if (sheetPoses) return mockGeneratedFighterPoseSheet(sheetPoses);
   // A 256px fixture is plenty for deterministic pipeline coverage and keeps
   // mock photo-fighter generation fast. Silhouette helpers use a 512px design
   // grid so their coordinates stay easy to reason about.
-  const platformerBackdrop = prompt.includes('panoramic BACKGROUND PLATE');
-  const width = platformerBackdrop ? 512 : 256;
+  const wideEnvironment =
+    prompt.includes('panoramic BACKGROUND PLATE') || prompt.includes('ROOM-SURFACE ATLAS');
+  const width = wideEnvironment ? 512 : 256;
   const height = 256;
   const greenScreen = prompt.includes('#00ff00');
   const fighter = greenScreen && prompt.includes('fighting-game sprite');
   const platformer = greenScreen && prompt.includes('platform-game sprite');
+  const adventurePlayer = greenScreen && prompt.includes('adventure-game sprite');
   const hshooterCraft = greenScreen && prompt.includes('horizontal-shooter player craft');
   const head = greenScreen && prompt.includes('HEAD sprite');
   let hash = 2166136261;
@@ -234,7 +244,7 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
         greenScreen &&
         (hshooterCraft
           ? mockHShooterCraftSubject(x * 2, y * 2)
-          : fighter || platformer
+          : fighter || platformer || adventurePlayer
             ? mockFighterSubject(x * 2, y * 2, prompt)
             : head
               ? mockHeadSubject(x * 2, y * 2, prompt)
@@ -260,6 +270,59 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
     }
   }
   return sharp(raw, { raw: { width, height, channels: 4 } })
+    .png()
+    .toBuffer();
+}
+
+const MOCK_ADVENTURE_PLAYER_POSES = [
+  'downIdle',
+  'downWalk',
+  'upIdle',
+  'upWalk',
+  'sideIdle',
+  'sideWalk',
+] as const;
+type MockAdventurePlayerPose = (typeof MOCK_ADVENTURE_PLAYER_POSES)[number];
+
+function mockAdventurePlayerSheetPoses(prompt: string): MockAdventurePlayerPose[] | null {
+  const match = /ADVENTURE PLAYER POSE SHEET CONTRACT: [A-Z] \[([^\]]+)\]/.exec(prompt);
+  if (!match) return null;
+  const valid = new Set<string>(MOCK_ADVENTURE_PLAYER_POSES);
+  const poses = match[1]!.split(',').map((pose) => pose.trim());
+  return poses.length === 6 && poses.every((pose) => valid.has(pose))
+    ? (poses as MockAdventurePlayerPose[])
+    : null;
+}
+
+async function mockGeneratedAdventurePlayerSheet(
+  poses: readonly MockAdventurePlayerPose[],
+): Promise<Buffer> {
+  const cells = await Promise.all(
+    poses.map(async (pose, index): Promise<sharp.OverlayOptions> => {
+      const rect = fighterPoseSheetCellRect(index);
+      const image = await mockGeneratedImage(
+        `One top-down adventure-game sprite on #00ff00. ${pose.includes('Walk') ? 'mid-stride walking contact pose' : 'neutral idle pose'}.`,
+      );
+      const input = await sharp(image)
+        .resize(rect.width, rect.height, {
+          fit: 'contain',
+          kernel: sharp.kernel.nearest,
+          background: { r: 0, g: 255, b: 0, alpha: 1 },
+        })
+        .png()
+        .toBuffer();
+      return { input, left: rect.left, top: rect.top };
+    }),
+  );
+  return sharp({
+    create: {
+      width: FIGHTER_POSE_SHEET_SIZE,
+      height: FIGHTER_POSE_SHEET_SIZE,
+      channels: 4,
+      background: { r: 0, g: 255, b: 0, alpha: 1 },
+    },
+  })
+    .composite(cells)
     .png()
     .toBuffer();
 }

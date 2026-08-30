@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GENERATED_GAME_ASSET_FILES, type GeneratedGameAssetRole } from '@sparkade/shared';
 import type { GameDetail } from '../src/api';
 import {
+  ADVENTURE_PLAYER_POSE_ASSETS,
+  ADVENTURE_ROOM_PLATES_ASSET,
   FIGHTER_ARENA_ASSET,
   FIGHTER_ROSTER_ATLAS_ASSETS,
   HSHOOTER_PLAYER_CRAFT_ASSET,
@@ -311,5 +313,60 @@ describe('loadLikenessAssets', () => {
           `/api/games/backdrop-game/assets/${GENERATED_GAME_ASSET_FILES[assetRole]}`,
       ),
     );
+  });
+
+  it('loads the generated Adventure room-surface atlas without likeness art', async () => {
+    const result = await loadLikenessAssets('adventure-game', {
+      head12: false,
+      head12Side: false,
+      head12Back: false,
+      head16: false,
+      head16Side: false,
+      head16Back: false,
+      portrait: false,
+      ...unavailableGeneratedAssets,
+      [ADVENTURE_ROOM_PLATES_ASSET]: true,
+    });
+
+    expect(result?.adventureRoomPlates).not.toBeNull();
+    expect(requested).toEqual([
+      `/api/games/adventure-game/assets/${GENERATED_GAME_ASSET_FILES.adventureRoomPlates}`,
+    ]);
+  });
+
+  it('exposes Adventure player poses only after the complete directional set loads', async () => {
+    const availability = Object.fromEntries(
+      ADVENTURE_PLAYER_POSE_ASSETS.map(([, role]) => [role, true]),
+    );
+    const result = await loadLikenessAssets('adventure-player', {
+      ...legacyAssets,
+      ...availability,
+    });
+
+    expect(Object.keys(result?.adventurePlayerPoses ?? {})).toEqual(
+      ADVENTURE_PLAYER_POSE_ASSETS.map(([pose]) => pose),
+    );
+    for (const [, role] of ADVENTURE_PLAYER_POSE_ASSETS) {
+      expect(requested).toContain(
+        `/api/games/adventure-player/assets/${GENERATED_GAME_ASSET_FILES[role]}`,
+      );
+    }
+  });
+
+  it('rejects the entire Adventure player set when one direction fails to load', async () => {
+    const availability = Object.fromEntries(
+      ADVENTURE_PLAYER_POSE_ASSETS.map(([, role]) => [role, true]),
+    );
+    failing.add(
+      `/api/games/broken-adventure-player/assets/${GENERATED_GAME_ASSET_FILES.adventurePlayerUpWalk}`,
+    );
+
+    const result = await loadLikenessAssets('broken-adventure-player', {
+      ...legacyAssets,
+      ...availability,
+    });
+
+    expect(result?.adventurePlayerPoses).toBeNull();
+    expect(requested.filter((url) => url.includes('/assets/adventure-player-'))).toHaveLength(6);
   });
 });

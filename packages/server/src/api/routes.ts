@@ -464,6 +464,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       platformerPoseJudges: hasPhoto && (archetype === undefined || archetype === 'platformer'),
       platformerBossJudge: archetype === undefined || archetype === 'platformer',
       platformerEnemyJudge: archetype === undefined || archetype === 'platformer',
+      adventurePlayerIdentityJudge: hasPhoto && archetype === 'adventure',
+      adventurePlayerSetJudge: archetype === 'adventure',
     });
     const conservativeUpperBound = hasPhoto && archetype === undefined;
     const happyPathImages = estimateImageCount(hasPhoto, archetype);

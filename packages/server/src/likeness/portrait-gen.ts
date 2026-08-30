@@ -31,8 +31,8 @@ export interface LikenessImageGenerationOptions {
   heroConcept?: string;
 }
 
-export const GENERATED_PORTRAIT_PROMPT_VERSION = 'generated-portrait-v2';
-export const GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION = 'generated-defeat-portrait-v2';
+export const GENERATED_PORTRAIT_PROMPT_VERSION = 'generated-portrait-v3';
+export const GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION = 'generated-defeat-portrait-v3';
 
 export function describeVisibleTraits(feat: FaceFeatures | null): string {
   if (!feat) {
@@ -92,6 +92,7 @@ export async function generatePortrait(
     'Redraw the person in this photo as a friendly 16-bit pixel-art arcade video-game character —',
     'a front-facing head-and-shoulders portrait bust.',
     `Preserve their likeness from the neck up: ${describeVisibleTraits(feat)}, their skin tone, and their expression.`,
+    'Preserve visible glasses, headwear, hair, facial hair, and other head accessories exactly. Never remove or replace an accessory that is present, and never invent one that is absent.',
     wardrobeInstruction(options.heroConcept),
     'Clean flat colours, a bold dark outline, a simple plain dark background.',
     'Cheerful retro SNES game art, stylised and characterful, NOT photorealistic.',

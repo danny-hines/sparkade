@@ -652,6 +652,20 @@ export interface GameMetaFile {
     /** Present when at least one stage retained its procedural backdrop. */
     reason?: string;
   };
+  /** QA/readiness signal for the one-call Adventure room-surface atlas. */
+  adventureRoomPlateArt?: {
+    mode: 'generated' | 'procedural';
+    attempted: boolean;
+    /** Present when the stable compact-floor fallback remains active. */
+    reason?: string;
+  };
+  /** QA/readiness signal for the atomic six-pose Adventure player set. */
+  adventurePlayerArt?: {
+    mode: 'generated' | 'procedural';
+    attempted: boolean;
+    /** Present when the stable directional-head hero fallback remains active. */
+    reason?: string;
+  };
   /** QA/readiness signal for the likeness-independent H-scroll player craft. */
   hshooterPlayerCraftArt?: {
     mode: 'generated' | 'procedural';

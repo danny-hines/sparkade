@@ -75,6 +75,10 @@ export interface LikenessAssets {
   platformerProps?: Readonly<Record<string, CanvasImageSource>> | null;
   /** Independently generated panoramic platformer stage plates. */
   platformerBackdrops?: Readonly<Record<string, CanvasImageSource>> | null;
+  /** One 2x2 atlas of entrance, ordinary, deep, and finale Adventure room surfaces. */
+  adventureRoomPlates?: CanvasImageSource | null;
+  /** Atomic generated Adventure player directions and motion poses. */
+  adventurePlayerPoses?: Readonly<Record<string, CanvasImageSource>> | null;
 }
 
 /** What a finished run reports back to the host. */

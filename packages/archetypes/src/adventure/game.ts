@@ -3,11 +3,14 @@
 // A interact/talk, SELECT dungeon map, START pause (host-owned).
 import {
   aabbOverlap,
-  drawObstacleShadows,
-  drawObstacleTile,
+  adventureHdTileRef,
   drawTileLayer,
   makeBackdrop,
   moveAABB,
+  outlineCanvas,
+  solidNeighborMask,
+  terrainAtlasFrame,
+  TopDownConnectedAutotiles,
   type AABB,
   type Backdrop,
   type EngineContext,
@@ -21,7 +24,12 @@ import {
 } from '@sparkade/engine';
 import {
   BUDGET,
+  ADVENTURE_ROOM_COLUMNS,
+  ADVENTURE_ROOM_HEIGHT,
+  ADVENTURE_ROOM_ROWS,
+  ADVENTURE_ROOM_WIDTH,
   FEEL,
+  DISPLAY_SCALE,
   INTERNAL_HEIGHT,
   INTERNAL_WIDTH,
   TILE_SIZE,
@@ -36,16 +44,27 @@ import {
 } from '@sparkade/shared';
 import { estimateAdventureDurationS } from './lint';
 
-const COLS = 24;
-const ROWS = 12;
-const ROOM_W = COLS * TILE_SIZE; // 384
-const ROOM_H = ROWS * TILE_SIZE; // 192
-const VIEW_X = 64; // room top-left on the 512x300 screen (camera snaps to -VIEW)
-const VIEW_Y = 68;
+const COLS = ADVENTURE_ROOM_COLUMNS;
+const ROWS = ADVENTURE_ROOM_ROWS;
+const ROOM_W = ADVENTURE_ROOM_WIDTH;
+const ROOM_H = ADVENTURE_ROOM_HEIGHT;
+const ROOM_CENTER_TX = COLS / 2;
+const ROOM_CENTER_TY = ROWS / 2;
+const DOOR_LEFT_TX = ROOM_CENTER_TX - 1;
+const DOOR_RIGHT_TX = ROOM_CENTER_TX;
+const DOOR_TOP_TY = ROOM_CENTER_TY - 1;
+const DOOR_BOTTOM_TY = ROOM_CENTER_TY;
+const VIEW_X = Math.floor((INTERNAL_WIDTH - ROOM_W) / 2);
+const VIEW_Y = Math.floor((INTERNAL_HEIGHT - ROOM_H) / 2) + 12;
+const ROOM_PLATE_COLUMNS = 2;
+const ROOM_PLATE_ROWS = 2;
 
 const PLAYER_SPEED = 84;
 const PLAYER_W = 12;
 const PLAYER_H = 12;
+const GENERATED_PLAYER_DRAW_W = 28;
+const GENERATED_PLAYER_DRAW_H = 32;
+const GENERATED_PLAYER_OUTLINE = '#090c18';
 const SWORD_TIME = 0.28;
 const SWORD_COOLDOWN = 0.35;
 const SWORD_KB = 60; // enemy knockback distance, px
@@ -77,6 +96,18 @@ type TileKind =
 
 type Dir = 'n' | 's' | 'e' | 'w';
 type Facing = 'up' | 'down' | 'left' | 'right';
+type DoorVisualKind = 'doorOpen' | 'doorLocked' | 'doorBoss';
+
+export function adventurePlayerPoseName(
+  facing: Facing,
+  moving: boolean,
+  animationTime = 0,
+): string {
+  const walkContact = moving && Math.floor(animationTime * 6) % 2 === 1;
+  if (facing === 'down') return walkContact ? 'downWalk' : 'downIdle';
+  if (facing === 'up') return walkContact ? 'upWalk' : 'upIdle';
+  return walkContact ? 'sideWalk' : 'sideIdle';
+}
 
 interface DoorGeom {
   dir: Dir;
@@ -91,8 +122,8 @@ const DOOR_GEOM: readonly DoorGeom[] = [
     dx: 0,
     dy: -1,
     cells: [
-      { tx: 11, ty: 0 },
-      { tx: 12, ty: 0 },
+      { tx: DOOR_LEFT_TX, ty: 0 },
+      { tx: DOOR_RIGHT_TX, ty: 0 },
     ],
   },
   {
@@ -100,8 +131,8 @@ const DOOR_GEOM: readonly DoorGeom[] = [
     dx: 0,
     dy: 1,
     cells: [
-      { tx: 11, ty: ROWS - 1 },
-      { tx: 12, ty: ROWS - 1 },
+      { tx: DOOR_LEFT_TX, ty: ROWS - 1 },
+      { tx: DOOR_RIGHT_TX, ty: ROWS - 1 },
     ],
   },
   {
@@ -109,8 +140,8 @@ const DOOR_GEOM: readonly DoorGeom[] = [
     dx: 1,
     dy: 0,
     cells: [
-      { tx: COLS - 1, ty: 5 },
-      { tx: COLS - 1, ty: 6 },
+      { tx: COLS - 1, ty: DOOR_TOP_TY },
+      { tx: COLS - 1, ty: DOOR_BOTTOM_TY },
     ],
   },
   {
@@ -118,11 +149,33 @@ const DOOR_GEOM: readonly DoorGeom[] = [
     dx: -1,
     dy: 0,
     cells: [
-      { tx: 0, ty: 5 },
-      { tx: 0, ty: 6 },
+      { tx: 0, ty: DOOR_TOP_TY },
+      { tx: 0, ty: DOOR_BOTTOM_TY },
     ],
   },
 ];
+
+function orientDoorCanvas(source: HTMLCanvasElement, dir: Dir): HTMLCanvasElement {
+  if (dir === 'n') return source;
+  const vertical = dir === 'e' || dir === 'w';
+  const canvas = document.createElement('canvas');
+  canvas.width = vertical ? source.height : source.width;
+  canvas.height = vertical ? source.width : source.height;
+  const ctx = canvas.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  if (dir === 's') {
+    ctx.translate(0, source.height);
+    ctx.scale(1, -1);
+  } else if (dir === 'e') {
+    ctx.translate(source.height, 0);
+    ctx.rotate(Math.PI / 2);
+  } else {
+    ctx.translate(0, source.width);
+    ctx.rotate(-Math.PI / 2);
+  }
+  ctx.drawImage(source, 0, 0);
+  return canvas;
+}
 
 interface DoorInfo {
   dir: Dir;
@@ -208,6 +261,33 @@ interface BossState {
   emits: number;
 }
 
+type AdventureDepthKind = 'decoration' | 'block' | 'bomb' | 'entity' | 'boss' | 'player';
+
+export interface AdventureDepthKey {
+  groundY: number;
+  depthOrder: number;
+  stableOrder: number;
+}
+
+type AdventureDepthItem = AdventureDepthKey &
+  (
+    | { kind: 'decoration'; cell: { tx: number; ty: number } }
+    | { kind: 'block'; block: BlockObj }
+    | { kind: 'bomb'; bomb: Bomb }
+    | { kind: 'entity'; entity: Ent }
+    | { kind: 'boss'; boss: BossState }
+    | { kind: 'player' }
+  );
+
+const ADVENTURE_DEPTH_ORDER: Record<AdventureDepthKind, number> = {
+  decoration: 0,
+  block: 1,
+  bomb: 2,
+  entity: 3,
+  boss: 4,
+  player: 5,
+};
+
 const ROLE_FALLBACK: Record<string, string> = {
   hero: 'lib:hero_wander',
   walker: 'lib:enemy_walker',
@@ -225,6 +305,113 @@ const ROLE_FALLBACK: Record<string, string> = {
 
 function isEnemyType(t: AdventureEntityType): boolean {
   return t === 'walker' || t === 'flyer' || t === 'shooter' || t === 'chaser' || t === 'bruiser';
+}
+
+/** Density-four material packs expose a 4×4 spatial atlas. Compact/custom art
+ * keeps its authored animation behavior instead of being treated as an atlas. */
+export function adventureTerrainFrameIndex(
+  tx: number,
+  ty: number,
+  frameCount: number,
+  animatedFrameIx: number,
+  roomGridX = 0,
+  roomGridY = 0,
+): number {
+  if (frameCount >= 16) {
+    return terrainAtlasFrame(tx + roomGridX, ty + roomGridY);
+  }
+  const count = Math.max(1, Math.trunc(frameCount));
+  return ((Math.trunc(animatedFrameIx) % count) + count) % count;
+}
+
+/** Stable spatial fixture selection, independent from animation time. */
+export function adventureFixtureVariantIndex(
+  tx: number,
+  ty: number,
+  frameCount: number,
+  roomGridX = 0,
+  roomGridY = 0,
+  salt = 0,
+): number {
+  const count = Math.max(1, Math.trunc(frameCount));
+  const x = Math.trunc(tx) + Math.trunc(roomGridX) * COLS;
+  const y = Math.trunc(ty) + Math.trunc(roomGridY) * ROWS;
+  let hash = Math.imul(x ^ 0x51ed270b, 0x85ebca6b);
+  hash ^= Math.imul(y ^ 0x165667b1, 0xc2b2ae35);
+  hash ^= Math.imul(Math.trunc(salt), 0x27d4eb2f);
+  hash ^= hash >>> 16;
+  return (hash >>> 0) % count;
+}
+
+/** Multi-height fixture atlases keep tall silhouettes intentionally sparse so
+ * authored decoration clusters remain readable and traversable. */
+export function adventureDecorationFrameIndex(
+  tx: number,
+  ty: number,
+  frameCount: number,
+  roomGridX = 0,
+  roomGridY = 0,
+): number {
+  if (frameCount < 8) {
+    return adventureFixtureVariantIndex(tx, ty, frameCount, roomGridX, roomGridY, 17);
+  }
+  const variantsPerHeight = Math.floor(frameCount / 2);
+  const variant = adventureFixtureVariantIndex(tx, ty, variantsPerHeight, roomGridX, roomGridY, 17);
+  const tall = adventureFixtureVariantIndex(tx, ty, 5, roomGridX, roomGridY, 71) === 0;
+  return variant + (tall ? variantsPerHeight : 0);
+}
+
+/** Ground-contact Y is authoritative; the remaining keys make ties deterministic. */
+export function compareAdventureDepth(a: AdventureDepthKey, b: AdventureDepthKey): number {
+  return a.groundY - b.groundY || a.depthOrder - b.depthOrder || a.stableOrder - b.stableOrder;
+}
+
+/** Stable environmental progression for the four generated atlas panels:
+ * entrance, ordinary, deep, finale. Room art never changes with visit order. */
+export function adventureRoomPlateIndex(
+  roomIx: number,
+  startIx: number,
+  bossIx: number,
+  depthFromStart: number,
+  maxDepth: number,
+): number {
+  if (roomIx === startIx) return 0;
+  if (roomIx === bossIx) return 3;
+  const deepThreshold = Math.max(2, Math.ceil(Math.max(1, maxDepth) * 0.6));
+  return depthFromStart >= deepThreshold ? 2 : 1;
+}
+
+function canvasImageSize(
+  source: CanvasImageSource | null,
+): { width: number; height: number } | null {
+  if (!source) return null;
+  const sized = source as {
+    naturalWidth?: number;
+    naturalHeight?: number;
+    videoWidth?: number;
+    videoHeight?: number;
+    width?: number;
+    height?: number;
+  };
+  const width = sized.naturalWidth ?? sized.videoWidth ?? sized.width ?? 0;
+  const height = sized.naturalHeight ?? sized.videoHeight ?? sized.height ?? 0;
+  return Number.isFinite(width) && Number.isFinite(height) && width >= 2 && height >= 2
+    ? { width, height }
+    : null;
+}
+
+/** Cache one generated pose at its exact physical gameplay size, then add a
+ * single physical-pixel contour. The cached canvas renders 1:1 under the
+ * engine's display transform, so the keyline stays crisp instead of scaling
+ * into a chunky logical-pixel border. */
+function prepareAdventurePlayerPose(source: CanvasImageSource): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = GENERATED_PLAYER_DRAW_W * DISPLAY_SCALE;
+  canvas.height = GENERATED_PLAYER_DRAW_H * DISPLAY_SCALE;
+  const ctx = canvas.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+  return outlineCanvas(canvas, GENERATED_PLAYER_OUTLINE);
 }
 
 export function createAdventureGame(engine: EngineContext, spec: AdventureSpec): GameInstance {
@@ -246,6 +433,15 @@ class AdventureGame implements GameInstance {
   private posIndex = new Map<string, number>();
   private backdrop: Backdrop;
   private tileFrames: Record<string, HTMLCanvasElement[]> = {};
+  private depthItems: AdventureDepthItem[] = [];
+  private wallAutotiles: TopDownConnectedAutotiles;
+  private pitAutotiles: TopDownConnectedAutotiles;
+  private blockAutotiles: TopDownConnectedAutotiles;
+  private doorArt = {} as Record<DoorVisualKind, Record<Dir, HTMLCanvasElement>>;
+  private roomPlate: CanvasImageSource | null;
+  private roomPlateSize: { width: number; height: number } | null;
+  private roomDepths: number[] = [];
+  private maxRoomDepth = 1;
 
   // room state (rebuilt on every room entry)
   private kinds: TileKind[] = new Array<TileKind>(COLS * ROWS).fill('floor');
@@ -346,6 +542,7 @@ class AdventureGame implements GameInstance {
   private waveSprite: ResolvedSprite;
   private boomSprite: ResolvedSprite;
   private bombSprite: ResolvedSprite;
+  private generatedPlayerPoses: Readonly<Record<string, CanvasImageSource>> | null;
   private diff!: DifficultyScale;
 
   constructor(
@@ -361,6 +558,14 @@ class AdventureGame implements GameInstance {
     this.waveSprite = engine.sprites.byRole('proj_wave', 'lib:proj_wave');
     this.boomSprite = engine.sprites.byRole('item_boomerang', 'lib:item_boomerang');
     this.bombSprite = engine.sprites.byRole('proj_bomb', 'lib:proj_bomb');
+    this.generatedPlayerPoses = engine.adventurePlayerPoses
+      ? Object.fromEntries(
+          Object.entries(engine.adventurePlayerPoses).map(([pose, source]) => [
+            pose,
+            prepareAdventurePlayerPose(source),
+          ]),
+        )
+      : null;
 
     const tileArt: Record<string, string> = {
       floor: 'lib:tile_floor',
@@ -377,9 +582,28 @@ class AdventureGame implements GameInstance {
     for (const [name, ref] of Object.entries(tileArt)) {
       // Reskinnable terrain: assign role = the default lib id (e.g. "tile_wall":
       // "lib:castle_wall" or a custom 16x16). bob:false keeps tiles still.
-      this.tileFrames[name] = engine.sprites.byRole(ref.slice(4), ref, { bob: false }).frames;
+      const assigned = this.spec.sprites.assign[ref.slice(4)] ?? ref;
+      const resolved = name === 'floor' ? assigned : adventureHdTileRef(assigned);
+      this.tileFrames[name] = engine.sprites.byRef(resolved, false, {
+        bob: false,
+      }).frames;
+    }
+    this.wallAutotiles = new TopDownConnectedAutotiles(this.tileFrames['wall']!, 'raised');
+    this.pitAutotiles = new TopDownConnectedAutotiles(this.tileFrames['pit']!, 'recessed');
+    this.blockAutotiles = new TopDownConnectedAutotiles(this.tileFrames['block']!, 'raised');
+    for (const kind of ['doorOpen', 'doorLocked', 'doorBoss'] as const) {
+      const source = this.tileFrames[kind]![0]!;
+      this.doorArt[kind] = {
+        n: orientDoorCanvas(source, 'n'),
+        s: orientDoorCanvas(source, 's'),
+        e: orientDoorCanvas(source, 'e'),
+        w: orientDoorCanvas(source, 'w'),
+      };
     }
     this.backdrop = makeBackdrop(spec.palette, spec.seed + 33, spec.backdrop);
+    this.roomPlate = engine.adventureRoomPlates;
+    this.roomPlateSize = canvasImageSize(this.roomPlate);
+    if (!this.roomPlateSize) this.roomPlate = null;
 
     this.dungeon.rooms.forEach((room, i) => {
       this.posIndex.set(`${room.gridPos.x},${room.gridPos.y}`, i);
@@ -395,6 +619,7 @@ class AdventureGame implements GameInstance {
         this.gMaxY = Math.max(this.gMaxY, room.gridPos.y);
       }
     });
+    this.measureRoomDepths();
 
     this.ents = Array.from({ length: BUDGET.maxActiveEntities }, () => ({
       active: false,
@@ -500,7 +725,7 @@ class AdventureGame implements GameInstance {
     this.buildRoom(ix);
     this.roomReady = true;
     if (x === null || y === null) {
-      const cell = this.findSpawnCell(12, 6);
+      const cell = this.findSpawnCell(ROOM_CENTER_TX, ROOM_CENTER_TY);
       x = cell.tx * TILE_SIZE + 2;
       y = cell.ty * TILE_SIZE + 2;
     }
@@ -561,6 +786,37 @@ class AdventureGame implements GameInstance {
       return;
     }
     this.phase = 'play';
+  }
+
+  private measureRoomDepths(): void {
+    this.roomDepths = new Array<number>(this.dungeon.rooms.length).fill(-1);
+    this.roomDepths[this.startIx] = 0;
+    const queue = [this.startIx];
+    const directions = [
+      ['n', 0, -1],
+      ['s', 0, 1],
+      ['e', 1, 0],
+      ['w', -1, 0],
+    ] as const;
+    for (let head = 0; head < queue.length; head++) {
+      const ix = queue[head]!;
+      const room = this.dungeon.rooms[ix]!;
+      for (const [dir, dx, dy] of directions) {
+        if (room.doors[dir] === 'none') continue;
+        const neighbor = this.posIndex.get(`${room.gridPos.x + dx},${room.gridPos.y + dy}`);
+        if (neighbor === undefined || this.roomDepths[neighbor] !== -1) continue;
+        this.roomDepths[neighbor] = this.roomDepths[ix]! + 1;
+        queue.push(neighbor);
+      }
+    }
+    for (let ix = 0; ix < this.roomDepths.length; ix++) {
+      if ((this.roomDepths[ix] ?? -1) >= 0) continue;
+      const room = this.dungeon.rooms[ix]!;
+      const start = this.dungeon.rooms[this.startIx]!;
+      this.roomDepths[ix] =
+        Math.abs(room.gridPos.x - start.gridPos.x) + Math.abs(room.gridPos.y - start.gridPos.y);
+    }
+    this.maxRoomDepth = Math.max(1, ...this.roomDepths);
   }
 
   private showBeatCard(line: string): void {
@@ -733,22 +989,6 @@ class AdventureGame implements GameInstance {
     return null;
   }
 
-  /** Casts a raised-block silhouette (see drawObstacleShadows). Walls and pits
-   *  share the floor's base color and must be forced to read against it. */
-  private isObstacleTile(tx: number, ty: number): boolean {
-    const k = this.kindAt(tx, ty);
-    return k === 'wall' || k === 'pit';
-  }
-
-  /** Walkable terrain an obstacle shadow can fall onto (excludes doorways, which
-   *  have their own dark art, and cells holding a pushable block). */
-  private isTerrainTile(tx: number, ty: number): boolean {
-    if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS) return false;
-    const k = this.kinds[ty * COLS + tx]!;
-    if (k !== 'floor' && k !== 'decoration' && k !== 'switch') return false;
-    return !this.blockAt(tx, ty);
-  }
-
   private solidity(tx: number, ty: number, forEnemy: boolean): Solidity {
     const k = this.kindAt(tx, ty);
     if (k === 'wall' || k === 'pit' || k === 'doorLocked' || k === 'doorBoss') return 'solid';
@@ -767,8 +1007,8 @@ class AdventureGame implements GameInstance {
   }
 
   private findSpawnCell(targetTx: number, targetTy: number): { tx: number; ty: number } {
-    let bestTx = 12;
-    let bestTy = 6;
+    let bestTx = ROOM_CENTER_TX;
+    let bestTy = ROOM_CENTER_TY;
     let bestD = Infinity;
     for (let ty = 1; ty < ROWS - 1; ty++) {
       for (let tx = 1; tx < COLS - 1; tx++) {
@@ -951,8 +1191,8 @@ class AdventureGame implements GameInstance {
     if (this.sealed) return false;
     const cx = this.px + PLAYER_W / 2;
     const cy = this.py + PLAYER_H / 2;
-    const inNS = cx >= 11 * TILE_SIZE && cx < 13 * TILE_SIZE;
-    const inEW = cy >= 5 * TILE_SIZE && cy < 7 * TILE_SIZE;
+    const inNS = cx >= DOOR_LEFT_TX * TILE_SIZE && cx < (DOOR_RIGHT_TX + 1) * TILE_SIZE;
+    const inEW = cy >= DOOR_TOP_TY * TILE_SIZE && cy < (DOOR_BOTTOM_TY + 1) * TILE_SIZE;
     if (this.py < 2 && inNS && this.doorIsOpen('n')) return this.goThrough('n');
     if (this.py + PLAYER_H > ROOM_H - 2 && inNS && this.doorIsOpen('s')) return this.goThrough('s');
     if (this.px + PLAYER_W > ROOM_W - 2 && inEW && this.doorIsOpen('e')) return this.goThrough('e');
@@ -973,8 +1213,8 @@ class AdventureGame implements GameInstance {
     let neighbor = -1;
     for (const d of this.doors) if (d.dir === dir) neighbor = d.neighbor;
     if (neighbor < 0) return false;
-    const midX = 12 * TILE_SIZE - PLAYER_W / 2;
-    const midY = 6 * TILE_SIZE - PLAYER_H / 2;
+    const midX = ROOM_CENTER_TX * TILE_SIZE - PLAYER_W / 2;
+    const midY = ROOM_CENTER_TY * TILE_SIZE - PLAYER_H / 2;
     let x = midX;
     let y = midY;
     if (dir === 'n') {
@@ -1472,7 +1712,7 @@ class AdventureGame implements GameInstance {
   }
 
   private placeBoss(): void {
-    const cell = this.findSpawnCell(12, 4);
+    const cell = this.findSpawnCell(ROOM_CENTER_TX, Math.floor(ROWS / 3));
     this.boss.x = cell.tx * TILE_SIZE + 8 - this.boss.w / 2;
     this.boss.y = cell.ty * TILE_SIZE + 8 - this.boss.h / 2;
   }
@@ -1873,6 +2113,252 @@ class AdventureGame implements GameInstance {
 
   // ------------------------------------------------------------------ render
 
+  private visualWallAt(tx: number, ty: number): boolean {
+    const kind = this.kindAt(tx, ty);
+    return (
+      kind === 'wall' ||
+      (this.sealed && (kind === 'doorOpen' || kind === 'doorLocked' || kind === 'doorBoss'))
+    );
+  }
+
+  private terrainFrameIndex(
+    frames: readonly CanvasImageSource[],
+    tx: number,
+    ty: number,
+    animatedFrameIx: number,
+  ): number {
+    return adventureTerrainFrameIndex(
+      tx,
+      ty,
+      frames.length,
+      animatedFrameIx,
+      this.room.gridPos.x,
+      this.room.gridPos.y,
+    );
+  }
+
+  private terrainCanvasAt(
+    tx: number,
+    ty: number,
+    animatedFrameIx: number,
+  ): CanvasImageSource | null {
+    if (this.visualWallAt(tx, ty)) {
+      const frames = this.tileFrames['wall']!;
+      const mask = solidNeighborMask((x, y) => this.visualWallAt(x, y), tx, ty);
+      return this.wallAutotiles.frame(
+        mask,
+        this.terrainFrameIndex(frames, tx, ty, animatedFrameIx),
+      );
+    }
+    if (this.kindAt(tx, ty) === 'pit') {
+      const frames = this.tileFrames['pit']!;
+      const mask = solidNeighborMask((x, y) => this.kindAt(x, y) === 'pit', tx, ty);
+      return this.pitAutotiles.frame(mask, this.terrainFrameIndex(frames, tx, ty, animatedFrameIx));
+    }
+    if (this.roomPlate) return null;
+    const frames = this.tileFrames['floor']!;
+    return frames[this.terrainFrameIndex(frames, tx, ty, animatedFrameIx)] ?? frames[0] ?? null;
+  }
+
+  private drawRoomPlate(): void {
+    if (!this.roomPlate || !this.roomPlateSize) return;
+    const plate = adventureRoomPlateIndex(
+      this.roomIx,
+      this.startIx,
+      this.bossIx,
+      this.roomDepths[this.roomIx] ?? 0,
+      this.maxRoomDepth,
+    );
+    const sourceWidth = this.roomPlateSize.width / ROOM_PLATE_COLUMNS;
+    const sourceHeight = this.roomPlateSize.height / ROOM_PLATE_ROWS;
+    const sx = (plate % ROOM_PLATE_COLUMNS) * sourceWidth;
+    const sy = Math.floor(plate / ROOM_PLATE_COLUMNS) * sourceHeight;
+    const ctx = this.engine.renderer.ctx;
+    const cam = this.engine.camera;
+    const roomX = -cam.x;
+    const roomY = -cam.y;
+    ctx.save();
+    // A generated atlas is allowed to be imperfect at its panel seams, but it
+    // must never paint beyond the authoritative playable-room footprint.
+    ctx.beginPath();
+    ctx.rect(roomX, roomY, ROOM_W, ROOM_H);
+    ctx.clip();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(this.roomPlate, sx, sy, sourceWidth, sourceHeight, roomX, roomY, ROOM_W, ROOM_H);
+    ctx.restore();
+  }
+
+  private fixtureFrameIndex(
+    frames: readonly HTMLCanvasElement[],
+    tx: number,
+    ty: number,
+    salt = 0,
+  ): number {
+    return adventureFixtureVariantIndex(
+      tx,
+      ty,
+      frames.length,
+      this.room.gridPos.x,
+      this.room.gridPos.y,
+      salt,
+    );
+  }
+
+  private drawGroundShadow(centerX: number, groundY: number, width: number, alpha = 0.2): void {
+    const ctx = this.engine.renderer.ctx;
+    const cam = this.engine.camera;
+    ctx.save();
+    ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+    ctx.beginPath();
+    ctx.ellipse(
+      Math.round(centerX - cam.x),
+      Math.round(groundY - cam.y - 1),
+      Math.max(2, width * 0.38),
+      Math.max(1, width * 0.13),
+      0,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fill();
+    ctx.restore();
+  }
+
+  private drawDepthItem(item: AdventureDepthItem): void {
+    const r = this.engine.renderer;
+    const cam = this.engine.camera;
+    if (item.kind === 'decoration') {
+      const frames = this.tileFrames['deco']!;
+      const frame = adventureDecorationFrameIndex(
+        item.cell.tx,
+        item.cell.ty,
+        frames.length,
+        this.room.gridPos.x,
+        this.room.gridPos.y,
+      );
+      const image = frames[frame] ?? frames[0]!;
+      const logicalHeight = Math.max(
+        TILE_SIZE,
+        Math.round((TILE_SIZE * image.height) / image.width),
+      );
+      if (frames.length >= 8 && frame >= frames.length / 2) {
+        this.drawGroundShadow(item.cell.tx * TILE_SIZE + TILE_SIZE / 2, item.groundY, 12, 0.18);
+      }
+      r.drawScaled(
+        image,
+        item.cell.tx * TILE_SIZE - cam.x,
+        item.groundY - logicalHeight - cam.y,
+        TILE_SIZE,
+        logicalHeight,
+      );
+      return;
+    }
+
+    if (item.kind === 'block') {
+      const frames = this.tileFrames['block']!;
+      const tx = Math.round(item.block.x / TILE_SIZE);
+      const ty = Math.round(item.block.y / TILE_SIZE);
+      const sourceFrame = this.fixtureFrameIndex(frames, tx, ty, 31);
+      const image = this.blockAutotiles.frame(0, sourceFrame);
+      if (image) {
+        r.drawScaled(image, item.block.x - cam.x, item.block.y - cam.y, TILE_SIZE, TILE_SIZE);
+      }
+      return;
+    }
+
+    if (item.kind === 'bomb') {
+      const blink = item.bomb.fuseT < 0.35 && Math.floor(this.animT * 16) % 2 === 0;
+      const image = blink
+        ? (this.bombSprite.flash[0] ?? this.bombSprite.frames[0]!)
+        : this.bombSprite.frames[0]!;
+      this.drawGroundShadow(item.bomb.x, item.groundY, 8, 0.16);
+      r.draw(
+        image,
+        item.bomb.x - cam.x - this.bombSprite.w / 2,
+        item.bomb.y - cam.y - this.bombSprite.h / 2,
+      );
+      return;
+    }
+
+    if (item.kind === 'entity') {
+      const e = item.entity;
+      const flicker =
+        (e.hitT > 0 && Math.floor(this.animT * 20) % 2 === 0) ||
+        (e.stunT > 0 && Math.floor(this.animT * 10) % 2 === 0);
+      const sprite = this.sprites[e.type];
+      if (!sprite) return;
+      const pickup = e.type === 'key' || e.type === 'heart' || e.type === 'item';
+      this.drawGroundShadow(e.x + e.w / 2, item.groundY, pickup ? 7 : e.w, pickup ? 0.1 : 0.2);
+      if (flicker) return;
+      const bob = pickup ? Math.sin(e.t * 4) * 1.5 : 0;
+      const anim = isEnemyType(e.type) && e.stunT <= 0 ? 'walk' : 'idle';
+      const image = this.engine.sprites.frame(sprite, anim, e.t, e.dirX > 0);
+      r.draw(image, e.x - cam.x - (sprite.w - e.w) / 2, e.y - cam.y - (sprite.h - e.h) + bob);
+      return;
+    }
+
+    if (item.kind === 'boss') {
+      const b = item.boss;
+      const sprite = this.sprites['boss']!;
+      let x = b.x - cam.x - (sprite.w - b.w) / 2;
+      const y = b.y - cam.y - (sprite.h - b.h);
+      if (b.mode === 'telegraph') x += Math.sin(this.animT * 60) * 2;
+      const anim =
+        b.mode === 'telegraph' || b.mode === 'charge' ? 'attack' : b.invulnT > 0 ? 'hurt' : 'idle';
+      const image = this.engine.sprites.frame(sprite, anim, this.animT, b.dirX > 0);
+      this.drawGroundShadow(b.x + b.w / 2, item.groundY, b.w, 0.24);
+      r.draw(image, x, y);
+      return;
+    }
+
+    this.drawGroundShadow(this.px + PLAYER_W / 2, item.groundY, 22, 0.34);
+    if (this.invulnT <= 0 || Math.floor(this.animT * 12) % 2 === 0) {
+      const generated =
+        this.generatedPlayerPoses?.[adventurePlayerPoseName(this.facing, this.moving, this.animT)];
+      if (generated) {
+        const drawW = GENERATED_PLAYER_DRAW_W;
+        const drawH = GENERATED_PLAYER_DRAW_H;
+        const x = Math.round(this.px + PLAYER_W / 2 - drawW / 2 - cam.x);
+        const y = Math.round(this.py + PLAYER_H - drawH - cam.y);
+        if (this.facing === 'left') {
+          const ctx = r.ctx;
+          ctx.save();
+          ctx.imageSmoothingEnabled = false;
+          ctx.translate(x + drawW, y);
+          ctx.scale(-1, 1);
+          ctx.drawImage(generated, 0, 0, drawW, drawH);
+          ctx.restore();
+        } else {
+          r.drawScaled(generated, x, y, drawW, drawH);
+        }
+      } else {
+        const hero = this.sprites['hero']!;
+        const anim = this.facing === 'up' ? 'up' : this.facing === 'down' ? 'down' : 'side';
+        const t = this.moving ? this.animT : 0;
+        const image = this.engine.sprites.frame(hero, anim, t, this.facing === 'left');
+        r.draw(
+          image,
+          this.px - cam.x - (hero.w - PLAYER_W) / 2,
+          this.py - cam.y - (hero.h - PLAYER_H),
+        );
+      }
+    }
+    if (this.swordT > 0) {
+      this.setSwordBox();
+      const image = this.engine.sprites.frame(
+        this.waveSprite,
+        'idle',
+        this.animT,
+        this.facing === 'left',
+      );
+      r.draw(
+        image,
+        this.swordBox.x - cam.x + (this.swordBox.w - this.waveSprite.w) / 2,
+        this.swordBox.y - cam.y + (this.swordBox.h - this.waveSprite.h) / 2,
+      );
+    }
+  }
+
   render(): void {
     const r = this.engine.renderer;
     const cam = this.engine.camera;
@@ -1880,114 +2366,137 @@ class AdventureGame implements GameInstance {
     if (!this.roomReady) return;
 
     this.backdrop.draw(r.ctx, this.room.gridPos.x * 120, this.room.gridPos.y * 80);
+    this.drawRoomPlate();
+    // Keep the room edge above the generated plate even if the atlas contains
+    // high-contrast pixels at the exact panel boundary.
     r.frame(VIEW_X - 2, VIEW_Y - 2, ROOM_W + 4, ROOM_H + 4, this.spec.palette[1] ?? '#10122b', 2);
 
     const frameIx = Math.floor(this.animT * 4) % 2;
-    const floorFrames = this.tileFrames['floor']!;
-    const wallFrames = this.tileFrames['wall']!;
-    const pitFrames = this.tileFrames['pit']!;
     drawTileLayer(r, cam, COLS, ROWS, TILE_SIZE, (tx, ty) => {
-      const k = this.kinds[ty * COLS + tx]!;
-      const frames = k === 'wall' ? wallFrames : k === 'pit' ? pitFrames : floorFrames;
-      return frames[frameIx % frames.length] ?? frames[0] ?? null;
+      return this.terrainCanvasAt(tx, ty, frameIx);
     });
 
-    // Guarantee obstacle contrast: wall/pit art shares the floor's base color,
-    // so on a low-contrast palette (or the cabinet's dark LCD) they vanish into
-    // the terrain. Stamp a palette-independent raised-block silhouette.
-    drawObstacleShadows(
-      r,
-      cam,
-      COLS,
-      ROWS,
-      TILE_SIZE,
-      (tx, ty) => this.isObstacleTile(tx, ty),
-      (tx, ty) => this.isTerrainTile(tx, ty),
-    );
-
-    // Decorations, switches, hazards on top of floor.
-    const decoFrames = this.tileFrames['deco']!;
-    for (const c of this.decoCells) {
-      r.draw(decoFrames[0]!, c.tx * TILE_SIZE - cam.x, c.ty * TILE_SIZE - cam.y);
-    }
+    // Floor-bound switches and hazards sit below the Y-sorted object layer.
     const switchFrames = this.tileFrames['switch']!;
     for (const s of this.switchCells) {
-      const img = s.pressed && switchFrames.length > 1 ? switchFrames[1]! : switchFrames[0]!;
-      r.draw(img, s.tx * TILE_SIZE - cam.x, s.ty * TILE_SIZE - cam.y);
+      const variantCount = Math.max(1, Math.floor(switchFrames.length / 2));
+      const variant = adventureFixtureVariantIndex(
+        s.tx,
+        s.ty,
+        variantCount,
+        this.room.gridPos.x,
+        this.room.gridPos.y,
+        43,
+      );
+      const frame = variant * 2 + (s.pressed ? 1 : 0);
+      const img = switchFrames[frame] ?? switchFrames[s.pressed ? 1 : 0] ?? switchFrames[0]!;
+      r.drawScaled(img, s.tx * TILE_SIZE - cam.x, s.ty * TILE_SIZE - cam.y, TILE_SIZE, TILE_SIZE);
     }
     const hazardFrames = this.tileFrames['hazard']!;
     for (const c of this.hazardCells) {
       const x = c.tx * TILE_SIZE - cam.x;
       const y = c.ty * TILE_SIZE - cam.y;
-      r.draw(hazardFrames[frameIx % hazardFrames.length] ?? hazardFrames[0]!, x, y);
+      r.drawScaled(
+        hazardFrames[frameIx % hazardFrames.length] ?? hazardFrames[0]!,
+        x,
+        y,
+        TILE_SIZE,
+        TILE_SIZE,
+      );
       if (!this.hazardsActive) r.rect(x, y, TILE_SIZE, TILE_SIZE, 'rgba(0,0,0,0.55)');
     }
 
     // Doors (sealed boss-room doors draw as walls).
-    const lockedFrames = this.tileFrames['doorLocked']!;
-    const bossFrames = this.tileFrames['doorBoss']!;
-    const openFrames = this.tileFrames['doorOpen']!;
     for (const d of this.doors) {
+      if (this.sealed) continue;
+      const first = d.cells[0]!;
+      const tileKind = this.kinds[first.ty * COLS + first.tx]!;
+      const visualKind: DoorVisualKind =
+        tileKind === 'doorLocked'
+          ? 'doorLocked'
+          : tileKind === 'doorBoss'
+            ? 'doorBoss'
+            : 'doorOpen';
+      const source = this.tileFrames[visualKind]![0]!;
+      if (source.width >= source.height * 1.5) {
+        const left = Math.min(...d.cells.map((cell) => cell.tx)) * TILE_SIZE;
+        const top = Math.min(...d.cells.map((cell) => cell.ty)) * TILE_SIZE;
+        const vertical = d.dir === 'e' || d.dir === 'w';
+        r.drawScaled(
+          this.doorArt[visualKind][d.dir],
+          left - cam.x,
+          top - cam.y,
+          vertical ? TILE_SIZE : TILE_SIZE * 2,
+          vertical ? TILE_SIZE * 2 : TILE_SIZE,
+        );
+        continue;
+      }
       for (const c of d.cells) {
         const x = c.tx * TILE_SIZE - cam.x;
         const y = c.ty * TILE_SIZE - cam.y;
-        if (this.sealed) {
-          r.draw(wallFrames[0]!, x, y);
-          continue;
-        }
-        const k = this.kinds[c.ty * COLS + c.tx]!;
-        if (k === 'doorLocked') r.draw(lockedFrames[0]!, x, y);
-        else if (k === 'doorBoss') r.draw(bossFrames[0]!, x, y);
-        else r.draw(openFrames[0]!, x, y);
+        r.drawScaled(source, x, y, TILE_SIZE, TILE_SIZE);
       }
     }
 
-    // Blocks (free-standing pushables sit on floor — outline all four sides).
-    const blockFrames = this.tileFrames['block']!;
-    for (const b of this.blocks) {
-      if (!b.active) continue;
-      r.draw(blockFrames[0]!, b.x - cam.x, b.y - cam.y);
-      drawObstacleTile(r, b.x - cam.x, b.y - cam.y, TILE_SIZE, true, true, true, true);
+    // Every object with a ground contact shares one stable depth axis.
+    this.depthItems.length = 0;
+    let stableOrder = 0;
+    for (const cell of this.decoCells) {
+      this.depthItems.push({
+        kind: 'decoration',
+        cell,
+        groundY: (cell.ty + 1) * TILE_SIZE,
+        depthOrder: ADVENTURE_DEPTH_ORDER.decoration,
+        stableOrder: stableOrder++,
+      });
     }
-
-    // Bombs (blink near the end of the fuse).
-    for (const bm of this.bombs) {
-      if (!bm.active) continue;
-      const blink = bm.fuseT < 0.35 && Math.floor(this.animT * 16) % 2 === 0;
-      const img = blink
-        ? (this.bombSprite.flash[0] ?? this.bombSprite.frames[0]!)
-        : this.bombSprite.frames[0]!;
-      r.draw(img, bm.x - cam.x - this.bombSprite.w / 2, bm.y - cam.y - this.bombSprite.h / 2);
+    for (const block of this.blocks) {
+      if (!block.active) continue;
+      this.depthItems.push({
+        kind: 'block',
+        block,
+        groundY: block.y + TILE_SIZE,
+        depthOrder: ADVENTURE_DEPTH_ORDER.block,
+        stableOrder: stableOrder++,
+      });
     }
-
-    // Entities.
-    for (const e of this.ents) {
-      if (!e.active) continue;
-      const flicker =
-        (e.hitT > 0 && Math.floor(this.animT * 20) % 2 === 0) ||
-        (e.stunT > 0 && Math.floor(this.animT * 10) % 2 === 0);
-      if (flicker) continue;
-      const sprite = this.sprites[e.type];
-      if (!sprite) continue;
-      const pickup = e.type === 'key' || e.type === 'heart' || e.type === 'item';
-      const bob = pickup ? Math.sin(e.t * 4) * 1.5 : 0;
-      const anim = isEnemyType(e.type) && e.stunT <= 0 ? 'walk' : 'idle';
-      const img = this.engine.sprites.frame(sprite, anim, e.t, e.dirX > 0);
-      r.draw(img, e.x - cam.x - (sprite.w - e.w) / 2, e.y - cam.y - (sprite.h - e.h) + bob);
+    for (const bomb of this.bombs) {
+      if (!bomb.active) continue;
+      this.depthItems.push({
+        kind: 'bomb',
+        bomb,
+        groundY: bomb.y + Math.min(TILE_SIZE / 2, this.bombSprite.h / 2),
+        depthOrder: ADVENTURE_DEPTH_ORDER.bomb,
+        stableOrder: stableOrder++,
+      });
     }
-
-    // Boss.
-    const b = this.boss;
-    if (b.active && b.visible) {
-      const sprite = this.sprites['boss']!;
-      let bx = b.x - cam.x - (sprite.w - b.w) / 2;
-      const by = b.y - cam.y - (sprite.h - b.h);
-      if (b.mode === 'telegraph') bx += Math.sin(this.animT * 60) * 2;
-      const anim =
-        b.mode === 'telegraph' || b.mode === 'charge' ? 'attack' : b.invulnT > 0 ? 'hurt' : 'idle';
-      const img = this.engine.sprites.frame(sprite, anim, this.animT, b.dirX > 0);
-      r.draw(img, bx, by);
+    for (const entity of this.ents) {
+      if (!entity.active) continue;
+      this.depthItems.push({
+        kind: 'entity',
+        entity,
+        groundY: entity.y + entity.h,
+        depthOrder: ADVENTURE_DEPTH_ORDER.entity,
+        stableOrder: stableOrder++,
+      });
     }
+    if (this.boss.active && this.boss.visible) {
+      this.depthItems.push({
+        kind: 'boss',
+        boss: this.boss,
+        groundY: this.boss.y + this.boss.h,
+        depthOrder: ADVENTURE_DEPTH_ORDER.boss,
+        stableOrder: stableOrder++,
+      });
+    }
+    this.depthItems.push({
+      kind: 'player',
+      groundY: this.py + PLAYER_H,
+      depthOrder: ADVENTURE_DEPTH_ORDER.player,
+      stableOrder,
+    });
+    this.depthItems.sort(compareAdventureDepth);
+    for (const item of this.depthItems) this.drawDepthItem(item);
 
     // Projectiles.
     const pelletSprite = this.sprites['enemy_shot']!;
@@ -2010,29 +2519,6 @@ class AdventureGame implements GameInstance {
         img,
         this.boom.x - cam.x - this.boomSprite.w / 2,
         this.boom.y - cam.y - this.boomSprite.h / 2,
-      );
-    }
-
-    // Player (invulnerability flicker) + sword slash.
-    if (this.invulnT <= 0 || Math.floor(this.animT * 12) % 2 === 0) {
-      const hero = this.sprites['hero']!;
-      const anim = this.facing === 'up' ? 'up' : this.facing === 'down' ? 'down' : 'side';
-      const t = this.moving ? this.animT : 0;
-      const img = this.engine.sprites.frame(hero, anim, t, this.facing === 'left');
-      r.draw(img, this.px - cam.x - (hero.w - PLAYER_W) / 2, this.py - cam.y - (hero.h - PLAYER_H));
-    }
-    if (this.swordT > 0) {
-      this.setSwordBox();
-      const img = this.engine.sprites.frame(
-        this.waveSprite,
-        'idle',
-        this.animT,
-        this.facing === 'left',
-      );
-      r.draw(
-        img,
-        this.swordBox.x - cam.x + (this.swordBox.w - this.waveSprite.w) / 2,
-        this.swordBox.y - cam.y + (this.swordBox.h - this.waveSprite.h) / 2,
       );
     }
 

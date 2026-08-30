@@ -114,7 +114,8 @@ h2.pixel {
 @media (prefers-reduced-motion: reduce) {
   .focusable,
   .card,
-  .modal {
+  .modal,
+  .attract-feature {
     transition: none !important;
     animation: none !important;
   }
@@ -1729,8 +1730,30 @@ h2.pixel {
 }
 
 .attract canvas.marquee {
+  width: 288px;
+  height: 171px;
+  border: 2px solid rgba(53, 224, 255, 0.3);
   image-rendering: pixelated;
   border-radius: 10px;
+  box-shadow:
+    0 0 0 4px rgba(17, 23, 48, 0.72),
+    0 16px 38px rgba(0, 0, 0, 0.44),
+    0 0 28px rgba(53, 224, 255, 0.12);
+}
+
+.attract-feature {
+  animation: attract-feature-in 440ms steps(6, end) both;
+}
+
+@keyframes attract-feature-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* ------------------------------------------------- dev asset gallery ----- */

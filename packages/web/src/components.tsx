@@ -253,14 +253,9 @@ export function GameCover(props: {
         presentMatted(image, image.naturalWidth, image.naturalHeight, true);
         return;
       }
-      // The attract-screen marquee intentionally relies on the canvas's
-      // intrinsic 128×76 size; preserve that layout while raising the backing
-      // resolution for generated art. Other cover classes already set both
-      // dimensions in CSS.
-      if (props.class?.split(/\s+/).includes('marquee')) {
-        canvas.style.width = '128px';
-        canvas.style.height = '76px';
-      }
+      // Keep a high-resolution backing canvas for generated cover art. Display
+      // dimensions belong to each screen's CSS so the attract marquee can give
+      // Muse art more room than a list thumbnail.
       canvas.width = 512;
       canvas.height = 304;
       const ctx = canvas.getContext('2d')!;

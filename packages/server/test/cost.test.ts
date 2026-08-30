@@ -14,13 +14,15 @@ describe('cost calculator', () => {
   it('accounts for batched fighter pose sheets and uses the richest unknown-archetype path', () => {
     expect(estimateImageCount(false)).toBe(31);
     expect(estimateImageCount(false, 'fighter')).toBe(31);
-    expect(estimateImageCount(false, 'platformer')).toBe(25);
+    expect(estimateImageCount(false, 'platformer')).toBe(38);
     expect(estimateImageCount(true, 'platformer')).toBe(40);
     expect(estimateImageCount(true, 'fighter')).toBe(33);
     expect(estimateImageCount(false, 'adventure')).toBe(12);
     expect(estimateImageCount(true, 'adventure')).toBe(14);
-    expect(estimateImageCount(false, 'hshooter')).toBe(6);
-    expect(estimateImageCount(true, 'hshooter')).toBe(8);
+    expect(estimateImageCount(false, 'hshooter')).toBe(12);
+    expect(estimateImageCount(true, 'hshooter')).toBe(14);
+    expect(estimateImageCount(false, 'shooter')).toBe(8);
+    expect(estimateImageCount(true, 'shooter')).toBe(10);
     expect(estimateImageCount(true)).toBe(40);
   });
 

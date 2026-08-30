@@ -58,9 +58,11 @@ describe('prompt templates', () => {
     expect(t).toContain('NEVER truncate a string or cut off its final word');
     expect(t).toContain('target at most 28 characters for `title`');
     expect(t).toContain('Choose camera framing and source-art detail independently');
-    expect(t).toContain(
-      'For `platformerArtDensity`, use `detailed` by default when a likeness photo exists',
-    );
+    expect(t).toContain('New games MUST use `platformerArtDensity: detailed`');
+    expect(t).toContain('Always choose one `movementProfile`');
+    expect(t).toContain('`precision` for crisp exact control');
+    expect(t).toContain('`momentum` for speed with retained inertia');
+    expect(t).toContain('do not emit the legacy numeric `feel` object');
     expect(t).toContain('`heroConcept` is the canonical visual contract');
     expect(t).toContain('immutable identity truth from the neck up');
     expect(t).toContain("source photo's shirt or other clothing below the neck is NOT identity");
@@ -81,6 +83,13 @@ describe('prompt templates', () => {
         expect(() => JSON.parse(excerpt), `${archetype}/${stage}`).not.toThrow();
       }
     }
+  });
+
+  it('shows the platformer movement profile in the design example', () => {
+    const excerpt = JSON.parse(goldenExcerpt('platformer', 'design')) as {
+      movementProfile?: string;
+    };
+    expect(excerpt.movementProfile).toBe('balanced');
   });
 
   it('teaches the fighter levels stage to author the player and outfit', () => {
@@ -121,5 +130,21 @@ describe('prompt templates', () => {
 
     expect(excerpt.sprites.assign.tile_solid).toBe('lib:clockwork_solid');
     expect(excerpt.sprites.assign.tile_solid_inner).toBe('lib:clockwork_solid_inner');
+  });
+
+  it('teaches Adventure generation that the item is required before the boss gate', () => {
+    const designPrompt = loadTemplate('design');
+    expect(designPrompt).toContain('equipped from the start');
+    expect(designPrompt).toContain('REQUIRED `combatKit`');
+    expect(designPrompt).toContain('`close` for fists/knife');
+    expect(designPrompt).toContain('`shot` for bow/gun/blaster');
+    expect(designPrompt).toContain('do not default every premise to fantasy gear');
+    const prompt = loadTemplate('levels-adventure');
+    expect(prompt).toContain('combatKit.secondary.behavior');
+    expect(prompt).toContain('required boss preparation');
+    expect(prompt).toContain('Every connection into `bossRoom` must be a `boss` door');
+    expect(prompt).toContain(
+      'refuses to open that gate until the secondary item has been collected',
+    );
   });
 });

@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { HShooterLevel } from '@sparkade/shared';
 import { corridorSurfaceDecorations } from '../src/hshooter/decor';
 import {
+  HSHOOTER_GENERATED_BACKDROP_DIM_ALPHA,
+  HSHOOTER_PROCEDURAL_BACKDROP_ALPHA,
+  hshooterBackdropPanDistance,
   horizontalSpriteDimensions,
   usesDetailedHShooterPresentation,
-  usesHShooterCraftIdentity,
 } from '../src/hshooter/game';
 
 function corridorLevel(): HShooterLevel {
@@ -31,14 +33,14 @@ describe('H-scroll presentation helpers', () => {
     expect(usesDetailedHShooterPresentation('detailed')).toBe(true);
   });
 
-  it('uses a separate craft identity only when the persisted contract is present', () => {
-    expect(usesHShooterCraftIdentity(undefined)).toBe(false);
-    expect(usesHShooterCraftIdentity({ visualConcept: '   ' })).toBe(false);
-    expect(
-      usesHShooterCraftIdentity({
-        visualConcept: 'A cobalt trench skiff with swept fins and twin amber drives',
-      }),
-    ).toBe(true);
+  it('paces generated panorama travel over the complete authored level duration', () => {
+    expect(hshooterBackdropPanDistance({ scroll: 30, durationS: 45 })).toBe(1350);
+    expect(hshooterBackdropPanDistance({ scroll: 0, durationS: 0 })).toBe(1);
+    expect(HSHOOTER_GENERATED_BACKDROP_DIM_ALPHA).toBeGreaterThan(0);
+    expect(HSHOOTER_PROCEDURAL_BACKDROP_ALPHA).toBeGreaterThan(0);
+    expect(HSHOOTER_GENERATED_BACKDROP_DIM_ALPHA + HSHOOTER_PROCEDURAL_BACKDROP_ALPHA).toBeLessThan(
+      0.75,
+    );
   });
 
   it('swaps top-down sprite dimensions into the horizontal flight plane', () => {

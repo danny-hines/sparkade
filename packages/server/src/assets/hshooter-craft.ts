@@ -7,12 +7,15 @@ import {
 
 export const HSHOOTER_CRAFT_PROMPT_VERSION = 'hshooter-player-craft-v1';
 export const HSHOOTER_CRAFT_SIZE = { width: 96, height: 64 } as const;
+export const HSHOOTER_CRAFT_REFERENCE_SIZE = { width: 1024, height: 512 } as const;
 
 export interface HShooterCraftPromptOptions {
   gameTitle: string;
   tagline: string;
   visualConcept: string;
   colors: string;
+  candidateId?: string;
+  retryGuidance?: string;
 }
 
 function clean(value: string, max: number): string {
@@ -23,6 +26,7 @@ function clean(value: string, max: number): string {
 export function buildHShooterCraftPrompt(options: HShooterCraftPromptOptions): string {
   return [
     'Create exactly ONE isolated horizontal-shooter player craft for gameplay.',
+    `Candidate ${clean(options.candidateId ?? 'A', 12)}.`,
     `Game: ${clean(options.gameTitle, 80)} — ${clean(options.tagline, 120)}.`,
     `Canonical craft identity: ${clean(options.visualConcept, 240)}.`,
     'Show the craft in strict side profile, nose pointing toward the RIGHT and engines toward the LEFT. Preserve a long, instantly readable horizontal silhouette.',
@@ -33,7 +37,12 @@ export function buildHShooterCraftPrompt(options: HShooterCraftPromptOptions): s
     'No person, pilot, rider, passenger, face, head, eyes, portrait, human body, initials, text, letters, numbers, logo, watermark, signature, UI, border, scenery, floor, shadow, projectile, exhaust trail, or second object.',
     'The complete craft must be visible and centered with generous room around it. Nothing may be cropped.',
     'The entire empty background, including every gap around or enclosed by the silhouette, must be perfectly flat solid #00ff00. The craft itself, including its canopy, must remain fully authored and must not use #00ff00 or a near-neon imitation; darker natural greens are allowed.',
-  ].join(' ');
+    options.retryGuidance
+      ? `ART DIRECTOR CORRECTION: ${clean(options.retryGuidance, 320)}.`
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 /** Key, normalize, and quantize one likeness-free side-view player craft. */
@@ -59,17 +68,42 @@ export async function processGeneratedHShooterCraft(image: Buffer): Promise<Proc
   return processed;
 }
 
+/** Preserve the authored Muse detail for presentation art instead of enlarging
+ * the tiny runtime sprite back into an illustration reference. This remains a
+ * private pipeline artifact and is never served to the game client. */
+export async function processGeneratedHShooterCraftReference(image: Buffer): Promise<Buffer> {
+  const processed = await processGeneratedFighterPose(image, {
+    width: HSHOOTER_CRAFT_REFERENCE_SIZE.width,
+    height: HSHOOTER_CRAFT_REFERENCE_SIZE.height,
+    padding: 40,
+    bottomPadding: 40,
+    removeGreenSpill: true,
+    colors: 128,
+    minSubjectFraction: 0.01,
+    maxSubjectFraction: 0.86,
+    minSubjectSpanFraction: 0.08,
+  });
+  const { width, height } = processed.metrics.outputBounds;
+  if (width < 480 || height < 100 || width / Math.max(1, height) < 1.25) {
+    throw new FighterPoseImageError(
+      'inconsistent-scale',
+      `generated H-scroll craft reference needs a broad detailed silhouette (${width}x${height})`,
+    );
+  }
+  return processed.png;
+}
+
 /**
  * Muse Image accepts one reference image. Stack the human/key-art identity over
- * the exact gameplay craft so downstream prompts can preserve both without
+ * the presentation-scale craft identity so downstream prompts can preserve both without
  * ever deriving the vehicle from the player's face.
  */
 export async function buildHShooterIdentityReference(
   primary: Buffer | undefined,
-  craft: Buffer,
+  presentationCraft: Buffer,
 ): Promise<Buffer> {
   const background = { r: 13, g: 19, b: 31, alpha: 1 };
-  const craftPanel = await sharp(craft)
+  const craftPanel = await sharp(presentationCraft)
     .resize(880, primary ? 360 : 600, {
       fit: 'contain',
       kernel: sharp.kernel.nearest,

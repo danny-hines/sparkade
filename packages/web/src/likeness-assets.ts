@@ -51,6 +51,15 @@ export const PLATFORMER_BACKDROP_ASSETS = [
 
 export type PlatformerBackdropName = (typeof PLATFORMER_BACKDROP_ASSETS)[number][0];
 
+export const HSHOOTER_BACKDROP_ASSETS = [
+  ['level1', 'hshooterBackdropLevel1'],
+  ['level2', 'hshooterBackdropLevel2'],
+  ['level3', 'hshooterBackdropLevel3'],
+  ['boss', 'hshooterBackdropBoss'],
+] as const satisfies readonly (readonly [string, GeneratedGameAssetRole])[];
+
+export type HShooterBackdropName = (typeof HSHOOTER_BACKDROP_ASSETS)[number][0];
+
 export const ADVENTURE_ROOM_PLATES_ASSET =
   'adventureRoomPlates' as const satisfies GeneratedGameAssetRole;
 
@@ -63,12 +72,20 @@ export const ADVENTURE_PLAYER_POSE_ASSETS = [
   ['upWalk', 'adventurePlayerUpWalk'],
   ['sideIdle', 'adventurePlayerSideIdle'],
   ['sideWalk', 'adventurePlayerSideWalk'],
+  ['downMelee', 'adventurePlayerDownMelee'],
+  ['upMelee', 'adventurePlayerUpMelee'],
+  ['sideMelee', 'adventurePlayerSideMelee'],
+  ['downSecondary', 'adventurePlayerDownSecondary'],
+  ['upSecondary', 'adventurePlayerUpSecondary'],
+  ['sideSecondary', 'adventurePlayerSideSecondary'],
 ] as const satisfies readonly (readonly [string, GeneratedGameAssetRole])[];
 
 export type AdventurePlayerPoseName = (typeof ADVENTURE_PLAYER_POSE_ASSETS)[number][0];
 
 export const HSHOOTER_PLAYER_CRAFT_ASSET =
   'hshooterPlayerCraft' as const satisfies GeneratedGameAssetRole;
+export const SHOOTER_PLAYER_CRAFT_ASSET =
+  'shooterPlayerCraft' as const satisfies GeneratedGameAssetRole;
 
 function loadImage(url: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
@@ -100,6 +117,7 @@ export async function loadLikenessAssets(
     !assets.storyVictory &&
     !assets.storyDefeat &&
     !assets.hshooterPlayerCraft &&
+    !assets.shooterPlayerCraft &&
     !assets[FIGHTER_ARENA_ASSET] &&
     !assets.platformerBoss &&
     !assets.adventureRoomPlates &&
@@ -107,6 +125,7 @@ export async function loadLikenessAssets(
     !PLATFORMER_ENEMY_ASSETS.some(([, role]) => assets[role]) &&
     !PLATFORMER_PROP_ASSETS.some(([, role]) => assets[role]) &&
     !PLATFORMER_BACKDROP_ASSETS.some(([, role]) => assets[role]) &&
+    !HSHOOTER_BACKDROP_ASSETS.some(([, role]) => assets[role]) &&
     !hasCompleteFighterRoster &&
     !hasCompletePlatformerSet &&
     !hasCompleteAdventurePlayerSet
@@ -140,6 +159,9 @@ export async function loadLikenessAssets(
   ]);
   const hshooterPlayerCraftPromise = assets.hshooterPlayerCraft
     ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES.hshooterPlayerCraft))
+    : Promise.resolve(null);
+  const shooterPlayerCraftPromise = assets.shooterPlayerCraft
+    ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES.shooterPlayerCraft))
     : Promise.resolve(null);
   const fighterRosterPromise: Promise<readonly HTMLImageElement[] | null> = hasCompleteFighterRoster
     ? Promise.all(
@@ -211,6 +233,20 @@ export async function loadLikenessAssets(
     );
     return loaded.length ? Object.fromEntries(loaded) : null;
   });
+  const hshooterBackdropsPromise = Promise.all(
+    HSHOOTER_BACKDROP_ASSETS.map(async ([role, assetRole]) => {
+      if (!assets[assetRole]) return [role, null] as const;
+      return [
+        role,
+        await loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[assetRole])),
+      ] as const;
+    }),
+  ).then((entries) => {
+    const loaded = entries.filter(
+      (entry): entry is readonly [HShooterBackdropName, HTMLImageElement] => entry[1] !== null,
+    );
+    return loaded.length ? Object.fromEntries(loaded) : null;
+  });
   const adventureRoomPlatesPromise = assets[ADVENTURE_ROOM_PLATES_ASSET]
     ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[ADVENTURE_ROOM_PLATES_ASSET]))
     : Promise.resolve(null);
@@ -241,10 +277,12 @@ export async function loadLikenessAssets(
     platformerEnemies,
     platformerProps,
     platformerBackdrops,
+    hshooterBackdrops,
     adventureRoomPlates,
     adventureBoss,
     adventurePlayerPoses,
     hshooterPlayerCraft,
+    shooterPlayerCraft,
   ] = await Promise.all([
     likenessPromise,
     storyPromise,
@@ -255,10 +293,12 @@ export async function loadLikenessAssets(
     platformerEnemiesPromise,
     platformerPropsPromise,
     platformerBackdropsPromise,
+    hshooterBackdropsPromise,
     adventureRoomPlatesPromise,
     adventureBossPromise,
     adventurePlayerPromise,
     hshooterPlayerCraftPromise,
+    shooterPlayerCraftPromise,
   ]);
 
   return {
@@ -281,9 +321,11 @@ export async function loadLikenessAssets(
     platformerEnemies,
     platformerProps,
     platformerBackdrops,
+    hshooterBackdrops,
     adventureRoomPlates,
     adventureBoss,
     adventurePlayerPoses,
     hshooterPlayerCraft,
+    shooterPlayerCraft,
   };
 }

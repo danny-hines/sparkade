@@ -8,6 +8,7 @@ import {
   type GameSpec,
   type GeneratedGameAssetRole,
   type JobRecord,
+  type PlatformerSpec,
 } from '@sparkade/shared';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
@@ -53,6 +54,17 @@ const PRESENTATION_ROLES = [
 
 const HSHOOTER_CRAFT_ROLES = [
   'hshooterPlayerCraft',
+] as const satisfies readonly GeneratedGameAssetRole[];
+
+const SHOOTER_CRAFT_ROLES = [
+  'shooterPlayerCraft',
+] as const satisfies readonly GeneratedGameAssetRole[];
+
+const HSHOOTER_BACKDROP_ROLES = [
+  'hshooterBackdropLevel1',
+  'hshooterBackdropLevel2',
+  'hshooterBackdropLevel3',
+  'hshooterBackdropBoss',
 ] as const satisfies readonly GeneratedGameAssetRole[];
 
 const FIGHTER_ROLES = [
@@ -114,6 +126,12 @@ const ADVENTURE_PLAYER_ROLES = [
   'adventurePlayerUpWalk',
   'adventurePlayerSideIdle',
   'adventurePlayerSideWalk',
+  'adventurePlayerDownMelee',
+  'adventurePlayerUpMelee',
+  'adventurePlayerSideMelee',
+  'adventurePlayerDownSecondary',
+  'adventurePlayerUpSecondary',
+  'adventurePlayerSideSecondary',
 ] as const satisfies readonly GeneratedGameAssetRole[];
 
 interface Harness {
@@ -268,7 +286,7 @@ describe('story art prompts', () => {
     expect(prompt).toContain('No wounds, gore, death');
   });
 
-  it('keeps the H-scroll pilot and exact gameplay craft as separate visual identities', () => {
+  it('keeps the H-scroll pilot and craft separate without enlarging the runtime sprite', () => {
     const spec = JSON.parse(
       readFileSync(join(process.cwd(), 'packages/generation/golden/golden-hshooter.json'), 'utf8'),
     ) as Extract<GameSpec, { archetype: 'hshooter' }>;
@@ -277,10 +295,14 @@ describe('story art prompts', () => {
     const story = buildStoryArtPrompt(spec, 'intro', spec.meta.heroConcept, craft);
 
     expect(keyArt).toContain('TOP PANEL');
-    expect(keyArt).toContain('BOTTOM PANEL is the exact player craft used in gameplay');
+    expect(keyArt).toContain('presentation-scale identity reference');
     expect(keyArt).toContain(craft.visualConcept);
+    expect(keyArt).toContain('RE-RENDER the vehicle naturally inside the scene');
+    expect(keyArt).toContain('Do not paste, trace, enlarge');
     expect(keyArt).toContain('never put the pilot face, head, or body onto the vehicle');
-    expect(story).toContain('BOTTOM PANEL is the exact gameplay craft');
+    expect(story).toContain('presentation-scale identity reference');
+    expect(story).toContain("RE-RENDER it naturally at the scene's scale");
+    expect(story).toContain('Do not paste, trace, enlarge');
     expect(story).toContain("Never place the pilot's face or body onto the craft");
   });
 
@@ -337,7 +359,7 @@ describe('story art prompts', () => {
 });
 
 describe.sequential('mock image asset pipeline', () => {
-  it('publishes the room atlas, complete six-pose player, and selected boss for Adventure games', async () => {
+  it('publishes the room atlas, complete movement/combat player set, and selected boss for Adventure games', async () => {
     const { db, files, runner } = createHarness();
     const { jobId, gameId } = runner.createJob({
       promptText: 'A diver relights a drowned clockwork observatory',
@@ -461,6 +483,7 @@ describe.sequential('mock image asset pipeline', () => {
     expect(files.readSpec(gameId)?.meta.heroConcept).toBe(
       'An indigo expedition jacket with brass fasteners, sturdy tan trousers, and dark trail boots',
     );
+    expect((files.readSpec(gameId) as PlatformerSpec | null)?.movementProfile).toBe('precision');
     expect(files.readMeta(gameId)?.platformerPlayerArt).toEqual({
       mode: 'generated',
       attempted: true,
@@ -571,7 +594,7 @@ describe.sequential('mock image asset pipeline', () => {
     ]);
   });
 
-  it('publishes a likeness-free H-scroll craft and skips directional gameplay heads', async () => {
+  it('publishes H-scroll craft and stage art without directional gameplay heads', async () => {
     const { db, files, runner } = createHarness();
     const { jobId, gameId } = runner.createJob({
       promptText: 'A trench pilot races an alien current in a signature cobalt skiff',
@@ -583,15 +606,21 @@ describe.sequential('mock image asset pipeline', () => {
 
     expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done' });
     const spec = files.readSpec(gameId) as Extract<GameSpec, { archetype: 'hshooter' }>;
-    expect(spec.playerCraft?.visualConcept).toContain('Starling');
+    expect(spec.playerCraft.visualConcept).toContain('Rift Skiff');
     expect(files.readMeta(gameId)?.hshooterPlayerCraftArt).toEqual({
       mode: 'generated',
       attempted: true,
+    });
+    expect(files.readMeta(gameId)?.hshooterBackdropArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+      generatedRoles: ['level1', 'level2', 'level3', 'boss'],
     });
     await expectPublishedPngs(files, gameId, [
       ...PRESENTATION_ROLES,
       ...PORTRAIT_ROLES,
       ...HSHOOTER_CRAFT_ROLES,
+      ...HSHOOTER_BACKDROP_ROLES,
     ]);
 
     const craft = generatedAssetForRole(
@@ -600,11 +629,76 @@ describe.sequential('mock image asset pipeline', () => {
     );
     expect(craft).toMatchObject({ width: 96, height: 64 });
     expect(
+      HSHOOTER_BACKDROP_ROLES.map((role) =>
+        generatedAssetForRole(join(files.gameDir(gameId), 'assets'), role),
+      ),
+    ).toEqual(
+      HSHOOTER_BACKDROP_ROLES.map(() => expect.objectContaining({ width: 1536, height: 600 })),
+    );
+    expect(
       HEAD_ROLES.some((role) => generatedAssetForRole(join(files.gameDir(gameId), 'assets'), role)),
     ).toBe(false);
+    expect(existsSync(join(files.gameDir(gameId), 'assets', '.hshooter-craft-reference.png'))).toBe(
+      false,
+    );
     expect(
       db.usageForGame(gameId).filter((event) => event.stage.startsWith('image:') && !event.failed),
-    ).toHaveLength(8);
+    ).toHaveLength(14);
+  });
+
+  it('publishes a Spark-selected top-down craft for vertical shooters', async () => {
+    const { db, files, runner } = createHarness();
+    const { jobId, gameId } = runner.createJob({
+      promptText: 'A flower-shaped interceptor defends a floating garden',
+      sourceKind: 'surprise',
+      requestedArchetype: 'shooter',
+      idempotencyKey: 'mock-shooter-generated-craft-assets',
+    });
+
+    expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done' });
+    const spec = files.readSpec(gameId) as Extract<GameSpec, { archetype: 'shooter' }>;
+    expect(spec.playerCraft.visualConcept.length).toBeGreaterThan(20);
+    expect(files.readMeta(gameId)?.shooterPlayerCraftArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+    });
+    await expectPublishedPngs(files, gameId, [...PRESENTATION_ROLES, ...SHOOTER_CRAFT_ROLES]);
+    expect(
+      generatedAssetForRole(join(files.gameDir(gameId), 'assets'), 'shooterPlayerCraft'),
+    ).toMatchObject({ width: 64, height: 96 });
+    expect(
+      HEAD_ROLES.some((role) => generatedAssetForRole(join(files.gameDir(gameId), 'assets'), role)),
+    ).toBe(false);
+  });
+
+  it('reuses both H-scroll craft derivatives after a late publish failure', async () => {
+    const { db, files, runner } = createHarness((root) => new FailFirstPublishFiles(root));
+    const { jobId, gameId } = runner.createJob({
+      promptText: 'A trench pilot races an alien current in a signature cobalt skiff',
+      sourceKind: 'surprise',
+      requestedArchetype: 'hshooter',
+      idempotencyKey: 'mock-hshooter-craft-reference-retry-cache',
+    });
+
+    const firstAttempt = await waitForTerminal(db, jobId);
+    expect(firstAttempt.status).toBe('failed');
+    expect(firstAttempt.error?.message).toContain('synthetic late publish failure');
+    const firstImageEvents = db
+      .usageForGame(gameId)
+      .filter((event) => event.stage.startsWith('image:') && !event.failed);
+    expect(firstImageEvents.length).toBeGreaterThan(0);
+    expect(
+      existsSync(join(files.stagingFor(jobId), 'assets', '.hshooter-craft-reference.png')),
+    ).toBe(true);
+
+    expect(runner.retryJob(gameId)).toEqual({ jobId });
+    expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done' });
+    expect(
+      db.usageForGame(gameId).filter((event) => event.stage.startsWith('image:') && !event.failed),
+    ).toHaveLength(firstImageEvents.length);
+    expect(
+      generatedAssetForRole(join(files.gameDir(gameId), 'assets'), 'hshooterPlayerCraft'),
+    ).toMatchObject({ width: 96, height: 64 });
   });
 
   it('publishes a distinct 13-state atlas for every fighter in the five-character roster', async () => {

@@ -7,6 +7,15 @@
     "specVersion": { "const": 1 },
     "archetype": { "const": "shooter" },
     "seed": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
+    "playerCraft": {
+      "description": "Required likeness-independent top-down identity for the generated player vehicle.",
+      "type": "object",
+      "properties": {
+        "visualConcept": { "type": "string", "minLength": 12, "maxLength": 180, "pattern": "^[ -~]+$" }
+      },
+      "required": ["visualConcept"],
+      "additionalProperties": false
+    },
     "meta": { "$ref": "#/$defs/meta" },
     "palette": { "$ref": "#/$defs/palette" },
     "story": { "$ref": "#/$defs/story" },
@@ -70,6 +79,7 @@
     "specVersion",
     "archetype",
     "seed",
+    "playerCraft",
     "meta",
     "palette",
     "story",

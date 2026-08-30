@@ -8,6 +8,16 @@ The architectural goal is to describe a platformer as a composition of a **movem
 of composable, validated systems should be able to produce games that feel structurally related but
 play very differently, instead of producing differently themed versions of the same platformer.
 
+## Generated player policy
+
+New platformers require the complete generated five-pose player set whether or not a likeness photo
+was supplied. With a photo, it remains head-identity truth; without one, key art establishes the
+original hero. Muse Image produces multiple identity, run, and jump candidates and Spark selects the
+best locally valid combination. Spark's ideal-quality threshold is telemetry, not a switch back to a
+library body. If no mechanically complete generated set can be assembled after bounded recovery, the
+generation job fails. The runtime has no library-player rendering branch and new generations do not
+produce directional likeness-head fallback assets.
+
 ## Movement and physics profiles
 
 - Ground acceleration, braking, maximum speed, and momentum retention.

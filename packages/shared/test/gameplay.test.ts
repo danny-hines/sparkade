@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { difficultyScale, resolveHeroFeel } from '../src/constants';
+import {
+  PLATFORMER_MOVEMENT_PROFILES,
+  difficultyScale,
+  resolveHeroFeel,
+  resolvePlatformerMovement,
+} from '../src/constants';
 
 describe('difficultyScale', () => {
   it('is neutral by default, softer when chill, harder when spicy', () => {
@@ -41,5 +46,68 @@ describe('resolveHeroFeel', () => {
     expect(resolveHeroFeel({ gravityScale: 0.1 }).gravity).toBe(0.72);
     expect(resolveHeroFeel({ jumpScale: 9 }).jump).toBe(1.25);
     expect(resolveHeroFeel({ speedScale: 9 }).speed).toBe(1.3);
+  });
+});
+
+describe('resolvePlatformerMovement', () => {
+  it('keeps omitted and balanced profiles identical to the original physics', () => {
+    const original = {
+      gravity: 1,
+      jump: 1,
+      speed: 1,
+      groundAcceleration: 1,
+      groundBraking: 1,
+      airControl: 0.65,
+      airBraking: 0.65,
+      terminalVelocity: 1,
+      jumpCutoff: 1,
+    };
+    expect(resolvePlatformerMovement(undefined)).toEqual(original);
+    expect(resolvePlatformerMovement('balanced')).toEqual(original);
+  });
+
+  it('gives every named profile a distinct bounded control character', () => {
+    expect(PLATFORMER_MOVEMENT_PROFILES).toEqual([
+      'balanced',
+      'precision',
+      'momentum',
+      'floaty',
+      'heavy',
+    ]);
+    expect(resolvePlatformerMovement('precision').groundBraking).toBeGreaterThan(1);
+    expect(resolvePlatformerMovement('momentum').groundBraking).toBeLessThan(0.5);
+    expect(resolvePlatformerMovement('floaty').gravity).toBeLessThan(0.8);
+    expect(resolvePlatformerMovement('heavy').gravity).toBeGreaterThan(1);
+  });
+
+  it('never shrinks the validated baseline jump envelope', () => {
+    for (const profile of PLATFORMER_MOVEMENT_PROFILES) {
+      const movement = resolvePlatformerMovement(profile);
+      // Ballistic height is proportional to v^2/g; full-speed horizontal
+      // airtime reach is proportional to speed*v/g. Both must remain at least
+      // baseline because the geometry linter validates against that baseline.
+      expect(
+        movement.jump ** 2 / movement.gravity,
+        `${profile} vertical reach`,
+      ).toBeGreaterThanOrEqual(1);
+      expect(
+        (movement.speed * movement.jump) / movement.gravity,
+        `${profile} horizontal reach`,
+      ).toBeGreaterThanOrEqual(1);
+      expect(movement.jump / movement.gravity, `${profile} airtime`).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('preserves the legacy one-sided feel overlay', () => {
+    const movement = resolvePlatformerMovement('balanced', {
+      gravityScale: 0.8,
+      jumpScale: 1.2,
+      speedScale: 1.25,
+    });
+    expect(movement.gravity).toBe(0.8);
+    expect(movement.jump).toBe(1.2);
+    expect(movement.speed).toBe(1.25);
+    expect(movement.groundAcceleration).toBe(1.25);
+    expect(movement.airControl).toBe(0.65 * 1.25);
   });
 });

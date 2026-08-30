@@ -29,6 +29,7 @@ interface Edge {
   from: string;
   to: string;
   locked: boolean;
+  kind: AdventureDoor;
 }
 
 /** Build the door graph; also emits consistency errors. */
@@ -39,10 +40,18 @@ export function buildGraph(dungeon: AdventureDungeon): { edges: Edge[]; errors: 
   dungeon.rooms.forEach((room, i) => {
     const pk = `${room.gridPos.x},${room.gridPos.y}`;
     if (byPos.has(pk)) {
-      errors.push(err('ADV_GRID_OVERLAP', `/levels/0/rooms/${i}/gridPos`, `rooms "${byPos.get(pk)!.id}" and "${room.id}" share grid position (${pk})`));
+      errors.push(
+        err(
+          'ADV_GRID_OVERLAP',
+          `/levels/0/rooms/${i}/gridPos`,
+          `rooms "${byPos.get(pk)!.id}" and "${room.id}" share grid position (${pk})`,
+        ),
+      );
     }
     if (byId.has(room.id)) {
-      errors.push(err('ADV_DUP_ROOM_ID', `/levels/0/rooms/${i}/id`, `duplicate room id "${room.id}"`));
+      errors.push(
+        err('ADV_DUP_ROOM_ID', `/levels/0/rooms/${i}/id`, `duplicate room id "${room.id}"`),
+      );
     }
     byPos.set(pk, room);
     byId.set(room.id, room);
@@ -56,23 +65,46 @@ export function buildGraph(dungeon: AdventureDungeon): { edges: Edge[]; errors: 
       if (kind === 'none') continue;
       const neighbor = byPos.get(`${room.gridPos.x + dx},${room.gridPos.y + dy}`);
       if (!neighbor) {
-        errors.push(err('ADV_DOOR_TO_NOWHERE', `/levels/0/rooms/${i}/doors/${dir}`, `room "${room.id}" has a ${kind} door ${dir} but no room sits at that grid position`));
+        errors.push(
+          err(
+            'ADV_DOOR_TO_NOWHERE',
+            `/levels/0/rooms/${i}/doors/${dir}`,
+            `room "${room.id}" has a ${kind} door ${dir} but no room sits at that grid position`,
+          ),
+        );
         continue;
       }
       const back = neighbor.doors[opposite];
       if (back === 'none') {
-        errors.push(err('ADV_DOOR_MISMATCH', `/levels/0/rooms/${i}/doors/${dir}`, `door ${dir} of "${room.id}" leads to "${neighbor.id}" whose ${opposite} door is "none" — both sides must declare the door`));
+        errors.push(
+          err(
+            'ADV_DOOR_MISMATCH',
+            `/levels/0/rooms/${i}/doors/${dir}`,
+            `door ${dir} of "${room.id}" leads to "${neighbor.id}" whose ${opposite} door is "none" — both sides must declare the door`,
+          ),
+        );
         continue;
       }
       if (back !== kind) {
-        errors.push(err('ADV_DOOR_MISMATCH', `/levels/0/rooms/${i}/doors/${dir}`, `door ${dir} of "${room.id}" is "${kind}" but "${neighbor.id}" declares "${back}" — both sides must match`));
+        errors.push(
+          err(
+            'ADV_DOOR_MISMATCH',
+            `/levels/0/rooms/${i}/doors/${dir}`,
+            `door ${dir} of "${room.id}" is "${kind}" but "${neighbor.id}" declares "${back}" — both sides must match`,
+          ),
+        );
         continue;
       }
       const ek = [room.id, neighbor.id].sort().join('|') + '|' + dir + opposite;
       const canonical = [room.id, neighbor.id].sort().join('|');
       if (seen.has(canonical)) continue;
       seen.add(canonical);
-      edges.push({ from: room.id, to: neighbor.id, locked: kind === 'locked' || kind === 'boss' });
+      edges.push({
+        from: room.id,
+        to: neighbor.id,
+        locked: kind === 'locked' || kind === 'boss',
+        kind,
+      });
       void ek;
     }
   });
@@ -106,7 +138,8 @@ export function reconcileDoors(dungeon: AdventureDungeon): void {
         room.doors[dir] = 'none'; // door to nowhere — can't add the missing room
         continue;
       }
-      const win = DOOR_BY_RANK[Math.max(DOOR_RANK[room.doors[dir]], DOOR_RANK[neighbor.doors[opposite]])]!;
+      const win =
+        DOOR_BY_RANK[Math.max(DOOR_RANK[room.doors[dir]], DOOR_RANK[neighbor.doors[opposite]])]!;
       room.doors[dir] = win;
       neighbor.doors[opposite] = win;
     }
@@ -148,10 +181,83 @@ export function checkKeyTopology(dungeon: AdventureDungeon, edges: Edge[]): Lint
   }
   const unreachable = dungeon.rooms.filter((r) => !reached.has(r.id));
   for (const room of unreachable) {
-    out.push(err('ADV_UNREACHABLE_ROOM', `/levels/0/rooms`, `room "${room.id}" cannot be reached from "${dungeon.startRoom}" — check door connections and that keys appear before the locks that need them`));
+    out.push(
+      err(
+        'ADV_UNREACHABLE_ROOM',
+        `/levels/0/rooms`,
+        `room "${room.id}" cannot be reached from "${dungeon.startRoom}" — check door connections and that keys appear before the locks that need them`,
+      ),
+    );
   }
   if (!reached.has(dungeon.bossRoom)) {
-    out.push(err('ADV_BOSS_UNREACHABLE', `/levels/0/bossRoom`, `the boss room "${dungeon.bossRoom}" is not reachable with the available keys`));
+    out.push(
+      err(
+        'ADV_BOSS_UNREACHABLE',
+        `/levels/0/bossRoom`,
+        `the boss room "${dungeon.bossRoom}" is not reachable with the available keys`,
+      ),
+    );
+  }
+  return out;
+}
+
+/** The secondary item is part of the boss-readiness contract, not optional
+ * treasure. Prove it can be collected using only the pre-boss graph. */
+export function checkBossProgression(dungeon: AdventureDungeon, edges: Edge[]): LintError[] {
+  const out: LintError[] = [];
+  const bossEdges = edges.filter(
+    (edge) => edge.from === dungeon.bossRoom || edge.to === dungeon.bossRoom,
+  );
+  if (bossEdges.some((edge) => edge.kind !== 'boss')) {
+    out.push(
+      err(
+        'ADV_BOSS_GATE_REQUIRED',
+        '/levels/0/rooms',
+        `every entrance to boss room "${dungeon.bossRoom}" must use a "boss" door`,
+      ),
+    );
+  }
+
+  const keysInRoom = new Map<string, number>();
+  const itemRooms = new Set<string>();
+  for (const room of dungeon.rooms) {
+    keysInRoom.set(room.id, room.entities.filter((entity) => entity.type === 'key').length);
+    if (
+      room.entities.some(
+        (entity) => entity.type === 'item' && entity.props?.item === dungeon.items.secondary,
+      )
+    ) {
+      itemRooms.add(room.id);
+    }
+  }
+
+  const reached = new Set<string>([dungeon.startRoom]);
+  let keys = keysInRoom.get(dungeon.startRoom) ?? 0;
+  let progress = true;
+  while (progress) {
+    progress = false;
+    for (const edge of edges) {
+      if (edge.from === dungeon.bossRoom || edge.to === dungeon.bossRoom) continue;
+      const next = reached.has(edge.from) ? edge.to : reached.has(edge.to) ? edge.from : null;
+      if (!next || reached.has(next)) continue;
+      if (edge.locked) {
+        if (keys <= 0) continue;
+        keys--;
+      }
+      reached.add(next);
+      keys += keysInRoom.get(next) ?? 0;
+      progress = true;
+    }
+  }
+
+  if (![...itemRooms].some((roomId) => reached.has(roomId))) {
+    out.push(
+      err(
+        'ADV_ITEM_AFTER_BOSS',
+        '/levels/0/rooms',
+        `the ${dungeon.items.secondary} must be reachable and collectable before the boss gate`,
+      ),
+    );
   }
   return out;
 }
@@ -164,25 +270,49 @@ export function lintAdventure(spec: AdventureSpec): LintError[] {
 
   const ids = new Set(dungeon.rooms.map((r) => r.id));
   if (!ids.has(dungeon.startRoom)) {
-    out.push(err('ADV_BAD_START', '/levels/0/startRoom', `startRoom "${dungeon.startRoom}" does not exist`));
+    out.push(
+      err(
+        'ADV_BAD_START',
+        '/levels/0/startRoom',
+        `startRoom "${dungeon.startRoom}" does not exist`,
+      ),
+    );
   }
   if (!ids.has(dungeon.bossRoom)) {
-    out.push(err('ADV_BAD_BOSS_ROOM', '/levels/0/bossRoom', `bossRoom "${dungeon.bossRoom}" does not exist`));
+    out.push(
+      err(
+        'ADV_BAD_BOSS_ROOM',
+        '/levels/0/bossRoom',
+        `bossRoom "${dungeon.bossRoom}" does not exist`,
+      ),
+    );
   }
   if (dungeon.startRoom === dungeon.bossRoom) {
-    out.push(err('ADV_START_IS_BOSS', '/levels/0/startRoom', 'startRoom must differ from bossRoom'));
+    out.push(
+      err('ADV_START_IS_BOSS', '/levels/0/startRoom', 'startRoom must differ from bossRoom'),
+    );
   }
 
   const { edges, errors } = buildGraph(dungeon);
   out.push(...errors);
   if (errors.length === 0 && ids.has(dungeon.startRoom)) {
-    out.push(...checkKeyTopology(dungeon, edges));
+    out.push(...checkKeyTopology(dungeon, edges), ...checkBossProgression(dungeon, edges));
   }
 
   const enemyTypes = new Set<string>();
   let npcWithDialog = 0;
   let keyCount = 0;
   let pedestalOk = false;
+
+  if (dungeon.items.secondary !== spec.combatKit.secondary.behavior) {
+    out.push(
+      err(
+        'ADV_COMBAT_KIT_MISMATCH',
+        '/levels/0/items/secondary',
+        `dungeon secondary behavior "${dungeon.items.secondary}" must match combatKit.secondary.behavior "${spec.combatKit.secondary.behavior}"`,
+      ),
+    );
+  }
 
   dungeon.rooms.forEach((room, ri) => {
     const path = `/levels/0/rooms/${ri}`;
@@ -192,42 +322,95 @@ export function lintAdventure(spec: AdventureSpec): LintError[] {
       if ((ENEMY_TYPES as readonly string[]).includes(e.type)) enemyTypes.add(e.type);
       if (e.type === 'npc' && e.props?.dialog) npcWithDialog++;
       if (e.type === 'npc' && !e.props?.dialog) {
-        out.push(err('ADV_NPC_NO_DIALOG', `${path}/entities`, `npc at (${e.x},${e.y}) has no props.dialog line`));
+        out.push(
+          err(
+            'ADV_NPC_NO_DIALOG',
+            `${path}/entities`,
+            `npc at (${e.x},${e.y}) has no props.dialog line`,
+          ),
+        );
       }
       if (e.type === 'key') keyCount++;
       if (e.type === 'item') {
         if (e.props?.item === dungeon.items.secondary) pedestalOk = true;
         else {
-          out.push(err('ADV_ITEM_MISMATCH', `${path}/entities`, `item pedestal grants "${e.props?.item ?? 'nothing'}" but items.secondary is "${dungeon.items.secondary}"`));
+          out.push(
+            err(
+              'ADV_ITEM_MISMATCH',
+              `${path}/entities`,
+              `item pedestal grants "${e.props?.item ?? 'nothing'}" but items.secondary is "${dungeon.items.secondary}"`,
+            ),
+          );
         }
       }
       // Entities must stand on walkable tiles.
       const ch = room.tiles[e.y]?.[e.x];
       const kind = ch === '.' || ch === undefined ? 'floor' : (room.legend[ch] ?? 'floor');
       if (kind === 'wall' || kind === 'pit') {
-        out.push(err('ADV_ENTITY_IN_WALL', `${path}/entities`, `${e.type} at (${e.x},${e.y}) is inside a ${kind} tile`));
+        out.push(
+          err(
+            'ADV_ENTITY_IN_WALL',
+            `${path}/entities`,
+            `${e.type} at (${e.x},${e.y}) is inside a ${kind} tile`,
+          ),
+        );
       }
     }
-    if (room.id === dungeon.bossRoom && room.entities.some((e) => (ENEMY_TYPES as readonly string[]).includes(e.type))) {
-      out.push(err('ADV_BOSS_ROOM_CROWDED', `${path}/entities`, 'the boss room must not contain other enemies — the boss fight owns it'));
+    if (
+      room.id === dungeon.bossRoom &&
+      room.entities.some((e) => (ENEMY_TYPES as readonly string[]).includes(e.type))
+    ) {
+      out.push(
+        err(
+          'ADV_BOSS_ROOM_CROWDED',
+          `${path}/entities`,
+          'the boss room must not contain other enemies — the boss fight owns it',
+        ),
+      );
     }
   });
 
   const lockedDoorCount = edges.filter((e) => e.locked).length;
   if (lockedDoorCount < 2) {
-    out.push(err('ADV_FLOOR_LOCKS', '/levels/0/rooms', `${lockedDoorCount} locked gate(s); the floor is 2 (use "locked" or "boss" doors)`));
+    out.push(
+      err(
+        'ADV_FLOOR_LOCKS',
+        '/levels/0/rooms',
+        `${lockedDoorCount} locked gate(s); the floor is 2 (use "locked" or "boss" doors)`,
+      ),
+    );
   }
   if (keyCount < lockedDoorCount) {
-    out.push(err('ADV_KEYS_SHORT', '/levels/0/rooms', `${keyCount} key(s) for ${lockedDoorCount} locked door(s) — every locked door needs a key`));
+    out.push(
+      err(
+        'ADV_KEYS_SHORT',
+        '/levels/0/rooms',
+        `${keyCount} key(s) for ${lockedDoorCount} locked door(s) — every locked door needs a key`,
+      ),
+    );
   }
   if (enemyTypes.size < 4) {
-    out.push(err('ADV_FLOOR_ENEMY_TYPES', '/levels/0/rooms', `uses ${enemyTypes.size} enemy types; the floor is 4`));
+    out.push(
+      err(
+        'ADV_FLOOR_ENEMY_TYPES',
+        '/levels/0/rooms',
+        `uses ${enemyTypes.size} enemy types; the floor is 4`,
+      ),
+    );
   }
   if (npcWithDialog < 1) {
-    out.push(err('ADV_FLOOR_NPC', '/levels/0/rooms', 'at least one NPC with a dialog line is required'));
+    out.push(
+      err('ADV_FLOOR_NPC', '/levels/0/rooms', 'at least one NPC with a dialog line is required'),
+    );
   }
   if (!pedestalOk) {
-    out.push(err('ADV_NO_ITEM_PEDESTAL', '/levels/0/rooms', `place one "item" entity granting the chosen secondary item (${dungeon.items.secondary})`));
+    out.push(
+      err(
+        'ADV_NO_ITEM_PEDESTAL',
+        '/levels/0/rooms',
+        `place one "item" entity granting ${spec.combatKit.secondary.name} (${dungeon.items.secondary})`,
+      ),
+    );
   }
 
   out.push(...lintDuration(estimateAdventureDurationS(spec)));

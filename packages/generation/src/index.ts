@@ -88,7 +88,22 @@ export function goldenExcerpt(archetype: ArchetypeId, stage: SpecStage | 'design
           tagline: g.meta.tagline,
           archetype: g.archetype,
           palette: g.palette,
-          story: { intro: g.story.intro.slice(0, 1), levelIntros: g.story.levelIntros, bossIntro: g.story.bossIntro },
+          ...(g.archetype === 'platformer'
+            ? {
+                platformerScale: g.platformerScale ?? 'heroic',
+                platformerArtDensity: g.platformerArtDensity ?? 'chunky',
+                movementProfile: g.movementProfile ?? 'balanced',
+              }
+            : {}),
+          ...(g.archetype === 'adventure' ? { combatKit: g.combatKit } : {}),
+          ...(g.archetype === 'shooter' || g.archetype === 'hshooter'
+            ? { vehicleConcept: g.playerCraft.visualConcept }
+            : {}),
+          story: {
+            intro: g.story.intro.slice(0, 1),
+            levelIntros: g.story.levelIntros,
+            bossIntro: g.story.bossIntro,
+          },
           scoring: g.scoring,
         },
         null,
@@ -136,7 +151,9 @@ export function goldenExcerpt(archetype: ArchetypeId, stage: SpecStage | 'design
           [...row].map((ch) => (engineOwnedChars.has(ch) ? '.' : ch)).join(''),
         );
         const legend = Object.fromEntries(
-          Object.entries(level.legend).filter(([, kind]) => kind !== 'decoration' && kind !== 'exit'),
+          Object.entries(level.legend).filter(
+            ([, kind]) => kind !== 'decoration' && kind !== 'exit',
+          ),
         );
         return JSON.stringify(
           {
@@ -152,7 +169,11 @@ export function goldenExcerpt(archetype: ArchetypeId, stage: SpecStage | 'design
         'tiles' in level
           ? { ...level, tiles: [...level.tiles.slice(0, 8), '...remaining rows omitted...'] }
           : level;
-      return JSON.stringify({ levels: [trimmed], NOTE: 'plus two more levels in the real spec' }, null, 1);
+      return JSON.stringify(
+        { levels: [trimmed], NOTE: 'plus two more levels in the real spec' },
+        null,
+        1,
+      );
     }
     case 'entities': {
       const custom = Object.entries(g.sprites.custom).slice(0, 1);

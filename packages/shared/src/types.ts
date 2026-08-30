@@ -13,6 +13,7 @@ import type {
   LightingMode,
   LogicalButton,
   PlatformerArtDensity,
+  PlatformerMovementProfile,
   PlatformerScale,
   SfxEvent,
   ShooterBackdropId,
@@ -374,8 +375,32 @@ export type AdventureTileType =
 export type AdventureEntityType =
   'walker' | 'flyer' | 'shooter' | 'chaser' | 'bruiser' | 'npc' | 'key' | 'heart' | 'item';
 
-export type AdventureSecondaryItem = 'boomerang' | 'bombs' | 'bow';
+export type AdventureMeleeProfile = 'close' | 'sweep' | 'reach';
+export type AdventureSecondaryBehavior = 'shot' | 'returning' | 'blast';
+export type AdventureSecondaryItem = AdventureSecondaryBehavior;
 export type AdventureDoor = 'none' | 'open' | 'locked' | 'boss';
+
+export interface AdventureCombatKit {
+  primary: {
+    /** Engine-owned reach/cadence profile; fiction remains in name/visualConcept. */
+    profile: AdventureMeleeProfile;
+    name: string;
+    visualConcept: string;
+    /** True for punches, kicks, or another weaponless close attack. */
+    unarmed: boolean;
+  };
+  secondary: {
+    /** Engine-owned projectile behavior; fiction remains in name/visualConcept. */
+    behavior: AdventureSecondaryBehavior;
+    name: string;
+    visualConcept: string;
+  };
+}
+
+export interface PlayerCraftIdentity {
+  /** Likeness-independent vehicle silhouette, materials, propulsion, canopy, and markings. */
+  visualConcept: string;
+}
 
 export interface AdventureEntity {
   type: AdventureEntityType;
@@ -438,7 +463,7 @@ export interface GameSpecBase {
   juice?: number;
   /** Enemy-aggression tier from the design stage; omitted → 'standard'. */
   difficulty?: Difficulty;
-  /** Platformer-only movement character (float/jump/run); omitted → standard feel. */
+  /** Legacy platformer-only movement overlay; named movementProfile is preferred. */
   feel?: HeroFeel;
   music: MusicBlock;
   sfx?: SfxBlock;
@@ -453,6 +478,8 @@ export interface PlatformerSpec extends GameSpecBase {
   platformerScale?: PlatformerScale;
   /** Source-art resolution; omitted saved games retain the original chunky sprites. */
   platformerArtDensity?: PlatformerArtDensity;
+  /** Bounded engine-owned movement style; omitted saved games remain balanced. */
+  movementProfile?: PlatformerMovementProfile;
   /** Horizontal side-scroll scene; omitted → seed-varied pick. */
   backdrop?: BackdropVariantId;
   levels: PlatformerLevel[];
@@ -461,6 +488,8 @@ export interface PlatformerSpec extends GameSpecBase {
 
 export interface ShooterSpec extends GameSpecBase {
   archetype: 'shooter';
+  /** Required likeness-independent top-down player vehicle identity. */
+  playerCraft: PlayerCraftIdentity;
   /** Vertical-scroll scene (top-down / fly-through); omitted → seed-varied pick. */
   backdrop?: ShooterBackdropId;
   levels: ShooterLevel[];
@@ -469,6 +498,8 @@ export interface ShooterSpec extends GameSpecBase {
 
 export interface AdventureSpec extends GameSpecBase {
   archetype: 'adventure';
+  /** Story-specific presentation layered over bounded engine combat behaviors. */
+  combatKit: AdventureCombatKit;
   /** Horizontal side-scroll scene; omitted → seed-varied pick. */
   backdrop?: BackdropVariantId;
   levels: AdventureDungeon[];
@@ -479,11 +510,8 @@ export interface HShooterSpec extends GameSpecBase {
   archetype: 'hshooter';
   /** Source-authored terrain detail; omitted saved games retain legacy tiles. */
   hshooterArtDensity?: GameplayArtDensity;
-  /** Authored vehicle identity. Presence opts the game into a likeness-free
-   * craft renderer; omitted saved games retain the legacy hero-head ship. */
-  playerCraft?: {
-    visualConcept: string;
-  };
+  /** Required likeness-independent side-view player vehicle identity. */
+  playerCraft: PlayerCraftIdentity;
   /** Far backdrop behind the terrain (horizontal scene); omitted → seed pick. */
   backdrop?: BackdropVariantId;
   levels: HShooterLevel[];
@@ -504,7 +532,9 @@ export interface DesignDoc {
   /** Canonical player visual brief. With a photo, this directs the story-specific
    * wardrobe below the neck while the photo remains truth for head identity. */
   heroConcept: string;
-  /** Shooter-only vehicle identity, authored independently from player likeness. */
+  /** Adventure-only primary and secondary equipment identity. */
+  combatKit?: AdventureCombatKit;
+  /** Shooter vehicle identity, authored independently from player likeness. */
   vehicleConcept?: string;
   /** Fighter-only roster-wide visual language. Required by the design schema
    * when the selected archetype is Fighter. */
@@ -519,7 +549,9 @@ export interface DesignDoc {
   platformerScale?: PlatformerScale;
   /** Platformer-only source-art detail, independent from camera framing. */
   platformerArtDensity?: PlatformerArtDensity;
-  /** Platformer-only movement character; omitted → standard feel. */
+  /** Platformer-only bounded movement style; omitted checkpoints default to balanced. */
+  movementProfile?: PlatformerMovementProfile;
+  /** Legacy platformer-only movement overlay; new designs should use movementProfile. */
   feel?: HeroFeel;
 }
 
@@ -613,10 +645,8 @@ export interface GameMetaFile {
   };
   /** QA/readiness signal for the generated high-density platformer player. */
   platformerPlayerArt?: {
-    mode: 'generated' | 'procedural';
-    attempted: boolean;
-    /** Present when the generated set was skipped or rejected. */
-    reason?: string;
+    mode: 'generated';
+    attempted: true;
   };
   /** QA/readiness signal for the image-generated platformer finale boss. */
   platformerBossArt?: {
@@ -654,6 +684,15 @@ export interface GameMetaFile {
     /** Present when at least one stage retained its procedural backdrop. */
     reason?: string;
   };
+  /** QA/readiness signal for the four image-generated H-scroll stage plates. */
+  hshooterBackdropArt?: {
+    mode: 'generated' | 'partial' | 'procedural';
+    attempted: boolean;
+    /** Stage plates whose generated art was published. */
+    generatedRoles?: Array<'level1' | 'level2' | 'level3' | 'boss'>;
+    /** Present when at least one stage retained its procedural backdrop. */
+    reason?: string;
+  };
   /** QA/readiness signal for the one-call Adventure room-surface atlas. */
   adventureRoomPlateArt?: {
     mode: 'generated' | 'procedural';
@@ -661,12 +700,10 @@ export interface GameMetaFile {
     /** Present when the stable compact-floor fallback remains active. */
     reason?: string;
   };
-  /** QA/readiness signal for the atomic six-pose Adventure player set. */
+  /** QA/readiness signal for the atomic twelve-pose Adventure player set. */
   adventurePlayerArt?: {
-    mode: 'generated' | 'procedural';
-    attempted: boolean;
-    /** Present when the stable directional-head hero fallback remains active. */
-    reason?: string;
+    mode: 'generated';
+    attempted: true;
   };
   /** QA/readiness signal for the story-art-derived Adventure finale boss. */
   adventureBossArt?: {
@@ -677,10 +714,13 @@ export interface GameMetaFile {
   };
   /** QA/readiness signal for the likeness-independent H-scroll player craft. */
   hshooterPlayerCraftArt?: {
-    mode: 'generated' | 'procedural';
-    attempted: boolean;
-    /** Present when the generated craft retained its stable library fallback. */
-    reason?: string;
+    mode: 'generated';
+    attempted: true;
+  };
+  /** Required likeness-independent vertical-shooter player craft. */
+  shooterPlayerCraftArt?: {
+    mode: 'generated';
+    attempted: true;
   };
   golden?: boolean;
   failure?: { code: string; message: string; stage: string };

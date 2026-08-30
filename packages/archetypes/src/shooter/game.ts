@@ -259,6 +259,7 @@ class ShooterGame implements GameInstance {
   private pods: Pod[] = [];
 
   private sprites: Record<string, ResolvedSprite> = {};
+  private generatedPlayerCraft: CanvasImageSource;
   private pickupSprites: Record<ShooterPickupType, ResolvedSprite>;
   private foeDims: Record<ShooterEnemyType, { w: number; h: number }>;
 
@@ -269,6 +270,10 @@ class ShooterGame implements GameInstance {
     private spec: ShooterSpec,
   ) {
     this.diff = difficultyScale(this.spec.difficulty);
+    if (!engine.shooterPlayerCraft) {
+      throw new Error('Vertical-shooter games require a generated player craft');
+    }
+    this.generatedPlayerCraft = engine.shooterPlayerCraft;
     this.bgVariant = pickScrollVariant(this.spec.palette, this.spec.seed, this.spec.backdrop);
     for (const role of Object.keys(ROLE_FALLBACK)) {
       this.sprites[role] = engine.sprites.byRole(role, ROLE_FALLBACK[role]!);
@@ -1383,14 +1388,9 @@ class ShooterGame implements GameInstance {
       r.draw(img, sh.x - shotSprite.w / 2, sh.y - shotSprite.h / 2);
     }
 
-    // ship (invulnerability flicker); 'bank' frame flipped by lean direction
+    // Required generated craft with a small runtime banking transform.
     if (this.invulnT <= 0 || Math.floor(this.animT * 12) % 2 === 0) {
-      const hero = this.sprites['hero']!;
-      const banking = Math.abs(this.pvx) > 30;
-      const img = banking
-        ? this.engine.sprites.frame(hero, 'bank', this.animT, this.pvx < 0)
-        : this.engine.sprites.frame(hero, 'idle', this.animT);
-      r.draw(img, this.px - hero.w / 2, this.py - hero.h / 2);
+      this.drawGeneratedPlayerCraft();
       if (this.shieldUp) {
         r.frame(this.px - 11, this.py - 11, 22, 22, this.spec.palette[4] ?? '#41a6f6');
       }
@@ -1403,5 +1403,18 @@ class ShooterGame implements GameInstance {
         r.frame(this.px - size / 2, this.py - size / 2, size, size, color ?? '#f4f4f4');
       }
     }
+  }
+
+  private drawGeneratedPlayerCraft(): void {
+    const ctx = this.engine.renderer.ctx;
+    const width = 20;
+    const height = 30;
+    const bank = clamp(this.pvx / SPEED_HIGH, -1, 1) * 0.14;
+    ctx.save();
+    ctx.translate(Math.round(this.px), Math.round(this.py));
+    ctx.rotate(bank);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.generatedPlayerCraft, -width / 2, -height / 2, width, height);
+    ctx.restore();
   }
 }

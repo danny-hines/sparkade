@@ -16,7 +16,9 @@ describe('attract screen Muse assets', () => {
     expect(attractAssetSpecs('hshooter').map((asset) => asset.role)).toEqual([
       'hshooterPlayerCraft',
     ]);
-    expect(attractAssetSpecs('shooter')).toEqual([]);
+    expect(attractAssetSpecs('shooter').map(({ role }) => role)).toEqual([
+      'shooterPlayerCraft',
+    ]);
   });
 
   it('crops fighter atlases to a single native idle cell', () => {

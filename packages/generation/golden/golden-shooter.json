@@ -1,6 +1,9 @@
 {
   "specVersion": 1,
   "archetype": "shooter",
+  "playerCraft": {
+    "visualConcept": "The Petal Lance, a narrow ivory top-down seedship with four magenta leaf fins, a dark teardrop canopy, and a bright green engine heart"
+  },
   "seed": 20260710,
   "meta": {
     "title": "Void Petal",

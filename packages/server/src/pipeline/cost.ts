@@ -74,7 +74,7 @@ export function estimateGenerationCost(
       ? [{ input: 1200, output: 900 }] // source-photo identity foundation selection
       : []),
     ...(options.adventurePlayerSetJudge
-      ? [{ input: 1900, output: 2200 }] // complete two-sheet direction and motion selection
+      ? [{ input: 2800, output: 3600 }] // complete movement/combat pose and equipment selection
       : []),
     ...(options.adventureBossJudge
       ? [{ input: 1800, output: 1000 }] // one four-candidate story-art-derived boss board
@@ -95,15 +95,17 @@ export function formatUsd(v: number | null): string {
  * sheets per roster member plus one shared two-panel arena sheet; rejected
  * cells and semantic retries cost extra. */
 export function estimateImageCount(hasPhoto: boolean, archetype?: ArchetypeId): number {
-  if (archetype === 'platformer') return hasPhoto ? 40 : 25;
+  if (archetype === 'platformer') return hasPhoto ? 40 : 38;
   if (archetype === 'fighter') return hasPhoto ? 33 : 31;
   // Adventure adds three identity candidates, two six-pose sheets, and one
   // four-candidate boss board. With a photo, a successful full player set
   // replaces the three legacy head calls.
   if (archetype === 'adventure') return hasPhoto ? 14 : 12;
-  // H-scroll replaces three likeness-head calls with one vehicle-identity call.
-  if (archetype === 'hshooter') return hasPhoto ? 8 : 6;
+  // Both shooter orientations select from three locally validated craft
+  // candidates. H-scroll additionally authors four stage panoramas.
+  if (archetype === 'hshooter') return hasPhoto ? 14 : 12;
+  if (archetype === 'shooter') return hasPhoto ? 10 : 8;
   if (archetype === undefined) return hasPhoto ? 40 : 31;
-  if (!hasPhoto) return 5;
+  if (!hasPhoto) return 8;
   return 10;
 }

@@ -81,6 +81,20 @@ describe('entities prompt likeness casting', () => {
     expect(adventure).toContain('top-down connected edges and spatial variation');
   });
 
+  it('keeps Adventure bosses readable instead of turning them into endurance fights', () => {
+    const prompt = buildEntitiesPrompt(
+      'adventure',
+      { ...design, archetype: 'adventure' } as DesignDoc,
+      false,
+    );
+    const schema = prompt.jsonSchema as {
+      $defs: { boss: { properties: { hp: { maximum: number } } } };
+    };
+    expect(prompt.system).toContain('named B-button primary melee equipment');
+    expect(prompt.system).toContain('Keep HP between 18 and 32');
+    expect(schema.$defs.boss.properties.hp.maximum).toBe(36);
+  });
+
   it('teaches H-scroll art generation the shared high-density connected terrain contract', () => {
     const hshooterDesign = { ...design, archetype: 'hshooter' } as DesignDoc;
     const system = buildEntitiesPrompt('hshooter', hshooterDesign, false).system;

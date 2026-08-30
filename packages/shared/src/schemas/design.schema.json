@@ -21,8 +21,53 @@
       "maxLength": 220,
       "pattern": "^[ -~]+$"
     },
+    "combatKit": {
+      "description": "Adventure only. Story-specific equipment identities layered over bounded engine combat behavior.",
+      "type": "object",
+      "properties": {
+        "primary": {
+          "type": "object",
+          "properties": {
+            "profile": {
+              "description": "close = fists/knife; sweep = sword/bat/wrench; reach = spear/whip.",
+              "enum": ["close", "sweep", "reach"]
+            },
+            "name": { "type": "string", "minLength": 1, "maxLength": 24, "pattern": "^[ -~]+$" },
+            "visualConcept": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 160,
+              "pattern": "^[ -~]+$"
+            },
+            "unarmed": { "type": "boolean" }
+          },
+          "required": ["profile", "name", "visualConcept", "unarmed"],
+          "additionalProperties": false
+        },
+        "secondary": {
+          "type": "object",
+          "properties": {
+            "behavior": {
+              "description": "shot = bow/gun/blaster; returning = boomerang/disc; blast = bomb/dynamite/mine.",
+              "enum": ["shot", "returning", "blast"]
+            },
+            "name": { "type": "string", "minLength": 1, "maxLength": 24, "pattern": "^[ -~]+$" },
+            "visualConcept": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 160,
+              "pattern": "^[ -~]+$"
+            }
+          },
+          "required": ["behavior", "name", "visualConcept"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["primary", "secondary"],
+      "additionalProperties": false
+    },
     "vehicleConcept": {
-      "description": "H-scroll shooter only. A concrete likeness-independent identity for the player's craft: silhouette, materials, propulsion, canopy, markings, and signature motif. Never describe a human face or body as part of the vehicle.",
+      "description": "Shooter games only. A concrete likeness-independent identity for the player's craft: silhouette, materials, propulsion, canopy, markings, and signature motif. Vertical shooters render it top-down; H-scroll shooters render it from the side. Never describe a human face or body as part of the vehicle.",
       "type": "string",
       "minLength": 12,
       "maxLength": 180,
@@ -156,8 +201,12 @@
       "description": "Platformer only. With a likeness photo, 'detailed' is the default and enables higher-resolution generated player art without changing collision or world size. Use 'chunky' without a photo or for a deliberately coarse, tiny, toy-like, or early-console pixel aesthetic. Omit for other archetypes.",
       "enum": ["chunky", "detailed"]
     },
+    "movementProfile": {
+      "description": "Platformer only. Choose one bounded engine-owned movement style: balanced for general play, precision for crisp exact control, momentum for speed with retained inertia, floaty for airy/moonlike motion, or heavy for weighty armored/industrial motion. Omit for other archetypes.",
+      "enum": ["balanced", "precision", "momentum", "floaty", "heavy"]
+    },
     "feel": {
-      "description": "Platformer-only movement character. Omit for standard feel, and omit entirely for non-platformer games. It only ever makes the hero float/jump/run MORE than normal, never less, so levels stay solvable. Match the premise: a moon / dream / balloon game floats; a speedster / hero-dash game runs fast.",
+      "description": "Legacy platformer-only numeric movement overlay retained for saved checkpoints. New designs should choose movementProfile and omit feel. Omit entirely for non-platformer games.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -188,8 +237,16 @@
       "then": { "required": ["vehicleConcept"] }
     },
     {
+      "if": { "properties": { "archetype": { "const": "shooter" } }, "required": ["archetype"] },
+      "then": { "required": ["vehicleConcept"] }
+    },
+    {
       "if": { "properties": { "archetype": { "const": "fighter" } }, "required": ["archetype"] },
       "then": { "required": ["fighterArtDirection"] }
+    },
+    {
+      "if": { "properties": { "archetype": { "const": "adventure" } }, "required": ["archetype"] },
+      "then": { "required": ["combatKit"] }
     }
   ],
   "required": [

@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import type { AdventureCombatKit } from '@sparkade/shared';
 import {
   FIGHTER_POSE_SHEET_SIZE,
   fighterPoseSheetCellRect,
@@ -7,18 +8,37 @@ import {
   type FighterPoseSheetSegmentationMetrics,
 } from './fighter-pose-sheet';
 import {
-  GENERATED_ADVENTURE_PLAYER_POSES,
   processGeneratedAdventurePlayerPose,
   type GeneratedAdventurePlayerPose,
 } from './adventure-player';
 
-export const ADVENTURE_PLAYER_SHEET_PROMPT_VERSION = 'adventure-player-sheet-v2';
-export const ADVENTURE_PLAYER_SHEET_CANDIDATES = ['A', 'B'] as const;
-export type AdventurePlayerSheetCandidate = (typeof ADVENTURE_PLAYER_SHEET_CANDIDATES)[number];
+export const ADVENTURE_PLAYER_SHEET_PROMPT_VERSION = 'adventure-player-sheet-v3';
+export const ADVENTURE_PLAYER_SHEET_GROUPS = [
+  {
+    id: 'movement',
+    poses: ['downIdle', 'downWalk', 'upIdle', 'upWalk', 'sideIdle', 'sideWalk'],
+  },
+  {
+    id: 'combat',
+    poses: ['downMelee', 'upMelee', 'sideMelee', 'downSecondary', 'upSecondary', 'sideSecondary'],
+  },
+] as const satisfies readonly {
+  id: string;
+  poses: readonly [
+    GeneratedAdventurePlayerPose,
+    GeneratedAdventurePlayerPose,
+    GeneratedAdventurePlayerPose,
+    GeneratedAdventurePlayerPose,
+    GeneratedAdventurePlayerPose,
+    GeneratedAdventurePlayerPose,
+  ];
+}[];
+export type AdventurePlayerSheetGroup = (typeof ADVENTURE_PLAYER_SHEET_GROUPS)[number];
+export type AdventurePlayerSheetGroupId = AdventurePlayerSheetGroup['id'];
 
 export interface AdventurePlayerSheetCellResult {
   id: string;
-  sheet: AdventurePlayerSheetCandidate;
+  sheet: AdventurePlayerSheetGroupId;
   pose: GeneratedAdventurePlayerPose;
   rect: FighterPoseSheetCellRect;
   raw: Buffer;
@@ -30,6 +50,7 @@ export interface AdventurePlayerSheetCellResult {
 interface AdventurePlayerSheetPromptOptions {
   heroConcept?: string;
   colors?: string;
+  combatKit?: AdventureCombatKit;
 }
 
 const POSE_CONTRACT: Record<GeneratedAdventurePlayerPose, string> = {
@@ -45,6 +66,18 @@ const POSE_CONTRACT: Record<GeneratedAdventurePlayerPose, string> = {
     'RIGHT-facing top-down three-quarter side idle, both feet planted, exact matching face profile, hair, eyewear, headwear, and costume',
   sideWalk:
     'RIGHT-facing top-down three-quarter walking contact pose toward the right edge, clear stride and natural opposite arm swing',
+  downMelee:
+    'DOWN-facing primary-melee contact frame toward the bottom edge, planted feet and full readable attack extension',
+  upMelee:
+    'UP-facing true back-view primary-melee contact frame toward the top edge, planted feet, correct rear identity, and no face on the back of the head',
+  sideMelee:
+    'RIGHT-facing primary-melee contact frame toward the right edge, planted feet and full readable attack extension',
+  downSecondary:
+    'DOWN-facing secondary-use release frame toward the bottom edge, clearly operating the item without a launched projectile or effect',
+  upSecondary:
+    'UP-facing true back-view secondary-use release frame toward the top edge, correct rear identity, no face on the back of the head, and no launched projectile or effect',
+  sideSecondary:
+    'RIGHT-facing secondary-use release frame toward the right edge, clearly operating the item without a launched projectile or effect',
 };
 
 function clean(value: string | undefined, max = 500): string | null {
@@ -67,7 +100,7 @@ export async function buildAdventurePlayerSheetSeed(downIdle: Buffer): Promise<B
     })
     .png()
     .toBuffer();
-  const overlays = GENERATED_ADVENTURE_PLAYER_POSES.map((_, index): sharp.OverlayOptions => {
+  const overlays = Array.from({ length: 6 }, (_, index): sharp.OverlayOptions => {
     const rect = fighterPoseSheetCellRect(index);
     return { input: identity, left: rect.left + insetX, top: rect.top + insetY };
   });
@@ -85,28 +118,40 @@ export async function buildAdventurePlayerSheetSeed(downIdle: Buffer): Promise<B
 }
 
 export function buildAdventurePlayerSheetPrompt(
-  candidate: AdventurePlayerSheetCandidate,
+  group: AdventurePlayerSheetGroup,
   options: AdventurePlayerSheetPromptOptions = {},
 ): string {
   const wardrobe = clean(options.heroConcept);
   const colors = clean(options.colors);
-  const cells = GENERATED_ADVENTURE_PLAYER_POSES.map(
-    (pose, index) =>
-      `Cell ${index + 1} (row ${Math.floor(index / 3) + 1}, column ${(index % 3) + 1}) — ${pose}: ${POSE_CONTRACT[pose]}.`,
-  ).join(' ');
+  const cells = group.poses
+    .map(
+      (pose, index) =>
+        `Cell ${index + 1} (row ${Math.floor(index / 3) + 1}, column ${(index % 3) + 1}) — ${pose}: ${POSE_CONTRACT[pose]}.`,
+    )
+    .join(' ');
+  const kit = options.combatKit;
+  const equipment = kit
+    ? [
+        kit.primary.unarmed
+          ? `PRIMARY: ${kit.primary.name}; ${kit.primary.visualConcept}; ${kit.primary.profile}; explicitly unarmed, so movement cells keep empty hands and melee cells show an unarmed contact action.`
+          : `PRIMARY: ${kit.primary.name}; ${kit.primary.visualConcept}; ${kit.primary.profile}; movement cells visibly hold this exact equipment at rest and melee cells show it at contact extension. Never substitute a generic sword.`,
+        `SECONDARY: ${kit.secondary.name}; ${kit.secondary.visualConcept}; ${kit.secondary.behavior}; secondary cells show this exact item at the use/release moment without a launched projectile, explosion, trail, or effect.`,
+      ].join(' ')
+    : 'No combat-kit brief was supplied; keep hands empty and do not invent equipment.';
   return [
-    `ADVENTURE PLAYER POSE SHEET CONTRACT: ${candidate} [${GENERATED_ADVENTURE_PLAYER_POSES.join(',')}].`,
-    `Edit the attached fixed 3-column by 2-row board into exactly SIX isolated full-body top-down adventure-game sprites of the same adult hero, sheet candidate ${candidate}.`,
-    'The board already repeats the exact selected gameplay hero once in every cell. It is immutable identity, head-accessory, wardrobe, body-proportion, pixel-technique, scale, and ground-line truth. Preserve the same apparent adult age, face and head shape, skin tone, hairline, hair texture and style, facial hair, glasses, headwear, every visible head accessory, costume, footwear, and body-worn detail in all six cells. Never invent an absent accessory and never remove or replace one that is present.',
+    `ADVENTURE PLAYER POSE SHEET CONTRACT: ${group.id} [${group.poses.join(',')}].`,
+    `Edit the attached fixed 3-column by 2-row board into exactly SIX isolated full-body top-down adventure-game sprites of the same adult hero for the ${group.id} sheet.`,
+    'The board already repeats the exact selected gameplay hero once in every cell. It is immutable identity, head-accessory, wardrobe, primary-equipment, body-proportion, pixel-technique, scale, and ground-line truth. Preserve the same apparent adult age, face and head shape, skin tone, hairline, hair texture and style, facial hair, glasses, headwear, every visible head accessory, costume, footwear, and body-worn detail in all six cells. Never invent an absent accessory and never remove or replace one that is present.',
     wardrobe
       ? `Canonical game-world wardrobe shared by every cell: ${wardrobe}. The source-photo clothing is not identity and must not replace this outfit.`
       : '',
     colors ? `Limited costume color direction shared by every cell: ${colors}.` : '',
+    `IMMUTABLE COMBAT-KIT CONTRACT: ${equipment}`,
     `Use this exact row-major order and do not swap, omit, duplicate, or merge poses. ${cells}`,
-    'Change only facing and locomotion. Keep the same camera pitch, character scale, foot ground line, silhouette proportions, costume construction, and crisp pixel density across the sheet. Both hands must remain empty because the engine adds weapons and items separately.',
+    'Change only facing and the requested locomotion or combat state. Keep the same camera pitch, character scale, foot ground line, silhouette proportions, costume construction, equipment construction, and crisp pixel density across the sheet.',
     'Every pose needs the same clean darkest outer contour around the complete head-to-foot silhouette and readable separations between limbs and torso. Preserve the anchor character’s internal identity detail while ensuring no body edge dissolves into a light, dark, noisy, or similarly colored floor.',
     'Keep one and only one complete uncropped character inside each cell with generous green clearance on every edge. No body part may cross into another cell.',
-    'Every background pixel, gutter, and gap enclosed by the body must remain perfectly flat solid #00ff00. Do not draw grid lines, borders, labels, text, letters, numbers, UI, scenery, floors, shadows, effects, props, weapons, tools, bags, or extra characters.',
+    'Every background pixel, gutter, and gap enclosed by the body must remain perfectly flat solid #00ff00. Do not draw grid lines, borders, labels, text, letters, numbers, UI, scenery, floors, shadows, effects, bags, extra characters, or any prop beyond the exact combat-kit equipment required in that cell.',
     'Polished high-density 16-bit SNES-era top-down adventure sprite art with crisp square pixel clusters, hard edges, limited flat colors, and readable identity and costume landmarks. No blur, antialiasing, gradients, photorealism, smooth vector art, 3D rendering, or style changes between cells.',
   ]
     .filter(Boolean)
@@ -117,34 +162,31 @@ export function buildAdventurePlayerSheetPrompt(
  * 112x128 keying, quantization, and foot anchoring for each cell. */
 export async function splitGeneratedAdventurePlayerSheet(
   image: Buffer,
-  sheet: AdventurePlayerSheetCandidate,
+  group: AdventurePlayerSheetGroup,
 ): Promise<AdventurePlayerSheetCellResult[]> {
   const segmented = await segmentGeneratedFighterPoseSheet(image);
   return Promise.all(
-    GENERATED_ADVENTURE_PLAYER_POSES.map(
-      async (pose, index): Promise<AdventurePlayerSheetCellResult> => {
-        const cell = segmented[index]!;
-        const id = `${pose}-${sheet}`;
-        if (cell.error) return { id, sheet, pose, ...cell };
-        try {
-          return {
-            id,
-            sheet,
-            pose,
-            ...cell,
-            processed: await processGeneratedAdventurePlayerPose(cell.raw),
-          };
-        } catch (error) {
-          return {
-            id,
-            sheet,
-            pose,
-            ...cell,
-            error:
-              error instanceof Error ? error.message.slice(0, 800) : String(error).slice(0, 800),
-          };
-        }
-      },
-    ),
+    group.poses.map(async (pose, index): Promise<AdventurePlayerSheetCellResult> => {
+      const cell = segmented[index]!;
+      const id = `${pose}-${group.id}`;
+      if (cell.error) return { id, sheet: group.id, pose, ...cell };
+      try {
+        return {
+          id,
+          sheet: group.id,
+          pose,
+          ...cell,
+          processed: await processGeneratedAdventurePlayerPose(cell.raw),
+        };
+      } catch (error) {
+        return {
+          id,
+          sheet: group.id,
+          pose,
+          ...cell,
+          error: error instanceof Error ? error.message.slice(0, 800) : String(error).slice(0, 800),
+        };
+      }
+    }),
   );
 }

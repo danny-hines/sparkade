@@ -171,7 +171,9 @@ describe('dev platformer poses lab', () => {
       height: 1180,
       format: 'jpeg',
     });
-    expect(judgeInputs[0]?.request.system).toContain('SOURCE PHOTO is the only identity truth');
+    expect(judgeInputs[0]?.request.system).toContain(
+      'The SOURCE PHOTO is the canonical identity truth',
+    );
     expect(judgeInputs[0]?.request.system).toContain('wrinkles');
     expect(judgeInputs[0]?.request.user).toContain(
       'CANONICAL GAME-WORLD WARDROBE: dark shirt and tan pants',

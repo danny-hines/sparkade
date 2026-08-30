@@ -143,10 +143,16 @@ export class MockProvider implements Provider {
             golden.archetype === 'fighter'
               ? golden.player.visualConcept
               : 'An indigo expedition jacket with brass fasteners, sturdy tan trousers, and dark trail boots',
-          ...(archetype === 'hshooter'
+          ...(golden.archetype === 'adventure'
+            ? { combatKit: structuredClone(golden.combatKit) }
+            : {}),
+          ...(archetype === 'hshooter' || archetype === 'shooter'
             ? {
                 vehicleConcept:
-                  'The Starling, a low cobalt trench skiff with swept brass fins, a dark bubble canopy, twin amber drives, and a bright forked nose mark',
+                  (golden.archetype === 'hshooter' || golden.archetype === 'shooter'
+                    ? golden.playerCraft.visualConcept
+                    : undefined) ??
+                  'The Starling, a low cobalt craft with swept brass fins, a dark bubble canopy, twin amber drives, and a bright forked nose mark',
               }
             : {}),
           ...(golden.archetype === 'fighter'
@@ -173,6 +179,7 @@ export class MockProvider implements Provider {
           },
           scoring: structuredClone(golden.scoring),
           difficulty: 'standard',
+          ...(archetype === 'platformer' ? { movementProfile: 'precision' as const } : {}),
         };
         payload = design;
         break;

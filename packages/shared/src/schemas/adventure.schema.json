@@ -10,6 +10,7 @@
     "meta": { "$ref": "#/$defs/meta" },
     "palette": { "$ref": "#/$defs/palette" },
     "story": { "$ref": "#/$defs/story" },
+    "combatKit": { "$ref": "#/$defs/combatKit" },
     "sprites": { "$ref": "#/$defs/spritesBlock" },
     "backdrop": {
       "description": "Parallax backdrop scene drawn behind gameplay in your palette's background colors. Pick the scene that matches the premise; omit for a mood-based default.",
@@ -77,6 +78,7 @@
     "meta",
     "palette",
     "story",
+    "combatKit",
     "sprites",
     "levels",
     "boss",
@@ -101,6 +103,45 @@
       "pattern": "^[ -~]+$"
     },
     "shortName": { "type": "string", "minLength": 1, "maxLength": 24, "pattern": "^[ -~]+$" },
+    "combatKit": {
+      "description": "Adventure combat identity. Behavior fields are bounded engine mechanics; names and visual concepts adapt them to the game's fiction.",
+      "type": "object",
+      "properties": {
+        "primary": {
+          "type": "object",
+          "properties": {
+            "profile": { "enum": ["close", "sweep", "reach"] },
+            "name": { "$ref": "#/$defs/shortName" },
+            "visualConcept": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 160,
+              "pattern": "^[ -~]+$"
+            },
+            "unarmed": { "type": "boolean" }
+          },
+          "required": ["profile", "name", "visualConcept", "unarmed"],
+          "additionalProperties": false
+        },
+        "secondary": {
+          "type": "object",
+          "properties": {
+            "behavior": { "enum": ["shot", "returning", "blast"] },
+            "name": { "$ref": "#/$defs/shortName" },
+            "visualConcept": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 160,
+              "pattern": "^[ -~]+$"
+            }
+          },
+          "required": ["behavior", "name", "visualConcept"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["primary", "secondary"],
+      "additionalProperties": false
+    },
     "spriteRef": {
       "description": "Either 'lib:<id>' for a built-in library sprite or 'custom:<id>' for one defined in sprites.custom.",
       "type": "string",
@@ -419,8 +460,8 @@
             },
             "speed": { "type": "number", "minimum": 0.2, "maximum": 3 },
             "item": {
-              "description": "For 'item' entities: which secondary item this pedestal grants. Must match items.secondary.",
-              "enum": ["boomerang", "bombs", "bow"]
+              "description": "For 'item' entities: which bounded secondary behavior this pedestal grants. Must match items.secondary and combatKit.secondary.behavior.",
+              "enum": ["shot", "returning", "blast"]
             }
           },
           "additionalProperties": false
@@ -494,7 +535,7 @@
         "items": {
           "type": "object",
           "properties": {
-            "secondary": { "enum": ["boomerang", "bombs", "bow"] }
+            "secondary": { "enum": ["shot", "returning", "blast"] }
           },
           "required": ["secondary"],
           "additionalProperties": false
@@ -517,7 +558,7 @@
       "type": "object",
       "properties": {
         "name": { "$ref": "#/$defs/shortName" },
-        "hp": { "type": "integer", "minimum": 12, "maximum": 60 },
+        "hp": { "type": "integer", "minimum": 12, "maximum": 36 },
         "phases": {
           "description": "2-3 phases with telegraphed patterns, entered at equal HP fractions.",
           "type": "array",

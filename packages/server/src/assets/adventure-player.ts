@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import type { AdventureCombatKit } from '@sparkade/shared';
 import {
   prepareGeneratedPlatformerReference,
   processGeneratedPlatformerPose,
@@ -12,17 +13,24 @@ export const GENERATED_ADVENTURE_PLAYER_POSES = [
   'upWalk',
   'sideIdle',
   'sideWalk',
+  'downMelee',
+  'upMelee',
+  'sideMelee',
+  'downSecondary',
+  'upSecondary',
+  'sideSecondary',
 ] as const;
 export type GeneratedAdventurePlayerPose = (typeof GENERATED_ADVENTURE_PLAYER_POSES)[number];
 
 export const ADVENTURE_PLAYER_POSE_WIDTH = 112;
 export const ADVENTURE_PLAYER_POSE_HEIGHT = 128;
-export const ADVENTURE_PLAYER_POSE_PROMPT_VERSION = 'adventure-player-pose-v2';
-export const ADVENTURE_PLAYER_PIPELINE_PROMPT_VERSION = 'adventure-player-pipeline-v3';
+export const ADVENTURE_PLAYER_POSE_PROMPT_VERSION = 'adventure-player-pose-v3';
+export const ADVENTURE_PLAYER_PIPELINE_PROMPT_VERSION = 'adventure-player-pipeline-v4';
 
 interface AdventurePlayerPromptOptions {
   heroConcept?: string;
   colors?: string;
+  combatKit?: AdventureCombatKit;
 }
 
 interface AdventurePlayerIdentityPromptOptions extends AdventurePlayerPromptOptions {
@@ -41,6 +49,18 @@ const POSE_DIRECTIONS: Record<Exclude<GeneratedAdventurePlayerPose, 'downIdle'>,
     'a neutral RIGHT-facing top-down three-quarter side view with both feet planted, upright posture, empty relaxed hands, and a readable profile of the same face, hair, eyewear, and headwear',
   sideWalk:
     'a RIGHT-facing top-down three-quarter walking contact frame with a clear stride toward the right edge and natural opposite arm swing; preserve the exact side camera angle and head profile from the reference',
+  downMelee:
+    'a DOWN-facing top-down three-quarter primary-melee CONTACT frame aimed toward the bottom edge, with planted readable feet, a committed arm action, and the named primary attack visibly at full useful extension',
+  upMelee:
+    'an UP-facing true back-view primary-melee CONTACT frame aimed toward the top edge, with planted readable feet, correct rear identity, and the named primary attack visibly at full useful extension',
+  sideMelee:
+    'a RIGHT-facing top-down three-quarter primary-melee CONTACT frame aimed toward the right edge, with planted readable feet, an unmistakable profile action, and the named primary attack visibly at full useful extension',
+  downSecondary:
+    'a DOWN-facing top-down three-quarter secondary-use RELEASE frame aimed toward the bottom edge, clearly operating, firing, throwing, or placing the named secondary item without drawing an already-launched projectile or effect',
+  upSecondary:
+    'an UP-facing true back-view secondary-use RELEASE frame aimed toward the top edge, preserving correct rear identity while clearly operating, firing, throwing, or placing the named secondary item without a launched projectile or effect',
+  sideSecondary:
+    'a RIGHT-facing top-down three-quarter secondary-use RELEASE frame aimed toward the right edge, clearly operating, firing, throwing, or placing the named secondary item without drawing an already-launched projectile or effect',
 };
 
 function clean(value: string | undefined, max = 500): string | null {
@@ -60,14 +80,35 @@ function wardrobeAndColor(options: AdventurePlayerPromptOptions): string[] {
   ].filter(Boolean);
 }
 
+function equipmentContract(
+  pose: GeneratedAdventurePlayerPose,
+  options: AdventurePlayerPromptOptions,
+): string {
+  const kit = options.combatKit;
+  if (!kit) return 'Keep both hands empty and do not add a weapon or held prop.';
+  const primary = kit.primary;
+  const secondary = kit.secondary;
+  if (pose.endsWith('Melee')) {
+    return primary.unarmed
+      ? `Primary melee contract: ${primary.name}, ${primary.visualConcept}. This is explicitly unarmed: show the hands and body performing the ${primary.profile} contact action with no invented weapon.`
+      : `Primary melee contract: ${primary.name}, ${primary.visualConcept}. Show this exact ${primary.profile} equipment in the hands at the contact moment; never substitute a generic sword, knife, or fantasy weapon.`;
+  }
+  if (pose.endsWith('Secondary')) {
+    return `Secondary-use contract: ${secondary.name}, ${secondary.visualConcept}. Show this exact ${secondary.behavior} item being operated at its release moment. Do not substitute generic gear and do not draw the launched projectile, explosion, trail, or effect. The primary may be naturally stowed or out of frame, but must not transform into the secondary.`;
+  }
+  return primary.unarmed
+    ? `Default-ready contract: ${primary.name}, ${primary.visualConcept}. Because unarmed=true, keep both hands visibly empty in a relaxed but capable ready pose; never invent a held weapon.`
+    : `Default-ready contract: visibly hold ${primary.name}, ${primary.visualConcept}, in a safe readable rest position integrated into the silhouette. Preserve this exact equipment identity in every idle and walk pose; never replace it with a generic sword.`;
+}
+
 function spriteConstraints(): string[] {
   return [
     'Show exactly one complete full-body adult character, from the top of hair or headwear through both hands and both feet. Nothing may be cropped.',
     'Polished high-density 16-bit SNES-era top-down adventure-game sprite art authored for a native 112x128 canvas: crisp square pixel clusters, hard edges, limited flat colors, readable facial and costume landmarks, and no antialiasing, blur, gradients, photorealism, smooth vector art, or 3D rendering.',
     'Build a clean, strongly readable outer silhouette with a consistent darkest contour color around the head, shoulders, torso, arms, and legs. Preserve small identity details inside that contour, but do not let skin, hair, or wardrobe edges dissolve into a busy light, dark, or similarly colored floor.',
-    'Keep the character centered, consistently proportioned, and foot-anchored on the same ground line. Both hands must be empty; the engine adds the sword and items separately.',
+    'Keep the character centered, consistently proportioned, and foot-anchored on the same ground line. Required held equipment is part of the character silhouette and must remain fully inside the canvas.',
     'This is one sprite in one pose, not a sprite sheet, turnaround, sequence, collage, portrait, character-select card, or story illustration.',
-    'No text, letters, numbers, logos, watermark, signature, UI, border, scenery, floor, platform, shadow, glow, particles, weapon, shield, tool, bag, held prop, extra object, or second character.',
+    'No text, letters, numbers, logos, watermark, signature, UI, border, scenery, floor, platform, shadow, glow, particles, extra unrequested object, or second character. Draw only the equipment explicitly required for this pose.',
     'The entire background must be perfectly flat solid #00ff00, including every enclosed gap around the arms and legs. Do not use #00ff00 or a near-neon imitation in the character.',
   ];
 }
@@ -84,6 +125,7 @@ export function buildAdventurePlayerIdentityPrompt(
       : "The attached key art is the immutable visual identity and costume reference for the game's player hero. Preserve that exact character rather than inventing a replacement.",
     ...wardrobeAndColor(options),
     'Pose and camera: neutral DOWN-facing idle in a classic top-down three-quarter adventure view, facing toward the bottom edge and slightly toward the camera. Both feet are planted, posture is ready but relaxed, face and head accessories are clearly readable, and arms rest naturally at the sides.',
+    equipmentContract('downIdle', options),
     `Generate independent identity-foundation candidate ${candidateId} for evaluation. Do not render the candidate label.`,
     'The face must remain recognizably the same adult. Do not make the person bald, childlike, generically younger, differently proportioned, or more stylized than needed for the requested pixel-art treatment.',
     ...spriteConstraints(),
@@ -101,9 +143,10 @@ export function buildAdventurePlayerPosePrompt(
 ): string {
   return [
     'Create exactly ONE isolated full-body top-down adventure-game sprite of the exact character in the attached gameplay reference.',
-    'The attached sprite is immutable identity, wardrobe, proportion, pixel-technique, and scale truth. Preserve the same apparent adult age, face/head shape, skin tone, hairline, hair texture and style, facial hair, eyewear, headwear, visible head accessories, costume, footwear, body-worn accessories, and body proportions. Change only the requested facing and walking pose.',
+    'The attached sprite is immutable identity, wardrobe, primary-equipment, proportion, pixel-technique, and scale truth. Preserve the same apparent adult age, face/head shape, skin tone, hairline, hair texture and style, facial hair, eyewear, headwear, visible head accessories, costume, footwear, body-worn accessories, and body proportions. Change only the requested facing and action state.',
     ...wardrobeAndColor(options),
     `Pose and camera: ${POSE_DIRECTIONS[pose]}.`,
+    equipmentContract(pose, options),
     ...spriteConstraints(),
   ].join(' ');
 }
@@ -111,25 +154,36 @@ export function buildAdventurePlayerPosePrompt(
 export function buildAdventurePlayerIdentityJudgePrompt(
   candidates: readonly PlatformerIdleCandidateDescriptor[],
   heroConcept?: string,
+  combatKit?: AdventureCombatKit,
+  sourceKind: 'photo' | 'key-art' = 'photo',
 ): { system: string; user: string } {
   const ids = candidates.map(({ id }) => id).join(', ');
+  const sourceName = sourceKind === 'key-art' ? 'SOURCE KEY ART' : 'SOURCE PHOTO';
   const wardrobe = clean(heroConcept);
+  const primary = combatKit
+    ? combatKit.primary.unarmed
+      ? `${combatKit.primary.name}: ${combatKit.primary.visualConcept}; explicitly unarmed, so hands must be empty.`
+      : `${combatKit.primary.name}: ${combatKit.primary.visualConcept}; it must be visibly held at rest and must not be replaced by a generic sword.`
+    : '';
   return {
     system: [
       'You are the exacting identity art director for a premium SNES-style top-down adventure game.',
-      'Inspect the attached identity-foundation review board. SOURCE PHOTO is the only identity truth from the neck up; its clothing below the neck is not identity. Compare every candidate directly with that photo. The canonical game-world wardrobe in the user message is authoritative from the neck down.',
+      `Inspect the attached identity-foundation review board. ${sourceName} is the canonical identity truth. Compare every candidate directly with it. The canonical game-world wardrobe in the user message is authoritative from the neck down.`,
       'Identity includes apparent adult age, face and head shape, skin tone, hairline, hair texture and style, facial hair, eyewear, headwear, and visible head accessories. Inventing or removing glasses, hats, hair, facial hair, or another head accessory is fatal. Becoming bald, childlike, generically younger, or a different person is fatal.',
-      'Costume must realize the supplied wardrobe with consistent garments, materials, colors, footwear, silhouette, and body-worn details. Copying the source-photo clothing is a costume failure.',
-      'A usable foundation shows exactly one complete uncropped adult, a neutral DOWN-facing top-down three-quarter idle, empty hands, coherent anatomy, a clear ground line, readable native-scale pixel technique, and no props, text, scenery, or severe artifacts.',
+      'Costume must realize the supplied wardrobe with consistent garments, materials, colors, footwear, silhouette, and body-worn details.',
+      'A usable foundation shows exactly one complete uncropped adult, a neutral DOWN-facing top-down three-quarter idle, the exact primary-equipment state required by the combat kit, coherent anatomy, a clear ground line, readable native-scale pixel technique, and no extra props, text, scenery, or severe artifacts.',
       'Gameplay readability is part of technical quality. The complete head-to-foot silhouette and major limb separations must remain immediately legible over light, dark, and noisy floor art; weak or broken outer contour separation is not acceptable.',
       'Score every category from 0 to 5. Select the strongest candidate only if it has no fatal issue, eyewearMatch=true, and every score is at least 4. Otherwise reject the batch and give concrete retry guidance. Return only the requested JSON object.',
     ].join(' '),
     user: [
-      `Review Adventure player candidates ${ids}. Compare every RAW and PROCESSED head directly with SOURCE PHOTO, then select the safest shared identity foundation or reject the batch.`,
+      `Review Adventure player candidates ${ids}. Compare every RAW and PROCESSED character directly with ${sourceName}, then select the safest shared identity foundation or reject the batch.`,
       wardrobe
         ? `CANONICAL GAME-WORLD WARDROBE: ${wardrobe}`
         : 'No separate wardrobe brief was supplied; require one coherent game-world costume.',
-    ].join(' '),
+      primary ? `IMMUTABLE PRIMARY EQUIPMENT: ${primary}` : '',
+    ]
+      .filter(Boolean)
+      .join(' '),
   };
 }
 
@@ -245,7 +299,15 @@ export async function validateGeneratedAdventurePlayerPoseSet(
       return { pose, width: maxX - minX + 1, height: maxY - minY + 1 };
     }),
   );
-  const heights = bounds.map(({ height }) => height);
+  const movementPoses = new Set<GeneratedAdventurePlayerPose>([
+    'downIdle',
+    'downWalk',
+    'upIdle',
+    'upWalk',
+    'sideIdle',
+    'sideWalk',
+  ]);
+  const heights = bounds.filter(({ pose }) => movementPoses.has(pose)).map(({ height }) => height);
   if (Math.max(...heights) - Math.min(...heights) > 10) {
     throw new Error('generated Adventure player directions change character height');
   }

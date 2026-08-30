@@ -13,6 +13,7 @@ import {
   highDensityTileRef,
   isSolidInnerLibraryId,
   makeBackdrop,
+  makeGeneratedBackdrop,
   moveAABB,
   pickVariant,
   resolveSolidInnerRef,
@@ -78,6 +79,9 @@ const ST_APPROACH = 0;
 const ST_HOLD = 1;
 const ST_LEAVE = 2;
 const ST_HOMING = 3;
+
+export const HSHOOTER_GENERATED_BACKDROP_DIM_ALPHA = 0.2;
+export const HSHOOTER_PROCEDURAL_BACKDROP_ALPHA = 0.3;
 
 type TileKind = HShooterTileType;
 
@@ -192,8 +196,10 @@ export function usesDetailedHShooterPresentation(
   return artDensity === 'detailed';
 }
 
-export function usesHShooterCraftIdentity(playerCraft: HShooterSpec['playerCraft']): boolean {
-  return !!playerCraft?.visualConcept.trim();
+/** The generated panorama completes exactly one edge-to-edge travel over the
+ * authored autoscroll duration. Procedural parallax continues after it clamps. */
+export function hshooterBackdropPanDistance(level: { scroll: number; durationS: number }): number {
+  return Math.max(1, level.scroll * level.durationS);
 }
 
 /** Top-down shooter art is rotated clockwise into the horizontal flight plane. */
@@ -219,6 +225,7 @@ class HShooterGame implements GameInstance {
   private levelIndex = 0;
   private level!: HShooterLevel;
   private backdrop!: Backdrop;
+  private generatedBackdrop: Backdrop | null = null;
   private bgVariant: BackdropVariant;
   private scrollX = 0;
   private clock = 0;
@@ -315,8 +322,8 @@ class HShooterGame implements GameInstance {
   private sprites: Record<string, ResolvedSprite> = {};
   private pickupSprites: Record<ShooterPickupType, ResolvedSprite>;
   private detailedPresentation: boolean;
-  private craftIdentity: boolean;
-  private generatedPlayerCraft: CanvasImageSource | null;
+  private generatedPlayerCraft: CanvasImageSource;
+  private generatedBackdrops: Readonly<Record<string, CanvasImageSource>> | null;
   private foeDims: Record<ShooterEnemyType, { w: number; h: number }>;
   private bossDims: { w: number; h: number };
   private bossVisualDims: { w: number; h: number };
@@ -331,15 +338,16 @@ class HShooterGame implements GameInstance {
   ) {
     this.diff = difficultyScale(this.spec.difficulty);
     this.detailedPresentation = usesDetailedHShooterPresentation(this.spec.hshooterArtDensity);
-    this.craftIdentity = usesHShooterCraftIdentity(this.spec.playerCraft);
-    this.generatedPlayerCraft = this.craftIdentity ? engine.hshooterPlayerCraft : null;
+    if (!engine.hshooterPlayerCraft) {
+      throw new Error('H-scroll games require a generated player craft');
+    }
+    this.generatedPlayerCraft = engine.hshooterPlayerCraft;
+    this.generatedBackdrops = engine.hshooterBackdrops;
     this.bgVariant = pickVariant(this.spec.palette, this.spec.seed, this.spec.backdrop);
     for (const role of Object.keys(ROLE_FALLBACK)) {
       const fallback = ROLE_FALLBACK[role]!;
       this.sprites[role] =
-        role === 'hero' && this.craftIdentity
-          ? engine.sprites.byRef(fallback, false)
-          : engine.sprites.byRole(role, fallback);
+        role === 'hero' ? engine.sprites.byRef(fallback, false) : engine.sprites.byRole(role, fallback);
     }
     this.pickupSprites = {
       spread: engine.sprites.byRole('pickup_spread', 'lib:pickup_spread'),
@@ -568,6 +576,12 @@ class HShooterGame implements GameInstance {
     const level = this.spec.levels[ix]!;
     this.level = level;
     this.backdrop = makeBackdrop(this.spec.palette, this.spec.seed + ix * 101, this.bgVariant);
+    const generatedBackdrop = this.generatedBackdrops?.[`level${ix + 1}`];
+    this.generatedBackdrop = generatedBackdrop
+      ? makeGeneratedBackdrop(generatedBackdrop, W, H, {
+          panAcrossDistance: hshooterBackdropPanDistance(level),
+        })
+      : null;
     this.buildGrid(level.tiles, level.legend);
     this.decorations =
       this.spec.hshooterArtDensity === 'detailed'
@@ -621,6 +635,10 @@ class HShooterGame implements GameInstance {
     );
     this.decorations = [];
     this.backdrop = makeBackdrop(this.spec.palette, this.spec.seed + 777, this.bgVariant);
+    const generatedBackdrop = this.generatedBackdrops?.boss;
+    this.generatedBackdrop = generatedBackdrop
+      ? makeGeneratedBackdrop(generatedBackdrop, W, H)
+      : null;
     this.clearPools();
     this.spawnPlayer();
     const b = this.spec.boss;
@@ -1591,7 +1609,16 @@ class HShooterGame implements GameInstance {
     r.clear(this.spec.palette[2]);
     if (!this.backdrop) return;
 
-    this.backdrop.draw(r.ctx, cam.x, cam.y);
+    if (this.generatedBackdrop) {
+      this.generatedBackdrop.draw(r.ctx, this.scrollX, 0);
+      r.rect(0, 0, W, H, `rgba(0, 0, 0, ${HSHOOTER_GENERATED_BACKDROP_DIM_ALPHA})`);
+      r.ctx.save();
+      r.ctx.globalAlpha = HSHOOTER_PROCEDURAL_BACKDROP_ALPHA;
+      this.backdrop.draw(r.ctx, cam.x, cam.y);
+      r.ctx.restore();
+    } else {
+      this.backdrop.draw(r.ctx, cam.x, cam.y);
+    }
 
     // tile stage
     const frameIx = Math.floor(this.animT * 4) % 2;
@@ -1677,16 +1704,10 @@ class HShooterGame implements GameInstance {
       r.draw(img, sh.x - cam.x - shotSprite.w / 2, sh.y - shotSprite.h / 2);
     }
 
-    // Ship (native generated side view, or rotated library fallback).
+    // Required native generated side-view craft.
     if (this.invulnT <= 0 || Math.floor(this.animT * 12) % 2 === 0) {
-      const hero = this.sprites['hero']!;
       const sxp = this.px - cam.x;
-      if (this.generatedPlayerCraft) {
-        this.drawGeneratedPlayerCraft(this.generatedPlayerCraft, sxp, this.py);
-      } else {
-        const img = this.engine.sprites.frame(hero, 'idle', this.animT);
-        this.drawHorizontal(img, sxp, this.py, hero.w, hero.h);
-      }
+      this.drawGeneratedPlayerCraft(this.generatedPlayerCraft, sxp, this.py);
       if (this.shieldUp) r.frame(sxp - 11, this.py - 11, 22, 22, this.spec.palette[4] ?? '#41a6f6');
       if (this.chargeT > 0.15) {
         const size = 10 + Math.min(1, this.chargeT / CHARGE_TIME) * 8;

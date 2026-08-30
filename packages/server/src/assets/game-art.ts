@@ -3,8 +3,8 @@ import { FIGHTER_POSES, type FighterPose, type GameSpec } from '@sparkade/shared
 import { fighterArtDirectionPrompt } from './fighter-art-direction';
 import { FIGHTER_POSE_SHEET_SIZE, fighterPoseSheetCellRect } from './fighter-pose-sheet';
 
-export const KEY_ART_PROMPT_VERSION = 'key-art-v4';
-export const STORY_ART_PROMPT_VERSION = 'story-scenes-v2';
+export const KEY_ART_PROMPT_VERSION = 'key-art-v5';
+export const STORY_ART_PROMPT_VERSION = 'story-scenes-v3';
 export const KEY_ART_SIZE = { width: 480, height: 270 } as const;
 export const STORY_ART_SIZE = { width: 420, height: 180 } as const;
 export const KEY_ART_ASPECT_HINT = '1792x1024';
@@ -22,6 +22,18 @@ function clean(value: string): string {
 function wardrobeBrief(heroConcept: string | undefined): string {
   const concept = heroConcept ? clean(heroConcept) : '';
   return concept ? `Canonical player hero design and game-world outfit: ${concept}.` : '';
+}
+
+function adventureCombatKitBrief(spec: GameSpec): string {
+  if (spec.archetype !== 'adventure') return '';
+  const primary = spec.combatKit.primary;
+  const secondary = spec.combatKit.secondary;
+  return [
+    primary.unarmed
+      ? `The hero's primary melee is unarmed ${clean(primary.name)} using the ${primary.profile} profile: ${clean(primary.visualConcept)}. Default ready poses show no held weapon.`
+      : `The hero visibly carries their primary melee equipment in default ready poses: ${clean(primary.name)}, ${clean(primary.visualConcept)}. Its engine profile is ${primary.profile}.`,
+    `Their collectible secondary is ${clean(secondary.name)}, ${clean(secondary.visualConcept)}, using the ${secondary.behavior} behavior. Preserve these exact equipment identities whenever they appear.`,
+  ].join(' ');
 }
 
 function visualBrief(
@@ -46,6 +58,7 @@ function visualBrief(
     playerCraft
       ? `Canonical player craft identity, wholly separate from the pilot's likeness: ${clean(playerCraft.visualConcept)}.`
       : '',
+    adventureCombatKitBrief(spec),
     `Use this exact limited color direction: ${spec.palette.join(', ')}.`,
   ].join(' ');
 }
@@ -66,14 +79,19 @@ export function buildKeyArtPrompt(
     visualBrief(spec, heroConcept, playerCraft),
     playerCraft
       ? hasPlayerPhoto
-        ? 'The BOTTOM PANEL is the exact player craft used in gameplay. Preserve its side-view silhouette, canopy, fins, engines, materials, colors, and signature markings. The pilot and craft are separate identities: never put the pilot face, head, or body onto the vehicle.'
-        : 'The reference image is the exact player craft used in gameplay. Preserve its side-view silhouette, canopy, fins, engines, materials, colors, and signature markings. Never give the vehicle a human face, head, or body.'
+        ? 'The BOTTOM PANEL is the presentation-scale identity reference for the player craft. Preserve its signature silhouette, canopy, fins, engines, materials, colors, and markings, but RE-RENDER the vehicle naturally inside the scene at a physically plausible scale, perspective, and lighting. Do not paste, trace, enlarge, or copy the isolated reference pixels or its strict side-profile pose. The pilot and craft are separate identities: never put the pilot face, head, or body onto the vehicle.'
+        : 'The reference image is the presentation-scale identity reference for the player craft. Preserve its signature silhouette, canopy, fins, engines, materials, colors, and markings, but RE-RENDER the vehicle naturally inside the scene at a physically plausible scale, perspective, and lighting. Do not paste, trace, enlarge, or copy the isolated reference pixels or its strict side-profile pose. Never give the vehicle a human face, head, or body.'
+      : '',
+    spec.archetype === 'adventure'
+      ? spec.combatKit.primary.unarmed
+        ? 'Show the hero in a clearly readable unarmed ready stance with both hands visible and no invented weapon.'
+        : `Make the hero's ${clean(spec.combatKit.primary.name)} clearly visible in their hand as part of the central silhouette; do not substitute a generic sword.`
       : '',
     hasPlayerPhoto
       ? 'Keep the exact same neck-up identity while making the canonical outfit clearly readable in its silhouette, collar, torso, sleeves, legs, and footwear.'
       : '',
     playerCraft
-      ? 'Compose one dramatic landscape key-art image that clearly shows the player pilot, their exact craft, the game world, and the main villain in the distance.'
+      ? 'Compose one dramatic landscape key-art image that clearly shows the player pilot, their recognizable signature craft, the game world, and the main villain in the distance.'
       : 'Compose one dramatic landscape key-art image that clearly shows the player hero, the game world, and the main villain in the distance.',
     'Polished 16-bit console-game illustration: deliberate pixel clusters, crisp silhouettes, expressive characters, rich environmental detail, and cohesive limited colors. It should feel like premium SNES-era box art rendered by a master pixel artist.',
     'Landscape composition designed to survive a wide banner presentation. Keep every complete face, head, hairstyle, headwear, and essential action inside the middle 60% of the image height; reserve the outer 20% at both the top and bottom for expendable scenery only. Keep the player as the clear central focal point. No UI, screenshot frame, arcade cabinet, text, letters, title, logo, caption, watermark, signature, border, photorealism, blur, or 3D render.',
@@ -100,11 +118,12 @@ export function buildKeyArtPolicyFallbackPrompt(
         : 'Render the adult person in the reference image as the friendly player character. Preserve their recognizable identity from the neck up, including face, skin tone, hair, eyewear, headwear, and visible head accessories. Replace their source clothing below the neck with the canonical game-world outfit.'
       : 'Create one friendly original player character.',
     wardrobeBrief(canonicalHeroConcept),
+    adventureCombatKitBrief(spec),
     spec.archetype === 'fighter'
       ? `Immutable Fighter art direction: ${fighterArtDirectionPrompt(spec.artDirection)}`
       : '',
     playerCraft
-      ? `Preserve the separate exact player vehicle shown in the ${hasPlayerPhoto ? 'BOTTOM PANEL' : 'reference image'}: ${clean(playerCraft.visualConcept)}. Never merge the person and vehicle identities.`
+      ? `Preserve the separate player vehicle identity shown in the ${hasPlayerPhoto ? 'BOTTOM PANEL' : 'reference image'}: ${clean(playerCraft.visualConcept)}. Re-render it as an integrated part of the scene at natural scale, perspective, and lighting; never paste or enlarge the isolated reference. Never merge the person and vehicle identities.`
       : '',
     `Create polished landscape key art for a colorful ${spec.archetype} game world using this limited palette: ${spec.palette.join(', ')}.`,
     'Use a calm, adventurous composition with the player character as the central focal point. Keep every complete face, head, hairstyle, and headwear inside the middle 60% of the image height; reserve the outer 20% at both the top and bottom for expendable scenery only.',
@@ -133,15 +152,21 @@ export function buildStoryArtPrompt(
     gameplayHeroReference
       ? 'The TOP PANEL of the reference board is the immutable key-art world and story bible. The BOTTOM PANEL is the exact selected gameplay hero: use it as head identity, head accessories, and neck-down wardrobe truth. Create a new landscape story illustration from the same game. Preserve the same person and outfit at story-art scale; never invent or remove glasses, headwear, hair, facial hair, or another head accessory. Do not copy the panel layout or dark reference background.'
       : playerCraft
-        ? 'The TOP PANEL of the reference board is the immutable key-art visual bible and the BOTTOM PANEL is the exact gameplay craft. Create a new landscape story illustration from the same game.'
+        ? 'The TOP PANEL of the reference board is the immutable key-art visual bible and the BOTTOM PANEL is a presentation-scale identity reference for the player craft. Create a new landscape story illustration from the same game; do not copy the panel layout or isolated craft presentation.'
         : 'Using the reference key art as the immutable visual bible, create a new landscape story illustration from the same game.',
     `Preserve the exact same player hero identity, costume, villain design, palette, pixel-art technique, and world. ${beat}.`,
     wardrobeBrief(canonicalHeroConcept),
+    adventureCombatKitBrief(spec),
     spec.archetype === 'fighter'
       ? `Immutable Fighter art direction: ${fighterArtDirectionPrompt(spec.artDirection)}`
       : '',
     playerCraft
-      ? `Whenever the player vehicle is visible, preserve the BOTTOM PANEL's exact separate craft identity: ${clean(playerCraft.visualConcept)}. Never place the pilot's face or body onto the craft.`
+      ? `Whenever the player vehicle is visible, preserve the BOTTOM PANEL's separate craft identity: ${clean(playerCraft.visualConcept)}. RE-RENDER it naturally at the scene's scale, perspective, pose, and lighting. Do not paste, trace, enlarge, or copy the isolated reference pixels. Never place the pilot's face or body onto the craft.`
+      : '',
+    spec.archetype === 'adventure'
+      ? role === 'intro'
+        ? `The hero has not collected ${clean(spec.combatKit.secondary.name)} yet; show only the canonical primary equipment and do not place the secondary in the scene.`
+        : `The hero may use the canonical ${clean(spec.combatKit.primary.name)} and ${clean(spec.combatKit.secondary.name)} appropriate to this story beat; never replace them with generic fantasy gear.`
       : '',
     role === 'boss'
       ? 'Frame the player hero and villain facing one another with immediate danger and a strong scale contrast.'
@@ -176,15 +201,21 @@ export function buildStoryArtPolicyFallbackPrompt(
     gameplayHeroReference
       ? 'Use the TOP PANEL as the key-art world guide and the BOTTOM PANEL as the exact selected gameplay hero identity and wardrobe guide. Preserve its head identity, glasses, headwear, hair, facial hair, other head accessories, and neck-down wardrobe without additions or removals. Create a new family-friendly landscape story illustration from the same game without copying the reference-board layout.'
       : playerCraft
-        ? 'Use the TOP PANEL as the key-art visual guide and the BOTTOM PANEL as the exact separate player-craft guide. Create a new family-friendly landscape story illustration from the same game.'
+        ? 'Use the TOP PANEL as the key-art visual guide and the BOTTOM PANEL as a separate presentation-scale player-craft identity guide. Create a new family-friendly landscape story illustration from the same game without copying the panel layout or isolated craft presentation.'
         : 'Using the reference key art as the visual guide, create a new family-friendly landscape story illustration from the same game.',
     `Preserve the same adult player character identity, costume, palette, pixel-art technique, and world. ${scene}`,
     wardrobeBrief(canonicalHeroConcept),
+    adventureCombatKitBrief(spec),
     spec.archetype === 'fighter'
       ? `Immutable Fighter art direction: ${fighterArtDirectionPrompt(spec.artDirection)}`
       : '',
     playerCraft
-      ? `If the vehicle appears, preserve this exact craft identity and never merge it with the pilot: ${clean(playerCraft.visualConcept)}.`
+      ? `If the vehicle appears, preserve this craft identity and never merge it with the pilot: ${clean(playerCraft.visualConcept)}. Re-render it as part of the scene at natural scale, perspective, and lighting; never paste or enlarge the isolated reference.`
+      : '',
+    spec.archetype === 'adventure'
+      ? role === 'intro'
+        ? `Show the canonical primary ${clean(spec.combatKit.primary.name)} only; the secondary has not been collected.`
+        : `Preserve the canonical primary and secondary equipment identities if visible.`
       : '',
     `Use this limited color direction: ${spec.palette.join(', ')}.`,
     'Polished 16-bit console illustration with crisp pixel clusters, readable silhouettes, and the main subject away from the extreme edges.',
@@ -236,6 +267,7 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
   const platformer = greenScreen && prompt.includes('platform-game sprite');
   const adventurePlayer = greenScreen && prompt.includes('adventure-game sprite');
   const hshooterCraft = greenScreen && prompt.includes('horizontal-shooter player craft');
+  const shooterCraft = greenScreen && prompt.includes('vertical-shooter player craft');
   const head = greenScreen && prompt.includes('HEAD sprite');
   let hash = 2166136261;
   for (const char of prompt) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
@@ -247,6 +279,8 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
         greenScreen &&
         (hshooterCraft
           ? mockHShooterCraftSubject(x * 2, y * 2)
+          : shooterCraft
+            ? mockShooterCraftSubject(x * 2, y * 2)
           : fighter || platformer || adventurePlayer
             ? mockFighterSubject(x * 2, y * 2, prompt)
             : head
@@ -314,11 +348,17 @@ const MOCK_ADVENTURE_PLAYER_POSES = [
   'upWalk',
   'sideIdle',
   'sideWalk',
+  'downMelee',
+  'upMelee',
+  'sideMelee',
+  'downSecondary',
+  'upSecondary',
+  'sideSecondary',
 ] as const;
 type MockAdventurePlayerPose = (typeof MOCK_ADVENTURE_PLAYER_POSES)[number];
 
 function mockAdventurePlayerSheetPoses(prompt: string): MockAdventurePlayerPose[] | null {
-  const match = /ADVENTURE PLAYER POSE SHEET CONTRACT: [A-Z] \[([^\]]+)\]/.exec(prompt);
+  const match = /ADVENTURE PLAYER POSE SHEET CONTRACT: [a-z-]+ \[([^\]]+)\]/.exec(prompt);
   if (!match) return null;
   const valid = new Set<string>(MOCK_ADVENTURE_PLAYER_POSES);
   const poses = match[1]!.split(',').map((pose) => pose.trim());
@@ -333,8 +373,15 @@ async function mockGeneratedAdventurePlayerSheet(
   const cells = await Promise.all(
     poses.map(async (pose, index): Promise<sharp.OverlayOptions> => {
       const rect = fighterPoseSheetCellRect(index);
+      const action = pose.includes('Walk')
+        ? 'mid-stride walking contact pose'
+        : pose.includes('Melee')
+          ? 'high straight punch contact pose'
+          : pose.includes('Secondary')
+            ? 'defensive guard release pose'
+            : 'neutral idle pose';
       const image = await mockGeneratedImage(
-        `One top-down adventure-game sprite on #00ff00. ${pose.includes('Walk') ? 'mid-stride walking contact pose' : 'neutral idle pose'}.`,
+        `One top-down adventure-game sprite on #00ff00. ${action}.`,
       );
       const input = await sharp(image)
         .resize(rect.width, rect.height, {
@@ -371,6 +418,10 @@ function mockHShooterCraftSubject(x: number, y: number): boolean {
   const lowerFin = x >= 132 && x <= 260 && y >= 304 && y <= 370 && y <= 304 + (x - 132) * 0.52;
   const engine = x >= 52 && x <= 116 && y >= 212 && y <= 300;
   return hull || upperFin || lowerFin || engine;
+}
+
+function mockShooterCraftSubject(x: number, y: number): boolean {
+  return mockHShooterCraftSubject(y, 512 - x);
 }
 
 const MOCK_FIGHTER_POSE_HINTS: Record<FighterPose, string> = {

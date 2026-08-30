@@ -12,7 +12,7 @@
       "enum": ["chunky", "detailed"]
     },
     "playerCraft": {
-      "description": "Likeness-independent identity for the player vehicle. Omitted saved games retain the legacy likeness-composited ship path.",
+      "description": "Required likeness-independent side-view identity for the generated player vehicle.",
       "type": "object",
       "properties": {
         "visualConcept": { "type": "string", "minLength": 12, "maxLength": 180, "pattern": "^[ -~]+$" }
@@ -86,6 +86,7 @@
     "specVersion",
     "archetype",
     "seed",
+    "playerCraft",
     "meta",
     "palette",
     "story",

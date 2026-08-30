@@ -38,6 +38,7 @@ const ATTRACT_ASSETS: Partial<Record<ArchetypeId, readonly AttractAssetSpec[]>> 
   ],
   adventure: [asset('adventurePlayerDownIdle'), asset('adventureBoss', { big: true })],
   hshooter: [asset('hshooterPlayerCraft')],
+  shooter: [asset('shooterPlayerCraft')],
 };
 
 /** A small, representative set of actual gameplay art for the attract screen.

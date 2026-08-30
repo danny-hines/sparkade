@@ -1,5 +1,5 @@
 // Adventure gameplay (Zelda-like: a top-down single dungeon of one-screen rooms).
-// Controls per SNES convention: d-pad 4-way move, B sword, Y secondary item,
+// Controls per SNES convention: d-pad 4-way move, B primary melee, Y secondary item,
 // A interact/talk, SELECT dungeon map, START pause (host-owned).
 import {
   aabbOverlap,
@@ -35,10 +35,12 @@ import {
   TILE_SIZE,
   difficultyScale,
   type AdventureDoor,
+  type AdventureCombatKit,
   type AdventureDungeon,
   type AdventureEntity,
   type AdventureEntityType,
   type AdventureRoom,
+  type AdventureMeleeProfile,
   type AdventureSpec,
   type DifficultyScale,
 } from '@sparkade/shared';
@@ -68,9 +70,9 @@ const GENERATED_PLAYER_OUTLINE = '#090c18';
 const GENERATED_BOSS_DRAW_W = 48;
 const GENERATED_BOSS_DRAW_H = 56;
 const GENERATED_BOSS_OUTLINE = '#090c18';
-const SWORD_TIME = 0.28;
-const SWORD_COOLDOWN = 0.35;
-const SWORD_KB = 60; // enemy knockback distance, px
+const BOSS_HURTBOX_X_PAD = 8;
+const BOSS_HURTBOX_TOP_PAD = 8;
+const BOSS_HURTBOX_BOTTOM_PAD = 8;
 const PLAYER_KB = 90; // player knockback distance, px
 const ARROW_SPEED = 200;
 const BOW_COOLDOWN = 0.55;
@@ -100,16 +102,59 @@ type TileKind =
 type Dir = 'n' | 's' | 'e' | 'w';
 type Facing = 'up' | 'down' | 'left' | 'right';
 type DoorVisualKind = 'doorOpen' | 'doorLocked' | 'doorBoss';
+type PlayerAction = 'melee' | 'secondary' | null;
+
+export interface AdventureMeleeTuning {
+  activeS: number;
+  cooldownS: number;
+  reach: number;
+  thickness: number;
+  knockback: number;
+}
+
+/** Engine-owned combat shapes. Generated fiction can rename and redraw these,
+ * but cannot invent arbitrary balance or hitbox behavior. */
+export function adventureMeleeTuning(profile: AdventureMeleeProfile): AdventureMeleeTuning {
+  switch (profile) {
+    case 'close':
+      return { activeS: 0.24, cooldownS: 0.3, reach: 14, thickness: 12, knockback: 72 };
+    case 'sweep':
+      return { activeS: 0.3, cooldownS: 0.38, reach: 18, thickness: 22, knockback: 60 };
+    case 'reach':
+      return { activeS: 0.34, cooldownS: 0.42, reach: 26, thickness: 10, knockback: 54 };
+  }
+}
 
 export function adventurePlayerPoseName(
   facing: Facing,
   moving: boolean,
   animationTime = 0,
+  action: PlayerAction = null,
 ): string {
+  const direction = facing === 'down' ? 'down' : facing === 'up' ? 'up' : 'side';
+  if (action === 'melee') return `${direction}Melee`;
+  if (action === 'secondary') return `${direction}Secondary`;
   const walkContact = moving && Math.floor(animationTime * 6) % 2 === 1;
-  if (facing === 'down') return walkContact ? 'downWalk' : 'downIdle';
-  if (facing === 'up') return walkContact ? 'upWalk' : 'upIdle';
-  return walkContact ? 'sideWalk' : 'sideIdle';
+  return `${direction}${walkContact ? 'Walk' : 'Idle'}`;
+}
+
+/** A forgiving damage target around the boss's grounded body. The generated
+ * art is deliberately larger than its movement collider, so combat must not
+ * require the player to guess at the tiny engine-owned footprint. */
+export function setAdventureBossHurtbox(out: AABB, boss: AABB): AABB {
+  out.x = boss.x - BOSS_HURTBOX_X_PAD;
+  out.y = boss.y - BOSS_HURTBOX_TOP_PAD;
+  out.w = boss.w + BOSS_HURTBOX_X_PAD * 2;
+  out.h = boss.h + BOSS_HURTBOX_TOP_PAD + BOSS_HURTBOX_BOTTOM_PAD;
+  return out;
+}
+
+export function adventureBossFightHint(combatKit: AdventureCombatKit): string {
+  return `(B) ${combatKit.primary.name.toUpperCase()}  (Y) ${combatKit.secondary.name.toUpperCase()}`;
+}
+
+export function adventureBossGateHint(hasItem: boolean, itemName: string): string | null {
+  return hasItem ? null : `(find ${itemName} first)`;
 }
 
 interface DoorGeom {
@@ -490,8 +535,9 @@ class AdventureGame implements GameInstance {
   private kbT = 0;
   private kbVX = 0;
   private kbVY = 0;
-  private swordT = 0;
-  private swordCd = 0;
+  private meleeT = 0;
+  private meleeCd = 0;
+  private secondaryT = 0;
   private swingId = 0;
   private bowCd = 0;
   private bombCd = 0;
@@ -545,7 +591,8 @@ class AdventureGame implements GameInstance {
 
   // reusable scratch boxes (no per-frame allocation)
   private pbox: AABB = { x: 0, y: 0, w: PLAYER_W, h: PLAYER_H };
-  private swordBox: AABB = { x: 0, y: 0, w: 16, h: 14 };
+  private meleeBox: AABB = { x: 0, y: 0, w: 16, h: 14 };
+  private bossHurtbox: AABB = { x: 0, y: 0, w: 40, h: 40 };
   private projBox: AABB = { x: 0, y: 0, w: 6, h: 6 };
   private boomBox: AABB = { x: 0, y: 0, w: 10, h: 10 };
   private tmpBox: AABB = { x: 0, y: 0, w: TILE_SIZE, h: TILE_SIZE };
@@ -558,15 +605,17 @@ class AdventureGame implements GameInstance {
   private waveSprite: ResolvedSprite;
   private boomSprite: ResolvedSprite;
   private bombSprite: ResolvedSprite;
-  private generatedPlayerPoses: Readonly<Record<string, CanvasImageSource>> | null;
+  private generatedPlayerPoses: Readonly<Record<string, CanvasImageSource>>;
   private generatedBoss: CanvasImageSource | null;
   private diff!: DifficultyScale;
+  private meleeTuning: AdventureMeleeTuning;
 
   constructor(
     private engine: EngineContext,
     private spec: AdventureSpec,
   ) {
     this.diff = difficultyScale(spec.difficulty);
+    this.meleeTuning = adventureMeleeTuning(spec.combatKit.primary.profile);
     this.dungeon = spec.levels[0]!;
     for (const role of Object.keys(ROLE_FALLBACK)) {
       this.sprites[role] = engine.sprites.byRole(role, ROLE_FALLBACK[role]!);
@@ -575,14 +624,15 @@ class AdventureGame implements GameInstance {
     this.waveSprite = engine.sprites.byRole('proj_wave', 'lib:proj_wave');
     this.boomSprite = engine.sprites.byRole('item_boomerang', 'lib:item_boomerang');
     this.bombSprite = engine.sprites.byRole('proj_bomb', 'lib:proj_bomb');
-    this.generatedPlayerPoses = engine.adventurePlayerPoses
-      ? Object.fromEntries(
-          Object.entries(engine.adventurePlayerPoses).map(([pose, source]) => [
-            pose,
-            prepareAdventurePlayerPose(source),
-          ]),
-        )
-      : null;
+    if (!engine.adventurePlayerPoses) {
+      throw new Error('Adventure games require a complete generated player pose set');
+    }
+    this.generatedPlayerPoses = Object.fromEntries(
+      Object.entries(engine.adventurePlayerPoses).map(([pose, source]) => [
+        pose,
+        prepareAdventurePlayerPose(source),
+      ]),
+    );
     this.generatedBoss = engine.adventureBoss ? prepareAdventureBoss(engine.adventureBoss) : null;
 
     const tileArt: Record<string, string> = {
@@ -730,7 +780,11 @@ class AdventureGame implements GameInstance {
       [
         {
           title: this.spec.meta.title,
-          lines: [this.spec.story.levelIntros[0] ?? '...'],
+          lines: [
+            this.spec.story.levelIntros[0] ?? '...',
+            `(B) ${this.spec.combatKit.primary.name.toUpperCase()}`,
+            `(Y) ${this.spec.combatKit.secondary.name.toUpperCase()}  (A) INTERACT`,
+          ],
           portrait: this.engine.portrait,
         },
       ],
@@ -767,7 +821,11 @@ class AdventureGame implements GameInstance {
           [
             {
               title: this.spec.boss.name,
-              lines: [this.spec.story.bossIntro],
+              lines: [
+                this.spec.story.bossIntro,
+                adventureBossFightHint(this.spec.combatKit),
+                'HIT THE BOSS WHILE IT IS VISIBLE.',
+              ],
               portrait: this.engine.portrait,
               artRole: 'boss',
             },
@@ -775,6 +833,7 @@ class AdventureGame implements GameInstance {
           () => {
             this.engine.music.playSong('boss');
             this.phase = 'play';
+            this.showFloat(`(B) ${this.spec.combatKit.primary.name.toUpperCase()} - HIT!`, 3.5);
           },
         );
       } else {
@@ -941,7 +1000,8 @@ class AdventureGame implements GameInstance {
     for (const p of this.projs) p.active = false;
     for (const bm of this.bombs) bm.active = false;
     this.boom.active = false;
-    this.swordT = 0;
+    this.meleeT = 0;
+    this.secondaryT = 0;
     this.kbT = 0;
     this.pushT = 0;
     this.floatT = 0;
@@ -1102,8 +1162,9 @@ class AdventureGame implements GameInstance {
   private updatePlayer(dt: number, input: InputSnapshot): void {
     const epoch = this.roomEpoch;
     this.invulnT = Math.max(0, this.invulnT - dt);
-    this.swordT = Math.max(0, this.swordT - dt);
-    this.swordCd = Math.max(0, this.swordCd - dt);
+    this.meleeT = Math.max(0, this.meleeT - dt);
+    this.meleeCd = Math.max(0, this.meleeCd - dt);
+    this.secondaryT = Math.max(0, this.secondaryT - dt);
     this.bowCd = Math.max(0, this.bowCd - dt);
     this.bombCd = Math.max(0, this.bombCd - dt);
     this.bumpCd = Math.max(0, this.bumpCd - dt);
@@ -1135,13 +1196,13 @@ class AdventureGame implements GameInstance {
       mvx = dx * PLAYER_SPEED * dt;
       mvy = dy * PLAYER_SPEED * dt;
 
-      if (input.B.pressed && this.swordCd <= 0) {
-        this.swordT = SWORD_TIME;
-        this.swordCd = SWORD_COOLDOWN;
+      if (input.B.pressed && this.meleeCd <= 0) {
+        this.meleeT = this.meleeTuning.activeS;
+        this.meleeCd = this.meleeTuning.cooldownS;
         this.swingId++;
         this.engine.sfx.play('shoot');
       }
-      if (input.Y.pressed) this.useSecondary();
+      if (input.Y.pressed && this.useSecondary()) this.secondaryT = 0.24;
       if (input.A.pressed) this.tryInteract();
     }
 
@@ -1202,7 +1263,7 @@ class AdventureGame implements GameInstance {
       }
     }
 
-    if (this.swordT > 0) this.updateSwordHits();
+    if (this.meleeT > 0) this.updateMeleeHits();
   }
 
   private tryRoomTransition(): boolean {
@@ -1260,6 +1321,15 @@ class AdventureGame implements GameInstance {
       const k = this.kindAt(tx, ty);
       if (k !== 'doorLocked' && k !== 'doorBoss') return;
       this.bumpCd = 0.6;
+      const itemGateHint =
+        k === 'doorBoss'
+          ? adventureBossGateHint(this.hasItem, this.spec.combatKit.secondary.name)
+          : null;
+      if (itemGateHint) {
+        this.showFloat(itemGateHint, 1.8);
+        this.engine.sfx.play('uiBack');
+        return;
+      }
       if (this.keys > 0) {
         this.keys--;
         this.hud.keys = this.keys;
@@ -1350,61 +1420,68 @@ class AdventureGame implements GameInstance {
     this.hazardsActive = pressed < this.switchCells.length;
   }
 
-  // ------------------------------------------------------------ sword & items
+  // ------------------------------------------------------ primary & secondary
 
-  private setSwordBox(): void {
-    const b = this.swordBox;
+  private setMeleeBox(): void {
+    const b = this.meleeBox;
+    const reach = this.meleeTuning.reach;
+    const thickness = this.meleeTuning.thickness;
     if (this.facing === 'right') {
       b.x = this.px + PLAYER_W;
-      b.y = this.py + PLAYER_H / 2 - 7;
-      b.w = 16;
-      b.h = 14;
+      b.y = this.py + PLAYER_H / 2 - thickness / 2;
+      b.w = reach;
+      b.h = thickness;
     } else if (this.facing === 'left') {
-      b.x = this.px - 16;
-      b.y = this.py + PLAYER_H / 2 - 7;
-      b.w = 16;
-      b.h = 14;
+      b.x = this.px - reach;
+      b.y = this.py + PLAYER_H / 2 - thickness / 2;
+      b.w = reach;
+      b.h = thickness;
     } else if (this.facing === 'up') {
-      b.x = this.px + PLAYER_W / 2 - 7;
-      b.y = this.py - 16;
-      b.w = 14;
-      b.h = 16;
+      b.x = this.px + PLAYER_W / 2 - thickness / 2;
+      b.y = this.py - reach;
+      b.w = thickness;
+      b.h = reach;
     } else {
-      b.x = this.px + PLAYER_W / 2 - 7;
+      b.x = this.px + PLAYER_W / 2 - thickness / 2;
       b.y = this.py + PLAYER_H;
-      b.w = 14;
-      b.h = 16;
+      b.w = thickness;
+      b.h = reach;
     }
   }
 
-  private updateSwordHits(): void {
-    this.setSwordBox();
+  private updateMeleeHits(): void {
+    this.setMeleeBox();
     for (const e of this.ents) {
       if (!e.active || !isEnemyType(e.type)) continue;
       if (e.lastSwing === this.swingId) continue;
-      if (!aabbOverlap(this.swordBox, e)) continue;
+      if (!aabbOverlap(this.meleeBox, e)) continue;
       e.lastSwing = this.swingId;
-      this.damageEnemy(e, 1, SWORD_KB);
+      this.damageEnemy(e, 1, this.meleeTuning.knockback);
     }
     const b = this.boss;
-    if (b.active && b.visible && b.invulnT <= 0 && aabbOverlap(this.swordBox, b)) {
+    if (
+      b.active &&
+      b.visible &&
+      b.invulnT <= 0 &&
+      aabbOverlap(this.meleeBox, setAdventureBossHurtbox(this.bossHurtbox, b))
+    ) {
       this.damageBoss(1);
     }
   }
 
-  private useSecondary(): void {
+  private useSecondary(): boolean {
     if (!this.hasItem) {
       this.engine.sfx.play('uiBack');
-      this.showFloat('(no item yet)');
-      return;
+      this.showFloat(`(find ${this.spec.combatKit.secondary.name})`);
+      return false;
     }
     const fx = this.facing === 'left' ? -1 : this.facing === 'right' ? 1 : 0;
     const fy = this.facing === 'up' ? -1 : this.facing === 'down' ? 1 : 0;
     const cx = this.px + PLAYER_W / 2;
     const cy = this.py + PLAYER_H / 2;
-    switch (this.dungeon.items.secondary) {
-      case 'boomerang': {
-        if (this.boom.active) break;
+    switch (this.spec.combatKit.secondary.behavior) {
+      case 'returning': {
+        if (this.boom.active) return false;
         this.boom.active = true;
         this.boom.back = false;
         this.boom.t = 0;
@@ -1415,10 +1492,10 @@ class AdventureGame implements GameInstance {
         this.boom.vx = fx * BOOM_SPEED;
         this.boom.vy = fy * BOOM_SPEED;
         this.engine.sfx.play('shoot');
-        break;
+        return true;
       }
-      case 'bombs': {
-        if (this.bombCd > 0) break;
+      case 'blast': {
+        if (this.bombCd > 0) return false;
         for (const bm of this.bombs) {
           if (bm.active) continue;
           bm.active = true;
@@ -1427,22 +1504,23 @@ class AdventureGame implements GameInstance {
           bm.fuseT = BOMB_FUSE;
           this.bombCd = BOMB_COOLDOWN;
           this.engine.sfx.play('uiSelect');
-          break;
+          return true;
         }
-        break;
+        return false;
       }
-      case 'bow': {
-        if (this.bowCd > 0) break;
+      case 'shot': {
+        if (this.bowCd > 0) return false;
         let airborne = 0;
         for (const p of this.projs) if (p.active && p.friendly && p.arrow) airborne++;
-        if (airborne >= MAX_ARROWS) break;
+        if (airborne >= MAX_ARROWS) return false;
         if (
           this.fireProj(cx + fx * 10, cy + fy * 10, fx * ARROW_SPEED, fy * ARROW_SPEED, true, true)
         ) {
           this.bowCd = BOW_COOLDOWN;
           this.engine.sfx.play('shoot');
+          return true;
         }
-        break;
+        return false;
       }
     }
   }
@@ -1462,9 +1540,9 @@ class AdventureGame implements GameInstance {
     }
   }
 
-  private showFloat(text: string): void {
+  private showFloat(text: string, duration = 1): void {
     this.floatText = text;
-    this.floatT = 1;
+    this.floatT = duration;
     this.floatX = this.px + PLAYER_W / 2;
     this.floatY = this.py;
   }
@@ -1701,7 +1779,7 @@ class AdventureGame implements GameInstance {
           speed: 60,
           gravity: -20,
         });
-        this.showFloat(`GOT THE ${this.dungeon.items.secondary.toUpperCase()}!`);
+        this.showFloat(`GOT ${this.spec.combatKit.secondary.name.toUpperCase()}!`);
         break;
       default:
         break;
@@ -2034,7 +2112,13 @@ class AdventureGame implements GameInstance {
           break;
         }
         const b = this.boss;
-        if (p.active && b.active && b.visible && b.invulnT <= 0 && aabbOverlap(this.projBox, b)) {
+        if (
+          p.active &&
+          b.active &&
+          b.visible &&
+          b.invulnT <= 0 &&
+          aabbOverlap(this.projBox, setAdventureBossHurtbox(this.bossHurtbox, b))
+        ) {
           p.active = false;
           this.damageBoss(1);
         }
@@ -2124,7 +2208,12 @@ class AdventureGame implements GameInstance {
       }
     }
     const b = this.boss;
-    if (b.active && b.visible && b.invulnT <= 0 && aabbOverlap(this.boomBox, b)) {
+    if (
+      b.active &&
+      b.visible &&
+      b.invulnT <= 0 &&
+      aabbOverlap(this.boomBox, setAdventureBossHurtbox(this.bossHurtbox, b))
+    ) {
       this.damageBoss(1);
     }
   }
@@ -2345,8 +2434,18 @@ class AdventureGame implements GameInstance {
     this.drawGroundShadow(this.px + PLAYER_W / 2, item.groundY, 22, 0.34);
     if (this.invulnT <= 0 || Math.floor(this.animT * 12) % 2 === 0) {
       const generated =
-        this.generatedPlayerPoses?.[adventurePlayerPoseName(this.facing, this.moving, this.animT)];
-      if (generated) {
+        this.generatedPlayerPoses[
+          adventurePlayerPoseName(
+            this.facing,
+            this.moving,
+            this.animT,
+            this.secondaryT > 0 ? 'secondary' : this.meleeT > 0 ? 'melee' : null,
+          )
+        ];
+      if (!generated) {
+        throw new Error('Adventure generated player pose set is incomplete');
+      }
+      {
         const drawW = GENERATED_PLAYER_DRAW_W;
         const drawH = GENERATED_PLAYER_DRAW_H;
         const x = Math.round(this.px + PLAYER_W / 2 - drawW / 2 - cam.x);
@@ -2362,20 +2461,10 @@ class AdventureGame implements GameInstance {
         } else {
           r.drawScaled(generated, x, y, drawW, drawH);
         }
-      } else {
-        const hero = this.sprites['hero']!;
-        const anim = this.facing === 'up' ? 'up' : this.facing === 'down' ? 'down' : 'side';
-        const t = this.moving ? this.animT : 0;
-        const image = this.engine.sprites.frame(hero, anim, t, this.facing === 'left');
-        r.draw(
-          image,
-          this.px - cam.x - (hero.w - PLAYER_W) / 2,
-          this.py - cam.y - (hero.h - PLAYER_H),
-        );
       }
     }
-    if (this.swordT > 0) {
-      this.setSwordBox();
+    if (this.meleeT > 0) {
+      this.setMeleeBox();
       const image = this.engine.sprites.frame(
         this.waveSprite,
         'idle',
@@ -2384,8 +2473,8 @@ class AdventureGame implements GameInstance {
       );
       r.draw(
         image,
-        this.swordBox.x - cam.x + (this.swordBox.w - this.waveSprite.w) / 2,
-        this.swordBox.y - cam.y + (this.swordBox.h - this.waveSprite.h) / 2,
+        this.meleeBox.x - cam.x + (this.meleeBox.w - this.waveSprite.w) / 2,
+        this.meleeBox.y - cam.y + (this.meleeBox.h - this.waveSprite.h) / 2,
       );
     }
   }
@@ -2555,7 +2644,7 @@ class AdventureGame implements GameInstance {
 
     // Floating hint text.
     if (this.floatT > 0) {
-      const rise = (1 - this.floatT) * 10;
+      const rise = (1 - Math.min(1, this.floatT)) * 10;
       r.text(this.floatText, this.floatX - cam.x, this.floatY - cam.y - 12 - rise, '#f4f4f4', {
         align: 'center',
       });

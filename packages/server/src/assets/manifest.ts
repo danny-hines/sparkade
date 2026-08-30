@@ -14,11 +14,13 @@ export const GAME_ASSET_MANIFEST_FILE = 'manifest.json';
 const PRIVATE_GENERATED_ASSET_FILES = {
   platformerReference: '.platformer-player-reference.png',
   platformerSideReference: '.platformer-player-side-reference.png',
+  hshooterCraftReference: '.hshooter-craft-reference.png',
+  shooterCraftReference: '.shooter-craft-reference.png',
 } as const;
 export const PRIVATE_GENERATED_ASSET_FILENAMES = Object.freeze(
   Object.values(PRIVATE_GENERATED_ASSET_FILES),
 );
-type PrivateGeneratedAssetRole = keyof typeof PRIVATE_GENERATED_ASSET_FILES;
+export type PrivateGeneratedAssetRole = keyof typeof PRIVATE_GENERATED_ASSET_FILES;
 
 interface PrivateGeneratedAssetMeta {
   model: string;

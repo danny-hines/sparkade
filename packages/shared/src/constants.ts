@@ -182,6 +182,114 @@ export function resolveHeroFeel(f: HeroFeel | undefined): {
   };
 }
 
+/**
+ * Authored platformer movement styles. The model chooses a name instead of
+ * tuning physics numbers directly; the engine owns the bounded values below.
+ */
+export const PLATFORMER_MOVEMENT_PROFILES = [
+  'balanced',
+  'precision',
+  'momentum',
+  'floaty',
+  'heavy',
+] as const;
+export type PlatformerMovementProfile = (typeof PLATFORMER_MOVEMENT_PROFILES)[number];
+
+export interface ResolvedPlatformerMovement {
+  /** Multipliers applied to the platformer's baseline movement constants. */
+  gravity: number;
+  jump: number;
+  speed: number;
+  groundAcceleration: number;
+  groundBraking: number;
+  airControl: number;
+  airBraking: number;
+  terminalVelocity: number;
+  jumpCutoff: number;
+}
+
+const PLATFORMER_MOVEMENT_VALUES: Record<PlatformerMovementProfile, ResolvedPlatformerMovement> = {
+  balanced: {
+    gravity: 1,
+    jump: 1,
+    speed: 1,
+    groundAcceleration: 1,
+    groundBraking: 1,
+    airControl: 0.65,
+    airBraking: 0.65,
+    terminalVelocity: 1,
+    jumpCutoff: 1,
+  },
+  precision: {
+    gravity: 1,
+    jump: 1,
+    speed: 1.03,
+    groundAcceleration: 1.45,
+    groundBraking: 1.8,
+    airControl: 0.95,
+    airBraking: 1.05,
+    terminalVelocity: 1,
+    jumpCutoff: 0.78,
+  },
+  momentum: {
+    gravity: 0.92,
+    jump: 1.05,
+    speed: 1.16,
+    groundAcceleration: 1,
+    groundBraking: 0.35,
+    airControl: 0.5,
+    airBraking: 0.12,
+    terminalVelocity: 1,
+    jumpCutoff: 1.1,
+  },
+  floaty: {
+    gravity: 0.74,
+    jump: 1.08,
+    speed: 1,
+    groundAcceleration: 1.08,
+    groundBraking: 1,
+    airControl: 0.9,
+    airBraking: 0.3,
+    terminalVelocity: 0.78,
+    jumpCutoff: 0.72,
+  },
+  heavy: {
+    gravity: 1.1,
+    jump: 1.1,
+    speed: 1.1,
+    groundAcceleration: 1.35,
+    groundBraking: 1.55,
+    airControl: 0.65,
+    airBraking: 0.7,
+    terminalVelocity: 1.2,
+    jumpCutoff: 0.85,
+  },
+};
+
+/**
+ * Resolve model-authored movement into engine-owned physics. Legacy `feel`
+ * remains a safe, one-sided overlay so existing saved games keep their exact
+ * movement while new games can use the richer named profiles.
+ */
+export function resolvePlatformerMovement(
+  profile: PlatformerMovementProfile | undefined,
+  legacyFeel?: HeroFeel,
+): ResolvedPlatformerMovement {
+  const base = PLATFORMER_MOVEMENT_VALUES[profile ?? 'balanced'];
+  const legacy = resolveHeroFeel(legacyFeel);
+  return {
+    gravity: base.gravity * legacy.gravity,
+    jump: base.jump * legacy.jump,
+    speed: base.speed * legacy.speed,
+    groundAcceleration: base.groundAcceleration * legacy.speed,
+    groundBraking: base.groundBraking * legacy.speed,
+    airControl: base.airControl * legacy.speed,
+    airBraking: base.airBraking * legacy.speed,
+    terminalVelocity: base.terminalVelocity,
+    jumpCutoff: base.jumpCutoff,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Audio
 // ---------------------------------------------------------------------------
@@ -311,6 +419,7 @@ export const GENERATED_GAME_ASSET_FILES = {
   storyVictory: 'story-victory.png',
   storyDefeat: 'story-defeat.png',
   hshooterPlayerCraft: 'hshooter-player-craft.png',
+  shooterPlayerCraft: 'shooter-player-craft.png',
   fighterPlayerAtlas: 'fighter-player-atlas.png',
   fighterOpponent1Atlas: 'fighter-opponent-1-atlas.png',
   fighterOpponent2Atlas: 'fighter-opponent-2-atlas.png',
@@ -336,6 +445,10 @@ export const GENERATED_GAME_ASSET_FILES = {
   platformerBackdropLevel2: 'platformer-backdrop-level-2.png',
   platformerBackdropLevel3: 'platformer-backdrop-level-3.png',
   platformerBackdropBoss: 'platformer-backdrop-boss.png',
+  hshooterBackdropLevel1: 'hshooter-backdrop-level-1.png',
+  hshooterBackdropLevel2: 'hshooter-backdrop-level-2.png',
+  hshooterBackdropLevel3: 'hshooter-backdrop-level-3.png',
+  hshooterBackdropBoss: 'hshooter-backdrop-boss.png',
   adventureRoomPlates: 'adventure-room-plates.png',
   adventureBoss: 'adventure-boss.png',
   adventurePlayerDownIdle: 'adventure-player-down-idle.png',
@@ -344,6 +457,12 @@ export const GENERATED_GAME_ASSET_FILES = {
   adventurePlayerUpWalk: 'adventure-player-up-walk.png',
   adventurePlayerSideIdle: 'adventure-player-side-idle.png',
   adventurePlayerSideWalk: 'adventure-player-side-walk.png',
+  adventurePlayerDownMelee: 'adventure-player-down-melee.png',
+  adventurePlayerUpMelee: 'adventure-player-up-melee.png',
+  adventurePlayerSideMelee: 'adventure-player-side-melee.png',
+  adventurePlayerDownSecondary: 'adventure-player-down-secondary.png',
+  adventurePlayerUpSecondary: 'adventure-player-up-secondary.png',
+  adventurePlayerSideSecondary: 'adventure-player-side-secondary.png',
   // Legacy, read-only compatibility: an experimental pipeline emitted these
   // files for a small number of saved games. New generations no longer create
   // them and the runtime intentionally ignores them in favor of curated packs,

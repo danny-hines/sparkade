@@ -313,14 +313,7 @@ describe('platformer lints', () => {
 
     const traversal = analyzePlatformerTraversal(level);
     expect(traversal.reachable.has('30,4')).toBe(true);
-    expect([...traversal.trapCells].sort()).toEqual([
-      '10,8',
-      '11,8',
-      '12,8',
-      '13,8',
-      '8,8',
-      '9,8',
-    ]);
+    expect([...traversal.trapCells].sort()).toEqual(['10,8', '11,8', '12,8', '13,8', '8,8', '9,8']);
     expect(codes(archetypes.platformer.lint(spec))).toContain('PLAT_SOFTLOCK_REGION');
     expect(
       archetypes.platformer
@@ -539,12 +532,55 @@ describe('adventure lints (key/lock topology)', () => {
     expect(errs).toContain('ADV_NO_ITEM_PEDESTAL');
   });
 
+  it('keeps the dungeon item behavior aligned with the authored combat kit', () => {
+    const spec = golden<AdventureSpec>('adventure');
+    spec.levels[0]!.items.secondary = 'blast';
+    expect(codes(archetypes.adventure.lint(spec))).toContain('ADV_COMBAT_KIT_MISMATCH');
+  });
+
   it('boss room must not be crowded with regular enemies', () => {
     const spec = golden<AdventureSpec>('adventure');
     const dungeon = spec.levels[0]!;
     const bossRoom = dungeon.rooms.find((r) => r.id === dungeon.bossRoom)!;
     bossRoom.entities.push({ type: 'walker', x: 5, y: 5 });
     expect(codes(archetypes.adventure.lint(spec))).toContain('ADV_BOSS_ROOM_CROWDED');
+  });
+
+  it('requires the secondary item to be collectable before the boss gate', () => {
+    const spec = golden<AdventureSpec>('adventure');
+    const dungeon = spec.levels[0]!;
+    let pedestal: AdventureSpec['levels'][number]['rooms'][number]['entities'][number] | undefined;
+    for (const room of dungeon.rooms) {
+      const index = room.entities.findIndex((entity) => entity.type === 'item');
+      if (index < 0) continue;
+      pedestal = room.entities.splice(index, 1)[0];
+      break;
+    }
+    expect(pedestal).toBeDefined();
+    dungeon.rooms.find((room) => room.id === dungeon.bossRoom)!.entities.push(pedestal!);
+    expect(codes(archetypes.adventure.lint(spec))).toContain('ADV_ITEM_AFTER_BOSS');
+  });
+
+  it('requires every boss-room entrance to use a boss gate', () => {
+    const spec = golden<AdventureSpec>('adventure');
+    const dungeon = spec.levels[0]!;
+    const bossRoom = dungeon.rooms.find((room) => room.id === dungeon.bossRoom)!;
+    const directions = [
+      ['n', 0, -1, 's'],
+      ['s', 0, 1, 'n'],
+      ['e', 1, 0, 'w'],
+      ['w', -1, 0, 'e'],
+    ] as const;
+    const [direction, dx, dy, opposite] = directions.find(
+      ([direction]) => bossRoom.doors[direction] !== 'none',
+    )!;
+    const neighbor = dungeon.rooms.find(
+      (room) =>
+        room.gridPos.x === bossRoom.gridPos.x + dx && room.gridPos.y === bossRoom.gridPos.y + dy,
+    )!;
+    bossRoom.doors[direction] = 'open';
+    neighbor.doors[opposite] = 'open';
+    expect(codes(archetypes.adventure.lint(spec))).toContain('ADV_BOSS_GATE_REQUIRED');
   });
 });
 

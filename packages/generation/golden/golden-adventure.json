@@ -6,6 +6,19 @@
     "title": "The Hollow Bell",
     "tagline": "Win back the echo. Wake the town."
   },
+  "combatKit": {
+    "primary": {
+      "profile": "sweep",
+      "name": "Tuning Blade",
+      "visualConcept": "A short brass bellkeeper blade with a forked tuning-tip and indigo leather grip",
+      "unarmed": false
+    },
+    "secondary": {
+      "behavior": "returning",
+      "name": "Echo Disc",
+      "visualConcept": "A palm-sized brass resonance disc etched with concentric bell rings and a violet center"
+    }
+  },
   "palette": [
     "#000000",
     "#0d0b14",
@@ -402,7 +415,7 @@
           ],
           "legend": { "#": "wall", "~": "hazard", ",": "decoration" },
           "entities": [
-            { "type": "item", "x": 13, "y": 6, "props": { "item": "boomerang" } },
+            { "type": "item", "x": 13, "y": 6, "props": { "item": "returning" } },
             { "type": "bruiser", "x": 6, "y": 7 },
             { "type": "flyer", "x": 21, "y": 7 }
           ],
@@ -464,7 +477,7 @@
           "doors": { "n": "boss", "s": "none", "e": "none", "w": "none" }
         }
       ],
-      "items": { "secondary": "boomerang" },
+      "items": { "secondary": "returning" },
       "bossRoom": "echochamber",
       "startRoom": "belfry"
     }

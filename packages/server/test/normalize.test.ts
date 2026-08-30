@@ -466,10 +466,11 @@ describe('deterministic generated-spec normalization', () => {
   it('moves adventure entities to walkable cells and applies prescribed boss/item cleanup', () => {
     const input = golden<AdventureSpec>('adventure');
     const dungeon = input.levels[0]!;
+    dungeon.items.secondary = 'blast';
     const room = dungeon.rooms[0]!;
     room.entities[0]!.x = 0;
     room.entities[0]!.y = 0;
-    room.entities.push({ type: 'item', x: 0, y: 0, props: { item: 'bombs' } });
+    room.entities.push({ type: 'item', x: 0, y: 0, props: { item: 'blast' } });
     const bossRoom = dungeon.rooms.find((candidate) => candidate.id === dungeon.bossRoom)!;
     bossRoom.entities.push({ type: 'walker', x: 1, y: 1 });
 
@@ -479,6 +480,10 @@ describe('deterministic generated-spec normalization', () => {
     expect(fixedRoom.entities[0]).toMatchObject({ x: 1, y: 1 });
     expect(fixedRoom.entities.find((entity) => entity.type === 'item')?.props?.item).toBe(
       fixed.levels[0]!.items.secondary,
+    );
+    expect(fixed.levels[0]!.items.secondary).toBe(input.combatKit.secondary.behavior);
+    expect(result.fixes).toContainEqual(
+      expect.objectContaining({ code: 'ADVENTURE_COMBAT_KIT', path: '/levels/0/items/secondary' }),
     );
     expect(
       fixed.levels[0]!.rooms.find(

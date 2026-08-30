@@ -28,12 +28,13 @@ import {
   LIB_BOSSES_PLATFORMER,
   TILE_SIZE,
   difficultyScale,
-  resolveHeroFeel,
+  resolvePlatformerMovement,
   type DifficultyScale,
   type Coord,
   type PlatformerEntity,
   type PlatformerLevel,
   type PlatformerSpec,
+  type ResolvedPlatformerMovement,
 } from '@sparkade/shared';
 import { surfaceDecorations } from './decor';
 import {
@@ -58,9 +59,37 @@ const WALK = 88;
 const RUN = 142;
 const ACCEL = 950;
 const JUMP_V = -302;
+const JUMP_RELEASE_V = -80;
 const SPRING_V = -488;
 const STOMP_BOUNCE = -230;
 const SPIN_BOUNCE = -280;
+
+/** One horizontal-control step, exported so profile behavior stays testable
+ * without needing to boot the canvas runtime. Balanced reproduces the original
+ * single acceleration value on the ground and its 0.65 air-control multiplier. */
+export function stepPlatformerHorizontalVelocity(
+  velocity: number,
+  direction: number,
+  maxSpeed: number,
+  dt: number,
+  onGround: boolean,
+  movement: ResolvedPlatformerMovement,
+): number {
+  const normalizedDirection = Math.max(-1, Math.min(1, direction));
+  const reversing =
+    normalizedDirection !== 0 && velocity !== 0 && Math.sign(velocity) !== normalizedDirection;
+  const control = onGround
+    ? normalizedDirection === 0 || reversing
+      ? movement.groundBraking
+      : movement.groundAcceleration
+    : normalizedDirection === 0
+      ? movement.airBraking
+      : movement.airControl;
+  const target = normalizedDirection * maxSpeed;
+  const delta = target - velocity;
+  const step = ACCEL * control * dt;
+  return velocity + (Math.abs(delta) <= step ? delta : Math.sign(delta) * step);
+}
 
 type TileKind = 'empty' | 'solid' | 'platform' | 'hazard' | 'checkpoint' | 'exit' | 'decoration';
 
@@ -373,33 +402,36 @@ class PlatformerGame implements GameInstance {
     null;
 
   private sprites: Record<string, ResolvedSprite> = {};
-  private generatedPlayerPoses: GeneratedPlatformerPoses | null = null;
+  private generatedPlayerPoses: GeneratedPlatformerPoses;
   private generatedBoss: CanvasImageSource | null = null;
   private generatedEnemies: Readonly<Record<string, CanvasImageSource>> | null = null;
   private generatedProps: Readonly<Record<string, CanvasImageSource>> | null = null;
   private generatedBackdrops: Readonly<Record<string, CanvasImageSource>> | null = null;
   private generatedBackdropActive = false;
   private diff!: DifficultyScale;
-  // Per-game hero feel, resolved (clamped) from spec.feel. Base constants when
-  // feel is absent, so existing games are byte-identical. The clamp only ever
-  // raises reach (floatier/higher/faster), so the reachability lint stays valid.
+  // Per-game movement is selected from bounded engine-owned profiles. Omitted
+  // profiles remain byte-identical to the original physics, while legacy feel
+  // values continue to overlay their original gravity/jump/speed multipliers.
+  private movement!: ResolvedPlatformerMovement;
   private grav = GRAV;
   private jumpV = JUMP_V;
   private run = RUN;
   private walk = WALK;
-  private accel = ACCEL;
+  private maxFall = MAX_FALL;
+  private jumpReleaseV = JUMP_RELEASE_V;
 
   constructor(
     private engine: EngineContext,
     private spec: PlatformerSpec,
   ) {
     this.diff = difficultyScale(this.spec.difficulty);
-    const feel = resolveHeroFeel(this.spec.feel);
-    this.grav = GRAV * feel.gravity;
-    this.jumpV = JUMP_V * feel.jump;
-    this.run = RUN * feel.speed;
-    this.walk = WALK * feel.speed;
-    this.accel = ACCEL * feel.speed;
+    this.movement = resolvePlatformerMovement(this.spec.movementProfile, this.spec.feel);
+    this.grav = GRAV * this.movement.gravity;
+    this.jumpV = JUMP_V * this.movement.jump;
+    this.run = RUN * this.movement.speed;
+    this.walk = WALK * this.movement.speed;
+    this.maxFall = MAX_FALL * this.movement.terminalVelocity;
+    this.jumpReleaseV = JUMP_RELEASE_V * this.movement.jumpCutoff;
     const bossFallback = `lib:${
       LIB_BOSSES_PLATFORMER[(this.spec.seed >>> 0) % LIB_BOSSES_PLATFORMER.length]!
     }`;
@@ -422,10 +454,11 @@ class PlatformerGame implements GameInstance {
     const body = platformerPlayerBody(this.spec.playerHeightTiles, this.spec.platformerScale);
     this.playerW = body.w;
     this.playerH = body.h;
-    this.generatedPlayerPoses =
-      this.spec.playerHeightTiles === 2 && this.spec.platformerArtDensity === 'detailed'
-        ? completeGeneratedPlatformerPoses(this.engine.platformerPoses)
-        : null;
+    const generatedPlayerPoses = completeGeneratedPlatformerPoses(this.engine.platformerPoses);
+    if (!generatedPlayerPoses) {
+      throw new Error('Platformer games require a complete generated player pose set');
+    }
+    this.generatedPlayerPoses = generatedPlayerPoses;
     this.generatedBoss = this.engine.platformerBoss;
     this.generatedEnemies = this.engine.platformerEnemies;
     this.generatedProps = this.engine.platformerProps;
@@ -835,10 +868,14 @@ class PlatformerGame implements GameInstance {
     const target = (input.LEFT.held ? -1 : 0) + (input.RIGHT.held ? 1 : 0);
     if (target !== 0) this.facing = target;
     const maxSpeed = run ? this.run : this.walk;
-    const want = target * maxSpeed;
-    const delta = want - this.pvx;
-    const step = this.accel * dt * (this.onGround ? 1 : 0.65);
-    this.pvx += Math.abs(delta) <= step ? delta : Math.sign(delta) * step;
+    this.pvx = stepPlatformerHorizontalVelocity(
+      this.pvx,
+      target,
+      maxSpeed,
+      dt,
+      this.onGround,
+      this.movement,
+    );
 
     // jump buffering + coyote time
     this.coyoteT = this.onGround ? FEEL.coyoteMs / 1000 : Math.max(0, this.coyoteT - dt);
@@ -865,9 +902,11 @@ class PlatformerGame implements GameInstance {
       });
     }
     // variable jump height
-    if ((input.B.released || input.A.released) && this.pvy < -80) this.pvy = -80;
+    if ((input.B.released || input.A.released) && this.pvy < this.jumpReleaseV) {
+      this.pvy = this.jumpReleaseV;
+    }
 
-    this.pvy = Math.min(MAX_FALL, this.pvy + this.grav * dt);
+    this.pvy = Math.min(this.maxFall, this.pvy + this.grav * dt);
 
     const drop = input.DOWN.held && jumpPressed;
     const grid = {
@@ -1748,23 +1787,15 @@ class PlatformerGame implements GameInstance {
       const gait = anim === 'walk' ? generatedPlatformerGaitFrame(this.generatedGaitT) : null;
       const generatedPose: PlatformerPlayerPose =
         anim === 'jump' ? 'jump' : anim === 'walk' ? gait!.pose : 'idle';
-      const generatedImage = this.generatedPlayerPoses?.[generatedPose];
+      const generatedImage = this.generatedPlayerPoses[generatedPose];
       let flip = generatedPose !== 'idle' && this.facing < 0;
-      let img: CanvasImageSource | null = generatedImage ?? null;
-      if (!img) {
-        img = this.engine.sprites.frame(hero, anim, this.animT, this.facing < 0);
-        flip = false;
-      }
+      const img: CanvasImageSource = generatedImage;
       if (this.spinning && !this.onGround) {
         flip = Math.floor(this.animT * 12) % 2 === 0;
-        if (!generatedImage) {
-          img = this.engine.sprites.frame(hero, 'jump', this.animT, flip);
-          flip = false;
-        }
       }
-      const generatedSize = generatedImage ? generatedImageDrawSize(generatedImage) : null;
+      const generatedSize = generatedImageDrawSize(generatedImage);
       const generatedRect =
-        generatedImage && generatedSize
+        generatedSize
           ? generatedPlatformerPlayerDrawRect(
               this.px,
               this.py,
@@ -1781,8 +1812,7 @@ class PlatformerGame implements GameInstance {
       const heroWorldY = generatedRect?.y ?? this.py - (drawH - this.playerH);
       const heroX = heroWorldX - cam.x;
       const heroY = heroWorldY - cam.y;
-      if (generatedImage) r.drawScaledFlipped(img, heroX, heroY, drawW, drawH, flip);
-      else r.draw(img, heroX, heroY);
+      r.drawScaledFlipped(img, heroX, heroY, drawW, drawH, flip);
       if (this.power.shield) {
         if (hero.appliedPresentation === 'tall-humanoid') {
           r.frame(heroX - 1, heroY - 1, drawW + 2, drawH + 2, this.spec.palette[4] ?? '#41a6f6');

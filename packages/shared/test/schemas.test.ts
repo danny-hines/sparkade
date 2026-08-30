@@ -126,6 +126,21 @@ describe('archetype schemas', () => {
     expect(schema.required).not.toContain('platformerArtDensity');
   });
 
+  it('keeps platformer movement profiles bounded and optional for saved-game compatibility', () => {
+    const schema = ARCHETYPE_SCHEMAS.platformer as {
+      properties: Record<string, { enum?: string[] }>;
+      required: string[];
+    };
+    expect(schema.properties['movementProfile']?.enum).toEqual([
+      'balanced',
+      'precision',
+      'momentum',
+      'floaty',
+      'heavy',
+    ]);
+    expect(schema.required).not.toContain('movementProfile');
+  });
+
   it('keeps H-scroll art density bounded and optional for saved-game compatibility', () => {
     const schema = ARCHETYPE_SCHEMAS.hshooter as {
       properties: Record<string, { enum?: string[] }>;
@@ -135,13 +150,13 @@ describe('archetype schemas', () => {
     expect(schema.required).not.toContain('hshooterArtDensity');
   });
 
-  it('keeps the H-scroll craft identity optional for saved-game compatibility', () => {
+  it('requires the H-scroll craft identity for generated player art', () => {
     const schema = ARCHETYPE_SCHEMAS.hshooter as {
       properties: Record<string, { properties?: Record<string, unknown> }>;
       required: string[];
     };
     expect(schema.properties['playerCraft']?.properties?.['visualConcept']).toBeDefined();
-    expect(schema.required).not.toContain('playerCraft');
+    expect(schema.required).toContain('playerCraft');
   });
 
   it('uses the expanded 28×14 single-screen Adventure room contract', () => {
@@ -174,6 +189,55 @@ describe('archetype schemas', () => {
     });
     expect(defs.entity.properties.x.maximum).toBe(27);
     expect(defs.entity.properties.y.maximum).toBe(13);
+  });
+
+  it('bounds Adventure boss health to a readable fight length', () => {
+    const boss = (
+      ARCHETYPE_SCHEMAS.adventure as {
+        $defs: { boss: { properties: { hp: { minimum: number; maximum: number } } } };
+      }
+    ).$defs.boss;
+    expect(boss.properties.hp).toEqual({ type: 'integer', minimum: 12, maximum: 36 });
+  });
+
+  it('requires a bounded story-specific Adventure combat kit', () => {
+    const schema = ARCHETYPE_SCHEMAS.adventure as {
+      required: string[];
+      properties: { combatKit: { $ref: string } };
+      $defs: {
+        combatKit: {
+          required: string[];
+          properties: {
+            primary: { properties: { profile: { enum: string[] } } };
+            secondary: { properties: { behavior: { enum: string[] } } };
+          };
+        };
+      };
+    };
+    expect(schema.required).toContain('combatKit');
+    expect(schema.properties.combatKit.$ref).toBe('#/$defs/combatKit');
+    expect(schema.$defs.combatKit.required).toEqual(['primary', 'secondary']);
+    expect(schema.$defs.combatKit.properties.primary.properties.profile.enum).toEqual([
+      'close',
+      'sweep',
+      'reach',
+    ]);
+    expect(schema.$defs.combatKit.properties.secondary.properties.behavior.enum).toEqual([
+      'shot',
+      'returning',
+      'blast',
+    ]);
+
+    const design = DESIGN_SCHEMA as {
+      allOf: Array<{
+        if: { properties: { archetype: { const: string } } };
+        then: { required: string[] };
+      }>;
+    };
+    expect(
+      design.allOf.find(({ if: condition }) => condition.properties.archetype.const === 'adventure')
+        ?.then.required,
+    ).toContain('combatKit');
   });
 
   it('music channels are exactly 16 steps with the documented syntax', () => {

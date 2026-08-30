@@ -6,15 +6,18 @@ platformer presentation systems without weakening the long sightlines, projectil
 continuous forward motion that make an H-scroll shooter work.
 
 The archetype already shares compact `tileRuns`, semantic solid/hazard/decoration cells, world-space
-collision, generated key/story art, weather, lighting, music, and the common game host. Its largest
-gap is that gameplay still uses legacy terrain and library sprite presentation while the platformer
-has moved to source-authored high-density terrain and per-game Muse Image assets.
+collision, source-authored high-density terrain, a per-game player craft, generated key/story art,
+weather, lighting, music, and the common game host. Its next gaps are generated combatants, richer
+encounter composition, and temporal corridor validation.
 
-## Compatibility principle
+## Generation principle
 
-New presentation systems should be explicitly enabled by a spec marker or archetype version rather
-than silently repainting every saved H-scroll game. Generated assets remain optional and independently
-fall back to stable library or procedural art when absent or rejected.
+Existing games are test content, not a compatibility constraint. The player craft is required
+generated art. Muse Image creates a candidate pool, Spark ranks it, and the best locally valid craft
+ships even when it misses the ideal semantic bar. If no candidate has a mechanically usable
+silhouette, generation fails instead of rotating or likeness-compositing a library ship. Optional
+environment and enemy art may still retain independent fallbacks until their own generated-only
+pipelines are mature.
 
 ## Slice 1: richer presentation without new image calls
 
@@ -42,17 +45,21 @@ Status: implemented locally; focused validation is green.
   dive suit, rather than treating the source photo's everyday clothing as identity.
 - Give every newly generated H-scroll game a separate, concrete `playerCraft` visual concept. Never
   derive the craft from the player's face or body.
-- Generate one native right-facing side-view craft on a transparent background. Reuse that rigid
-  asset in gameplay and add banking, thrust, damage flashes, and trails procedurally.
-- Feed presentation generation a divided identity board: pilot/key art above, exact gameplay craft
-  below. Story cards may stage the pilot, the craft, or both, but must not merge their identities.
-- Stop generating directional likeness heads for opted-in H-scroll games. If craft generation is
-  unavailable or rejected, use a stable likeness-free library ship while keeping the generated
-  portraits and story art.
-- Publish craft readiness in game metadata and retain the old likeness-composited ship behavior only
-  for saved H-scroll specs that predate the explicit craft marker.
+- Generate three native right-facing side-view craft candidates, validate their silhouettes locally,
+  and let Spark select the strongest. Reuse the selected rigid asset in gameplay and add banking,
+  thrust, damage flashes, and trails procedurally.
+- Preserve a private presentation-scale craft reference before deriving the 96×64 gameplay sprite.
+  Feed key/story generation a divided identity board with that detailed reference below, and require
+  the craft to be re-rendered naturally at the scene's scale, perspective, and lighting. Story cards
+  may stage the pilot, the craft, or both, but must not paste the runtime sprite or merge identities.
+- Stop generating directional likeness heads for H-scroll games. Spark rejection no longer activates
+  a stable ship: the best locally valid craft is published, or the job fails when none exists.
+- Publish required generated-craft readiness in game metadata. The runtime refuses to start without
+  the manifest-backed craft rather than retaining an old likeness-composited ship branch.
 
-## Generated stage backgrounds
+## Slice 3: generated stage backgrounds
+
+Status: implemented locally; focused validation is green.
 
 - Generate separate background plates for levels 1-3 and the boss arena from the game's key art.
 - Keep the central flight corridor subdued across its full height; a platformer's lower-third-only
@@ -62,6 +69,10 @@ Status: implemented locally; focused validation is green.
 - Dim or grade generated plates consistently enough that bullets, pickups, terrain, and the HUD retain
   immediate contrast.
 - Publish each plate independently and retain the procedural backdrop for every missing role.
+- Pan each finite plate from its left crop to its right crop over the authored `scroll × durationS`
+  distance, then clamp without exposing a seam. Blend the continuously wrapping procedural scene over
+  it at low opacity so forward motion and depth remain visible throughout cleanup time.
+- Track generated, partial, and procedural readiness in `hshooterBackdropArt` metadata.
 
 ## Per-game gameplay art
 

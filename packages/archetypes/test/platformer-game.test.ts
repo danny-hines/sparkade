@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { resolvePlatformerMovement } from '@sparkade/shared';
 import {
   completeGeneratedPlatformerPoses,
   generatedPlatformerGaitFrame,
@@ -9,7 +10,33 @@ import {
   generatedPlatformerPoseDrawSize,
   generatedPlatformerPropDrawRect,
   platformerSpringDrawRect,
+  stepPlatformerHorizontalVelocity,
 } from '../src/platformer/game';
+
+describe('platformer movement profiles', () => {
+  it('makes precision accelerate and stop faster while momentum preserves speed', () => {
+    const balanced = resolvePlatformerMovement('balanced');
+    const precision = resolvePlatformerMovement('precision');
+    const momentum = resolvePlatformerMovement('momentum');
+
+    const accelerate = (movement: typeof balanced) =>
+      stepPlatformerHorizontalVelocity(0, 1, 142 * movement.speed, 0.1, true, movement);
+    expect(accelerate(precision)).toBeGreaterThan(accelerate(balanced));
+
+    const release = (movement: typeof balanced) =>
+      stepPlatformerHorizontalVelocity(100, 0, 142 * movement.speed, 0.1, true, movement);
+    expect(release(precision)).toBeLessThan(release(balanced));
+    expect(release(momentum)).toBeGreaterThan(release(balanced));
+  });
+
+  it('makes precision air correction stronger than momentum air correction', () => {
+    const precision = resolvePlatformerMovement('precision');
+    const momentum = resolvePlatformerMovement('momentum');
+    const correct = (movement: typeof precision) =>
+      stepPlatformerHorizontalVelocity(80, -1, 142 * movement.speed, 0.1, false, movement);
+    expect(correct(precision)).toBeLessThan(correct(momentum));
+  });
+});
 
 describe('generated platformer player poses', () => {
   it('activates only one complete five-frame identity set', () => {

@@ -41,12 +41,14 @@ export {
 } from './renderer';
 export {
   BACKDROP_VARIANTS,
+  generatedBackdropProgressSourceRect,
   generatedBackdropSourceRect,
   makeBackdrop,
   makeGeneratedBackdrop,
   pickVariant,
   type Backdrop,
   type BackdropVariant,
+  type GeneratedBackdropOptions,
   type GeneratedBackdropSourceRect,
 } from './backdrops';
 export {

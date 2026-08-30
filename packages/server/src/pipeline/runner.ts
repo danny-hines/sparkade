@@ -32,13 +32,10 @@ import {
 } from '@sparkade/shared';
 import {
   GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION,
-  GENERATED_HEAD_PROMPT_VERSION,
   GENERATED_PORTRAIT_PROMPT_VERSION,
   describeVisibleTraits,
   generateDefeatPortrait,
-  generateHeadSprites,
   generatePortrait,
-  type GeneratedHeadDirection,
   type LikenessImageEdit,
 } from '../likeness/portrait-gen';
 import {
@@ -222,12 +219,12 @@ import {
   type GeneratedAdventurePlayerPose,
 } from '../assets/adventure-player';
 import {
-  ADVENTURE_PLAYER_SHEET_CANDIDATES,
+  ADVENTURE_PLAYER_SHEET_GROUPS,
   ADVENTURE_PLAYER_SHEET_PROMPT_VERSION,
   buildAdventurePlayerSheetPrompt,
   buildAdventurePlayerSheetSeed,
   splitGeneratedAdventurePlayerSheet,
-  type AdventurePlayerSheetCandidate,
+  type AdventurePlayerSheetGroup,
 } from '../assets/adventure-player-sheet';
 import {
   ADVENTURE_PLAYER_SET_JUDGE_PROMPT_VERSION,
@@ -253,12 +250,39 @@ import {
   buildHShooterCraftPrompt,
   buildHShooterIdentityReference,
   processGeneratedHShooterCraft,
+  processGeneratedHShooterCraftReference,
 } from '../assets/hshooter-craft';
+import {
+  SHOOTER_CRAFT_PROMPT_VERSION,
+  buildShooterCraftPrompt,
+  processGeneratedShooterCraft,
+  processGeneratedShooterCraftReference,
+} from '../assets/shooter-craft';
+import {
+  PLAYER_CRAFT_JUDGE_PROMPT_VERSION,
+  bestPlayerCraftCandidateId,
+  buildPlayerCraftJudgeBoard,
+  buildPlayerCraftJudgePrompt,
+  buildPlayerCraftJudgeSchema,
+  normalizePlayerCraftJudgeDecision,
+  type PlayerCraftCandidateDescriptor,
+  type PlayerCraftOrientation,
+} from '../assets/player-craft-judge';
+import {
+  GENERATED_HSHOOTER_BACKDROPS,
+  HSHOOTER_BACKDROP_ASPECT_HINT,
+  HSHOOTER_BACKDROP_ASSET_ROLES,
+  HSHOOTER_BACKDROP_PROMPT_VERSION,
+  buildHShooterBackdropPrompt,
+  normalizeHShooterBackdrop,
+  type GeneratedHShooterBackdrop,
+} from '../assets/hshooter-backdrop';
 import {
   GameAssetWorkspace,
   GeneratedAssetStorageError,
   imagePromptHash,
   sha256,
+  type PrivateGeneratedAssetRole,
 } from '../assets/manifest';
 import type { ConfigStore } from '../storage/config';
 import type { Db } from '../storage/db';
@@ -372,6 +396,12 @@ const ADVENTURE_PLAYER_ASSET_ROLES = {
   upWalk: 'adventurePlayerUpWalk',
   sideIdle: 'adventurePlayerSideIdle',
   sideWalk: 'adventurePlayerSideWalk',
+  downMelee: 'adventurePlayerDownMelee',
+  upMelee: 'adventurePlayerUpMelee',
+  sideMelee: 'adventurePlayerSideMelee',
+  downSecondary: 'adventurePlayerDownSecondary',
+  upSecondary: 'adventurePlayerUpSecondary',
+  sideSecondary: 'adventurePlayerSideSecondary',
 } as const satisfies Record<GeneratedAdventurePlayerPose, GeneratedGameAssetRole>;
 
 const PLATFORMER_ENEMY_ASSET_ROLES = {
@@ -1727,6 +1757,17 @@ export class GenerationRunner {
           height: asset.height,
         });
       });
+      // Directional head patches existed only to keep library player bodies
+      // usable. They are not part of any generated-player contract now; clear
+      // them from interrupted pre-migration attempts before a retry publishes.
+      await assetWorkspace.discard([
+        'generatedHead12',
+        'generatedHead12Side',
+        'generatedHead12Back',
+        'generatedHead16',
+        'generatedHead16Side',
+        'generatedHead16Back',
+      ]);
 
       // Production personalization deliberately relies on the models' direct
       // view of the photo instead of squeezing identity through the legacy,
@@ -1766,7 +1807,7 @@ export class GenerationRunner {
               size: request.size,
             }),
           );
-      const cachedGeneratedAsset = async (opts: {
+      type CachedGeneratedAssetOptions = {
         role: GeneratedGameAssetRole;
         promptVersion: string;
         prompt: string;
@@ -1775,7 +1816,24 @@ export class GenerationRunner {
         reference?: Buffer;
         size?: string;
         normalize(image: Buffer): Promise<Buffer>;
-      }): Promise<Buffer> => {
+      };
+      type PrivateGeneratedAssetCompanion = {
+        role: PrivateGeneratedAssetRole;
+        normalize(image: Buffer): Promise<Buffer>;
+      };
+      type GeneratedAssetWithCompanion = { image: Buffer; companion: Buffer };
+
+      async function cachedGeneratedAsset(
+        opts: CachedGeneratedAssetOptions & {
+          privateCompanion: PrivateGeneratedAssetCompanion;
+        },
+      ): Promise<GeneratedAssetWithCompanion>;
+      async function cachedGeneratedAsset(opts: CachedGeneratedAssetOptions): Promise<Buffer>;
+      async function cachedGeneratedAsset(
+        opts: CachedGeneratedAssetOptions & {
+          privateCompanion?: PrivateGeneratedAssetCompanion;
+        },
+      ): Promise<Buffer | GeneratedAssetWithCompanion> {
         const correctionPrompt = (prompt: string) =>
           `${prompt} RETRY CORRECTION: obey every composition, format, and no-text constraint exactly.`;
         const cachePrompts = [
@@ -1791,7 +1849,14 @@ export class GenerationRunner {
             opts.promptVersion,
             imagePromptHash(prompt, opts.reference),
           );
-          if (cached) return cached;
+          if (!cached) continue;
+          if (!opts.privateCompanion) return cached;
+          const companion = assetWorkspace.loadPrivate(
+            opts.privateCompanion.role,
+            opts.promptVersion,
+            imagePromptHash(prompt, opts.reference),
+          );
+          if (companion) return { image: cached, companion };
         }
 
         let lastError: unknown;
@@ -1809,8 +1874,22 @@ export class GenerationRunner {
               ...(opts.size ? { size: opts.size } : {}),
             });
             const normalized = await opts.normalize(raw);
+            const companion = opts.privateCompanion
+              ? await opts.privateCompanion.normalize(raw)
+              : null;
+            if (companion && opts.privateCompanion) {
+              // Declare the public runtime asset only after its private
+              // presentation source is durable, so retries never fall back to
+              // enlarging the tiny gameplay sprite.
+              await assetWorkspace.storePrivate(
+                opts.privateCompanion.role,
+                companion,
+                opts.promptVersion,
+                promptSha,
+              );
+            }
             await assetWorkspace.store(opts.role, normalized, opts.promptVersion, promptSha);
-            return normalized;
+            return companion ? { image: normalized, companion } : normalized;
           } catch (error) {
             if (error instanceof PipelineError) {
               if (
@@ -1845,83 +1924,208 @@ export class GenerationRunner {
           `${opts.label} failed validation: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
           'building-assets',
         );
-      };
+      }
 
       const photoReference = photo ? await prepareImageReference(photo) : undefined;
       const canonicalHeroConcept = spec.meta.heroConcept ?? design.heroConcept;
-      const hshooterCraftIdentity = spec.archetype === 'hshooter' ? spec.playerCraft : undefined;
-      let hshooterPlayerCraftArtStatus: GameMetaFile['hshooterPlayerCraftArt'] =
-        hshooterCraftIdentity
-          ? {
-              mode: 'procedural',
-              attempted: true,
-              reason: 'Generated H-scroll player craft did not complete',
-            }
+      const playerCraftIdentity =
+        spec.archetype === 'shooter' || spec.archetype === 'hshooter'
+          ? spec.playerCraft
           : undefined;
-      const hshooterCraftTask: Promise<Buffer | null> = hshooterCraftIdentity
+      let hshooterPlayerCraftArtStatus: GameMetaFile['hshooterPlayerCraftArt'];
+      let shooterPlayerCraftArtStatus: GameMetaFile['shooterPlayerCraftArt'];
+      type PlayerCraftAssets = {
+        gameplay: Buffer;
+        presentationReference: Buffer;
+      };
+      const playerCraftTask: Promise<PlayerCraftAssets | null> = playerCraftIdentity
         ? (async () => {
-            const generationStarted = Date.now();
-            try {
-              const craft = await cachedGeneratedAsset({
-                role: 'hshooterPlayerCraft',
-                promptVersion: HSHOOTER_CRAFT_PROMPT_VERSION,
-                prompt: buildHShooterCraftPrompt({
-                  gameTitle: spec.meta.title,
-                  tagline: spec.meta.tagline,
-                  visualConcept: hshooterCraftIdentity.visualConcept,
-                  colors: spec.palette.join(', '),
-                }),
-                label: 'H-scroll player craft',
-                size: '1536x1024',
-                normalize: async (image) => (await processGeneratedHShooterCraft(image)).png,
-              });
-              hshooterPlayerCraftArtStatus = { mode: 'generated', attempted: true };
-              return craft;
-            } catch (error) {
-              if (
-                abort.signal.aborted ||
-                (error instanceof PipelineError &&
-                  error.code !== 'image-invalid' &&
-                  !isOptionalGeneratedArtProviderFailure(error))
-              ) {
-                throw error;
-              }
-              await assetWorkspace.discard(['hshooterPlayerCraft']);
-              const reason =
-                error instanceof Error
-                  ? error.message.slice(0, 240)
-                  : 'Generated H-scroll player craft failed validation';
-              hshooterPlayerCraftArtStatus = {
-                mode: 'procedural',
-                attempted: true,
-                reason,
-              };
-              recordEarlyRepairEvent(
-                'entities',
-                'hshooter-player-craft-fallback',
-                [
-                  {
-                    code: 'HSHOOTER_PLAYER_CRAFT_FALLBACK',
-                    path: '/assets/hshooter-player-craft',
-                    message: reason,
-                  },
-                ],
-                [],
-                generationStarted,
-                'downgraded',
-              );
-              emit(
-                'building-assets',
-                `Generated player craft did not pass; using the stable likeness-free ship (${reason.slice(0, 120)})`,
-              );
-              return null;
+            const horizontal = spec.archetype === 'hshooter';
+            const orientation: PlayerCraftOrientation = horizontal ? 'side-view' : 'top-down';
+            const role: GeneratedGameAssetRole = horizontal
+              ? 'hshooterPlayerCraft'
+              : 'shooterPlayerCraft';
+            const privateRole: PrivateGeneratedAssetRole = horizontal
+              ? 'hshooterCraftReference'
+              : 'shooterCraftReference';
+            const craftPromptVersion = horizontal
+              ? HSHOOTER_CRAFT_PROMPT_VERSION
+              : SHOOTER_CRAFT_PROMPT_VERSION;
+            const pipelineFingerprint = JSON.stringify({
+              promptVersion: craftPromptVersion,
+              judgeVersion: PLAYER_CRAFT_JUDGE_PROMPT_VERSION,
+              orientation,
+              visualConcept: playerCraftIdentity.visualConcept,
+              colors: spec.palette,
+            });
+            const pipelineSha = imagePromptHash(pipelineFingerprint);
+            const cachedGameplay = assetWorkspace.load(
+              role,
+              PLAYER_CRAFT_JUDGE_PROMPT_VERSION,
+              pipelineSha,
+            );
+            const cachedPresentation = assetWorkspace.loadPrivate(
+              privateRole,
+              PLAYER_CRAFT_JUDGE_PROMPT_VERSION,
+              pipelineSha,
+            );
+            if (cachedGameplay && cachedPresentation) {
+              if (horizontal) hshooterPlayerCraftArtStatus = { mode: 'generated', attempted: true };
+              else shooterPlayerCraftArtStatus = { mode: 'generated', attempted: true };
+              return { gameplay: cachedGameplay, presentationReference: cachedPresentation };
             }
+
+            interface CraftCandidate {
+              id: string;
+              gameplay: Buffer;
+              presentation: Buffer;
+            }
+            const generateCandidate = async (
+              id: string,
+              retryGuidance = '',
+            ): Promise<CraftCandidate | null> => {
+              const promptOptions = {
+                gameTitle: spec.meta.title,
+                tagline: spec.meta.tagline,
+                visualConcept: playerCraftIdentity.visualConcept,
+                colors: spec.palette.join(', '),
+                candidateId: id,
+                ...(retryGuidance ? { retryGuidance } : {}),
+              };
+              let raw: Buffer;
+              try {
+                raw = await callImage({
+                  role: `${horizontal ? 'hshooter' : 'shooter'}-player-craft-${id}`,
+                  label: `${horizontal ? 'H-scroll' : 'vertical'} player craft candidate ${id}`,
+                  prompt: horizontal
+                    ? buildHShooterCraftPrompt(promptOptions)
+                    : buildShooterCraftPrompt(promptOptions),
+                  size: horizontal ? '1536x1024' : '1024x1536',
+                });
+              } catch (error) {
+                if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
+                validationFailure(`${horizontal ? 'hshooter' : 'shooter'}-player-craft-${id}`);
+                emit('building-assets', `Player craft candidate ${id} was unavailable; continuing…`);
+                return null;
+              }
+              try {
+                const [gameplay, presentation] = await Promise.all([
+                  horizontal
+                    ? processGeneratedHShooterCraft(raw).then((result) => result.png)
+                    : processGeneratedShooterCraft(raw).then((result) => result.png),
+                  horizontal
+                    ? processGeneratedHShooterCraftReference(raw)
+                    : processGeneratedShooterCraftReference(raw),
+                ]);
+                return { id, gameplay, presentation };
+              } catch (_error) {
+                validationFailure(`${horizontal ? 'hshooter' : 'shooter'}-player-craft-${id}`);
+                emit('building-assets', `Player craft candidate ${id} was unusable; continuing…`);
+                return null;
+              }
+            };
+
+            emit('building-assets', 'Painting three player craft candidates…');
+            let candidates = (
+              await Promise.all(['A', 'B', 'C'].map((id) => generateCandidate(id)))
+            ).filter((candidate): candidate is CraftCandidate => candidate !== null);
+            if (candidates.length === 0) {
+              emit('building-assets', 'Repainting the player craft candidate pool…');
+              candidates = (
+                await Promise.all(
+                  ['D', 'E', 'F'].map((id) =>
+                    generateCandidate(
+                      id,
+                      `Return one uncropped craft in strict ${orientation}; emphasize a clean readable silhouette`,
+                    ),
+                  ),
+                )
+              ).filter((candidate): candidate is CraftCandidate => candidate !== null);
+            }
+            if (candidates.length === 0) {
+              throw new PipelineError(
+                'image-invalid',
+                `No mechanically valid generated ${orientation} player craft was available`,
+                'building-assets',
+              );
+            }
+            const descriptors: PlayerCraftCandidateDescriptor[] = candidates.map(({ id }) => ({
+              id,
+            }));
+            const board = await buildPlayerCraftJudgeBoard({
+              candidates: candidates.map(({ id, gameplay: processed }) => ({ id, processed })),
+              orientation,
+            });
+            const mockDecision = {
+              candidateReviews: descriptors.map(({ id }) => ({
+                id,
+                concept: 5,
+                orientation: 5,
+                silhouette: 5,
+                readability: 5,
+                technical: 5,
+                fatalIssues: [],
+                summary: 'Mock production-ready craft.',
+              })),
+              selection: {
+                accepted: true,
+                candidateId: descriptors[0]!.id,
+                rationale: 'Mock selection.',
+                retryGuidance: '',
+              },
+            };
+            const rawDecision = mockImages
+              ? mockDecision
+              : await callLlm(
+                  'design',
+                  {
+                    ...buildPlayerCraftJudgePrompt(descriptors, {
+                      orientation,
+                      visualConcept: playerCraftIdentity.visualConcept,
+                    }),
+                    jsonSchema: buildPlayerCraftJudgeSchema(descriptors),
+                    maxTokens: 2400,
+                    timeoutMs: 120_000,
+                  },
+                  {
+                    stage: 'building-assets',
+                    label: 'Spark selected the player craft',
+                    image: board,
+                    reasoningEffort: 'low',
+                  },
+                );
+            const decision = normalizePlayerCraftJudgeDecision(rawDecision, descriptors);
+            const selectedId = decision.selection.accepted
+              ? decision.selection.candidateId
+              : bestPlayerCraftCandidateId(decision);
+            const selected = candidates.find(({ id }) => id === selectedId)!;
+            emit(
+              'building-assets',
+              decision.selection.accepted
+                ? `Spark selected player craft ${selectedId}`
+                : `Spark selected ${selectedId} as the best available player craft`,
+            );
+            await assetWorkspace.storePrivate(
+              privateRole,
+              selected.presentation,
+              PLAYER_CRAFT_JUDGE_PROMPT_VERSION,
+              pipelineSha,
+            );
+            await assetWorkspace.store(
+              role,
+              selected.gameplay,
+              PLAYER_CRAFT_JUDGE_PROMPT_VERSION,
+              pipelineSha,
+            );
+            if (horizontal) hshooterPlayerCraftArtStatus = { mode: 'generated', attempted: true };
+            else shooterPlayerCraftArtStatus = { mode: 'generated', attempted: true };
+            return { gameplay: selected.gameplay, presentationReference: selected.presentation };
           })()
         : Promise.resolve(null);
-      const keyArtTask = hshooterCraftTask.then(async (craft) => {
-        const craftBrief = craft ? hshooterCraftIdentity : undefined;
-        const reference = craft
-          ? await buildHShooterIdentityReference(photoReference, craft)
+      const keyArtTask = playerCraftTask.then(async (craftAssets) => {
+        const craftBrief = craftAssets ? playerCraftIdentity : undefined;
+        const reference = craftAssets
+          ? await buildHShooterIdentityReference(photoReference, craftAssets.presentationReference)
           : photoReference;
         const keyArtPrompt = buildKeyArtPrompt(spec, !!photo, canonicalHeroConcept, craftBrief);
         return cachedGeneratedAsset({
@@ -1944,7 +2148,6 @@ export class GenerationRunner {
       const identityKey = JSON.stringify({
         portraitVersion: GENERATED_PORTRAIT_PROMPT_VERSION,
         defeatPortraitVersion: GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION,
-        headVersion: GENERATED_HEAD_PROMPT_VERSION,
         features: feat,
         heroConcept: canonicalHeroConcept,
       });
@@ -2053,105 +2256,10 @@ export class GenerationRunner {
           })()
         : Promise.resolve(null);
 
-      const headDirections = [
-        {
-          direction: 'front',
-          role12: 'generatedHead12',
-          role16: 'generatedHead16',
-          label: 'front player sprite',
-        },
-        {
-          direction: 'side',
-          role12: 'generatedHead12Side',
-          role16: 'generatedHead16Side',
-          label: 'profile player sprite',
-        },
-        {
-          direction: 'back',
-          role12: 'generatedHead12Back',
-          role16: 'generatedHead16Back',
-          label: 'rear player sprite',
-        },
-      ] as const satisfies readonly {
-        direction: GeneratedHeadDirection;
-        role12: GeneratedGameAssetRole;
-        role16: GeneratedGameAssetRole;
-        label: string;
-      }[];
-      const generateHeads = async (): Promise<void> => {
-        if (!photo || hshooterCraftIdentity) return;
-        const headShas = Object.fromEntries(
-          headDirections.map(({ direction }) => [
-            direction,
-            imagePromptHash(`${GENERATED_HEAD_PROMPT_VERSION}:${direction}:${identityKey}`, photo),
-          ]),
-        ) as Record<GeneratedHeadDirection, string>;
-
-        await Promise.all(
-          headDirections.map(async ({ direction, role12, role16, label }) => {
-            const headSha = headShas[direction];
-            if (
-              assetWorkspace.load(role12, GENERATED_HEAD_PROMPT_VERSION, headSha) &&
-              assetWorkspace.load(role16, GENERATED_HEAD_PROMPT_VERSION, headSha)
-            ) {
-              return;
-            }
-            let generatedHeads: Awaited<ReturnType<typeof generateHeadSprites>> | null = null;
-            let lastError: unknown;
-            for (let pass = 0; pass < 2 && !generatedHeads; pass++) {
-              try {
-                generatedHeads = await generateHeadSprites(
-                  photo,
-                  feat,
-                  imageEditFor(`player-head-${direction}`, label),
-                  { size: '1024x1024', user: gameId, direction },
-                );
-              } catch (error) {
-                if (error instanceof PipelineError || error instanceof GeneratedAssetStorageError) {
-                  throw error;
-                }
-                lastError = error;
-                validationFailure(`player-head-${direction}`);
-                emit('building-assets', `Repainting the ${label}…`);
-              }
-            }
-            if (!generatedHeads) {
-              throw new PipelineError(
-                'image-invalid',
-                `${label} failed validation: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
-                'building-assets',
-              );
-            }
-            await Promise.all([
-              assetWorkspace.store(
-                role12,
-                generatedHeads.heads[12],
-                GENERATED_HEAD_PROMPT_VERSION,
-                headSha,
-              ),
-              assetWorkspace.store(
-                role16,
-                generatedHeads.heads[16],
-                GENERATED_HEAD_PROMPT_VERSION,
-                headSha,
-              ),
-            ]);
-          }),
-        );
-      };
-
-      let adventurePlayerArtStatus: GameMetaFile['adventurePlayerArt'] =
-        spec.archetype === 'adventure'
-          ? {
-              mode: 'procedural',
-              attempted: true,
-              reason: 'Generated Adventure player art did not complete',
-            }
-          : undefined;
+      let adventurePlayerArtStatus: GameMetaFile['adventurePlayerArt'];
       const adventurePlayerTask: Promise<Buffer | null> =
         spec.archetype === 'adventure'
           ? keyArtTask.then(async (keyArt): Promise<Buffer | null> => {
-              const generationStarted = Date.now();
               const colors = spec.palette
                 .filter((hex) => {
                   const r = Number.parseInt(hex.slice(1, 3), 16);
@@ -2173,6 +2281,7 @@ export class GenerationRunner {
                   },
                   heroConcept: canonicalHeroConcept,
                   colors,
+                  combatKit: spec.combatKit,
                   hasPhoto: !!photoReference,
                 });
                 const pipelineSha = imagePromptHash(pipelineFingerprint, identityReference);
@@ -2263,6 +2372,7 @@ export class GenerationRunner {
                             hasPhoto: !!photoReference,
                             heroConcept: canonicalHeroConcept,
                             colors,
+                            combatKit: spec.combatKit,
                             ...(retryGuidance ? { retryGuidance } : {}),
                           }),
                           identityReference,
@@ -2275,16 +2385,11 @@ export class GenerationRunner {
                       'Return exactly one centered, uncropped adult in a down-facing top-down three-quarter idle on flat green';
                     continue;
                   }
-                  if (!photoReference) {
-                    downIdle = candidates[0]!;
-                    break;
-                  }
-
                   const descriptors: PlatformerIdleCandidateDescriptor[] = candidates.map(
                     ({ id }) => ({ id }),
                   );
                   const board = await buildPlatformerIdleJudgeBoard({
-                    source: photoReference,
+                    source: photoReference ?? keyArt,
                     candidates: candidates.map(({ id, reference: raw, png: processed }) => ({
                       id,
                       raw,
@@ -2325,6 +2430,8 @@ export class GenerationRunner {
                           ...buildAdventurePlayerIdentityJudgePrompt(
                             descriptors,
                             canonicalHeroConcept,
+                            spec.combatKit,
+                            photoReference ? 'photo' : 'key-art',
                           ),
                           jsonSchema: buildPlatformerIdleJudgeSchema(descriptors),
                           maxTokens: 2600,
@@ -2354,47 +2461,48 @@ export class GenerationRunner {
                 );
                 const sheetSeed = await buildAdventurePlayerSheetSeed(downIdle.png);
                 const generateSheet = async (
-                  sheet: AdventurePlayerSheetCandidate,
+                  group: AdventurePlayerSheetGroup,
                 ): Promise<PoseCandidate[]> => {
                   let raw: Buffer;
                   try {
                     raw = await callImage({
-                      role: `adventure-player-sheet-${sheet}`,
-                      label: `Adventure player directional sheet ${sheet}`,
-                      prompt: buildAdventurePlayerSheetPrompt(sheet, {
+                      role: `adventure-player-sheet-${group.id}`,
+                      label: `Adventure player ${group.id} sheet`,
+                      prompt: buildAdventurePlayerSheetPrompt(group, {
                         heroConcept: canonicalHeroConcept,
                         colors,
+                        combatKit: spec.combatKit,
                       }),
                       reference: sheetSeed,
                       size: '1024x1024',
                     });
                   } catch (error) {
                     if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
-                    validationFailure(`adventure-player-sheet-${sheet}`);
+                    validationFailure(`adventure-player-sheet-${group.id}`);
                     emit(
                       'building-assets',
-                      `Adventure player sheet ${sheet} was unavailable; retaining the other candidate pool…`,
+                      `Adventure player ${group.id} sheet was unavailable; recovering its poses individually…`,
                     );
                     return [];
                   }
                   let cells;
                   try {
-                    cells = await splitGeneratedAdventurePlayerSheet(raw, sheet);
+                    cells = await splitGeneratedAdventurePlayerSheet(raw, group);
                   } catch (_error) {
-                    validationFailure(`adventure-player-sheet-${sheet}`);
+                    validationFailure(`adventure-player-sheet-${group.id}`);
                     emit(
                       'building-assets',
-                      `Adventure player sheet ${sheet} could not be segmented`,
+                      `Adventure player ${group.id} sheet could not be segmented`,
                     );
                     return [];
                   }
                   return cells.flatMap((cell): PoseCandidate[] => {
                     if (cell.pose === 'downIdle') return [];
                     if (!cell.processed) {
-                      validationFailure(`adventure-player-${cell.pose}-sheet-${sheet}`);
+                      validationFailure(`adventure-player-${cell.pose}-sheet-${group.id}`);
                       emit(
                         'building-assets',
-                        `Adventure player ${cell.pose} from sheet ${sheet} failed local validation`,
+                        `Adventure player ${cell.pose} from the ${group.id} sheet failed local validation`,
                       );
                       return [];
                     }
@@ -2409,12 +2517,12 @@ export class GenerationRunner {
                   });
                 };
 
-                emit('building-assets', 'Painting two Adventure directional pose sheets…');
+                emit('building-assets', 'Painting Adventure movement and combat pose sheets…');
                 const poseCandidates: PoseCandidate[] = [
                   downIdlePose,
                   ...(
                     await Promise.all(
-                      ADVENTURE_PLAYER_SHEET_CANDIDATES.map((sheet) => generateSheet(sheet)),
+                      ADVENTURE_PLAYER_SHEET_GROUPS.map((group) => generateSheet(group)),
                     )
                   ).flat(),
                 ];
@@ -2434,6 +2542,7 @@ export class GenerationRunner {
                     `${buildAdventurePlayerPosePrompt(pose, {
                       heroConcept: canonicalHeroConcept,
                       colors,
+                      combatKit: spec.combatKit,
                     })}${correction}`,
                     reference,
                   );
@@ -2507,6 +2616,7 @@ export class GenerationRunner {
                         costume: 5,
                         orientation: 5,
                         motion: 5,
+                        equipment: 5,
                         technical: 5,
                       },
                       fatalIssues: [],
@@ -2524,9 +2634,10 @@ export class GenerationRunner {
                       costumeConsistency: 5,
                       directionReadability: 5,
                       motionReadability: 5,
+                      equipmentConsistency: 5,
                       scaleConsistency: 5,
                       fatalIssues: [],
-                      summary: 'Mock complete directional set.',
+                      summary: 'Mock complete movement and combat set.',
                     },
                     retryPoses: [],
                   };
@@ -2535,9 +2646,13 @@ export class GenerationRunner {
                     : await callLlm(
                         'design',
                         {
-                          ...buildAdventurePlayerSetJudgePrompt(descriptors, canonicalHeroConcept),
+                          ...buildAdventurePlayerSetJudgePrompt(
+                            descriptors,
+                            canonicalHeroConcept,
+                            spec.combatKit,
+                          ),
                           jsonSchema: buildAdventurePlayerSetJudgeSchema(descriptors),
-                          maxTokens: 4800,
+                          maxTokens: 7000,
                           timeoutMs: 120_000,
                         },
                         {
@@ -2564,9 +2679,11 @@ export class GenerationRunner {
                         retryPoses.flatMap(({ pose, guidance }) => {
                           if (pose === 'downIdle') return [];
                           const directionAnchorPose =
-                            pose === 'upWalk'
+                            pose === 'upWalk' || pose === 'upMelee' || pose === 'upSecondary'
                               ? 'upIdle'
-                              : pose === 'sideWalk'
+                              : pose === 'sideWalk' ||
+                                  pose === 'sideMelee' ||
+                                  pose === 'sideSecondary'
                                 ? 'sideIdle'
                                 : 'downIdle';
                           const directionAnchor = poseCandidates.find(
@@ -2588,8 +2705,9 @@ export class GenerationRunner {
                   }
                 }
                 if (!setDecision.setReview.accepted) {
-                  throw new Error(
-                    `Spark rejected the complete Adventure player set: ${setDecision.setReview.summary || setDecision.setReview.fatalIssues.join('; ') || 'identity, direction, or motion remained inconsistent'}`,
+                  emit(
+                    'building-assets',
+                    'Spark selected the best locally valid Adventure pose combination below the ideal quality bar',
                   );
                 }
                 const selectedIds = bestAdventurePlayerCandidateIds(setDecision);
@@ -2617,42 +2735,20 @@ export class GenerationRunner {
                 emit('building-assets', 'Finished the generated Adventure player');
                 return generated.downIdle;
               } catch (error) {
-                if (
-                  abort.signal.aborted ||
-                  error instanceof GeneratedAssetStorageError ||
-                  (error instanceof PipelineError && !isOptionalGeneratedArtProviderFailure(error))
-                ) {
-                  throw error;
-                }
+                if (abort.signal.aborted) throw error;
                 await assetWorkspace.discard(Object.values(ADVENTURE_PLAYER_ASSET_ROLES));
                 const reason =
                   error instanceof Error
                     ? error.message.slice(0, 240)
                     : 'Generated Adventure player set failed validation';
-                adventurePlayerArtStatus = {
-                  mode: 'procedural',
-                  attempted: true,
-                  reason,
-                };
-                recordEarlyRepairEvent(
-                  'entities',
-                  'adventure-player-art-fallback',
-                  [
-                    {
-                      code: 'ADVENTURE_PLAYER_ART_FALLBACK',
-                      path: '/assets/adventure-player',
-                      message: reason,
-                    },
-                  ],
-                  [],
-                  generationStarted,
-                  'downgraded',
-                );
                 emit(
                   'building-assets',
-                  `Generated Adventure player did not pass as a complete set; using the stable hero (${reason.slice(0, 120)})`,
+                  `Adventure player generation failed without a mechanically valid complete set (${reason.slice(0, 120)})`,
                 );
-                return null;
+                if (error instanceof PipelineError || error instanceof GeneratedAssetStorageError) {
+                  throw error;
+                }
+                throw new PipelineError('image-invalid', reason, 'building-assets');
               }
             })
           : Promise.resolve(null);
@@ -2661,16 +2757,16 @@ export class GenerationRunner {
         role: StoryArtRole,
         assetRole: GeneratedGameAssetRole,
       ): Promise<Buffer> =>
-        Promise.all([keyArtTask, hshooterCraftTask, adventurePlayerTask]).then(
-          async ([keyArt, craft, adventurePlayer]) => {
-            const craftBrief = craft ? hshooterCraftIdentity : undefined;
+        Promise.all([keyArtTask, playerCraftTask, adventurePlayerTask]).then(
+          async ([keyArt, craftAssets, adventurePlayer]) => {
+            const craftBrief = craftAssets ? playerCraftIdentity : undefined;
             const adventureReference = adventurePlayer
               ? await buildAdventureStoryIdentityReference(keyArt, adventurePlayer)
               : null;
             const reference = adventureReference
               ? adventureReference
-              : craft
-                ? await buildHShooterIdentityReference(keyArt, craft)
+              : craftAssets
+                ? await buildHShooterIdentityReference(keyArt, craftAssets.presentationReference)
                 : keyArt;
             return cachedGeneratedAsset({
               role: assetRole,
@@ -2802,6 +2898,117 @@ export class GenerationRunner {
                 missingRoles.map((role) => ({
                   code: 'PLATFORMER_BACKDROP_ART_FALLBACK',
                   path: `/assets/platformer-backdrop/${role}`,
+                  message: reason,
+                })),
+                [],
+                generationStarted,
+                'downgraded',
+              );
+            })
+          : Promise.resolve();
+
+      let hshooterBackdropArtStatus: GameMetaFile['hshooterBackdropArt'] =
+        spec.archetype === 'hshooter'
+          ? {
+              mode: 'procedural',
+              attempted: true,
+              reason: 'Generated H-scroll backgrounds did not complete',
+            }
+          : undefined;
+      const hshooterBackdropTask =
+        spec.archetype === 'hshooter'
+          ? keyArtTask.then(async (keyArt): Promise<void> => {
+              const generationStarted = Date.now();
+              const generated = new Set<GeneratedHShooterBackdrop>();
+              const colors = spec.palette.join(', ');
+              const sceneFor = (role: GeneratedHShooterBackdrop) => {
+                if (role === 'boss') {
+                  return {
+                    sceneName: 'Final flight arena',
+                    sceneBeat: spec.meta.tagline,
+                  };
+                }
+                const index = Number.parseInt(role.slice(-1), 10) - 1;
+                return {
+                  sceneName: spec.levels[index]?.name ?? `Flight stage ${index + 1}`,
+                  sceneBeat: spec.story.levelIntros[index] ?? spec.meta.tagline,
+                };
+              };
+
+              emit('building-assets', 'Painting four panoramic H-scroll backgrounds in parallel…');
+              await Promise.all(
+                GENERATED_HSHOOTER_BACKDROPS.map(async (role) => {
+                  const scene = sceneFor(role);
+                  const prompt = buildHShooterBackdropPrompt({
+                    gameTitle: spec.meta.title,
+                    tagline: spec.meta.tagline,
+                    role,
+                    ...scene,
+                    backdrop: spec.backdrop ?? 'the game-specific environment shown in the key art',
+                    colors,
+                  });
+                  try {
+                    await cachedGeneratedAsset({
+                      role: HSHOOTER_BACKDROP_ASSET_ROLES[role],
+                      promptVersion: HSHOOTER_BACKDROP_PROMPT_VERSION,
+                      prompt,
+                      label:
+                        role === 'boss'
+                          ? 'H-scroll boss arena background'
+                          : `${scene.sceneName} background`,
+                      reference: keyArt,
+                      size: HSHOOTER_BACKDROP_ASPECT_HINT,
+                      normalize: normalizeHShooterBackdrop,
+                    });
+                    generated.add(role);
+                  } catch (error) {
+                    if (
+                      abort.signal.aborted ||
+                      error instanceof GeneratedAssetStorageError ||
+                      (error instanceof PipelineError &&
+                        error.code !== 'image-invalid' &&
+                        !isOptionalGeneratedArtProviderFailure(error))
+                    ) {
+                      throw error;
+                    }
+                    validationFailure(`hshooter-backdrop-${role}`);
+                    emit(
+                      'building-assets',
+                      `${scene.sceneName} background was unavailable; keeping its procedural scene`,
+                    );
+                  }
+                }),
+              );
+
+              const generatedRoles = GENERATED_HSHOOTER_BACKDROPS.filter((role) =>
+                generated.has(role),
+              );
+              const missingRoles = GENERATED_HSHOOTER_BACKDROPS.filter(
+                (role) => !generated.has(role),
+              );
+              if (missingRoles.length === 0) {
+                hshooterBackdropArtStatus = {
+                  mode: 'generated',
+                  attempted: true,
+                  generatedRoles,
+                };
+                emit('building-assets', 'Finished the panoramic H-scroll backgrounds');
+                return;
+              }
+
+              const reason = `No valid generated background for ${missingRoles.join(', ')}`;
+              hshooterBackdropArtStatus = {
+                mode: generatedRoles.length ? 'partial' : 'procedural',
+                attempted: true,
+                ...(generatedRoles.length ? { generatedRoles } : {}),
+                reason,
+              };
+              recordEarlyRepairEvent(
+                'entities',
+                'hshooter-backdrop-art-fallback',
+                missingRoles.map((role) => ({
+                  code: 'HSHOOTER_BACKDROP_ART_FALLBACK',
+                  path: `/assets/hshooter-backdrop/${role}`,
                   message: reason,
                 })),
                 [],
@@ -4382,33 +4589,12 @@ export class GenerationRunner {
             })()
           : Promise.resolve();
 
-      let platformerPlayerArtStatus: GameMetaFile['platformerPlayerArt'] =
-        spec.archetype === 'platformer'
-          ? spec.platformerArtDensity !== 'detailed'
-            ? {
-                mode: 'procedural',
-                attempted: false,
-                reason: 'The game selected chunky source art',
-              }
-            : photoReference
-              ? {
-                  mode: 'procedural',
-                  attempted: true,
-                  reason: 'Generated platformer player art did not complete',
-                }
-              : {
-                  mode: 'procedural',
-                  attempted: false,
-                  reason: 'No player photo was supplied',
-                }
-          : undefined;
+      let platformerPlayerArtStatus: GameMetaFile['platformerPlayerArt'];
 
       const platformerPlayerTask =
-        photoReference &&
-        spec.archetype === 'platformer' &&
-        spec.platformerArtDensity === 'detailed'
-          ? (async (): Promise<void> => {
-              const generationStarted = Date.now();
+        spec.archetype === 'platformer'
+          ? keyArtTask.then(async (keyArt): Promise<void> => {
+              const playerReference = photoReference ?? keyArt;
               const colors = spec.palette
                 .filter((hex) => {
                   const r = Number.parseInt(hex.slice(1, 3), 16);
@@ -4426,8 +4612,9 @@ export class GenerationRunner {
                   },
                   heroConcept: canonicalHeroConcept,
                   colors,
+                  sourceKind: photoReference ? 'photo' : 'key-art',
                 });
-                const pipelineSha = imagePromptHash(pipelineFingerprint, photoReference);
+                const pipelineSha = imagePromptHash(pipelineFingerprint, playerReference);
                 const cached = Object.fromEntries(
                   GENERATED_PLATFORMER_POSES.map((pose) => [
                     pose,
@@ -4555,7 +4742,7 @@ export class GenerationRunner {
                             colors,
                             ...(retryGuidance ? { retryGuidance } : {}),
                           }),
-                          photoReference,
+                          playerReference,
                         );
                       }),
                     )
@@ -4570,7 +4757,7 @@ export class GenerationRunner {
                     ({ id }) => ({ id }),
                   );
                   const board = await buildPlatformerIdleJudgeBoard({
-                    source: photoReference,
+                    source: playerReference,
                     candidates: idleCandidates.map(({ id, reference: raw, png: processed }) => ({
                       id,
                       raw,
@@ -4579,6 +4766,7 @@ export class GenerationRunner {
                   });
                   const judgePrompt = buildPlatformerIdleJudgePrompt(descriptors, {
                     heroConcept: canonicalHeroConcept,
+                    sourceKind: photoReference ? 'photo' : 'key-art',
                   });
                   const mockDecision = {
                     sourceReview: { eyewear: 'absent', summary: 'Mock source identity.' },
@@ -4721,7 +4909,7 @@ export class GenerationRunner {
                   throw new Error('all Phase B run candidates failed local validation');
                 }
                 const pairBoard = await buildPlatformerPoseJudgeBoard({
-                  source: photoReference,
+                  source: playerReference,
                   idle: idle.png,
                   sideAnchor: sideAnchor.png,
                   candidates: runCandidates.map(({ id, kind, png: processed }) => ({
@@ -4816,12 +5004,7 @@ export class GenerationRunner {
                 );
                 platformerPlayerArtStatus = { mode: 'generated', attempted: true };
               } catch (error) {
-                if (
-                  abort.signal.aborted ||
-                  (error instanceof PipelineError && !isOptionalGeneratedArtProviderFailure(error))
-                ) {
-                  throw error;
-                }
+                if (abort.signal.aborted) throw error;
                 await Promise.all([
                   assetWorkspace.discard(Object.values(PLATFORMER_ASSET_ROLES)),
                   assetWorkspace.discardPrivate('platformerReference'),
@@ -4831,61 +5014,22 @@ export class GenerationRunner {
                   error instanceof Error
                     ? error.message.slice(0, 240)
                     : 'Generated platformer pose set failed validation';
-                platformerPlayerArtStatus = {
-                  mode: 'procedural',
-                  attempted: true,
-                  reason,
-                };
-                recordEarlyRepairEvent(
-                  'entities',
-                  'platformer-player-art-fallback',
-                  [
-                    {
-                      code: 'PLATFORMER_PLAYER_ART_FALLBACK',
-                      path: '/assets/platformer-player',
-                      message: reason,
-                    },
-                  ],
-                  [],
-                  generationStarted,
-                  'downgraded',
-                );
                 emit(
                   'building-assets',
-                  `Generated platformer player did not pass as a complete set; using the stable hero (${reason.slice(0, 120)})`,
+                  `Platformer player generation failed without a mechanically valid complete set (${reason.slice(0, 120)})`,
                 );
+                if (error instanceof PipelineError || error instanceof GeneratedAssetStorageError) {
+                  throw error;
+                }
+                throw new PipelineError('image-invalid', reason, 'building-assets');
               }
-            })()
+            })
           : Promise.resolve();
-
-      const deferHeadsUntilFullBodyResult =
-        !!photo &&
-        (spec.archetype === 'fighter' ||
-          spec.archetype === 'adventure' ||
-          (spec.archetype === 'platformer' && spec.platformerArtDensity === 'detailed'));
-      const fullBodyTask =
-        spec.archetype === 'fighter'
-          ? fighterTask
-          : spec.archetype === 'adventure'
-            ? adventurePlayerTask
-            : platformerPlayerTask;
-      const headsTask = deferHeadsUntilFullBodyResult
-        ? fullBodyTask.then(async () => {
-            if (
-              spec.archetype === 'platformer' &&
-              platformerPlayerArtStatus?.mode !== 'generated'
-            ) {
-              await generateHeads();
-            }
-            if (spec.archetype === 'adventure' && adventurePlayerArtStatus?.mode !== 'generated') {
-              await generateHeads();
-            }
-          })
-        : generateHeads();
 
       const finishingAssets = await Promise.allSettled([
         storyTask,
         platformerBackdropTask,
+        hshooterBackdropTask,
         adventureRoomPlateTask,
         adventureBossTask,
         platformerBossTask,
@@ -4897,8 +5041,7 @@ export class GenerationRunner {
         adventurePlayerTask,
         portraitTask,
         portraitDefeatTask,
-        headsTask,
-        hshooterCraftTask,
+        playerCraftTask,
       ]);
       const finishingFailure = finishingAssets.find(
         (result): result is PromiseRejectedResult => result.status === 'rejected',
@@ -4941,6 +5084,7 @@ export class GenerationRunner {
         ...(platformerBackdropArtStatus
           ? { platformerBackdropArt: platformerBackdropArtStatus }
           : {}),
+        ...(hshooterBackdropArtStatus ? { hshooterBackdropArt: hshooterBackdropArtStatus } : {}),
         ...(adventureRoomPlateArtStatus
           ? { adventureRoomPlateArt: adventureRoomPlateArtStatus }
           : {}),
@@ -4948,6 +5092,9 @@ export class GenerationRunner {
         ...(adventureBossArtStatus ? { adventureBossArt: adventureBossArtStatus } : {}),
         ...(hshooterPlayerCraftArtStatus
           ? { hshooterPlayerCraftArt: hshooterPlayerCraftArtStatus }
+          : {}),
+        ...(shooterPlayerCraftArtStatus
+          ? { shooterPlayerCraftArt: shooterPlayerCraftArtStatus }
           : {}),
       };
       writeFileSync(join(staging, 'meta.json'), JSON.stringify(meta, null, 2));
@@ -5171,7 +5318,10 @@ export class GenerationRunner {
         tagline: design.tagline,
         heroConcept: canonicalHeroConcept,
       },
-      ...(archetype === 'hshooter' && design.vehicleConcept
+      ...(archetype === 'adventure' && design.combatKit
+        ? { combatKit: structuredClone(design.combatKit) }
+        : {}),
+      ...((archetype === 'hshooter' || archetype === 'shooter') && design.vehicleConcept
         ? { playerCraft: { visualConcept: design.vehicleConcept } }
         : {}),
       ...(archetype === 'fighter' && design.fighterArtDirection
@@ -5205,6 +5355,7 @@ export class GenerationRunner {
             platformerArtDensity:
               design.platformerArtDensity ??
               (hasPhoto ? ('detailed' as const) : ('chunky' as const)),
+            movementProfile: design.movementProfile ?? ('balanced' as const),
           }
         : {}),
       ...(archetype === 'hshooter' ? { hshooterArtDensity: 'detailed' as const } : {}),

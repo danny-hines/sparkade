@@ -1,10 +1,12 @@
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 import {
+  HSHOOTER_CRAFT_REFERENCE_SIZE,
   HSHOOTER_CRAFT_SIZE,
   buildHShooterCraftPrompt,
   buildHShooterIdentityReference,
   processGeneratedHShooterCraft,
+  processGeneratedHShooterCraftReference,
 } from '../src/assets/hshooter-craft';
 
 async function greenScreenSubject(width: number, height: number): Promise<Buffer> {
@@ -40,7 +42,8 @@ describe('H-scroll player craft generation', () => {
   });
 
   it('keys and normalizes a broad craft while rejecting portrait-like silhouettes', async () => {
-    const processed = await processGeneratedHShooterCraft(await greenScreenSubject(184, 72));
+    const source = await greenScreenSubject(184, 72);
+    const processed = await processGeneratedHShooterCraft(source);
     expect(await sharp(processed.png).metadata()).toMatchObject({
       format: 'png',
       width: HSHOOTER_CRAFT_SIZE.width,
@@ -49,19 +52,26 @@ describe('H-scroll player craft generation', () => {
     expect(processed.metrics.outputBounds.width).toBeGreaterThan(
       processed.metrics.outputBounds.height,
     );
+    expect(
+      await sharp(await processGeneratedHShooterCraftReference(source)).metadata(),
+    ).toMatchObject({
+      format: 'png',
+      width: HSHOOTER_CRAFT_REFERENCE_SIZE.width,
+      height: HSHOOTER_CRAFT_REFERENCE_SIZE.height,
+    });
 
     await expect(processGeneratedHShooterCraft(await greenScreenSubject(52, 172))).rejects.toThrow(
       /broad side-view silhouette/,
     );
   });
 
-  it('packs the pilot or key art and exact gameplay craft into one reference image', async () => {
+  it('packs key art with the presentation-scale craft instead of the runtime sprite', async () => {
     const primary = await sharp({
       create: { width: 480, height: 270, channels: 4, background: '#203050' },
     })
       .png()
       .toBuffer();
-    const craft = (await processGeneratedHShooterCraft(await greenScreenSubject(184, 72))).png;
+    const craft = await processGeneratedHShooterCraftReference(await greenScreenSubject(184, 72));
     const board = await buildHShooterIdentityReference(primary, craft);
 
     expect(await sharp(board).metadata()).toMatchObject({

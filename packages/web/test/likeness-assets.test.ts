@@ -7,6 +7,7 @@ import {
   ADVENTURE_ROOM_PLATES_ASSET,
   FIGHTER_ARENA_ASSET,
   FIGHTER_ROSTER_ATLAS_ASSETS,
+  HSHOOTER_BACKDROP_ASSETS,
   HSHOOTER_PLAYER_CRAFT_ASSET,
   PLATFORMER_BACKDROP_ASSETS,
   PLATFORMER_ENEMY_ASSETS,
@@ -136,6 +137,34 @@ describe('loadLikenessAssets', () => {
     expect(requested).toEqual([
       `/api/games/hscroll-game/assets/${GENERATED_GAME_ASSET_FILES.hshooterPlayerCraft}`,
     ]);
+  });
+
+  it('loads each available generated H-scroll background independently', async () => {
+    const result = await loadLikenessAssets('hscroll-backdrop-game', {
+      head12: false,
+      head12Side: false,
+      head12Back: false,
+      head16: false,
+      head16Side: false,
+      head16Back: false,
+      portrait: false,
+      ...unavailableGeneratedAssets,
+      hshooterBackdropLevel1: true,
+      hshooterBackdropLevel3: true,
+      hshooterBackdropBoss: true,
+    });
+
+    expect(Object.keys(result?.hshooterBackdrops ?? {})).toEqual(['level1', 'level3', 'boss']);
+    expect(result?.hshooterBackdrops?.level1).not.toBeNull();
+    expect(result?.hshooterBackdrops?.level2).toBeUndefined();
+    expect(requested).toEqual(
+      HSHOOTER_BACKDROP_ASSETS.filter(
+        ([role]) => role === 'level1' || role === 'level3' || role === 'boss',
+      ).map(
+        ([, assetRole]) =>
+          `/api/games/hscroll-backdrop-game/assets/${GENERATED_GAME_ASSET_FILES[assetRole]}`,
+      ),
+    );
   });
 
   it('loads the complete generated fighter roster as five stable identity atlases', async () => {
@@ -354,7 +383,7 @@ describe('loadLikenessAssets', () => {
     ]);
   });
 
-  it('exposes Adventure player poses only after the complete directional set loads', async () => {
+  it('exposes Adventure player poses only after the complete movement/combat set loads', async () => {
     const availability = Object.fromEntries(
       ADVENTURE_PLAYER_POSE_ASSETS.map(([, role]) => [role, true]),
     );
@@ -373,7 +402,7 @@ describe('loadLikenessAssets', () => {
     }
   });
 
-  it('rejects the entire Adventure player set when one direction fails to load', async () => {
+  it('rejects the entire Adventure player set when one pose fails to load', async () => {
     const availability = Object.fromEntries(
       ADVENTURE_PLAYER_POSE_ASSETS.map(([, role]) => [role, true]),
     );
@@ -387,6 +416,6 @@ describe('loadLikenessAssets', () => {
     });
 
     expect(result?.adventurePlayerPoses).toBeNull();
-    expect(requested.filter((url) => url.includes('/assets/adventure-player-'))).toHaveLength(6);
+    expect(requested.filter((url) => url.includes('/assets/adventure-player-'))).toHaveLength(12);
   });
 });

@@ -167,6 +167,10 @@ describe('security scan', () => {
     };
 
     expect(designOutputDiagnostics(design)).toEqual([]);
+    expect(designOutputDiagnostics({ ...design, movementProfile: 'floaty' })).toEqual([]);
+    expect(
+      designOutputDiagnostics({ ...design, movementProfile: 'slippery' as 'balanced' }),
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'SCHEMA' })]));
     const missingCraft = designOutputDiagnostics({ ...design, archetype: 'hshooter' });
     expect(missingCraft).toEqual(
       expect.arrayContaining([
@@ -180,6 +184,29 @@ describe('security scan', () => {
         archetype: 'hshooter',
         vehicleConcept:
           'A cobalt trench skiff with swept fins, a dark canopy, and twin amber drives',
+      }),
+    ).toEqual([]);
+    const missingCombatKit = designOutputDiagnostics({ ...design, archetype: 'adventure' });
+    expect(missingCombatKit).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'SCHEMA', path: '/combatKit' })]),
+    );
+    expect(
+      designOutputDiagnostics({
+        ...design,
+        archetype: 'adventure',
+        combatKit: {
+          primary: {
+            profile: 'close',
+            name: 'Knuckle Wraps',
+            visualConcept: 'red canvas hand wraps with brass signal studs',
+            unarmed: true,
+          },
+          secondary: {
+            behavior: 'shot',
+            name: 'Signal Flare',
+            visualConcept: 'a stubby orange marine flare launcher',
+          },
+        },
       }),
     ).toEqual([]);
     expect(designOutputDiagnostics({ ...design, archetype: 'fighter' })).toEqual(
@@ -286,10 +313,30 @@ describe('platformer geometry schema migration', () => {
     const invalid = { ...current, platformerArtDensity: 'smooth' };
     expect(validateGameSchema('platformer', invalid)).not.toEqual([]);
   });
+
+  it('accepts bounded movement profiles while old saves remain valid', () => {
+    const current = golden('platformer') as PlatformerSpec;
+    for (const movementProfile of [
+      'balanced',
+      'precision',
+      'momentum',
+      'floaty',
+      'heavy',
+    ] as const) {
+      expect(validateGameSchema('platformer', { ...current, movementProfile })).toEqual([]);
+    }
+
+    const legacy = structuredClone(current);
+    delete legacy.movementProfile;
+    expect(validateGameSchema('platformer', legacy)).toEqual([]);
+
+    const invalid = { ...current, movementProfile: 'slippery' };
+    expect(validateGameSchema('platformer', invalid)).not.toEqual([]);
+  });
 });
 
 describe('H-scroll presentation schema migration', () => {
-  it('opts current games into detailed terrain while legacy saves remain valid', () => {
+  it('opts current games into detailed terrain and requires generated craft identity', () => {
     const current = golden('hshooter') as HShooterSpec;
     expect(current.hshooterArtDensity).toBe('detailed');
     expect(validateGameSchema('hshooter', current)).toEqual([]);
@@ -300,8 +347,9 @@ describe('H-scroll presentation schema migration', () => {
 
     const legacy = structuredClone(current);
     delete legacy.hshooterArtDensity;
-    delete legacy.playerCraft;
-    expect(validateGameSchema('hshooter', legacy)).toEqual([]);
+    const missingCraft = structuredClone(current) as Partial<HShooterSpec>;
+    delete missingCraft.playerCraft;
+    expect(validateGameSchema('hshooter', missingCraft)).not.toEqual([]);
 
     const invalid = { ...current, hshooterArtDensity: 'smooth' };
     expect(validateGameSchema('hshooter', invalid)).not.toEqual([]);

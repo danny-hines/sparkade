@@ -44,12 +44,27 @@ async function footAnchoredPose(width: number, height = 116): Promise<Buffer> {
     .toBuffer();
 }
 
+const combatKit = {
+  primary: {
+    profile: 'sweep' as const,
+    name: 'Signal Wrench',
+    visualConcept: 'a compact brass wrench with a teal insulated grip',
+    unarmed: false,
+  },
+  secondary: {
+    behavior: 'shot' as const,
+    name: 'Flare Caster',
+    visualConcept: 'a short orange rescue flare launcher',
+  },
+};
+
 describe('generated Adventure player prompts', () => {
   it('separates neck-up photo identity from canonical game wardrobe', () => {
     const prompt = buildAdventurePlayerIdentityPrompt('I1', {
       hasPhoto: true,
       heroConcept: 'an observatory diver in a brass-trimmed navy pressure coat',
       colors: '#14253d, #bf8b45, #e8ddbb',
+      combatKit,
     });
 
     expect(prompt).toContain(
@@ -65,31 +80,49 @@ describe('generated Adventure player prompts', () => {
     expect(prompt).toContain('strongly readable outer silhouette');
     expect(prompt).toContain('similarly colored floor');
     expect(prompt).toContain('flat solid #00ff00');
+    expect(prompt).toContain('Signal Wrench');
+    expect(prompt).toContain('never replace it with a generic sword');
   });
 
   it('derives every other direction from the exact selected gameplay hero', () => {
     const up = buildAdventurePlayerPosePrompt('upIdle');
     const sideWalk = buildAdventurePlayerPosePrompt('sideWalk');
+    const melee = buildAdventurePlayerPosePrompt('sideMelee', { combatKit });
+    const secondary = buildAdventurePlayerPosePrompt('downSecondary', { combatKit });
 
     expect(up).toContain(
-      'immutable identity, wardrobe, proportion, pixel-technique, and scale truth',
+      'immutable identity, wardrobe, primary-equipment, proportion, pixel-technique, and scale truth',
     );
     expect(up).toContain('no face painted onto the back of the head');
     expect(sideWalk).toContain('RIGHT-facing top-down three-quarter walking contact frame');
-    expect(sideWalk).toContain('Change only the requested facing and walking pose');
+    expect(sideWalk).toContain('Change only the requested facing and action state');
+    expect(melee).toContain('Signal Wrench');
+    expect(melee).toContain('contact moment');
+    expect(secondary).toContain('Flare Caster');
+    expect(secondary).toContain('launched projectile');
   });
 
   it('requires the identity judge to preserve hats, glasses, hair, and adult likeness', () => {
     const judge = buildAdventurePlayerIdentityJudgePrompt(
       [{ id: 'I1' }, { id: 'I2' }, { id: 'I3' }],
       'a forest cartographer in a moss-green travel coat',
+      combatKit,
     );
 
-    expect(judge.system).toContain('SOURCE PHOTO is the only identity truth from the neck up');
+    expect(judge.system).toContain('SOURCE PHOTO is the canonical identity truth');
     expect(judge.system).toContain('Inventing or removing glasses, hats, hair');
     expect(judge.system).toContain('childlike');
     expect(judge.system).toContain('light, dark, and noisy floor art');
     expect(judge.user).toContain('CANONICAL GAME-WORLD WARDROBE');
+    expect(
+      buildAdventurePlayerIdentityJudgePrompt(
+        [{ id: 'I1' }],
+        'a forest cartographer in a moss-green travel coat',
+        combatKit,
+        'key-art',
+      ).system,
+    ).toContain('SOURCE KEY ART is the canonical identity truth');
+    expect(judge.user).toContain('IMMUTABLE PRIMARY EQUIPMENT');
   });
 });
 
@@ -119,7 +152,7 @@ describe('generated Adventure player processing', () => {
     expect(Array.from(bottom).some((value, index) => index % 4 === 3 && value > 0)).toBe(true);
   });
 
-  it('accepts a complete scale-consistent six-pose set', async () => {
+  it('accepts a complete scale-consistent movement-and-combat pose set', async () => {
     const entries = await Promise.all(
       GENERATED_ADVENTURE_PLAYER_POSES.map(async (pose) => {
         const prompt =
@@ -138,7 +171,7 @@ describe('generated Adventure player processing', () => {
   });
 
   it('allows direction- and stride-specific silhouette widths at one character height', async () => {
-    const widths = [78, 92, 72, 84, 38, 76] as const;
+    const widths = [78, 92, 72, 84, 38, 76, 94, 90, 100, 88, 86, 96] as const;
     const set = Object.fromEntries(
       await Promise.all(
         GENERATED_ADVENTURE_PLAYER_POSES.map(async (pose, index) => [

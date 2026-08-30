@@ -485,6 +485,7 @@ export interface NormalizationFix {
     | 'PLATFORMER_ROUTE_FALLBACK'
     | 'ADVENTURE_COORD'
     | 'ADVENTURE_CONTENT'
+    | 'ADVENTURE_COMBAT_KIT'
     | 'SHOOTER_TIMING';
   path: string;
   message: string;
@@ -1251,6 +1252,16 @@ function normalizeAdventureContent(out: GameSpec, fixes: NormalizationFix[]): vo
   if (out.archetype !== 'adventure') return;
   const dungeon = out.levels[0];
   if (!dungeon) return;
+  if (dungeon.items.secondary !== out.combatKit.secondary.behavior) {
+    const authored = dungeon.items.secondary;
+    dungeon.items.secondary = out.combatKit.secondary.behavior;
+    addFix(
+      fixes,
+      'ADVENTURE_COMBAT_KIT',
+      '/levels/0/items/secondary',
+      `matched dungeon secondary behavior "${authored}" to combat kit "${dungeon.items.secondary}"`,
+    );
+  }
   const enemyTypes = new Set(['walker', 'flyer', 'shooter', 'chaser', 'bruiser']);
   dungeon.rooms.forEach((room, ri) => {
     room.tiles = normalizeGrid(

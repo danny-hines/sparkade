@@ -325,7 +325,7 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
     shooter:
       "Also reskinnable via assign: projectile (your ship's shot), enemy_shot, pod (boss side-turrets), pickup_spread, pickup_rapid, pickup_shield, pickup_bomb.",
     adventure:
-      'Also reskinnable via assign: proj_arrow, proj_wave (sword slash), item_boomerang, proj_bomb, enemy_shot.',
+      'Also reskinnable via assign: proj_arrow (shot behavior), proj_wave (primary impact), item_boomerang (returning behavior), proj_bomb (blast behavior), enemy_shot.',
     hshooter:
       "Also reskinnable via assign: projectile (your ship's shot), enemy_shot, pod (boss side-turrets), pickup_spread, pickup_rapid, pickup_shield, pickup_bomb.",
     fighter:
@@ -391,7 +391,7 @@ export function buildEntitiesPrompt(
     shooter:
       'Bullet patterns: fan, spiral, walls (rows with a gap), aimed. pods are destructible side turrets. bulletSpeed multiplies base speed.',
     adventure:
-      'Patterns: charge (telegraphed dash), teleport (vanish + radial burst), spiral (rotating bullets), summon (minions). tempo 0.5–2 scales speed.',
+      "Patterns: charge (telegraphed dash), teleport (vanish + radial burst), spiral (rotating bullets), summon (minions). tempo 0.5–2 scales speed. The hero always has the design document's named B-button primary melee equipment and must collect its named Y-button secondary item before this fight. Keep HP between 18 and 32 so the finale rewards pattern mastery without becoming an endurance test.",
     hshooter:
       'Bullet patterns: fan, spiral, walls (a vertical bullet column with a gap), aimed. The boss flies in from the right of an open arena. pods are destructible turrets. bulletSpeed multiplies base speed.',
     fighter:

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generatedBackdropSourceRect } from '../src/backdrops';
+import { generatedBackdropProgressSourceRect, generatedBackdropSourceRect } from '../src/backdrops';
 
 describe('generated backdrop framing', () => {
   it('starts from the center of an extra-wide plate and pans without wrapping', () => {
@@ -34,5 +34,13 @@ describe('generated backdrop framing', () => {
       sw: 800,
       sh: 469,
     });
+  });
+
+  it('maps authored stage progress across the complete plate without wrapping', () => {
+    expect(generatedBackdropProgressSourceRect(1536, 600, 480, 270, 0).sx).toBe(0);
+    expect(generatedBackdropProgressSourceRect(1536, 600, 480, 270, 0.5).sx).toBe(235);
+    expect(generatedBackdropProgressSourceRect(1536, 600, 480, 270, 1).sx).toBe(469);
+    expect(generatedBackdropProgressSourceRect(1536, 600, 480, 270, 50).sx).toBe(469);
+    expect(generatedBackdropProgressSourceRect(1536, 600, 480, 270, -2).sx).toBe(0);
   });
 });

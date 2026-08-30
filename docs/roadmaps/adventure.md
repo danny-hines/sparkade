@@ -6,9 +6,10 @@ presentation systems while preserving the room-scale navigation, directional com
 spatial readability that make an Adventure game distinct.
 
 Existing generated games are test content rather than a compatibility contract. New Adventure
-systems should replace the old path directly instead of accumulating opt-in markers and legacy
-rendering branches. Stable library fallbacks still matter when an image call is rejected or fails;
-that is generation resilience, not saved-game compatibility.
+systems replace the old path directly instead of accumulating opt-in markers and legacy rendering
+branches. The player is now generated-only: Spark ranks locally valid candidates and the pipeline
+publishes the best complete set even when it misses the ideal semantic bar. If no mechanically valid
+complete set exists, the generation job fails instead of substituting a library hero.
 
 The archetype already has a strong structural base: a connected 8–14 room dungeon, keys and locked
 gates, switches, pushable blocks, three secondary items, NPC dialog, five enemy behaviors, a
@@ -78,12 +79,13 @@ Prompt study: [Drowned Observatory room-surface atlas](assets/adventure-room-pla
 
 ## Slice 3: generated player identity and directions
 
-Status: implemented. New Adventure games now generate one atomic six-pose hero set—down idle/walk,
-up idle/walk, and right-facing side idle/walk, mirrored for left at runtime. After selecting the
-strongest of three identity foundations, the pipeline makes two competing 3×2 pose sheets in
-parallel and uses a multimodal Spark review to choose the strongest coherent combination. The
-high-density art is drawn larger than the legacy hero while retaining the proven compact collider,
-sword hitbox, item logic, doorway clearance, and ground-contact depth behavior.
+Status: implemented. New Adventure games now generate one atomic twelve-pose hero set: down/up/side
+idle and walk, plus down/up/side primary-melee contact and secondary-item release poses; side poses
+mirror for left at runtime. After selecting the strongest of three identity foundations, the
+pipeline makes one locomotion and one combat 3×2 sheet in parallel and uses a multimodal Spark
+review to approve the identity, wardrobe, equipment, directions, actions, and complete combination.
+The high-density art is drawn larger than the legacy hero while retaining the compact collider,
+engine-owned combat profiles, item logic, doorway clearance, and ground-contact depth behavior.
 
 While moving, runtime presentation alternates each direction's idle and contact poses at six frame
 changes per second, giving the generated set a readable two-frame walk cycle without another image
@@ -101,19 +103,20 @@ and [fixed 3×2 pose-sheet contract](assets/adventure-player-sheet-study.png).
 - Generate three identity-foundation candidates and let the existing multimodal Spark review select
   the strongest photo match. Reject candidates that remove or invent glasses, hats, hair, facial
   hair, or other head accessories, change apparent age, or copy the source-photo wardrobe.
-- Seed every sheet cell with the selected gameplay foundation, then request the fixed order
-  down-idle, down-walk, up-idle, up-walk, side-idle, and side-walk. Reuse the Fighter pipeline's
-  component-aware 3×2 segmentation so art that slightly crosses a nominal cell edge is assigned to
-  the right pose instead of being clipped.
-- Review the ten downstream pose cells as one identity-consistent set. Spark chooses the best cell
-  per pose while checking rear views, idle/walk separation, empty hands, wardrobe, accessories,
-  scale, ground contact, and pixel technique. If both sheets miss a pose, or the review identifies
-  a weak pose, generate only that isolated pose and review the repaired set again.
+- Seed every sheet cell with the selected gameplay foundation. Use the first fixed 3×2 sheet for
+  down/up/side idle and walk states, and the second for down/up/side primary-melee contact and
+  secondary-item release states. Reuse the Fighter pipeline's component-aware segmentation so art
+  that slightly crosses a nominal cell edge is assigned to the right pose instead of being clipped.
+- Review the twelve published poses as one identity- and equipment-consistent set. Spark chooses the
+  best cell per pose while checking rear views, locomotion/action separation, exact primary and
+  secondary equipment, wardrobe, accessories, scale, ground contact, and pixel technique. If a
+  sheet misses a pose or the review identifies a weak one, generate only that isolated pose and
+  review the repaired set again.
 - Feed a composite reference containing key art plus the exact selected gameplay hero into all four
   story-scene generations. Story cards therefore inherit the same person and game-aligned outfit
   that gameplay uses, while the photo-conditioned card portraits continue to preserve head identity
   and show the same canonical collar and shoulders.
-- Publish all six stable filenames together and activate them only after the entire set loads. The
+- Publish all twelve stable filenames together and activate them only after the entire set loads. The
   normal player path now uses five image calls—three identity candidates plus two pose sheets—instead
   of eight. Including all other current Adventure art and the one-call boss board, the expected
   total is 12 images without a player photo and 14 with one, down from the former unbatched path.
@@ -122,9 +125,10 @@ and [fixed 3×2 pose-sheet contract](assets/adventure-player-sheet-study.png).
   wider 34%-opacity hard-edged contact shadow under the player. Author and review the source poses
   over mixed light, dark, saturated, and noisy floor samples so the renderer reinforces an already
   readable silhouette rather than rescuing an unusable one.
-- Keep the legacy directional-head hero as an atomic emergency fallback while sheet reliability is
-  measured. The intended end state is to remove that branch once malformed-sheet recovery and
-  semantic review have proven reliable enough that generation failures are handled without it.
+- Treat Spark's acceptance threshold as quality telemetry rather than permission to replace generated
+  art with a library body. After bounded targeted recovery, publish the strongest locally valid pose
+  combination. Fail the job only when a pose is missing or the complete set fails mechanical image
+  validation. New generations never produce directional likeness-head fallback assets.
 
 ## Generated finale boss
 
@@ -187,6 +191,17 @@ separation.
   the primary environment layer inside the playable frame.
 
 ## Combat, puzzles, and encounter quality
+
+Status: the first two playability slices are implemented. The design pass now authors a required
+story-specific combat kit instead of assuming fantasy gear: the always-available B attack maps to
+one of three bounded engine profiles (`close`, `sweep`, or `reach`), while the collectible Y item
+maps to `shot`, `returning`, or `blast`. Names and visual concepts carry the premise—wrench, whip,
+fists, blaster, dynamite, and so on—while behavior and balance remain engine-owned. Opening, pickup,
+gate, and finale guidance use those authored names. The boss gate requires the secondary item,
+generation and lint prove it is reachable before every boss-room entrance, and the finale uses a
+forgiving damage target and shorter HP range. The complete generated player set now visibly carries
+the primary during locomotion and switches to dedicated primary-contact or secondary-release frames
+when the corresponding button is pressed, without increasing the normal two-sheet image-call count.
 
 - Add explicit line-of-sight and projectile-clearance checks for shooter placement.
 - Validate free space for boss charge lanes, teleport destinations, summon points, and the player's

@@ -29,6 +29,7 @@ function acceptedDecision(): AdventurePlayerSetJudgeDecision {
         costume: 5,
         orientation: 5,
         motion: 5,
+        equipment: 5,
         technical: 5,
       },
       fatalIssues: [],
@@ -46,6 +47,7 @@ function acceptedDecision(): AdventurePlayerSetJudgeDecision {
       costumeConsistency: 5,
       directionReadability: 5,
       motionReadability: 5,
+      equipmentConsistency: 5,
       scaleConsistency: 5,
       fatalIssues: [],
       summary: 'Coherent set.',
@@ -56,14 +58,29 @@ function acceptedDecision(): AdventurePlayerSetJudgeDecision {
 
 describe('Adventure player set judge', () => {
   it('defines identity, rear-view, accessory, and motion requirements', () => {
-    const prompt = buildAdventurePlayerSetJudgePrompt(candidates, 'a brass-trimmed navy coat');
+    const prompt = buildAdventurePlayerSetJudgePrompt(candidates, 'a brass-trimmed navy coat', {
+      primary: {
+        profile: 'reach',
+        name: 'Arc Lash',
+        visualConcept: 'a coiled violet energy whip with a brass handle',
+        unarmed: false,
+      },
+      secondary: {
+        behavior: 'blast',
+        name: 'Pulse Charge',
+        visualConcept: 'a palm-sized cyan magnetic charge',
+      },
+    });
     const schema = buildAdventurePlayerSetJudgeSchema(candidates);
 
     expect(prompt.system).toContain('SELECTED DOWN-IDLE ANCHOR is immutable truth');
     expect(prompt.system).toContain('Inventing, removing, or replacing any of these is fatal');
     expect(prompt.system).toContain('absolutely no face on the back of the head');
     expect(prompt.system).toContain('Idle and walk must differ visibly');
+    expect(prompt.system).toContain('combat-kit contract is immutable');
     expect(prompt.user).toContain('CANONICAL GAME-WORLD WARDROBE');
+    expect(prompt.user).toContain('Arc Lash');
+    expect(prompt.user).toContain('Pulse Charge');
     expect(schema).toMatchObject({ type: 'object', additionalProperties: false });
   });
 

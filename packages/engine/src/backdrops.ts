@@ -27,6 +27,12 @@ export interface GeneratedBackdropSourceRect {
   sh: number;
 }
 
+export interface GeneratedBackdropOptions {
+  /** When present, travel from the plate's left crop to its right crop over
+   * this world distance instead of using the platformer's centered drift. */
+  panAcrossDistance?: number;
+}
+
 /** Select a viewport-shaped crop from an extra-wide generated plate. Starting
  * near the plate center keeps the strongest composition on screen, while a
  * small camera-linked drift reveals more scenery without ever exposing a seam. */
@@ -59,6 +65,27 @@ export function generatedBackdropSourceRect(
   };
 }
 
+/** Select the complete left-to-right panorama travel at a normalized stage
+ * progress. Clamping guarantees a long or delayed stage never exposes a seam. */
+export function generatedBackdropProgressSourceRect(
+  imageWidth: number,
+  imageHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  progress: number,
+): GeneratedBackdropSourceRect {
+  const base = generatedBackdropSourceRect(
+    imageWidth,
+    imageHeight,
+    viewportWidth,
+    viewportHeight,
+    0,
+  );
+  const maxX = Math.max(0, Math.max(1, imageWidth) - base.sw);
+  const normalized = Math.max(0, Math.min(1, Number.isFinite(progress) ? progress : 0));
+  return { ...base, sx: Math.round(maxX * normalized) };
+}
+
 function imageDimensions(image: CanvasImageSource): { width: number; height: number } {
   if ('naturalWidth' in image) {
     const htmlImage = image as HTMLImageElement;
@@ -79,17 +106,28 @@ export function makeGeneratedBackdrop(
   image: CanvasImageSource,
   viewportWidth = INTERNAL_WIDTH,
   viewportHeight = INTERNAL_HEIGHT,
+  options: GeneratedBackdropOptions = {},
 ): Backdrop {
   const dimensions = imageDimensions(image);
   return {
     draw(ctx: CanvasRenderingContext2D, scrollX: number) {
-      const source = generatedBackdropSourceRect(
-        dimensions.width,
-        dimensions.height,
-        viewportWidth,
-        viewportHeight,
-        scrollX,
-      );
+      const panDistance = options.panAcrossDistance;
+      const source =
+        panDistance !== undefined && Number.isFinite(panDistance) && panDistance > 0
+          ? generatedBackdropProgressSourceRect(
+              dimensions.width,
+              dimensions.height,
+              viewportWidth,
+              viewportHeight,
+              scrollX / panDistance,
+            )
+          : generatedBackdropSourceRect(
+              dimensions.width,
+              dimensions.height,
+              viewportWidth,
+              viewportHeight,
+              scrollX,
+            );
       ctx.drawImage(
         image,
         source.sx,

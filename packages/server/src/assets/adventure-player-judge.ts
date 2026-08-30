@@ -1,10 +1,11 @@
 import sharp from 'sharp';
+import type { AdventureCombatKit } from '@sparkade/shared';
 import {
   GENERATED_ADVENTURE_PLAYER_POSES,
   type GeneratedAdventurePlayerPose,
 } from './adventure-player';
 
-export const ADVENTURE_PLAYER_SET_JUDGE_PROMPT_VERSION = 'adventure-player-set-judge-v2';
+export const ADVENTURE_PLAYER_SET_JUDGE_PROMPT_VERSION = 'adventure-player-set-judge-v3';
 
 export interface AdventurePlayerCandidateDescriptor {
   id: string;
@@ -22,6 +23,7 @@ export interface AdventurePlayerCandidateReview extends AdventurePlayerCandidate
     costume: number;
     orientation: number;
     motion: number;
+    equipment: number;
     technical: number;
   };
   fatalIssues: string[];
@@ -42,6 +44,7 @@ export interface AdventurePlayerSetJudgeDecision {
     costumeConsistency: number;
     directionReadability: number;
     motionReadability: number;
+    equipmentConsistency: number;
     scaleConsistency: number;
     fatalIssues: string[];
     summary: string;
@@ -81,6 +84,7 @@ export function buildAdventurePlayerSetJudgeSchema(
                 'costume',
                 'orientation',
                 'motion',
+                'equipment',
                 'technical',
               ],
               properties: {
@@ -89,6 +93,7 @@ export function buildAdventurePlayerSetJudgeSchema(
                 costume: scoreSchema,
                 orientation: scoreSchema,
                 motion: scoreSchema,
+                equipment: scoreSchema,
                 technical: scoreSchema,
               },
             },
@@ -122,6 +127,7 @@ export function buildAdventurePlayerSetJudgeSchema(
           'costumeConsistency',
           'directionReadability',
           'motionReadability',
+          'equipmentConsistency',
           'scaleConsistency',
           'fatalIssues',
           'summary',
@@ -133,6 +139,7 @@ export function buildAdventurePlayerSetJudgeSchema(
           costumeConsistency: scoreSchema,
           directionReadability: scoreSchema,
           motionReadability: scoreSchema,
+          equipmentConsistency: scoreSchema,
           scaleConsistency: scoreSchema,
           fatalIssues: { type: 'array', items: { type: 'string' }, maxItems: 8 },
           summary: { type: 'string' },
@@ -158,16 +165,26 @@ export function buildAdventurePlayerSetJudgeSchema(
 export function buildAdventurePlayerSetJudgePrompt(
   candidates: readonly AdventurePlayerCandidateDescriptor[],
   heroConcept?: string,
+  combatKit?: AdventureCombatKit,
 ): { system: string; user: string } {
   const list = candidates.map(({ id, pose }) => `${id}=${pose}`).join(', ');
   const wardrobe = heroConcept?.replace(/\s+/g, ' ').trim().slice(0, 500);
+  const equipment = combatKit
+    ? [
+        combatKit.primary.unarmed
+          ? `PRIMARY ${combatKit.primary.name}: ${combatKit.primary.visualConcept}; ${combatKit.primary.profile}; explicitly unarmed.`
+          : `PRIMARY ${combatKit.primary.name}: ${combatKit.primary.visualConcept}; ${combatKit.primary.profile}; it must be visible in movement and melee poses and must never become a generic sword.`,
+        `SECONDARY ${combatKit.secondary.name}: ${combatKit.secondary.visualConcept}; ${combatKit.secondary.behavior}; it appears only in secondary-use poses, without a launched effect.`,
+      ].join(' ')
+    : '';
   return {
     system: [
       'You are the exacting identity, direction, and animation judge for a premium SNES-style top-down Adventure game.',
       'The SELECTED DOWN-IDLE ANCHOR is immutable truth. Compare every labeled candidate directly against it and judge only visible evidence.',
       'Identity includes apparent adult age, face and head shape, skin tone, hairline, hair texture and style, facial hair, glasses, headwear, and every visible head accessory. Inventing, removing, or replacing any of these is fatal. Costume includes every garment, material, color, collar, belt, pouch, body-worn accessory, trouser, and shoe.',
       'Direction must be unmistakable. Down poses face the bottom edge in the same top-down three-quarter camera. Up poses are true rear views with correct rear hair, headwear, eyewear arms, collar, and costume back—and absolutely no face on the back of the head. Side poses face right with the same readable profile and are mirrored by the engine for left.',
-      'Idle and walk must differ visibly. Walk poses need a clear contact stride and natural opposite arm swing while preserving the same camera, identity, costume, proportions, scale, and foot ground line. Hands must be empty.',
+      'Idle and walk must differ visibly. Walk poses need a clear contact stride while preserving camera, identity, costume, equipment, proportions, scale, and foot ground line. Melee poses must be unmistakable contact frames. Secondary poses must be unmistakable release/use frames and must not include a launched projectile, trail, or explosion.',
+      'The combat-kit contract is immutable. Movement poses consistently show the exact primary equipment unless it is explicitly unarmed; melee poses show that exact primary at contact; secondary-use poses show the exact secondary item. Missing equipment, generic substitutions, equipment that changes construction between directions, or showing both items incorrectly are fatal.',
       'Technical quality includes gameplay visibility. Use the mixed light, dark, saturated, and noisy floor-preview fields on the board to verify that the complete head-to-foot silhouette, major limb separations, and ground contact remain immediately legible. Reject weak or broken contour separation.',
       'Reject crops, extra or merged limbs, wrong facing, props, weapons, duplicate idle/walk silhouettes, inconsistent identity or wardrobe, major scale drift, green spill, blur, text, scenery, or severe pixel-technique changes.',
       'Review every candidate, select one candidate for every required pose, then judge the selected combination as one set. accepted=true requires no fatal issue and every set score at least 4.',
@@ -176,6 +193,7 @@ export function buildAdventurePlayerSetJudgePrompt(
     user: [
       `Candidate labels: ${list}. Required poses: ${GENERATED_ADVENTURE_PLAYER_POSES.join(', ')}. Select the most identity-consistent complete combination.`,
       wardrobe ? `CANONICAL GAME-WORLD WARDROBE: ${wardrobe}` : '',
+      equipment ? `IMMUTABLE COMBAT KIT: ${equipment}` : '',
     ]
       .filter(Boolean)
       .join('\n'),
@@ -232,6 +250,7 @@ export function normalizeAdventurePlayerSetJudgeDecision(
         costume: score(scores.costume),
         orientation: score(scores.orientation),
         motion: score(scores.motion),
+        equipment: score(scores.equipment),
         technical: score(scores.technical),
       },
       fatalIssues: strings(review.fatalIssues),
@@ -249,6 +268,7 @@ export function normalizeAdventurePlayerSetJudgeDecision(
           costume: 0,
           orientation: 0,
           motion: 0,
+          equipment: 0,
           technical: 0,
         },
         fatalIssues: ['Judge omitted this candidate'],
@@ -278,6 +298,7 @@ export function normalizeAdventurePlayerSetJudgeDecision(
     costumeConsistency: score(set.costumeConsistency),
     directionReadability: score(set.directionReadability),
     motionReadability: score(set.motionReadability),
+    equipmentConsistency: score(set.equipmentConsistency),
     scaleConsistency: score(set.scaleConsistency),
     fatalIssues: strings(set.fatalIssues),
     summary: text(set.summary),
@@ -292,6 +313,7 @@ export function normalizeAdventurePlayerSetJudgeDecision(
       setReview.costumeConsistency,
       setReview.directionReadability,
       setReview.motionReadability,
+      setReview.equipmentConsistency,
       setReview.scaleConsistency,
     ].every((value) => value >= 4);
 
@@ -322,6 +344,7 @@ export function bestAdventurePlayerCandidateIds(
           review.scores.costume * 4 +
           review.scores.orientation * 4 +
           review.scores.motion * 3 +
+          review.scores.equipment * 5 +
           review.scores.technical * 2 -
           review.fatalIssues.length * 20;
         if (!best || total > best.score) best = { id: review.id, score: total };
@@ -392,7 +415,7 @@ export async function buildAdventurePlayerSetJudgeBoard(input: {
       input: svg(
         width - 60,
         75,
-        '<text x="0" y="32" fill="#f5f7ff" font-family="monospace" font-size="28" font-weight="bold">ADVENTURE HERO · COMPLETE DIRECTION REVIEW</text><text x="0" y="64" fill="#aab3d5" font-family="monospace" font-size="17">Select one identity-consistent candidate for every direction and motion state</text>',
+        '<text x="0" y="32" fill="#f5f7ff" font-family="monospace" font-size="28" font-weight="bold">ADVENTURE HERO · MOVEMENT + COMBAT REVIEW</text><text x="0" y="64" fill="#aab3d5" font-family="monospace" font-size="17">Select one identity- and equipment-consistent candidate for every state</text>',
       ),
       left: 30,
       top: 20,
@@ -403,7 +426,7 @@ export async function buildAdventurePlayerSetJudgeBoard(input: {
       input: svg(
         900,
         170,
-        '<text x="0" y="28" fill="#ffd75e" font-family="monospace" font-size="21" font-weight="bold">NON-NEGOTIABLE SET CHECKS</text><text x="0" y="68" fill="#c4cae8" font-family="monospace" font-size="17"><tspan x="0" dy="0">• Same adult face, hair, glasses/headwear, wardrobe, proportions and pixel technique</tspan><tspan x="0" dy="32">• Down, true rear-up and right-side views must read instantly; no rear face</tspan><tspan x="0" dy="32">• Idle/walk differ; same scale/ground line; clean contour over every preview field</tspan></text>',
+        '<text x="0" y="28" fill="#ffd75e" font-family="monospace" font-size="21" font-weight="bold">NON-NEGOTIABLE SET CHECKS</text><text x="0" y="68" fill="#c4cae8" font-family="monospace" font-size="17"><tspan x="0" dy="0">• Same adult face, accessories, wardrobe, proportions and pixel technique</tspan><tspan x="0" dy="32">• Down, true rear-up and right-side views read instantly; no rear face</tspan><tspan x="0" dy="32">• Exact primary/secondary gear; readable movement, contact and release frames</tspan></text>',
       ),
       left: 325,
       top: 112,

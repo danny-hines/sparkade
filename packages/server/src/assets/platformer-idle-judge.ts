@@ -166,14 +166,17 @@ export function buildPlatformerIdleJudgeSchema(
 
 export function buildPlatformerIdleJudgePrompt(
   candidates: readonly PlatformerIdleCandidateDescriptor[],
-  options: Pick<PlatformerPosePromptOptions, 'heroConcept'> = {},
+  options: Pick<PlatformerPosePromptOptions, 'heroConcept'> & {
+    sourceKind?: 'photo' | 'key-art';
+  } = {},
 ): { system: string; user: string } {
   const ids = candidates.map(({ id }) => id).join(', ');
   const heroConcept = options.heroConcept?.replace(/\s+/g, ' ').trim().slice(0, 500);
+  const sourceName = options.sourceKind === 'key-art' ? 'SOURCE KEY ART' : 'SOURCE PHOTO';
   return {
     system: [
       'You are the exacting identity art director for a premium SNES-style platform game.',
-      "Inspect the attached front-idle identity-foundation review board. The SOURCE PHOTO is the only identity truth from the neck up; its clothing below the neck is not identity. Judge every candidate's head independently from that source and its costume against the canonical game-world wardrobe supplied in the user message. Do not let one generated candidate redefine the person or outfit for another.",
+      `Inspect the attached front-idle identity-foundation review board. The ${sourceName} is the canonical identity truth. Judge every candidate independently from that source and its costume against the canonical game-world wardrobe supplied in the user message. Do not let one generated candidate redefine the person or outfit for another.`,
       'The large RAW view is the high-resolution image that will seed every downstream edit. Inspect it closely for facial contamination that a tiny runtime sprite may hide. The small PROCESSED view shows the actual 112x128 high-density silhouette and scale.',
       'First classify whether the source visibly has eyewear. Then classify every candidate. Dark pixels, wrinkles, eyebrows, eyelashes, eye sockets, or shading that resemble invented glasses are an eyewear mismatch and a fatal identity artifact when the source has no glasses. Missing or materially changed source eyewear is equally fatal.',
       'Identity includes apparent adult age, face and head shape, skin tone, hairline, hair texture and style, facial hair, eyewear, headwear, and visible head accessories. Costume is a separate score: it must faithfully realize the supplied canonical wardrobe from the neck down, including its garments, colors, materials, silhouette, footwear, and body-worn details. Do not penalize a candidate for replacing the source photo clothing.',
@@ -183,7 +186,7 @@ export function buildPlatformerIdleJudgePrompt(
       'Return only the requested JSON object.',
     ].join(' '),
     user: [
-      `Review front-idle candidates ${ids}. Compare each RAW and PROCESSED head directly with SOURCE PHOTO, record all candidate reviews, and select the safest identity foundation or reject the batch.`,
+      `Review front-idle candidates ${ids}. Compare each RAW and PROCESSED character directly with ${sourceName}, record all candidate reviews, and select the safest identity foundation or reject the batch.`,
       heroConcept
         ? `CANONICAL GAME-WORLD WARDROBE: ${heroConcept}`
         : 'No separate wardrobe brief was supplied; judge costume coherence consistently across the candidate itself.',

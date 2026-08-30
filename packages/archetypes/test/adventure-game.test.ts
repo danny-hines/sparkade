@@ -6,12 +6,16 @@ import {
   ADVENTURE_ROOM_WIDTH,
 } from '@sparkade/shared';
 import {
+  adventureBossFightHint,
+  adventureBossGateHint,
   adventureDecorationFrameIndex,
   adventureFixtureVariantIndex,
   adventurePlayerPoseName,
+  adventureMeleeTuning,
   adventureRoomPlateIndex,
   adventureTerrainFrameIndex,
   compareAdventureDepth,
+  setAdventureBossHurtbox,
 } from '../src/adventure/game';
 
 describe('Adventure high-density terrain selection', () => {
@@ -113,5 +117,51 @@ describe('Adventure generated player pose selection', () => {
     expect(adventurePlayerPoseName('up', true, 1 / 6)).toBe('upWalk');
     expect(adventurePlayerPoseName('right', false)).toBe('sideIdle');
     expect(adventurePlayerPoseName('left', true, 1 / 6)).toBe('sideWalk');
+    expect(adventurePlayerPoseName('down', true, 1 / 6, 'melee')).toBe('downMelee');
+    expect(adventurePlayerPoseName('up', false, 0, 'secondary')).toBe('upSecondary');
+    expect(adventurePlayerPoseName('left', false, 0, 'melee')).toBe('sideMelee');
+  });
+
+  it('maps authored primary fiction onto bounded engine combat profiles', () => {
+    const close = adventureMeleeTuning('close');
+    const sweep = adventureMeleeTuning('sweep');
+    const reach = adventureMeleeTuning('reach');
+
+    expect(reach.reach).toBeGreaterThan(sweep.reach);
+    expect(sweep.thickness).toBeGreaterThan(close.thickness);
+    expect(close.cooldownS).toBeLessThan(reach.cooldownS);
+    expect(close.knockback).toBeGreaterThan(reach.knockback);
+  });
+});
+
+describe('Adventure boss readability', () => {
+  it('uses a forgiving damage target around the grounded movement collider', () => {
+    const target = { x: 0, y: 0, w: 0, h: 0 };
+    expect(setAdventureBossHurtbox(target, { x: 100, y: 80, w: 24, h: 24 })).toEqual({
+      x: 92,
+      y: 72,
+      w: 40,
+      h: 40,
+    });
+  });
+
+  it('names the authored combat kit and blocks an unprepared boss gate', () => {
+    expect(
+      adventureBossFightHint({
+        primary: {
+          profile: 'sweep',
+          name: 'Road Wrench',
+          visualConcept: 'a heavy chromed repair wrench',
+          unarmed: false,
+        },
+        secondary: {
+          behavior: 'blast',
+          name: 'Fuel Charge',
+          visualConcept: 'a taped glass fuel charge',
+        },
+      }),
+    ).toBe('(B) ROAD WRENCH  (Y) FUEL CHARGE');
+    expect(adventureBossGateHint(false, 'Fuel Charge')).toBe('(find Fuel Charge first)');
+    expect(adventureBossGateHint(true, 'Fuel Charge')).toBeNull();
   });
 });

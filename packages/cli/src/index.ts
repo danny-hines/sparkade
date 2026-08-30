@@ -58,6 +58,43 @@ function tryRun(cmd: string, args: string[]): { ok: boolean; out: string } {
   return { ok: res.status === 0, out: `${res.stdout ?? ''}${res.stderr ?? ''}`.trim() };
 }
 
+/** npm may rewrite the tracked lockfile before an interrupted install exits.
+ * It is generated deployment state, not cabinet configuration, so it is safe
+ * to restore while preserving every other local file. */
+function restorePackageLock(dir: string): boolean {
+  tryRun('git', ['-C', dir, 'reset', '--quiet', 'HEAD', '--', 'package-lock.json']);
+  return tryRun('git', ['-C', dir, 'checkout', '--', 'package-lock.json']).ok;
+}
+
+function prepareUpdateWorktree(dir: string): void {
+  const lockStatus = tryRun('git', [
+    '-C',
+    dir,
+    'status',
+    '--porcelain',
+    '--untracked-files=all',
+    '--',
+    'package-lock.json',
+  ]);
+  if (!lockStatus.ok) throw new Error(`could not inspect ${dir}: ${lockStatus.out}`);
+  if (lockStatus.out) {
+    console.log('restoring local package-lock.json drift left by npm …');
+    if (!restorePackageLock(dir)) {
+      throw new Error('could not restore package-lock.json before updating');
+    }
+  }
+
+  const remaining = tryRun('git', ['-C', dir, 'status', '--porcelain', '--untracked-files=all']);
+  if (!remaining.ok) throw new Error(`could not inspect ${dir}: ${remaining.out}`);
+  if (remaining.out) {
+    console.error('Update stopped: the Sparkade checkout contains local changes:');
+    console.error(remaining.out);
+    console.error('Commit or stash those files, then run sparkade update again.');
+    console.error('Games and cabinet configuration live outside this checkout and are unaffected.');
+    process.exit(1);
+  }
+}
+
 function serverGet<T>(path: string): T | null {
   try {
     const out = execFileSync('curl', ['-fsS', '--max-time', '4', `http://127.0.0.1:8080${path}`], {
@@ -174,6 +211,7 @@ function cmdUpdate(): void {
     process.exit(1);
   }
   console.log(`updating ${dir} …`);
+  prepareUpdateWorktree(dir);
   // Track the lockfile so we can skip a reinstall when only source changed.
   const lockId = (): string => {
     try {
@@ -212,9 +250,15 @@ function cmdUpdate(): void {
   const depsChanged = lockId() !== lockBefore;
   if (depsChanged || !existsSync(join(dir, 'node_modules'))) {
     console.log('dependencies changed — installing …');
-    sh('npm', ['install', '--no-audit', '--no-fund'], { cwd: dir });
-    // Keep the working tree clean so the next `git pull --ff-only` never trips.
-    tryRun('git', ['-C', dir, 'checkout', '--', 'package-lock.json']);
+    try {
+      sh('npm', ['install', '--no-audit', '--no-fund'], { cwd: dir });
+    } finally {
+      // Keep the working tree clean even when npm fails or is interrupted, so
+      // the next `git pull --ff-only` is not wedged by generated lockfile drift.
+      if (!restorePackageLock(dir)) {
+        console.error('warning: could not restore package-lock.json after npm install');
+      }
+    }
   } else {
     console.log('dependencies unchanged — skipping install');
   }

@@ -109,8 +109,19 @@ trap restore_swap EXIT
 # --- 5. clone / pull + build -----------------------------------------------------
 log "Fetching Sparkade into $INSTALL_DIR"
 if [ -d "$INSTALL_DIR/.git" ]; then
+  if ! $SUDO git -C "$INSTALL_DIR" diff --quiet -- package-lock.json \
+    || ! $SUDO git -C "$INSTALL_DIR" diff --cached --quiet -- package-lock.json; then
+    log "Restoring local package-lock.json drift left by npm"
+    $SUDO git -C "$INSTALL_DIR" reset --quiet HEAD -- package-lock.json
+    $SUDO git -C "$INSTALL_DIR" checkout -- package-lock.json
+  fi
+  LOCAL_CHANGES="$($SUDO git -C "$INSTALL_DIR" status --porcelain --untracked-files=all)"
+  if [ -n "$LOCAL_CHANGES" ]; then
+    printf '%s\n' "$LOCAL_CHANGES"
+    fail "Sparkade checkout has local changes. Commit or stash them before reinstalling."
+  fi
   $SUDO git -C "$INSTALL_DIR" fetch --tags --force
-  $SUDO git -C "$INSTALL_DIR" pull --ff-only || true
+  $SUDO git -C "$INSTALL_DIR" pull --ff-only
 else
   $SUDO git clone "https://github.com/${REPO_SLUG}.git" "$INSTALL_DIR"
 fi

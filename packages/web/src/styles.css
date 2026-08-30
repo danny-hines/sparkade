@@ -636,6 +636,41 @@ h2.pixel {
   letter-spacing: 2px;
 }
 
+.name-review {
+  gap: 14px;
+}
+
+.name-review-transcript {
+  width: 560px;
+  min-height: 72px;
+  padding: 16px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--cyan);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 28px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  box-shadow: 0 0 18px rgba(53, 224, 255, 0.18);
+}
+
+.name-review-prompt {
+  color: var(--text-dim);
+  font-size: 17px;
+}
+
+.name-review-actions {
+  width: 520px;
+  gap: 12px;
+}
+
+.name-review-actions .menu-item {
+  padding-block: 13px;
+}
+
 .camera-stage {
   position: relative;
   width: 440px;

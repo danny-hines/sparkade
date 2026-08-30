@@ -19,7 +19,7 @@ import { pickSurpriseArchetype } from '../surprise';
 import type { Screen } from '../app';
 
 type PhotoMode = 'choice' | 'camera' | 'preview' | 'error';
-type EntryMode = 'choice' | 'record' | 'transcribing' | 'cards';
+type EntryMode = 'choice' | 'record' | 'transcribing' | 'name-review' | 'cards';
 type RecordTarget = 'name' | 'details';
 type Step = 'photo' | 'name' | 'archetype' | 'details' | 'review';
 
@@ -332,8 +332,17 @@ export function WizardScreen(props: {
           .then((text) => {
             const heard = text.trim();
             if (target === 'name') {
-              setHeroName(heard.slice(0, 48));
-              goToArchetype();
+              const name = heard.slice(0, 48);
+              if (!name) {
+                setSttError("Spark didn't catch a name. Try speaking it again.");
+                setEntryMode('choice');
+                setCursor(0);
+                shellInput.blip('error');
+                return;
+              }
+              setHeroName(name);
+              setEntryMode('name-review');
+              setCursor(0);
             } else {
               setDetails((previous) => (append && previous ? `${previous} ${heard}` : heard));
               setSourceKind('voice');
@@ -531,6 +540,26 @@ export function WizardScreen(props: {
               setEntryMode('choice');
               setCursor(0);
             }
+          } else if (mode.entryMode === 'name-review') {
+            if (nav(3)) return;
+            if (button === 'A') {
+              shellInput.blip('select');
+              if (mode.cursor === 0) {
+                goToArchetype();
+              } else if (mode.cursor === 1) {
+                setHeroName('');
+                setEntryMode('record');
+                void startRecording('name');
+              } else {
+                setHeroName('');
+                goToArchetype();
+              }
+            } else if (button === 'B') {
+              shellInput.blip('back');
+              setHeroName('');
+              setEntryMode('choice');
+              setCursor(0);
+            }
           }
           return;
         }
@@ -555,7 +584,7 @@ export function WizardScreen(props: {
           else if (button === 'B') {
             shellInput.blip('back');
             setStep('name');
-            setEntryMode('choice');
+            setEntryMode(heroName ? 'name-review' : 'choice');
             setCursor(0);
           }
           return;
@@ -771,6 +800,34 @@ export function WizardScreen(props: {
                   <Icon name="sparkle" />
                 </span>{' '}
                 Let Spark choose
+              </div>
+            </div>
+          </div>
+        )}
+
+        {step === 'name' && entryMode === 'name-review' && (
+          <div class="center-col name-review">
+            <div class="wizard-kicker">SPARK HEARD</div>
+            <div class="name-review-transcript">{heroName}</div>
+            <div class="name-review-prompt">Is this the right name?</div>
+            <div class="menu-list name-review-actions">
+              <div class={`focusable menu-item ${cursor === 0 ? 'focused' : ''}`}>
+                <span class="icon">
+                  <Icon name="check" />
+                </span>{' '}
+                Confirm
+              </div>
+              <div class={`focusable menu-item ${cursor === 1 ? 'focused' : ''}`}>
+                <span class="icon">
+                  <Icon name="mic" />
+                </span>{' '}
+                Re-record
+              </div>
+              <div class={`focusable menu-item ${cursor === 2 ? 'focused' : ''}`}>
+                <span class="icon">
+                  <Icon name="arrowRight" />
+                </span>{' '}
+                Skip name
               </div>
             </div>
           </div>

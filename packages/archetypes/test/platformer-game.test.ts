@@ -9,6 +9,9 @@ import {
   generatedPlatformerPlayerDrawRect,
   generatedPlatformerPoseDrawSize,
   generatedPlatformerPropDrawRect,
+  platformerBossTelegraphAuraBands,
+  platformerShooterFacingDirection,
+  platformerShooterMuzzlePoint,
   platformerSpringDrawRect,
   stepPlatformerHorizontalVelocity,
 } from '../src/platformer/game';
@@ -95,6 +98,32 @@ describe('generated platformer player poses', () => {
 
     const flyer = generatedPlatformerEnemyDrawRect('flyer', 100, 50, 14, 14);
     expect(flyer).toEqual({ x: 94, y: 43, w: 26, h: 22 });
+  });
+
+  it('faces shooters toward the player and emits from the corresponding visual edge', () => {
+    expect(platformerShooterFacingDirection(80, 100, 1)).toBe(-1);
+    expect(platformerShooterFacingDirection(120, 100, -1)).toBe(1);
+    expect(platformerShooterFacingDirection(100.2, 100, -1)).toBe(-1);
+
+    const rect = { x: 90, y: 40, w: 24, h: 24 };
+    const left = platformerShooterMuzzlePoint(rect, -1);
+    const right = platformerShooterMuzzlePoint(rect, 1);
+    expect(left.x).toBeLessThan(rect.x + rect.w / 2);
+    expect(right.x).toBeGreaterThan(rect.x + rect.w / 2);
+    expect(left.y).toBe(52);
+    expect(right.y).toBe(52);
+  });
+
+  it('accelerates the boss silhouette warning while keeping every ring in range', () => {
+    const early = platformerBossTelegraphAuraBands(0, 0.45, 4);
+    const ready = platformerBossTelegraphAuraBands(0.44, 0.45, 4);
+    expect(ready[0]!.alpha).toBeGreaterThan(early[0]!.alpha);
+    for (const band of [...early, ...ready]) {
+      expect(band.radius).toBeGreaterThanOrEqual(1);
+      expect(band.radius).toBeLessThanOrEqual(4);
+      expect(band.alpha).toBeGreaterThan(0);
+      expect(band.alpha).toBeLessThanOrEqual(1);
+    }
   });
 
   it('renders density-four springs at the original one-tile gameplay size', () => {

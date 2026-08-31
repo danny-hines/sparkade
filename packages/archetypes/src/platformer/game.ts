@@ -21,6 +21,7 @@ import {
   type InputSnapshot,
   type ResolvedSprite,
   type SilhouetteAura,
+  type SilhouetteAuraBand,
   type Solidity,
 } from '@sparkade/engine';
 import {
@@ -268,6 +269,45 @@ export function generatedPlatformerEnemyDrawRect(
   };
 }
 
+export function platformerShooterFacingDirection(
+  playerCenterX: number,
+  enemyCenterX: number,
+  currentDirection: number,
+): -1 | 1 {
+  const delta = playerCenterX - enemyCenterX;
+  if (Math.abs(delta) < 0.5) return currentDirection < 0 ? -1 : 1;
+  return delta < 0 ? -1 : 1;
+}
+
+export function platformerShooterMuzzlePoint(
+  drawRect: { x: number; y: number; w: number; h: number },
+  direction: number,
+): { x: number; y: number } {
+  const inset = Math.max(1, Math.min(3, drawRect.w * 0.12));
+  return {
+    x: direction < 0 ? drawRect.x + inset : drawRect.x + drawRect.w - inset,
+    y: drawRect.y + drawRect.h / 2,
+  };
+}
+
+export function platformerBossTelegraphAuraBands(
+  attackTime: number,
+  telegraphDuration: number,
+  maxRadius: number,
+): SilhouetteAuraBand[] {
+  const duration = Math.max(0.001, telegraphDuration);
+  const readiness = Math.max(0, Math.min(1, attackTime / duration));
+  const radiusLimit = Math.max(1, Math.round(maxRadius));
+  const phase = (attackTime * (2.3 + readiness * 2.2)) % 1;
+  return [
+    { radius: 1, alpha: 0.45 + readiness * 0.28 },
+    {
+      radius: 1 + Math.floor(phase * radiusLimit),
+      alpha: (0.92 - readiness * 0.12) * (1 - phase),
+    },
+  ];
+}
+
 /** Density-four spring art retains the original one-tile world footprint. */
 export function platformerSpringDrawRect(
   springX: number,
@@ -407,6 +447,7 @@ class PlatformerGame implements GameInstance {
   private sprites: Record<string, ResolvedSprite> = {};
   private generatedPlayerPoses: GeneratedPlatformerPoses;
   private playerAuras: Readonly<Record<PlatformerPlayerPose, SilhouetteAura>>;
+  private bossAuras = new Map<CanvasImageSource, SilhouetteAura>();
   private generatedBoss: CanvasImageSource | null = null;
   private generatedEnemies: Readonly<Record<string, CanvasImageSource>> | null = null;
   private generatedProps: Readonly<Record<string, CanvasImageSource>> | null = null;
@@ -472,6 +513,27 @@ class PlatformerGame implements GameInstance {
       }),
     ) as unknown as Readonly<Record<PlatformerPlayerPose, SilhouetteAura>>;
     this.generatedBoss = this.engine.platformerBoss;
+    const bossSprite = this.sprites['boss']!;
+    const bossAuraColor = this.spec.palette[11] ?? '#ef7d57';
+    if (this.generatedBoss) {
+      this.bossAuras.set(
+        this.generatedBoss,
+        createSilhouetteAura(
+          this.generatedBoss,
+          GENERATED_BOSS_DRAW_W,
+          GENERATED_BOSS_DRAW_H,
+          bossAuraColor,
+          4,
+        ),
+      );
+    } else {
+      for (const frame of bossSprite.frames) {
+        this.bossAuras.set(
+          frame,
+          createSilhouetteAura(frame, bossSprite.w, bossSprite.h, bossAuraColor, 4),
+        );
+      }
+    }
     this.generatedEnemies = this.engine.platformerEnemies;
     this.generatedProps = this.engine.platformerProps;
     this.generatedBackdrops = this.engine.platformerBackdrops;
@@ -1135,33 +1197,32 @@ class PlatformerGame implements GameInstance {
         }
         case 'shooter': {
           e.fireT += dt;
+          const enemyCenterX = e.x + e.w / 2;
+          e.dir = platformerShooterFacingDirection(this.playerCenterX(), enemyCenterX, e.dir);
           const interval = (e.props.fireIntervalMs ?? 2200) / 1000 / this.diff.fire;
           if (
             e.fireT >= interval &&
-            Math.abs(this.playerCenterX() - (e.x + e.w / 2)) < this.viewW * 0.6
+            Math.abs(this.playerCenterX() - enemyCenterX) < this.viewW * 0.6
           ) {
             e.fireT = 0;
+            const generatedShooter = this.generatedEnemies?.shooter;
+            const shooterSprite = this.sprites['shooter']!;
+            const drawRect = generatedShooter
+              ? generatedPlatformerEnemyDrawRect('shooter', e.x, e.y, e.w, e.h)
+              : {
+                  x: e.x - (shooterSprite.w - e.w) / 2,
+                  y: e.y - (shooterSprite.h - e.h),
+                  w: shooterSprite.w,
+                  h: shooterSprite.h,
+                };
+            const muzzle = platformerShooterMuzzlePoint(drawRect, e.dir);
             if (e.props.aim === 'arc') {
-              this.fireProj(
-                e.x + e.w / 2,
-                e.y,
-                Math.sign(this.playerCenterX() - (e.x + e.w / 2)) * 80,
-                -190,
-                false,
-                true,
-              );
+              this.fireProj(muzzle.x, muzzle.y, e.dir * 80, -190, false, true);
             } else {
-              const dx = this.playerCenterX() - (e.x + e.w / 2);
-              const dy = this.playerCenterY() - (e.y + e.h / 2);
+              const dx = this.playerCenterX() - muzzle.x;
+              const dy = this.playerCenterY() - muzzle.y;
               const len = Math.max(1, Math.hypot(dx, dy));
-              this.fireProj(
-                e.x + e.w / 2,
-                e.y + e.h / 2,
-                (dx / len) * 120,
-                (dy / len) * 120,
-                false,
-                false,
-              );
+              this.fireProj(muzzle.x, muzzle.y, (dx / len) * 120, (dy / len) * 120, false, false);
             }
             this.engine.sfx.play('shoot');
           }
@@ -1741,46 +1802,54 @@ class PlatformerGame implements GameInstance {
             ? 'hurt'
             : 'idle';
       const telegraphing = b.attack.name !== 'idle' && b.attack.t < b.attack.telegraph;
+      const bossImage = this.generatedBoss
+        ? this.generatedBoss
+        : this.engine.sprites.frame(sprite, anim, this.animT);
+      const bossRect = this.generatedBoss
+        ? generatedPlatformerBossDrawRect(b.x, b.y, b.w, b.h)
+        : {
+            x: b.x - (sprite.w - b.w) / 2,
+            y: b.y - (sprite.h - b.h),
+            w: sprite.w,
+            h: sprite.h,
+          };
       if (telegraphing) {
-        const fxRect = this.generatedBoss
-          ? generatedPlatformerBossDrawRect(b.x, b.y, b.w, b.h)
-          : {
-              x: b.x - (sprite.w - b.w) / 2,
-              y: b.y - (sprite.h - b.h),
-              w: sprite.w,
-              h: sprite.h,
-            };
-        const pulse = (Math.sin(this.animT * 18) + 1) / 2;
-        r.ctx.save();
-        r.ctx.globalAlpha = 0.35 + pulse * 0.45;
-        r.frame(
-          fxRect.x - cam.x - 2,
-          fxRect.y - cam.y - 2,
-          fxRect.w + 4,
-          fxRect.h + 4,
-          this.spec.palette[11] ?? '#ef7d57',
-          pulse > 0.55 ? 2 : 1,
-        );
-        r.ctx.restore();
+        const aura = this.bossAuras.get(bossImage) ?? this.bossAuras.values().next().value;
+        if (aura) {
+          r.drawSilhouetteAura(
+            aura,
+            bossRect.x - cam.x,
+            bossRect.y - cam.y,
+            bossRect.w,
+            bossRect.h,
+            platformerBossTelegraphAuraBands(b.attack.t, b.attack.telegraph, aura.padding),
+            b.dir > 0,
+          );
+        }
       }
       if (this.generatedBoss) {
         // The generated foundation is intentionally one excellent signature
         // silhouette. Movement, telegraphs, particles, hit-stop, and a brief
         // damage flicker provide animation without risking identity drift.
         if (b.invulnT <= 0 || Math.floor(this.animT * 16) % 2 === 0) {
-          const rect = generatedPlatformerBossDrawRect(b.x, b.y, b.w, b.h);
           r.drawScaledFlipped(
-            this.generatedBoss,
-            rect.x - cam.x,
-            rect.y - cam.y,
-            rect.w,
-            rect.h,
+            bossImage,
+            bossRect.x - cam.x,
+            bossRect.y - cam.y,
+            bossRect.w,
+            bossRect.h,
             b.dir > 0,
           );
         }
       } else {
-        const img = this.engine.sprites.frame(sprite, anim, this.animT, b.dir > 0);
-        r.draw(img, b.x - cam.x - (sprite.w - b.w) / 2, b.y - cam.y - (sprite.h - b.h));
+        r.drawScaledFlipped(
+          bossImage,
+          bossRect.x - cam.x,
+          bossRect.y - cam.y,
+          bossRect.w,
+          bossRect.h,
+          b.dir > 0,
+        );
       }
     }
 

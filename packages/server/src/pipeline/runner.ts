@@ -1084,16 +1084,17 @@ export class GenerationRunner {
             },
             { model, signal: abort.signal },
           );
+          const servedModel = res.model ?? model;
           this.db.insertUsage({
             jobId,
             gameId,
             stage: stageName,
-            model,
+            model: servedModel,
             provider: providerName,
             inputTokens: res.usage.input,
             outputTokens: res.usage.output,
             cachedTokens: res.usage.cachedInput ?? 0,
-            costUsd: costOf(model, res.usage, snapshot),
+            costUsd: costOf(servedModel, res.usage, snapshot),
             failed: false,
             repair: opts.repair ?? false,
           });

@@ -11,6 +11,75 @@ afterEach(() => {
   else process.env.META_API_KEY = originalMetaApiKey;
 });
 
+describe('MetaProvider completion', () => {
+  it('falls back to Muse Spark 1.1 when Contributor rejects an image-bearing request', async () => {
+    process.env.META_API_KEY = 'meta-test-key';
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(modelNotFoundResponse())
+      .mockResolvedValueOnce(
+        jsonResponse({
+          choices: [{ message: { content: '{"visible":true}' } }],
+          usage: { prompt_tokens: 22, completion_tokens: 7 },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await provider().complete(visionRequest(), {
+      model: 'muse-spark-1.2-contributor',
+    });
+
+    expect(result).toEqual({
+      text: '{"visible":true}',
+      usage: { input: 22, output: 7, cachedInput: 0 },
+      model: 'muse-spark-1.1',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(requestModel(fetchMock, 0)).toBe('muse-spark-1.2-contributor');
+    expect(requestModel(fetchMock, 1)).toBe('muse-spark-1.1');
+  });
+
+  it('remembers the vision fallback while leaving later text calls on Contributor', async () => {
+    process.env.META_API_KEY = 'meta-test-key';
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(modelNotFoundResponse())
+      .mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: '{"ok":true}' } }] }))
+      .mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: '{"ok":true}' } }] }))
+      .mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: '{"ok":true}' } }] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const meta = provider();
+
+    await meta.complete(visionRequest(), { model: 'muse-spark-1.2-contributor' });
+    const secondVision = await meta.complete(visionRequest(), {
+      model: 'muse-spark-1.2-contributor',
+    });
+    const text = await meta.complete(
+      { system: 'Return JSON.', user: 'Return ok.', maxTokens: 20 },
+      { model: 'muse-spark-1.2-contributor' },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(requestModel(fetchMock, 2)).toBe('muse-spark-1.1');
+    expect(requestModel(fetchMock, 3)).toBe('muse-spark-1.2-contributor');
+    expect(secondVision.model).toBe('muse-spark-1.1');
+    expect(text.model).toBe('muse-spark-1.2-contributor');
+  });
+
+  it('does not mask unrelated image-request 404s', async () => {
+    process.env.META_API_KEY = 'meta-test-key';
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(errorResponse(404, 'bad route'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const error = await provider()
+      .complete(visionRequest(), { model: 'muse-spark-1.2-contributor' })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ProviderHttpError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('MetaProvider transcription', () => {
   it('falls through to chat audio when the legacy endpoint returns a transient 5xx', async () => {
     process.env.META_API_KEY = 'meta-test-key';
@@ -160,6 +229,27 @@ function errorResponse(status: number, message: string): Response {
     status,
     headers: { 'content-type': 'application/json' },
   });
+}
+
+function modelNotFoundResponse(): Response {
+  return new Response(
+    JSON.stringify({ error: { code: 'model_not_found', message: 'The requested model was not found.' } }),
+    { status: 404, headers: { 'content-type': 'application/json' } },
+  );
+}
+
+function visionRequest() {
+  return {
+    system: 'Return JSON.',
+    user: 'Inspect the image.',
+    maxTokens: 20,
+    image: Buffer.from('png'),
+    jsonSchema: {
+      type: 'object',
+      required: ['ok'],
+      properties: { ok: { type: 'boolean' } },
+    },
+  };
 }
 
 function requestModel(

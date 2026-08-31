@@ -380,7 +380,7 @@ async function executeRun(
             },
             { model: judgeModel },
           );
-    const cost = mock ? 0 : costOf(judgeModel, response.usage, config.pricing);
+    const cost = mock ? 0 : costOf(response.model ?? judgeModel, response.usage, config.pricing);
     const prior = run.judgeCalls === 0 ? 0 : run.judgeCostUsd;
     run.judgeCalls++;
     run.judgeCostUsd = prior === null || cost === null ? null : prior + cost;

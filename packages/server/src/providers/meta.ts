@@ -59,6 +59,8 @@ interface TranscriptionEndpointResponse {
 const DEFAULT_BASE_URL = 'https://api.meta.ai/v1';
 
 const DEFAULT_REASONING_EFFORT = 'low';
+const VISION_PRIMARY_MODEL = 'muse-spark-1.2-contributor';
+const VISION_FALLBACK_MODEL = 'muse-spark-1.1';
 const TRANSCRIPTION_PRIMARY_MODEL = 'muse-spark-1.2-contributor';
 const TRANSCRIPTION_FALLBACK_MODEL = 'muse-spark-1.1';
 const TRANSCRIPTION_LEGACY_PROBE_TIMEOUT_MS = 3_000;
@@ -81,6 +83,10 @@ export class MetaProvider implements Provider {
   readonly kind = 'meta' as const;
   readonly capabilities: ProviderCapabilities;
   private baseUrl: string;
+  /** Contributor currently returns model_not_found for image-bearing chat
+   * requests even while text requests remain healthy. Remember the first
+   * authoritative rejection so later art-director calls avoid a doomed probe. */
+  private visionFallbackRequired = false;
 
   constructor(
     readonly name: string,
@@ -105,7 +111,7 @@ export class MetaProvider implements Provider {
     req: CompleteRequest,
     opts: { model?: string; signal?: AbortSignal } = {},
   ): Promise<CompleteResponse> {
-    const model = opts.model ?? DEFAULT_MODEL;
+    const requestedModel = opts.model ?? DEFAULT_MODEL;
 
     // User content: plain string, or multi-part when an image rides along.
     let userContent: unknown = req.user;
@@ -119,38 +125,59 @@ export class MetaProvider implements Provider {
       ];
     }
 
-    const reasoningEffort = req.effort ?? this.cfg.reasoningEffort ?? DEFAULT_REASONING_EFFORT;
-    const body: Record<string, unknown> = {
-      model,
-      messages: [
-        { role: 'system', content: req.system },
-        { role: 'user', content: userContent },
-      ],
-      max_completion_tokens: req.maxTokens + REASONING_HEADROOM_TOKENS[reasoningEffort],
-      temperature: req.temperature ?? 1,
-      reasoning_effort: reasoningEffort,
-    };
-    if (req.jsonSchema && this.capabilities.structuredOutput) {
-      body.response_format = {
-        type: 'json_schema',
-        json_schema: { name: 'sparkade_output', schema: req.jsonSchema, strict: false },
+    const completeWithModel = async (model: string): Promise<CompleteResponse> => {
+      const reasoningEffort = req.effort ?? this.cfg.reasoningEffort ?? DEFAULT_REASONING_EFFORT;
+      const body: Record<string, unknown> = {
+        model,
+        messages: [
+          { role: 'system', content: req.system },
+          { role: 'user', content: userContent },
+        ],
+        max_completion_tokens: req.maxTokens + REASONING_HEADROOM_TOKENS[reasoningEffort],
+        temperature: req.temperature ?? 1,
+        reasoning_effort: reasoningEffort,
       };
-    }
+      if (req.jsonSchema && this.capabilities.structuredOutput) {
+        body.response_format = {
+          type: 'json_schema',
+          json_schema: { name: 'sparkade_output', schema: req.jsonSchema, strict: false },
+        };
+      }
 
-    const res = await httpJson<ChatCompletionResponse>(`${this.baseUrl}/chat/completions`, {
-      headers: {
-        Authorization: `Bearer ${this.key()}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-      timeoutMs: req.timeoutMs ?? GENERATION.perCallTimeoutMs,
-      signal: opts.signal,
-    });
+      const res = await httpJson<ChatCompletionResponse>(`${this.baseUrl}/chat/completions`, {
+        headers: {
+          Authorization: `Bearer ${this.key()}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        timeoutMs: req.timeoutMs ?? GENERATION.perCallTimeoutMs,
+        signal: opts.signal,
+      });
 
-    return {
-      text: res.choices?.[0]?.message?.content ?? '',
-      usage: normalizeUsage(res.usage),
+      return {
+        text: res.choices?.[0]?.message?.content ?? '',
+        usage: normalizeUsage(res.usage),
+        model,
+      };
     };
+
+    const model =
+      req.image && requestedModel === VISION_PRIMARY_MODEL && this.visionFallbackRequired
+        ? VISION_FALLBACK_MODEL
+        : requestedModel;
+    try {
+      return await completeWithModel(model);
+    } catch (error) {
+      const missingContributorVision =
+        req.image &&
+        model === VISION_PRIMARY_MODEL &&
+        error instanceof ProviderHttpError &&
+        error.status === 404 &&
+        /model_not_found/i.test(error.body);
+      if (!missingContributorVision) throw error;
+      this.visionFallbackRequired = true;
+      return completeWithModel(VISION_FALLBACK_MODEL);
+    }
   }
 
   async transcribe(

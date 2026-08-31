@@ -706,7 +706,7 @@ async function executeHydration(
       { model: judgeModel },
     );
   }
-  const judgeCost = mock ? 0 : costOf(judgeModel, response.usage, config.pricing);
+  const judgeCost = mock ? 0 : costOf(response.model ?? judgeModel, response.usage, config.pricing);
   const priorJudgeCost = run.judgeCalls === 0 ? 0 : run.judgeCostUsd;
   run.judgeCalls++;
   run.judgeCostUsd = priorJudgeCost === null || judgeCost === null ? null : priorJudgeCost + judgeCost;

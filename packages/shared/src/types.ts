@@ -1051,6 +1051,8 @@ export interface CompleteRequest {
 export interface CompleteResponse {
   text: string;
   usage: ProviderUsage;
+  /** The model that actually served the request when a provider used a fallback. */
+  model?: string;
 }
 
 export interface TranscriptionResult {

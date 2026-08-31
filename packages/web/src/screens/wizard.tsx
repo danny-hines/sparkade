@@ -2,15 +2,9 @@
 // brief. Unset fields deliberately remain Spark decisions.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import {
-  GENERATION,
-  LIKENESS_OVAL,
-  MAX_PHOTO_DIM,
-  type ArchetypeId,
-  type GameListItem,
-} from '@sparkade/shared';
+import { GENERATION, LIKENESS_OVAL, MAX_PHOTO_DIM, type ArchetypeId } from '@sparkade/shared';
 import { api, type SettingsPayload } from '../api';
-import { FooterLegend, GameCover, Modal } from '../components';
+import { FooterLegend, Modal } from '../components';
 import { Icon, Btn } from '../icons';
 import { getUserMediaForDevice } from '../media';
 import { shellInput } from '../shell-input';
@@ -26,6 +20,8 @@ type Step = 'photo' | 'details' | 'archetype';
 interface ArchetypeChoice {
   id: ArchetypeId;
   label: string;
+  cardLabel?: string;
+  previewImage: string;
   feel: string;
   description: string;
 }
@@ -34,30 +30,36 @@ const ARCHETYPES: readonly ArchetypeChoice[] = [
   {
     id: 'platformer',
     label: 'Platformer',
+    previewImage: '/archetypes/platformer.png',
     feel: 'Run · jump · explore',
     description: 'Side-view stages full of movement, secrets, enemies, and a finale boss.',
   },
   {
     id: 'shooter',
     label: 'Vertical Shooter',
+    previewImage: '/archetypes/shooter.png',
     feel: 'Dodge · blast · survive',
     description: 'Fly upward through enemy waves, power-ups, hazards, and giant bosses.',
   },
   {
     id: 'adventure',
     label: 'Adventure',
+    previewImage: '/archetypes/adventure.png',
     feel: 'Explore · discover · battle',
     description: 'A top-down world of connected rooms, characters, items, and puzzles.',
   },
   {
     id: 'hshooter',
     label: 'Side-Scroll Shooter',
+    cardLabel: 'Side Shooter',
+    previewImage: '/archetypes/hshooter.png',
     feel: 'Fly · weave · fire',
     description: 'Race across cinematic landscapes while enemies and terrain close in.',
   },
   {
     id: 'fighter',
     label: 'Fighter',
+    previewImage: '/archetypes/fighter.png',
     feel: 'Duel · counter · triumph',
     description: 'A character-driven arcade ladder with distinct rivals and arenas.',
   },
@@ -96,7 +98,6 @@ export function WizardScreen(props: {
   const [online, setOnline] = useState(navigator.onLine);
   const [isPi, setIsPi] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [games, setGames] = useState<GameListItem[]>([]);
 
   const idempotencyKey = useRef(`ik-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -109,12 +110,6 @@ export function WizardScreen(props: {
 
   const chosenArchetype = requestedArchetype ? choiceFor(requestedArchetype) : null;
   const carouselChoice = ARCHETYPES[cursor] ?? ARCHETYPES[0]!;
-  const readyPreviewByArchetype = new Map<ArchetypeId, GameListItem>();
-  for (const game of games) {
-    if (game.status === 'ready' && !readyPreviewByArchetype.has(game.archetype)) {
-      readyPreviewByArchetype.set(game.archetype, game);
-    }
-  }
 
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -177,16 +172,10 @@ export function WizardScreen(props: {
   }, [step, photoMode]);
 
   useEffect(() => {
-    void Promise.all([
-      api
-        .systemInfo()
-        .then((info) => setIsPi(info.isPi))
-        .catch(() => {}),
-      api
-        .listGames()
-        .then(setGames)
-        .catch(() => {}),
-    ]);
+    void api
+      .systemInfo()
+      .then((info) => setIsPi(info.isPi))
+      .catch(() => {});
     const on = () => setOnline(true);
     const off = () => setOnline(false);
     window.addEventListener('online', on);
@@ -747,25 +736,16 @@ export function WizardScreen(props: {
                 class="archetype-track"
                 style={{ transform: `translateX(calc(50% - ${cursor * 232 + 107}px))` }}
               >
-                {ARCHETYPES.map((choice, index) => {
-                  const preview = readyPreviewByArchetype.get(choice.id);
-                  return (
-                    <div
-                      key={choice.id}
-                      class={`focusable archetype-card ${index === cursor ? 'focused selected' : ''}`}
-                    >
-                      <GameCover
-                        cover={preview?.cover ?? null}
-                        archetype={choice.id}
-                        gameId={preview?.id}
-                        seedText={preview?.title ?? choice.label}
-                        class="archetype-cover"
-                      />
-                      <div class="archetype-name">{choice.label}</div>
-                      <div class="archetype-feel">{choice.feel}</div>
-                    </div>
-                  );
-                })}
+                {ARCHETYPES.map((choice, index) => (
+                  <div
+                    key={choice.id}
+                    class={`focusable archetype-card ${index === cursor ? 'focused selected' : ''}`}
+                  >
+                    <img class="archetype-cover" src={choice.previewImage} alt="" />
+                    <div class="archetype-name">{choice.cardLabel ?? choice.label}</div>
+                    <div class="archetype-feel">{choice.feel}</div>
+                  </div>
+                ))}
               </div>
             </div>
             <div class="archetype-description">{carouselChoice.description}</div>
@@ -792,7 +772,7 @@ export function WizardScreen(props: {
                 ? []
                 : step === 'archetype'
                   ? [
-                      ['← →', 'Browse'],
+                      ['←/→', 'Browse'],
                       ['A', 'Choose'],
                       ['B', 'Back'],
                     ]

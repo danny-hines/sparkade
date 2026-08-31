@@ -245,7 +245,9 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
                   <span class={`badge ${g.golden ? 'golden' : g.status}`}>
                     {g.golden ? 'Built-in' : statusLabel(g.status)}
                   </span>
-                  {!g.golden && <span class="home-item-cost">{usd(g.costUsd)}</span>}
+                  {!g.golden && g.status !== 'queued' && g.status !== 'generating' && (
+                    <span class="home-item-cost">{usd(g.costUsd)}</span>
+                  )}
                 </div>
               </div>
             </div>

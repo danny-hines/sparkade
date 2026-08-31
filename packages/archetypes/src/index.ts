@@ -53,3 +53,22 @@ export {
   reconcileDoors,
   safelyReachableRoomCells,
 } from './adventure/lint';
+export {
+  ADVENTURE_ENCOUNTER_MIN_SPREAD_CELLS,
+  ADVENTURE_SHOOTER_MIN_LANE_CELLS,
+  adventureBossArenaRequirements,
+  adventureCellIsCalmFloor,
+  adventureCellIsSafe,
+  adventureDoorReactionCells,
+  adventureEnemyEncounterSpread,
+  adventureInteractionCells,
+  adventureInteractionSpaceClear,
+  adventureProjectileLineClear,
+  adventureRoomTileKind,
+  adventureShooterHasClearLane,
+  analyzeAdventureBossArena,
+  type AdventureBossArenaAnalysis,
+  type AdventureBossArenaRequirements,
+  type AdventureBossPattern,
+  type AdventureCell,
+} from './adventure/encounters';

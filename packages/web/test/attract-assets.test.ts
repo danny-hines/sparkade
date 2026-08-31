@@ -13,6 +13,12 @@ describe('attract screen Muse assets', () => {
     expect(attractAssetSpecs('adventure').map((asset) => asset.role)).toContain(
       'adventurePlayerDownIdle',
     );
+    expect(attractAssetSpecs('adventure').map((asset) => asset.role)).toContain(
+      'adventureEnemyAtlas',
+    );
+    expect(attractAssetSpecs('adventure').map((asset) => asset.role)).toContain(
+      'adventureObjectAtlas',
+    );
     expect(attractAssetSpecs('hshooter').map((asset) => asset.role)).toEqual([
       'hshooterPlayerCraft',
       'hshooterEnemyAtlas',

@@ -64,6 +64,10 @@ export const ADVENTURE_ROOM_PLATES_ASSET =
   'adventureRoomPlates' as const satisfies GeneratedGameAssetRole;
 
 export const ADVENTURE_BOSS_ASSET = 'adventureBoss' as const satisfies GeneratedGameAssetRole;
+export const ADVENTURE_ENEMY_ATLAS_ASSET =
+  'adventureEnemyAtlas' as const satisfies GeneratedGameAssetRole;
+export const ADVENTURE_OBJECT_ATLAS_ASSET =
+  'adventureObjectAtlas' as const satisfies GeneratedGameAssetRole;
 
 export const ADVENTURE_PLAYER_POSE_ASSETS = [
   ['downIdle', 'adventurePlayerDownIdle'],
@@ -127,6 +131,8 @@ export async function loadLikenessAssets(
     !assets.platformerBoss &&
     !assets.adventureRoomPlates &&
     !assets[ADVENTURE_BOSS_ASSET] &&
+    !assets[ADVENTURE_ENEMY_ATLAS_ASSET] &&
+    !assets[ADVENTURE_OBJECT_ATLAS_ASSET] &&
     !PLATFORMER_ENEMY_ASSETS.some(([, role]) => assets[role]) &&
     !PLATFORMER_PROP_ASSETS.some(([, role]) => assets[role]) &&
     !PLATFORMER_BACKDROP_ASSETS.some(([, role]) => assets[role]) &&
@@ -264,6 +270,12 @@ export async function loadLikenessAssets(
   const adventureBossPromise = assets[ADVENTURE_BOSS_ASSET]
     ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[ADVENTURE_BOSS_ASSET]))
     : Promise.resolve(null);
+  const adventureEnemyAtlasPromise = assets[ADVENTURE_ENEMY_ATLAS_ASSET]
+    ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[ADVENTURE_ENEMY_ATLAS_ASSET]))
+    : Promise.resolve(null);
+  const adventureObjectAtlasPromise = assets[ADVENTURE_OBJECT_ATLAS_ASSET]
+    ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[ADVENTURE_OBJECT_ATLAS_ASSET]))
+    : Promise.resolve(null);
   const adventurePlayerPromise: Promise<Record<AdventurePlayerPoseName, HTMLImageElement> | null> =
     hasCompleteAdventurePlayerSet
       ? Promise.all(
@@ -291,6 +303,8 @@ export async function loadLikenessAssets(
     hshooterBackdrops,
     adventureRoomPlates,
     adventureBoss,
+    adventureEnemyAtlas,
+    adventureObjectAtlas,
     adventurePlayerPoses,
     hshooterPlayerCraft,
     hshooterBoss,
@@ -309,6 +323,8 @@ export async function loadLikenessAssets(
     hshooterBackdropsPromise,
     adventureRoomPlatesPromise,
     adventureBossPromise,
+    adventureEnemyAtlasPromise,
+    adventureObjectAtlasPromise,
     adventurePlayerPromise,
     hshooterPlayerCraftPromise,
     hshooterBossPromise,
@@ -339,6 +355,8 @@ export async function loadLikenessAssets(
     hshooterBackdrops,
     adventureRoomPlates,
     adventureBoss,
+    adventureEnemyAtlas,
+    adventureObjectAtlas,
     adventurePlayerPoses,
     hshooterPlayerCraft,
     hshooterBoss,

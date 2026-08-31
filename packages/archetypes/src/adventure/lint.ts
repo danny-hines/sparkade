@@ -16,6 +16,16 @@ import {
   lintRowLengths,
   lintSpriteRefs,
 } from '../common';
+import {
+  ADVENTURE_ENCOUNTER_MIN_SPREAD_CELLS,
+  adventureDoorReactionCells,
+  adventureEnemyEncounterSpread,
+  adventureInteractionCells,
+  adventureInteractionSpaceClear,
+  adventureRoomTileKind,
+  adventureShooterHasClearLane,
+  analyzeAdventureBossArena,
+} from './encounters';
 
 const ENEMY_TYPES = ['walker', 'flyer', 'shooter', 'chaser', 'bruiser'] as const;
 const DIRS = [
@@ -613,7 +623,24 @@ export function lintAdventure(spec: AdventureSpec): LintError[] {
     out.push(...lintRowLengths(room.tiles, path, 'ADV_ROWS_UNEQUAL'));
     out.push(...lintLegendCoverage(room.tiles, room.legend, path, 'ADV_LEGEND_UNKNOWN_CHAR'));
     const safelyReachable = safelyReachableRoomCells(room);
-    for (const e of room.entities) {
+    const doorReactionCells = new Set(
+      adventureDoorReactionCells(room).map((cell) => `${cell.x},${cell.y}`),
+    );
+    const blockedReactionCells = [...doorReactionCells].filter((cell) => {
+      const [x, y] = cell.split(',').map(Number);
+      return adventureRoomTileKind(room, x!, y!) !== 'floor';
+    });
+    if (blockedReactionCells.length > 0) {
+      out.push(
+        err(
+          'ADV_DOOR_REACTION_BLOCKED',
+          `${path}/tiles`,
+          `${blockedReactionCells.length} doorway reaction cell(s) contain walls, pits, hazards, blocks, switches, or decorations; keep a calm three-cell-deep approach inside every door`,
+        ),
+      );
+    }
+    const protectedInteractionCells = new Set<string>();
+    for (const [ei, e] of room.entities.entries()) {
       if ((ENEMY_TYPES as readonly string[]).includes(e.type)) enemyTypes.add(e.type);
       if (e.type === 'npc' && e.props?.dialog) npcWithDialog++;
       if (e.type === 'npc' && !e.props?.dialog) {
@@ -659,6 +686,79 @@ export function lintAdventure(spec: AdventureSpec): LintError[] {
           ),
         );
       }
+      if (e.type === 'key' || e.type === 'item' || e.type === 'npc') {
+        for (const cell of adventureInteractionCells(e.x, e.y)) {
+          protectedInteractionCells.add(`${cell.x},${cell.y}`);
+        }
+        if (!adventureInteractionSpaceClear(room, e.x, e.y)) {
+          out.push(
+            err(
+              'ADV_INTERACTION_SPACE',
+              `${path}/entities/${ei}`,
+              `${e.type} at (${e.x},${e.y}) needs a calm floor cell with at least three clear approach sides`,
+            ),
+          );
+        }
+        if (e.type === 'npc' && !safelyReachable.has(`${e.x},${e.y}`)) {
+          out.push(
+            err(
+              'ADV_NPC_UNREACHABLE',
+              `${path}/entities/${ei}`,
+              `npc at (${e.x},${e.y}) needs a hazard-free walking path from a room entrance`,
+            ),
+          );
+        }
+      }
+      if (
+        (ENEMY_TYPES as readonly string[]).includes(e.type) &&
+        doorReactionCells.has(`${e.x},${e.y}`)
+      ) {
+        out.push(
+          err(
+            'ADV_DOOR_SPAWN_CAMP',
+            `${path}/entities/${ei}`,
+            `${e.type} at (${e.x},${e.y}) occupies a doorway reaction zone; move it at least three cells into the room`,
+          ),
+        );
+      }
+      if (e.type === 'shooter' && !adventureShooterHasClearLane(room, e, safelyReachable)) {
+        out.push(
+          err(
+            'ADV_SHOOTER_NO_LANE',
+            `${path}/entities/${ei}`,
+            `shooter at (${e.x},${e.y}) needs an unobstructed six-cell firing line to safely reachable player space with a lateral dodge cell`,
+          ),
+        );
+      }
+    }
+    for (const [ei, e] of room.entities.entries()) {
+      if (
+        (ENEMY_TYPES as readonly string[]).includes(e.type) &&
+        protectedInteractionCells.has(`${e.x},${e.y}`)
+      ) {
+        out.push(
+          err(
+            'ADV_INTERACTION_THREAT',
+            `${path}/entities/${ei}`,
+            `${e.type} at (${e.x},${e.y}) begins inside a key, item, or NPC interaction space`,
+          ),
+        );
+      }
+    }
+    const roomEnemies = room.entities.filter((entity) =>
+      (ENEMY_TYPES as readonly string[]).includes(entity.type),
+    );
+    if (
+      roomEnemies.length >= 3 &&
+      adventureEnemyEncounterSpread(room.entities) < ADVENTURE_ENCOUNTER_MIN_SPREAD_CELLS
+    ) {
+      out.push(
+        err(
+          'ADV_ENCOUNTER_CLUSTERED',
+          `${path}/entities`,
+          `all ${roomEnemies.length} enemies fit inside a compact cluster; distribute the encounter across at least ${ADVENTURE_ENCOUNTER_MIN_SPREAD_CELLS} cells of Manhattan span`,
+        ),
+      );
     }
     const switchCount = roomTileCount(room, 'switch');
     const hazardCount = roomTileCount(room, 'hazard');
@@ -706,6 +806,46 @@ export function lintAdventure(spec: AdventureSpec): LintError[] {
           'the boss room must not contain other enemies — the boss fight owns it',
         ),
       );
+    }
+    if (room.id === dungeon.bossRoom) {
+      const patterns = spec.boss.phases.map((phase) => phase.pattern);
+      const arena = analyzeAdventureBossArena(room, patterns);
+      if (!arena.dodgeRouteClear) {
+        out.push(
+          err(
+            'ADV_BOSS_DODGE_ROUTE',
+            `${path}/tiles`,
+            'boss room needs a connected two-cell-wide central cross and outer dodge loop with no walls, pits, hazards, blocks, switches, or decorations',
+          ),
+        );
+      }
+      if (!arena.chargeLanesClear) {
+        out.push(
+          err(
+            'ADV_BOSS_CHARGE_LANE',
+            `${path}/tiles`,
+            'charge phase needs clear two-cell-wide horizontal and vertical lanes through the arena',
+          ),
+        );
+      }
+      if (arena.openTeleportPads < arena.requiredTeleportPads) {
+        out.push(
+          err(
+            'ADV_BOSS_TELEPORT_SPACE',
+            `${path}/tiles`,
+            `teleport phase has ${arena.openTeleportPads}/${arena.requiredTeleportPads} clear, separated 2x2 landing pads`,
+          ),
+        );
+      }
+      if (arena.openSummonPads < arena.requiredSummonPads) {
+        out.push(
+          err(
+            'ADV_BOSS_SUMMON_SPACE',
+            `${path}/tiles`,
+            `summon phase has ${arena.openSummonPads}/${arena.requiredSummonPads} clear minion arrival pads`,
+          ),
+        );
+      }
     }
   });
 

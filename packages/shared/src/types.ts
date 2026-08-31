@@ -725,6 +725,18 @@ export interface GameMetaFile {
     /** Present when the library boss remains active. */
     reason?: string;
   };
+  /** QA/readiness signal for the required five-role generated Adventure enemy cast. */
+  adventureEnemyArt?: {
+    mode: 'generated';
+    attempted: true;
+    roles: Array<'walker' | 'flyer' | 'shooter' | 'chaser' | 'bruiser'>;
+  };
+  /** QA/readiness signal for required themed Adventure gameplay objects. */
+  adventureObjectArt?: {
+    mode: 'generated';
+    attempted: true;
+    roles: Array<'key' | 'item' | 'npc' | 'secondaryEffect'>;
+  };
   /** QA/readiness signal for the likeness-independent H-scroll player craft. */
   hshooterPlayerCraftArt?: {
     mode: 'generated';

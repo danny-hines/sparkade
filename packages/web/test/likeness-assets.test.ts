@@ -3,6 +3,8 @@ import { GENERATED_GAME_ASSET_FILES, type GeneratedGameAssetRole } from '@sparka
 import type { GameDetail } from '../src/api';
 import {
   ADVENTURE_BOSS_ASSET,
+  ADVENTURE_ENEMY_ATLAS_ASSET,
+  ADVENTURE_OBJECT_ATLAS_ASSET,
   ADVENTURE_PLAYER_POSE_ASSETS,
   ADVENTURE_ROOM_PLATES_ASSET,
   FIGHTER_ARENA_ASSET,
@@ -421,6 +423,44 @@ describe('loadLikenessAssets', () => {
     expect(result?.adventureBoss).not.toBeNull();
     expect(requested).toEqual([
       `/api/games/adventure-boss-game/assets/${GENERATED_GAME_ASSET_FILES.adventureBoss}`,
+    ]);
+  });
+
+  it('loads the atomic generated Adventure enemy atlas', async () => {
+    const result = await loadLikenessAssets('adventure-enemies', {
+      head12: false,
+      head12Side: false,
+      head12Back: false,
+      head16: false,
+      head16Side: false,
+      head16Back: false,
+      portrait: false,
+      ...unavailableGeneratedAssets,
+      [ADVENTURE_ENEMY_ATLAS_ASSET]: true,
+    });
+
+    expect(result?.adventureEnemyAtlas).not.toBeNull();
+    expect(requested).toEqual([
+      `/api/games/adventure-enemies/assets/${GENERATED_GAME_ASSET_FILES.adventureEnemyAtlas}`,
+    ]);
+  });
+
+  it('loads the atomic themed Adventure gameplay-object atlas', async () => {
+    const result = await loadLikenessAssets('adventure-objects', {
+      head12: false,
+      head12Side: false,
+      head12Back: false,
+      head16: false,
+      head16Side: false,
+      head16Back: false,
+      portrait: false,
+      ...unavailableGeneratedAssets,
+      [ADVENTURE_OBJECT_ATLAS_ASSET]: true,
+    });
+
+    expect(result?.adventureObjectAtlas).not.toBeNull();
+    expect(requested).toEqual([
+      `/api/games/adventure-objects/assets/${GENERATED_GAME_ASSET_FILES.adventureObjectAtlas}`,
     ]);
   });
 

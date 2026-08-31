@@ -89,6 +89,10 @@ export interface LikenessAssets {
   adventurePlayerPoses?: Readonly<Record<string, CanvasImageSource>> | null;
   /** Story-art-derived high-density Adventure finale boss. */
   adventureBoss?: CanvasImageSource | null;
+  /** Required five-role Adventure enemy atlas in walker-to-bruiser order. */
+  adventureEnemyAtlas?: CanvasImageSource | null;
+  /** Required themed key, item, NPC, and active-secondary Adventure atlas. */
+  adventureObjectAtlas?: CanvasImageSource | null;
 }
 
 /** What a finished run reports back to the host. */

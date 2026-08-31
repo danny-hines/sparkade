@@ -36,7 +36,12 @@ const ATTRACT_ASSETS: Partial<Record<ArchetypeId, readonly AttractAssetSpec[]>> 
     asset('fighterOpponent1Atlas', { crop: fighterIdleCrop }),
     asset('fighterBossAtlas', { crop: fighterIdleCrop, big: true }),
   ],
-  adventure: [asset('adventurePlayerDownIdle'), asset('adventureBoss', { big: true })],
+  adventure: [
+    asset('adventurePlayerDownIdle'),
+    asset('adventureEnemyAtlas', { crop: { x: 0, y: 0, width: 96, height: 96 } }),
+    asset('adventureObjectAtlas', { crop: { x: 0, y: 0, width: 96, height: 112 } }),
+    asset('adventureBoss', { big: true }),
+  ],
   hshooter: [
     asset('hshooterPlayerCraft'),
     asset('hshooterEnemyAtlas', { crop: { x: 0, y: 0, width: 96, height: 96 } }),

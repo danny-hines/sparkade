@@ -21,6 +21,16 @@ function golden<T extends GameSpec>(archetype: ArchetypeId): T {
   ) as T;
 }
 
+function setAdventureCell(
+  room: AdventureSpec['levels'][number]['rooms'][number],
+  x: number,
+  y: number,
+  value: string,
+): void {
+  const row = room.tiles[y]!;
+  room.tiles[y] = row.slice(0, x) + value + row.slice(x + 1);
+}
+
 describe('deterministic generated-spec normalization', () => {
   it('pads and trims sprite rows/frames, expanding only to preserve real pixels', () => {
     const input = golden<PlatformerSpec>('platformer');
@@ -477,10 +487,11 @@ describe('deterministic generated-spec normalization', () => {
     const result = normalizeGeneratedSpec(input);
     const fixed = result.spec as AdventureSpec;
     const fixedRoom = fixed.levels[0]!.rooms[0]!;
-    expect(fixedRoom.entities[0]).toMatchObject({ x: 1, y: 1 });
-    expect(fixedRoom.entities.find((entity) => entity.type === 'item')?.props?.item).toBe(
-      fixed.levels[0]!.items.secondary,
-    );
+    const walker = fixedRoom.entities[0]!;
+    const item = fixedRoom.entities.find((entity) => entity.type === 'item')!;
+    expect(walker).not.toMatchObject({ x: 0, y: 0 });
+    expect(Math.abs(walker.x - item.x) + Math.abs(walker.y - item.y)).toBeGreaterThan(1);
+    expect(item.props?.item).toBe(fixed.levels[0]!.items.secondary);
     expect(fixed.levels[0]!.items.secondary).toBe(input.combatKit.secondary.behavior);
     expect(result.fixes).toContainEqual(
       expect.objectContaining({ code: 'ADVENTURE_COMBAT_KIT', path: '/levels/0/items/secondary' }),
@@ -521,6 +532,80 @@ describe('deterministic generated-spec normalization', () => {
         (error) => error.code === 'ADV_REQUIRED_PICKUP_UNSAFE',
       ),
     ).toBe(false);
+  });
+
+  it('repairs Adventure reaction zones, firing lanes, encounter spread, and boss pattern space', () => {
+    const input = golden<AdventureSpec>('adventure');
+    const dungeon = input.levels[0]!;
+
+    const shooterRoom = dungeon.rooms.find((room) => room.id === 'cistern')!;
+    const shooter = shooterRoom.entities.find((entity) => entity.type === 'shooter')!;
+    shooter.x = 5;
+    shooter.y = 5;
+    for (let offset = 3; offset <= 7; offset++) {
+      setAdventureCell(shooterRoom, offset, 3, '#');
+      setAdventureCell(shooterRoom, offset, 7, '#');
+      setAdventureCell(shooterRoom, 3, offset, '#');
+      setAdventureCell(shooterRoom, 7, offset, '#');
+    }
+
+    const entranceRoom = dungeon.rooms.find((room) => room.id === 'belfry')!;
+    setAdventureCell(entranceRoom, 15, 13, '#');
+
+    const interactionRoom = dungeon.rooms.find((room) => room.id === 'gallery')!;
+    const key = interactionRoom.entities.find((entity) => entity.type === 'key')!;
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+    ] as const) {
+      setAdventureCell(interactionRoom, key.x + dx, key.y + dy, '#');
+    }
+
+    const clusteredRoom = dungeon.rooms.find((room) => room.id === 'ossuary')!;
+    clusteredRoom.entities.forEach((entity, index) => {
+      entity.x = 14 + (index % 2);
+      entity.y = 7 + Math.floor(index / 2);
+    });
+
+    input.boss.phases = [
+      { pattern: 'charge', tempo: 1 },
+      { pattern: 'teleport', tempo: 1 },
+      { pattern: 'summon', tempo: 1 },
+    ];
+    const bossRoom = dungeon.rooms.find((room) => room.id === dungeon.bossRoom)!;
+    bossRoom.tiles = bossRoom.tiles.map((row, y) =>
+      y === 0 || y === bossRoom.tiles.length - 1
+        ? '#'.repeat(row.length)
+        : `#${'#'.repeat(row.length - 2)}#`,
+    );
+
+    const result = normalizeGeneratedSpec(input);
+    const relevantErrors = lintAdventure(result.spec as AdventureSpec).filter((error) =>
+      [
+        'ADV_DOOR_REACTION_BLOCKED',
+        'ADV_DOOR_SPAWN_CAMP',
+        'ADV_INTERACTION_SPACE',
+        'ADV_INTERACTION_THREAT',
+        'ADV_SHOOTER_NO_LANE',
+        'ADV_ENCOUNTER_CLUSTERED',
+        'ADV_BOSS_DODGE_ROUTE',
+        'ADV_BOSS_CHARGE_LANE',
+        'ADV_BOSS_TELEPORT_SPACE',
+        'ADV_BOSS_SUMMON_SPACE',
+      ].includes(error.code),
+    );
+
+    expect(relevantErrors).toEqual([]);
+    expect(result.fixes.map((fix) => fix.code)).toEqual(
+      expect.arrayContaining([
+        'ADVENTURE_DOOR_REACTION_SPACE',
+        'ADVENTURE_INTERACTION_SPACE',
+        'ADVENTURE_SHOOTER_LANE',
+        'ADVENTURE_ENCOUNTER_SPREAD',
+        'ADVENTURE_BOSS_ARENA_SPACE',
+      ]),
+    );
   });
 
   it('sorts/clamps shooter events and enforces active-entity/bullet budgets', () => {

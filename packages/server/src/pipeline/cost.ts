@@ -51,6 +51,8 @@ export function estimateGenerationCost(
     adventurePlayerIdentityJudge?: boolean;
     adventurePlayerSetJudge?: boolean;
     adventureBossJudge?: boolean;
+    adventureEnemyJudge?: boolean;
+    adventureObjectJudge?: boolean;
   } = {},
 ): number | null {
   const price = snapshot[model];
@@ -87,6 +89,12 @@ export function estimateGenerationCost(
     ...(options.adventureBossJudge
       ? [{ input: 1800, output: 1000 }] // one four-candidate story-art-derived boss board
       : []),
+    ...(options.adventureEnemyJudge
+      ? [{ input: 2400, output: 2600 }] // one ten-candidate board selects a coherent five-role cast
+      : []),
+    ...(options.adventureObjectJudge
+      ? [{ input: 2100, output: 2200 }] // one eight-candidate board selects four themed gameplay objects
+      : []),
   ];
   let total = 0;
   for (const u of typical)
@@ -106,9 +114,10 @@ export function estimateImageCount(hasPhoto: boolean, archetype?: ArchetypeId): 
   if (archetype === 'platformer') return hasPhoto ? 40 : 38;
   if (archetype === 'fighter') return hasPhoto ? 33 : 31;
   // Adventure adds three identity candidates, two six-pose sheets, and one
-  // four-candidate boss board. With a photo, a successful full player set
+  // four-candidate boss board, one ten-candidate enemy-cast board, and one
+  // eight-candidate themed-object board. With a photo, a successful full player set
   // replaces the three legacy head calls.
-  if (archetype === 'adventure') return hasPhoto ? 14 : 12;
+  if (archetype === 'adventure') return hasPhoto ? 16 : 14;
   // Both shooter orientations select from three locally validated craft
   // candidates. H-scroll additionally authors four stage panoramas and three
   // story-art-derived boss candidates, and one ten-candidate enemy-cast board.

@@ -728,6 +728,70 @@ describe('adventure lints (key/lock topology)', () => {
 
     expect(codes(archetypes.adventure.lint(spec))).toContain('ADV_SWITCH_UNSOLVABLE');
   });
+
+  it('protects door reaction zones and interaction spaces from immediate threats', () => {
+    const spec = golden<AdventureSpec>('adventure');
+    const room = spec.levels[0]!.rooms.find((candidate) => candidate.id === 'gallery')!;
+    const key = room.entities.find((entity) => entity.type === 'key')!;
+    const walker = room.entities.find((entity) => entity.type === 'chaser')!;
+    walker.x = key.x + 1;
+    walker.y = key.y;
+    setAdventureCell(room, 15, 2, '#');
+    room.entities.find((entity) => entity.type === 'shooter')!.x = 15;
+    room.entities.find((entity) => entity.type === 'shooter')!.y = 2;
+
+    const errs = codes(archetypes.adventure.lint(spec));
+    expect(errs).toContain('ADV_DOOR_REACTION_BLOCKED');
+    expect(errs).toContain('ADV_DOOR_SPAWN_CAMP');
+    expect(errs).toContain('ADV_INTERACTION_THREAT');
+  });
+
+  it('requires shooters to have a real firing lane and lateral dodge space', () => {
+    const spec = golden<AdventureSpec>('adventure');
+    const room = spec.levels[0]!.rooms.find((candidate) => candidate.id === 'cistern')!;
+    const shooter = room.entities.find((entity) => entity.type === 'shooter')!;
+    room.tiles = room.tiles.map((row, y) =>
+      y === 0 || y === room.tiles.length - 1
+        ? '#'.repeat(row.length)
+        : `#${'#'.repeat(row.length - 2)}#`,
+    );
+    setAdventureCell(room, shooter.x, shooter.y, '.');
+
+    expect(codes(archetypes.adventure.lint(spec))).toContain('ADV_SHOOTER_NO_LANE');
+  });
+
+  it('rejects encounters clustered into a small part of the expanded room', () => {
+    const spec = golden<AdventureSpec>('adventure');
+    const room = spec.levels[0]!.rooms.find((candidate) => candidate.id === 'ossuary')!;
+    room.entities.forEach((entity, index) => {
+      entity.x = 14 + (index % 2);
+      entity.y = 7 + Math.floor(index / 2);
+    });
+
+    expect(codes(archetypes.adventure.lint(spec))).toContain('ADV_ENCOUNTER_CLUSTERED');
+  });
+
+  it('reserves pattern-specific boss lanes, pads, and a connected dodge loop', () => {
+    const spec = golden<AdventureSpec>('adventure');
+    const dungeon = spec.levels[0]!;
+    const room = dungeon.rooms.find((candidate) => candidate.id === dungeon.bossRoom)!;
+    spec.boss.phases = [
+      { pattern: 'charge', tempo: 1 },
+      { pattern: 'teleport', tempo: 1 },
+      { pattern: 'summon', tempo: 1 },
+    ];
+    room.tiles = room.tiles.map((row, y) =>
+      y === 0 || y === room.tiles.length - 1
+        ? '#'.repeat(row.length)
+        : `#${'#'.repeat(row.length - 2)}#`,
+    );
+
+    const errs = codes(archetypes.adventure.lint(spec));
+    expect(errs).toContain('ADV_BOSS_DODGE_ROUTE');
+    expect(errs).toContain('ADV_BOSS_CHARGE_LANE');
+    expect(errs).toContain('ADV_BOSS_TELEPORT_SPACE');
+    expect(errs).toContain('ADV_BOSS_SUMMON_SPACE');
+  });
 });
 
 describe('duration estimators', () => {

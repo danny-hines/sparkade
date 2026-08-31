@@ -171,24 +171,37 @@ shadow, and renders a 48×56 visual over the unchanged 24×24 collider and exist
 
 ## Generated enemy cast
 
-- Generate a coherent five-role cast: `walker`, `flyer`, `shooter`, `chaser`, and `bruiser`.
+Status: implemented. New Adventure games make one Muse Image call for a fixed 4×3 board containing
+two candidates for each of `walker`, `flyer`, `shooter`, `chaser`, and `bruiser` (with the final two
+cells deliberately empty). The server segments and validates all ten cells locally, then Spark
+selects the strongest coherent five-role combination over mixed-floor previews. The final five
+96×96 transparent sources are packed into one atomic atlas. Retry checkpoints preserve a paid,
+valid board through later review failures; a board missing both candidates for any role is discarded
+so the next job retry paints a fresh board. New Adventure games require the complete generated atlas
+and never mix generated enemies with library fallbacks.
+
 - Use top-down three-quarter silhouettes that communicate behavior without requiring four expensive
   directional turnarounds. Favor direction-neutral creatures and machinery where appropriate.
-- Select candidates as one cast so materials, scale, rendering density, and friend-versus-foe
-  contrast remain coherent. Publish roles independently so one failure does not discard the rest.
-- Keep behavior hitboxes independent from visual bounds and retain library bodies as per-role
-  fallbacks.
+- Keep behavior hitboxes independent from visual bounds; the runtime adds exact-density contours,
+  contact shadows, flyer hover motion, and role-specific display scale without changing mechanics.
 
 ## Themed items, NPCs, and room fixtures
 
-- Generate the signature key, selected secondary item, NPC, and highest-value projectile or effect
-  roles after the larger cast is proven. A premise-specific key or relic contributes more identity
-  than replacing a universal heart icon.
+Status: first generated-object slice implemented. New Adventure games make one Muse Image call for
+a fixed 3×3 board containing two candidates each for the signature key, collectible secondary item,
+friendly NPC, and active secondary projectile/returning object/placed charge. Spark selects one
+coherent, gameplay-readable candidate per role over mixed-floor previews, then the server publishes
+one required 384×112 atomic atlas. A private board checkpoint lets retries resume review without
+repainting; a board missing both candidates for any required role is discarded before a fresh job
+retry. The runtime uses the generated set for pickups, interaction, shots, returning equipment, and
+placed explosives while keeping all collection, collision, timing, and damage mechanics unchanged.
+
 - Expand each checked-in terrain family with multiple deterministic floor details, wall fixtures,
   low decorations, and tall decorations. Decoration selection must remain cosmetic and must not
   obscure doors, switches, pickups, hazards, or combat telegraphs.
 - Use generated key art as style direction for per-game props while retaining strict isolated-asset
-  processing and independent fallbacks.
+  processing. The universal heart remains library art; the four themed roles no longer use legacy
+  visual fallbacks in newly generated games.
 
 ## Rooms, progression, and environment variety
 
@@ -211,7 +224,7 @@ longer draws the old procedural backdrop around generated room plates.
 
 ## Combat, puzzles, and encounter quality
 
-Status: the first two playability slices are implemented. The design pass now authors a required
+Status: the first three playability slices are implemented. The design pass now authors a required
 story-specific combat kit instead of assuming fantasy gear: the always-available B attack maps to
 one of three bounded engine profiles (`close`, `sweep`, or `reach`), while the collectible Y item
 maps to `shot`, `returning`, or `blast`. Names and visual concepts carry the premise—wrench, whip,
@@ -227,6 +240,16 @@ decorative: they retract all room hazards only while every plate is held, genera
 hazards plus at least one pushable block per plate, and a bounded Sokoban search proves there is a
 safe legal sequence of player movement and block pushes that completes the room. Runtime feedback
 reports plate progress and hazard retraction/rearming.
+
+Encounter-space validation now uses the runtime's actual collision and projectile rules. Every
+door owns a calm four-by-three-cell interior reaction zone; keys, item pedestals, and NPCs require a
+hazard-free route plus three clear approach sides; enemies cannot start in either reserve. Shooters
+must have an unobstructed six-cell firing ray to reachable player space with a lateral dodge cell,
+and rooms with three or more enemies must use at least ten cells of spatial span. The boss room
+reserves a connected two-cell-wide outer dodge loop and central cross, then adds clear charge lanes,
+four separated teleport pads, or two summon pads when its authored phases require them. The
+normalizer deterministically clears these terrain reserves and relocates conflicting entities before
+the lint/repair loop spends another model call.
 
 - Add explicit line-of-sight and projectile-clearance checks for shooter placement.
 - Validate free space for boss charge lanes, teleport destinations, summon points, and the player's
@@ -246,6 +269,8 @@ reports plate progress and hazard retraction/rearming.
 4. Expand rooms to 32×16, remove the old backdrop surround, and retain room plates at physical
    display density. Done.
 5. Generated finale boss from boss story art. Done.
-6. Generated five-role enemy cast.
-7. Themed key, item, NPC, and selected projectile art.
+6. Generated five-role enemy cast. Done.
+7. Themed key, item, NPC, and selected projectile art. Done.
 8. Room zones, stronger puzzle proofs, encounter-space validation, and broader gameplay vocabulary.
+   Encounter-space validation and deterministic repair done; room-role presentation and broader
+   enemy traits remain.

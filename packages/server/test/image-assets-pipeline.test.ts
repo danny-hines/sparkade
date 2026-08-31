@@ -125,6 +125,14 @@ const ADVENTURE_ROOM_PLATE_ROLES = [
 
 const ADVENTURE_BOSS_ROLES = ['adventureBoss'] as const satisfies readonly GeneratedGameAssetRole[];
 
+const ADVENTURE_ENEMY_ROLES = [
+  'adventureEnemyAtlas',
+] as const satisfies readonly GeneratedGameAssetRole[];
+
+const ADVENTURE_OBJECT_ROLES = [
+  'adventureObjectAtlas',
+] as const satisfies readonly GeneratedGameAssetRole[];
+
 const ADVENTURE_PLAYER_ROLES = [
   'adventurePlayerDownIdle',
   'adventurePlayerDownWalk',
@@ -396,10 +404,22 @@ describe.sequential('mock image asset pipeline', () => {
       mode: 'generated',
       attempted: true,
     });
+    expect(files.readMeta(gameId)?.adventureEnemyArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+      roles: ['walker', 'flyer', 'shooter', 'chaser', 'bruiser'],
+    });
+    expect(files.readMeta(gameId)?.adventureObjectArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+      roles: ['key', 'item', 'npc', 'secondaryEffect'],
+    });
     await expectPublishedPngs(files, gameId, [
       ...PRESENTATION_ROLES,
       ...ADVENTURE_ROOM_PLATE_ROLES,
       ...ADVENTURE_BOSS_ROLES,
+      ...ADVENTURE_ENEMY_ROLES,
+      ...ADVENTURE_OBJECT_ROLES,
       ...ADVENTURE_PLAYER_ROLES,
     ]);
     expect(
@@ -420,11 +440,23 @@ describe.sequential('mock image asset pipeline', () => {
       width: 192,
       height: 224,
     });
+    expect(
+      generatedAssetForRole(join(files.gameDir(gameId), 'assets'), 'adventureEnemyAtlas'),
+    ).toMatchObject({
+      width: 480,
+      height: 96,
+    });
+    expect(
+      generatedAssetForRole(join(files.gameDir(gameId), 'assets'), 'adventureObjectAtlas'),
+    ).toMatchObject({
+      width: 384,
+      height: 112,
+    });
     const successfulImageStages = db
       .usageForGame(gameId)
       .filter((event) => event.stage.startsWith('image:') && !event.failed)
       .map(({ stage }) => stage);
-    expect(successfulImageStages).toHaveLength(12);
+    expect(successfulImageStages).toHaveLength(14);
     expect(
       successfulImageStages.filter((stage) => stage.includes('adventure-boss-board')),
     ).toHaveLength(1);
@@ -434,6 +466,12 @@ describe.sequential('mock image asset pipeline', () => {
     expect(
       successfulImageStages.filter((stage) => stage.includes('adventure-player-sheet-')),
     ).toHaveLength(2);
+    expect(
+      successfulImageStages.filter((stage) => stage.includes('adventure-enemy-board')),
+    ).toHaveLength(1);
+    expect(
+      successfulImageStages.filter((stage) => stage.includes('adventure-object-board')),
+    ).toHaveLength(1);
     expect(
       successfulImageStages.some((stage) => stage.includes('adventure-player-downWalk-')),
     ).toBe(false);
@@ -459,6 +497,8 @@ describe.sequential('mock image asset pipeline', () => {
       ...PORTRAIT_ROLES,
       ...ADVENTURE_ROOM_PLATE_ROLES,
       ...ADVENTURE_BOSS_ROLES,
+      ...ADVENTURE_ENEMY_ROLES,
+      ...ADVENTURE_OBJECT_ROLES,
       ...ADVENTURE_PLAYER_ROLES,
     ]);
     const manifest = readGameAssetManifest(join(files.gameDir(gameId), 'assets'))!;
@@ -469,7 +509,7 @@ describe.sequential('mock image asset pipeline', () => {
       .usageForGame(gameId)
       .filter((event) => event.stage.startsWith('image:') && !event.failed)
       .map(({ stage }) => stage);
-    expect(successfulImageStages).toHaveLength(14);
+    expect(successfulImageStages).toHaveLength(16);
     expect(
       successfulImageStages.filter((stage) => stage.includes('adventure-player-sheet-')),
     ).toHaveLength(2);

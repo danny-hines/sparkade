@@ -205,6 +205,41 @@ import {
   type AdventureBossCandidate,
 } from '../assets/adventure-boss';
 import {
+  ADVENTURE_ENEMY_ATLAS_ROLE,
+  ADVENTURE_ENEMY_BOARD_PROMPT_VERSION,
+  ADVENTURE_ENEMY_JUDGE_PROMPT_VERSION,
+  ADVENTURE_ENEMY_PIPELINE_PROMPT_VERSION,
+  GENERATED_ADVENTURE_ENEMIES,
+  bestAdventureEnemyCandidateId,
+  buildAdventureEnemyBoardPrompt,
+  buildAdventureEnemyJudgeBoard,
+  buildAdventureEnemyJudgePrompt,
+  buildAdventureEnemyJudgeSchema,
+  buildGeneratedAdventureEnemyAtlas,
+  normalizeAdventureEnemyJudgeDecision,
+  splitGeneratedAdventureEnemyBoard,
+  validateGeneratedAdventureEnemyAtlas,
+  type GeneratedAdventureEnemy,
+} from '../assets/adventure-enemy';
+import {
+  ADVENTURE_OBJECT_ATLAS_ROLE,
+  ADVENTURE_OBJECT_BOARD_PROMPT_VERSION,
+  ADVENTURE_OBJECT_JUDGE_PROMPT_VERSION,
+  ADVENTURE_OBJECT_PIPELINE_PROMPT_VERSION,
+  GENERATED_ADVENTURE_OBJECTS,
+  bestAdventureObjectCandidateId,
+  buildAdventureObjectBoardPrompt,
+  buildAdventureObjectJudgeBoard,
+  buildAdventureObjectJudgePrompt,
+  buildAdventureObjectJudgeSchema,
+  buildGeneratedAdventureObjectAtlas,
+  normalizeAdventureObjectJudgeDecision,
+  splitGeneratedAdventureObjectBoard,
+  validateGeneratedAdventureObjectAtlas,
+  type AdventureObjectPromptOptions,
+  type GeneratedAdventureObject,
+} from '../assets/adventure-object';
+import {
   ADVENTURE_PLAYER_PIPELINE_PROMPT_VERSION,
   ADVENTURE_PLAYER_POSE_PROMPT_VERSION,
   GENERATED_ADVENTURE_PLAYER_POSES,
@@ -3216,6 +3251,396 @@ export class GenerationRunner {
             })
           : Promise.resolve();
 
+      let adventureEnemyArtStatus: GameMetaFile['adventureEnemyArt'];
+      const adventureEnemyTask =
+        spec.archetype === 'adventure'
+          ? keyArtTask.then(async (keyArt): Promise<void> => {
+              const colors = spec.palette
+                .filter((hex) => {
+                  const r = Number.parseInt(hex.slice(1, 3), 16);
+                  const g = Number.parseInt(hex.slice(3, 5), 16);
+                  const b = Number.parseInt(hex.slice(5, 7), 16);
+                  return !(g > r * 1.15 && g > b * 1.15);
+                })
+                .join(', ');
+              const fallbackConcepts: Record<GeneratedAdventureEnemy, string> = {
+                walker: 'a grounded patrol enemy native to this world',
+                flyer: 'an airborne nuisance native to this world',
+                shooter: 'a premise-specific ranged attacker',
+                chaser: 'a fast aggressive pursuer',
+                bruiser: 'a large armored or physically powerful elite enemy',
+              };
+              const concepts = Object.fromEntries(
+                GENERATED_ADVENTURE_ENEMIES.map((role) => [
+                  role,
+                  design.cast.find((member) => member.role === role)?.concept ??
+                    fallbackConcepts[role],
+                ]),
+              ) as Record<GeneratedAdventureEnemy, string>;
+              const boardPrompt = buildAdventureEnemyBoardPrompt({
+                gameTitle: spec.meta.title,
+                tagline: spec.meta.tagline,
+                concepts,
+                colors,
+              });
+              const pipelineFingerprint = JSON.stringify({
+                promptVersions: {
+                  board: ADVENTURE_ENEMY_BOARD_PROMPT_VERSION,
+                  judge: ADVENTURE_ENEMY_JUDGE_PROMPT_VERSION,
+                },
+                concepts,
+                colors,
+              });
+              const pipelineSha = imagePromptHash(pipelineFingerprint, keyArt);
+              const cached = assetWorkspace.load(
+                ADVENTURE_ENEMY_ATLAS_ROLE,
+                ADVENTURE_ENEMY_PIPELINE_PROMPT_VERSION,
+                pipelineSha,
+              );
+              if (cached) {
+                try {
+                  await validateGeneratedAdventureEnemyAtlas(cached);
+                  adventureEnemyArtStatus = {
+                    mode: 'generated',
+                    attempted: true,
+                    roles: [...GENERATED_ADVENTURE_ENEMIES],
+                  };
+                  emit('building-assets', 'Restored the generated Adventure enemy cast');
+                  return;
+                } catch {
+                  await assetWorkspace.discard([ADVENTURE_ENEMY_ATLAS_ROLE]);
+                }
+              }
+
+              try {
+                let rawBoard = assetWorkspace.loadPrivate(
+                  'adventureEnemyBoard',
+                  ADVENTURE_ENEMY_BOARD_PROMPT_VERSION,
+                  pipelineSha,
+                );
+                if (rawBoard) {
+                  emit('building-assets', 'Resuming the Adventure enemy cast review');
+                } else {
+                  emit(
+                    'building-assets',
+                    'Painting two candidates for all five Adventure enemies in one board…',
+                  );
+                  rawBoard = await callImage({
+                    role: 'adventure-enemy-board',
+                    label: 'Adventure enemy candidate board',
+                    prompt: boardPrompt,
+                    reference: keyArt,
+                    size: '1024x1024',
+                  });
+                  await assetWorkspace.storePrivate(
+                    'adventureEnemyBoard',
+                    rawBoard,
+                    ADVENTURE_ENEMY_BOARD_PROMPT_VERSION,
+                    pipelineSha,
+                  );
+                }
+
+                const split = await splitGeneratedAdventureEnemyBoard(rawBoard);
+                split.failures.forEach(({ id }) =>
+                  validationFailure(`adventure-enemy-board-${id}`),
+                );
+                const missingRoles = GENERATED_ADVENTURE_ENEMIES.filter(
+                  (role) => !split.candidates.some((candidate) => candidate.role === role),
+                );
+                if (missingRoles.length) {
+                  await assetWorkspace.discardPrivate('adventureEnemyBoard');
+                  throw new PipelineError(
+                    'image-invalid',
+                    `Adventure enemy board had no usable candidate for ${missingRoles.join(', ')}`,
+                    'building-assets',
+                  );
+                }
+
+                const descriptors = split.candidates.map(({ id, role }) => ({ id, role }));
+                const reviewBoard = await buildAdventureEnemyJudgeBoard({
+                  keyArt,
+                  candidates: split.candidates,
+                });
+                const mockDecision = {
+                  candidateReviews: descriptors.map(({ id, role }) => ({
+                    id,
+                    role,
+                    scores: {
+                      conceptMatch: 5,
+                      castCohesion: 5,
+                      silhouette: 5,
+                      roleReadability: 5,
+                      technical: 5,
+                    },
+                    issues: [],
+                    summary: 'Mock coherent Adventure enemy candidate.',
+                  })),
+                  selections: GENERATED_ADVENTURE_ENEMIES.map((role) => ({
+                    role,
+                    candidateId: descriptors.find((candidate) => candidate.role === role)!.id,
+                    confidence: 1,
+                    rationale: 'Mock selection.',
+                  })),
+                  castSummary: 'Mock coherent cast.',
+                };
+                let rawDecision: unknown = mockDecision;
+                if (!mockImages) {
+                  rawDecision = await callLlm(
+                    'design',
+                    {
+                      ...buildAdventureEnemyJudgePrompt(descriptors, concepts),
+                      jsonSchema: buildAdventureEnemyJudgeSchema(descriptors),
+                      maxTokens: 2800,
+                      timeoutMs: 120_000,
+                    },
+                    {
+                      stage: 'building-assets',
+                      label: 'Spark selected the Adventure enemy cast',
+                      image: reviewBoard,
+                      reasoningEffort: 'low',
+                    },
+                  );
+                }
+                const decision = normalizeAdventureEnemyJudgeDecision(rawDecision, descriptors);
+                const selected = Object.fromEntries(
+                  GENERATED_ADVENTURE_ENEMIES.map((role) => {
+                    const requested = decision.selections.find(
+                      (selection) => selection.role === role,
+                    )?.candidateId;
+                    const id =
+                      requested ?? bestAdventureEnemyCandidateId(role, decision) ?? undefined;
+                    const candidate = split.candidates.find(
+                      (entry) => entry.role === role && entry.id === id,
+                    );
+                    if (!candidate) {
+                      throw new Error(`Spark did not select a valid ${role} candidate`);
+                    }
+                    return [role, candidate.png];
+                  }),
+                ) as Record<GeneratedAdventureEnemy, Buffer>;
+                const atlas = await buildGeneratedAdventureEnemyAtlas(selected);
+                await assetWorkspace.store(
+                  ADVENTURE_ENEMY_ATLAS_ROLE,
+                  atlas,
+                  ADVENTURE_ENEMY_PIPELINE_PROMPT_VERSION,
+                  pipelineSha,
+                );
+                await assetWorkspace.discardPrivate('adventureEnemyBoard');
+                adventureEnemyArtStatus = {
+                  mode: 'generated',
+                  attempted: true,
+                  roles: [...GENERATED_ADVENTURE_ENEMIES],
+                };
+                emit('building-assets', 'Finished the generated Adventure enemy cast');
+              } catch (error) {
+                if (
+                  abort.signal.aborted ||
+                  error instanceof PipelineError ||
+                  error instanceof GeneratedAssetStorageError
+                ) {
+                  throw error;
+                }
+                throw new PipelineError(
+                  'image-invalid',
+                  `Adventure enemy cast failed validation: ${error instanceof Error ? error.message.slice(0, 240) : String(error).slice(0, 240)}`,
+                  'building-assets',
+                );
+              }
+            })
+          : Promise.resolve();
+
+      let adventureObjectArtStatus: GameMetaFile['adventureObjectArt'];
+      const adventureObjectTask =
+        spec.archetype === 'adventure'
+          ? keyArtTask.then(async (keyArt): Promise<void> => {
+              const colors = spec.palette
+                .filter((hex) => {
+                  const r = Number.parseInt(hex.slice(1, 3), 16);
+                  const g = Number.parseInt(hex.slice(3, 5), 16);
+                  const b = Number.parseInt(hex.slice(5, 7), 16);
+                  return !(g > r * 1.15 && g > b * 1.15);
+                })
+                .join(', ');
+              const promptOptions: AdventureObjectPromptOptions = {
+                gameTitle: spec.meta.title,
+                tagline: spec.meta.tagline,
+                keyConcept:
+                  design.cast.find((member) => member.role === 'key')?.concept ??
+                  `a signature gate-opening relic or credential specific to ${spec.meta.title}`,
+                itemName: spec.combatKit.secondary.name,
+                itemConcept: spec.combatKit.secondary.visualConcept,
+                npcConcept:
+                  design.cast.find((member) => member.role === 'npc')?.concept ??
+                  'a friendly guide, keeper, survivor, technician, or witness native to this world',
+                secondaryBehavior: spec.combatKit.secondary.behavior,
+                colors,
+              };
+              const boardPrompt = buildAdventureObjectBoardPrompt(promptOptions);
+              const pipelineFingerprint = JSON.stringify({
+                promptVersions: {
+                  board: ADVENTURE_OBJECT_BOARD_PROMPT_VERSION,
+                  judge: ADVENTURE_OBJECT_JUDGE_PROMPT_VERSION,
+                },
+                promptOptions,
+              });
+              const pipelineSha = imagePromptHash(pipelineFingerprint, keyArt);
+              const cached = assetWorkspace.load(
+                ADVENTURE_OBJECT_ATLAS_ROLE,
+                ADVENTURE_OBJECT_PIPELINE_PROMPT_VERSION,
+                pipelineSha,
+              );
+              if (cached) {
+                try {
+                  await validateGeneratedAdventureObjectAtlas(cached);
+                  adventureObjectArtStatus = {
+                    mode: 'generated',
+                    attempted: true,
+                    roles: [...GENERATED_ADVENTURE_OBJECTS],
+                  };
+                  emit('building-assets', 'Restored the themed Adventure gameplay objects');
+                  return;
+                } catch {
+                  await assetWorkspace.discard([ADVENTURE_OBJECT_ATLAS_ROLE]);
+                }
+              }
+
+              try {
+                let rawBoard = assetWorkspace.loadPrivate(
+                  'adventureObjectBoard',
+                  ADVENTURE_OBJECT_BOARD_PROMPT_VERSION,
+                  pipelineSha,
+                );
+                if (rawBoard) {
+                  emit('building-assets', 'Resuming the Adventure gameplay-object review');
+                } else {
+                  emit(
+                    'building-assets',
+                    'Painting themed keys, equipment, NPCs, and active-item candidates in one board…',
+                  );
+                  rawBoard = await callImage({
+                    role: 'adventure-object-board',
+                    label: 'Adventure themed gameplay-object board',
+                    prompt: boardPrompt,
+                    reference: keyArt,
+                    size: '1024x1024',
+                  });
+                  await assetWorkspace.storePrivate(
+                    'adventureObjectBoard',
+                    rawBoard,
+                    ADVENTURE_OBJECT_BOARD_PROMPT_VERSION,
+                    pipelineSha,
+                  );
+                }
+
+                const split = await splitGeneratedAdventureObjectBoard(rawBoard);
+                split.failures.forEach(({ id }) =>
+                  validationFailure(`adventure-object-board-${id}`),
+                );
+                const missingRoles = GENERATED_ADVENTURE_OBJECTS.filter(
+                  (role) => !split.candidates.some((candidate) => candidate.role === role),
+                );
+                if (missingRoles.length) {
+                  await assetWorkspace.discardPrivate('adventureObjectBoard');
+                  throw new PipelineError(
+                    'image-invalid',
+                    `Adventure gameplay-object board had no usable candidate for ${missingRoles.join(', ')}`,
+                    'building-assets',
+                  );
+                }
+
+                const descriptors = split.candidates.map(({ id, role }) => ({ id, role }));
+                const reviewBoard = await buildAdventureObjectJudgeBoard({
+                  keyArt,
+                  candidates: split.candidates,
+                });
+                const mockDecision = {
+                  candidateReviews: descriptors.map(({ id, role }) => ({
+                    id,
+                    role,
+                    scores: {
+                      conceptMatch: 5,
+                      worldStyle: 5,
+                      silhouette: 5,
+                      gameplayReadability: 5,
+                      technical: 5,
+                    },
+                    issues: [],
+                    summary: 'Mock themed Adventure gameplay object.',
+                  })),
+                  selections: GENERATED_ADVENTURE_OBJECTS.map((role) => ({
+                    role,
+                    candidateId: descriptors.find((candidate) => candidate.role === role)!.id,
+                    confidence: 1,
+                    rationale: 'Mock selection.',
+                  })),
+                  setSummary: 'Mock coherent gameplay-object set.',
+                };
+                let rawDecision: unknown = mockDecision;
+                if (!mockImages) {
+                  rawDecision = await callLlm(
+                    'design',
+                    {
+                      ...buildAdventureObjectJudgePrompt(descriptors, promptOptions),
+                      jsonSchema: buildAdventureObjectJudgeSchema(descriptors),
+                      maxTokens: 2400,
+                      timeoutMs: 120_000,
+                    },
+                    {
+                      stage: 'building-assets',
+                      label: 'Spark selected the themed Adventure gameplay objects',
+                      image: reviewBoard,
+                      reasoningEffort: 'low',
+                    },
+                  );
+                }
+                const decision = normalizeAdventureObjectJudgeDecision(rawDecision, descriptors);
+                const selected = Object.fromEntries(
+                  GENERATED_ADVENTURE_OBJECTS.map((role) => {
+                    const requested = decision.selections.find(
+                      (selection) => selection.role === role,
+                    )?.candidateId;
+                    const id =
+                      requested ?? bestAdventureObjectCandidateId(role, decision) ?? undefined;
+                    const candidate = split.candidates.find(
+                      (entry) => entry.role === role && entry.id === id,
+                    );
+                    if (!candidate) {
+                      throw new Error(`Spark did not select a valid ${role} candidate`);
+                    }
+                    return [role, candidate.png];
+                  }),
+                ) as Record<GeneratedAdventureObject, Buffer>;
+                const atlas = await buildGeneratedAdventureObjectAtlas(selected);
+                await assetWorkspace.store(
+                  ADVENTURE_OBJECT_ATLAS_ROLE,
+                  atlas,
+                  ADVENTURE_OBJECT_PIPELINE_PROMPT_VERSION,
+                  pipelineSha,
+                );
+                await assetWorkspace.discardPrivate('adventureObjectBoard');
+                adventureObjectArtStatus = {
+                  mode: 'generated',
+                  attempted: true,
+                  roles: [...GENERATED_ADVENTURE_OBJECTS],
+                };
+                emit('building-assets', 'Finished the themed Adventure gameplay objects');
+              } catch (error) {
+                if (
+                  abort.signal.aborted ||
+                  error instanceof PipelineError ||
+                  error instanceof GeneratedAssetStorageError
+                ) {
+                  throw error;
+                }
+                throw new PipelineError(
+                  'image-invalid',
+                  `Adventure gameplay-object set failed validation: ${error instanceof Error ? error.message.slice(0, 240) : String(error).slice(0, 240)}`,
+                  'building-assets',
+                );
+              }
+            })
+          : Promise.resolve();
+
       let adventureBossArtStatus: GameMetaFile['adventureBossArt'] =
         spec.archetype === 'adventure'
           ? {
@@ -5615,6 +6040,8 @@ export class GenerationRunner {
         hshooterBossTask,
         hshooterEnemyTask,
         adventureRoomPlateTask,
+        adventureEnemyTask,
+        adventureObjectTask,
         adventureBossTask,
         platformerBossTask,
         platformerEnemyTask,
@@ -5676,6 +6103,8 @@ export class GenerationRunner {
           : {}),
         ...(adventurePlayerArtStatus ? { adventurePlayerArt: adventurePlayerArtStatus } : {}),
         ...(adventureBossArtStatus ? { adventureBossArt: adventureBossArtStatus } : {}),
+        ...(adventureEnemyArtStatus ? { adventureEnemyArt: adventureEnemyArtStatus } : {}),
+        ...(adventureObjectArtStatus ? { adventureObjectArt: adventureObjectArtStatus } : {}),
         ...(hshooterPlayerCraftArtStatus
           ? { hshooterPlayerCraftArt: hshooterPlayerCraftArtStatus }
           : {}),

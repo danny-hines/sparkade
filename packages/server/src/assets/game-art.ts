@@ -2,6 +2,16 @@ import sharp from 'sharp';
 import { FIGHTER_POSES, type FighterPose, type GameSpec } from '@sparkade/shared';
 import { fighterArtDirectionPrompt } from './fighter-art-direction';
 import {
+  ADVENTURE_ENEMY_BOARD_SIZE,
+  GENERATED_ADVENTURE_ENEMIES,
+  adventureEnemyBoardCellRect,
+} from './adventure-enemy';
+import {
+  ADVENTURE_OBJECT_BOARD_SIZE,
+  GENERATED_ADVENTURE_OBJECTS,
+  adventureObjectCellRect,
+} from './adventure-object';
+import {
   GENERATED_HSHOOTER_ENEMIES,
   HSHOOTER_ENEMY_BOARD_SIZE,
   hshooterEnemyBoardCellRect,
@@ -253,8 +263,14 @@ async function normalizeLandscape(image: Buffer, width: number, height: number):
  * provider. It exercises the exact normalization/manifest/runtime path without
  * pretending that a local placeholder came from Muse Image. */
 export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
+  if (prompt.includes('ADVENTURE THEMED OBJECT BOARD CONTRACT')) {
+    return mockGeneratedAdventureObjectBoard();
+  }
   if (prompt.includes('H-SCROLL ENEMY CAST BOARD CONTRACT')) {
     return mockGeneratedHShooterEnemyBoard();
+  }
+  if (prompt.includes('ADVENTURE ENEMY CAST BOARD CONTRACT')) {
+    return mockGeneratedAdventureEnemyBoard();
   }
   if (prompt.includes('ADVENTURE BOSS CANDIDATE BOARD CONTRACT')) {
     return mockGeneratedAdventureBossBoard();
@@ -321,6 +337,74 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
     }
   }
   return sharp(raw, { raw: { width, height, channels: 4 } })
+    .png()
+    .toBuffer();
+}
+
+async function mockGeneratedAdventureObjectBoard(): Promise<Buffer> {
+  const cells = await Promise.all(
+    GENERATED_ADVENTURE_OBJECTS.flatMap((role) =>
+      [0, 1].map(async (candidateIndex): Promise<sharp.OverlayOptions> => {
+        const index = GENERATED_ADVENTURE_OBJECTS.indexOf(role) * 2 + candidateIndex;
+        const rect = adventureObjectCellRect(index);
+        const image = await mockGeneratedImage(
+          `One isolated top-down adventure-game sprite on #00ff00. ${role} candidate ${candidateIndex + 1}.`,
+        );
+        const input = await sharp(image)
+          .resize(rect.width, rect.height, {
+            fit: 'contain',
+            kernel: sharp.kernel.nearest,
+            background: { r: 0, g: 255, b: 0, alpha: 1 },
+          })
+          .png()
+          .toBuffer();
+        return { input, left: rect.left, top: rect.top };
+      }),
+    ),
+  );
+  return sharp({
+    create: {
+      width: ADVENTURE_OBJECT_BOARD_SIZE,
+      height: ADVENTURE_OBJECT_BOARD_SIZE,
+      channels: 4,
+      background: { r: 0, g: 255, b: 0, alpha: 1 },
+    },
+  })
+    .composite(cells)
+    .png()
+    .toBuffer();
+}
+
+async function mockGeneratedAdventureEnemyBoard(): Promise<Buffer> {
+  const cells = await Promise.all(
+    GENERATED_ADVENTURE_ENEMIES.flatMap((role) =>
+      [0, 1].map(async (candidateIndex): Promise<sharp.OverlayOptions> => {
+        const index = GENERATED_ADVENTURE_ENEMIES.indexOf(role) * 2 + candidateIndex;
+        const rect = adventureEnemyBoardCellRect(index);
+        const image = await mockGeneratedImage(
+          `One isolated top-down adventure-game sprite on #00ff00. ${role} enemy candidate ${candidateIndex + 1}.`,
+        );
+        const input = await sharp(image)
+          .resize(rect.width, rect.height, {
+            fit: 'contain',
+            kernel: sharp.kernel.nearest,
+            background: { r: 0, g: 255, b: 0, alpha: 1 },
+          })
+          .png()
+          .toBuffer();
+        return { input, left: rect.left, top: rect.top };
+      }),
+    ),
+  );
+  return sharp({
+    create: {
+      width: ADVENTURE_ENEMY_BOARD_SIZE,
+      height: ADVENTURE_ENEMY_BOARD_SIZE,
+      channels: 4,
+      background: { r: 0, g: 255, b: 0, alpha: 1 },
+    },
+  })
+    .composite(cells)
     .png()
     .toBuffer();
 }

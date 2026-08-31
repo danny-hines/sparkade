@@ -16,6 +16,8 @@ const PRIVATE_GENERATED_ASSET_FILES = {
   platformerSideReference: '.platformer-player-side-reference.png',
   hshooterCraftReference: '.hshooter-craft-reference.png',
   shooterCraftReference: '.shooter-craft-reference.png',
+  adventureEnemyBoard: '.adventure-enemy-board.png',
+  adventureObjectBoard: '.adventure-object-board.png',
   hshooterEnemyBoard: '.hshooter-enemy-board.png',
   hshooterEnemyReplacementPopcorn: '.hshooter-enemy-replacement-popcorn.png',
   hshooterEnemyReplacementWeaver: '.hshooter-enemy-replacement-weaver.png',

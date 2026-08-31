@@ -453,6 +453,8 @@ export const GENERATED_GAME_ASSET_FILES = {
   hshooterBackdropBoss: 'hshooter-backdrop-boss.png',
   adventureRoomPlates: 'adventure-room-plates.png',
   adventureBoss: 'adventure-boss.png',
+  adventureEnemyAtlas: 'adventure-enemy-atlas.png',
+  adventureObjectAtlas: 'adventure-object-atlas.png',
   adventurePlayerDownIdle: 'adventure-player-down-idle.png',
   adventurePlayerDownWalk: 'adventure-player-down-walk.png',
   adventurePlayerUpIdle: 'adventure-player-up-idle.png',

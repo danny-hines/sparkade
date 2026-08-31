@@ -10,6 +10,8 @@ import {
   LIB_BOSSES_PLATFORMER,
   LIB_HEROES_PLATFORMER,
   LIB_SPRITE_IDS,
+  type AdventureEntity,
+  type AdventureRoom,
   type ArchetypeId,
   type GameSpec,
   type LintError,
@@ -17,10 +19,19 @@ import {
   type SpriteData,
 } from '@sparkade/shared';
 import {
+  ADVENTURE_ENCOUNTER_MIN_SPREAD_CELLS,
+  adventureBossArenaRequirements,
+  adventureCellIsCalmFloor,
+  adventureDoorReactionCells,
+  adventureEnemyEncounterSpread,
+  adventureInteractionCells,
+  adventureInteractionSpaceClear,
   platformerEntityReachabilityIssue,
   reachableCells,
   reconcileDoors,
   safelyReachableRoomCells,
+  adventureRoomTileKind,
+  adventureShooterHasClearLane,
 } from '@sparkade/archetypes';
 
 const ajv = new Ajv2020({ allErrors: true, strict: false });
@@ -486,6 +497,12 @@ export interface NormalizationFix {
     | 'PLATFORMER_ROUTE_FALLBACK'
     | 'ADVENTURE_COORD'
     | 'ADVENTURE_REQUIRED_PICKUP_PATH'
+    | 'ADVENTURE_DOOR_REACTION_SPACE'
+    | 'ADVENTURE_INTERACTION_SPACE'
+    | 'ADVENTURE_ENEMY_REACTION_SPACE'
+    | 'ADVENTURE_SHOOTER_LANE'
+    | 'ADVENTURE_ENCOUNTER_SPREAD'
+    | 'ADVENTURE_BOSS_ARENA_SPACE'
     | 'ADVENTURE_CONTENT'
     | 'ADVENTURE_COMBAT_KIT'
     | 'SHOOTER_TIMING';
@@ -1250,6 +1267,46 @@ function normalizePlatformerContent(out: GameSpec, fixes: NormalizationFix[]): v
   }
 }
 
+function setAdventureFloor(room: AdventureRoom, x: number, y: number): boolean {
+  const row = room.tiles[y];
+  if (row === undefined || x < 0 || x >= row.length) return false;
+  if (adventureRoomTileKind(room, x, y) === 'floor') return false;
+  room.tiles[y] = row.slice(0, x) + '.' + row.slice(x + 1);
+  return true;
+}
+
+function clearAdventureCells(
+  room: AdventureRoom,
+  cells: readonly { x: number; y: number }[],
+): number {
+  let cleared = 0;
+  for (const cell of cells) if (setAdventureFloor(room, cell.x, cell.y)) cleared++;
+  return cleared;
+}
+
+function adventureEntityCellAvailable(
+  room: AdventureRoom,
+  occupied: ReadonlySet<string>,
+  x: number,
+  y: number,
+): boolean {
+  const cell = `${x},${y}`;
+  return !occupied.has(cell) && adventureCellIsCalmFloor(room, x, y);
+}
+
+function moveAdventureEntity(
+  entity: AdventureEntity,
+  destination: { x: number; y: number },
+  occupied: Set<string>,
+): string {
+  const before = `(${entity.x},${entity.y})`;
+  occupied.delete(`${entity.x},${entity.y}`);
+  entity.x = destination.x;
+  entity.y = destination.y;
+  occupied.add(`${entity.x},${entity.y}`);
+  return before;
+}
+
 function normalizeAdventureContent(out: GameSpec, fixes: NormalizationFix[]): void {
   if (out.archetype !== 'adventure') return;
   const dungeon = out.levels[0];
@@ -1265,11 +1322,22 @@ function normalizeAdventureContent(out: GameSpec, fixes: NormalizationFix[]): vo
     );
   }
   const enemyTypes = new Set(['walker', 'flyer', 'shooter', 'chaser', 'bruiser']);
+  const doorsBefore = JSON.stringify(dungeon.rooms.map((room) => room.doors));
+  reconcileDoors(dungeon);
+  if (doorsBefore !== JSON.stringify(dungeon.rooms.map((room) => room.doors))) {
+    addFix(
+      fixes,
+      'ADVENTURE_CONTENT',
+      '/levels/0/rooms',
+      'mirrored adjacent door declarations so both sides agree',
+    );
+  }
   dungeon.rooms.forEach((room, ri) => {
+    const roomPath = `/levels/0/rooms/${ri}`;
     room.tiles = normalizeGrid(
       room.tiles,
       room.legend,
-      `/levels/0/rooms/${ri}/tiles`,
+      `${roomPath}/tiles`,
       ADVENTURE_ROOM_COLUMNS,
       fixes,
       ADVENTURE_ROOM_COLUMNS,
@@ -1277,51 +1345,197 @@ function normalizeAdventureContent(out: GameSpec, fixes: NormalizationFix[]): vo
     const h = room.tiles.length;
     const w = room.tiles[0]?.length ?? 0;
     if (w && h && room.tiles.every((row) => row.length === w)) {
-      const kind = (x: number, y: number): string => {
-        const ch = room.tiles[y]?.[x];
-        return ch === undefined || ch === '.' ? 'floor' : (room.legend[ch] ?? 'floor');
-      };
+      const reactionCells = adventureDoorReactionCells(room);
+      const clearedReaction = clearAdventureCells(room, reactionCells);
+      if (clearedReaction > 0) {
+        addFix(
+          fixes,
+          'ADVENTURE_DOOR_REACTION_SPACE',
+          `${roomPath}/tiles`,
+          `cleared ${clearedReaction} blocking or noisy tile(s) from three-cell-deep doorway reaction space`,
+        );
+      }
+
+      if (room.id === dungeon.bossRoom) {
+        const patterns = out.boss.phases.map((phase) => phase.pattern);
+        const requirements = adventureBossArenaRequirements(room, patterns);
+        const clearedArena = clearAdventureCells(room, requirements.all);
+        if (clearedArena > 0) {
+          addFix(
+            fixes,
+            'ADVENTURE_BOSS_ARENA_SPACE',
+            `${roomPath}/tiles`,
+            `cleared ${clearedArena} tile(s) from the boss dodge loop, pattern lanes, and arrival pads`,
+          );
+        }
+      }
+
       const safelyReachable = safelyReachableRoomCells(room);
       const occupied = new Set(room.entities.map((entity) => `${entity.x},${entity.y}`));
+
+      // First clamp every entity onto an ordinary walkable cell. This gives the
+      // more specific interaction and encounter passes a stable starting point.
       room.entities.forEach((entity, ei) => {
         if (!Number.isFinite(entity.x) || !Number.isFinite(entity.y)) return;
         const origin = { x: Math.round(entity.x), y: Math.round(entity.y) };
         const clamped = {
-          x: Math.max(0, Math.min(w - 1, origin.x)),
-          y: Math.max(0, Math.min(h - 1, origin.y)),
+          x: Math.max(1, Math.min(w - 2, origin.x)),
+          y: Math.max(1, Math.min(h - 2, origin.y)),
         };
-        let replacement =
-          kind(clamped.x, clamped.y) === 'wall' || kind(clamped.x, clamped.y) === 'pit'
-            ? nearestCell(clamped, w, h, (x, y) => kind(x, y) !== 'wall' && kind(x, y) !== 'pit')
-            : clamped;
-        if (
-          replacement &&
-          (entity.type === 'key' || entity.type === 'item') &&
-          !safelyReachable.has(`${replacement.x},${replacement.y}`)
-        ) {
-          replacement = nearestCell(clamped, w, h, (x, y) => {
+        occupied.delete(`${entity.x},${entity.y}`);
+        const replacement = adventureCellIsCalmFloor(room, clamped.x, clamped.y)
+          ? clamped
+          : nearestCell(clamped, w, h, (x, y) =>
+              adventureEntityCellAvailable(room, occupied, x, y),
+            );
+        occupied.add(`${entity.x},${entity.y}`);
+        if (!replacement || (replacement.x === entity.x && replacement.y === entity.y)) return;
+        const before = moveAdventureEntity(entity, replacement, occupied);
+        addFix(
+          fixes,
+          'ADVENTURE_COORD',
+          `${roomPath}/entities/${ei}`,
+          `moved ${entity.type} from ${before} to walkable floor cell (${entity.x},${entity.y})`,
+        );
+      });
+
+      // Keys, the secondary pedestal, and NPCs need a safe route plus several
+      // open approach sides. Prefer relocation; if the authored room has no
+      // suitable pocket, preserve the entity and clear a compact cross around
+      // the nearest safely reachable floor cell.
+      room.entities.forEach((entity, ei) => {
+        if (entity.type !== 'key' && entity.type !== 'item' && entity.type !== 'npc') return;
+        const current = `${entity.x},${entity.y}`;
+        const lackedSafePath = !safelyReachable.has(current);
+        const valid = !lackedSafePath && adventureInteractionSpaceClear(room, entity.x, entity.y);
+        if (valid) return;
+        occupied.delete(current);
+        let replacement = nearestCell(entity, w, h, (x, y) => {
+          const cell = `${x},${y}`;
+          return (
+            safelyReachable.has(cell) &&
+            adventureEntityCellAvailable(room, occupied, x, y) &&
+            adventureInteractionSpaceClear(room, x, y)
+          );
+        });
+        if (!replacement) {
+          replacement = nearestCell(entity, w, h, (x, y) => {
             const cell = `${x},${y}`;
             return (
               safelyReachable.has(cell) &&
-              kind(x, y) === 'floor' &&
-              (cell === `${entity.x},${entity.y}` || !occupied.has(cell))
+              !occupied.has(cell) &&
+              x > 1 &&
+              y > 1 &&
+              x < w - 2 &&
+              y < h - 2
             );
           });
+          if (replacement)
+            clearAdventureCells(room, adventureInteractionCells(replacement.x, replacement.y));
         }
-        if (!replacement || (replacement.x === entity.x && replacement.y === entity.y)) return;
-        const before = `(${entity.x},${entity.y})`;
-        occupied.delete(`${entity.x},${entity.y}`);
-        entity.x = replacement.x;
-        entity.y = replacement.y;
-        occupied.add(`${entity.x},${entity.y}`);
-        const requiredPickup = entity.type === 'key' || entity.type === 'item';
+        occupied.add(current);
+        if (!replacement) return;
+        const before = moveAdventureEntity(entity, replacement, occupied);
         addFix(
           fixes,
-          requiredPickup ? 'ADVENTURE_REQUIRED_PICKUP_PATH' : 'ADVENTURE_COORD',
-          `/levels/0/rooms/${ri}/entities/${ei}`,
-          `moved ${entity.type} from ${before} to ${requiredPickup ? 'safely reachable ' : ''}walkable cell (${entity.x},${entity.y})`,
+          (entity.type === 'key' || entity.type === 'item') && lackedSafePath
+            ? 'ADVENTURE_REQUIRED_PICKUP_PATH'
+            : 'ADVENTURE_INTERACTION_SPACE',
+          `${roomPath}/entities/${ei}`,
+          `moved ${entity.type} from ${before} to safely reachable interaction space (${entity.x},${entity.y})`,
         );
       });
+
+      const reactionSet = new Set(reactionCells.map((cell) => `${cell.x},${cell.y}`));
+      const interactionSet = new Set<string>();
+      for (const entity of room.entities) {
+        if (entity.type !== 'key' && entity.type !== 'item' && entity.type !== 'npc') continue;
+        for (const cell of adventureInteractionCells(entity.x, entity.y)) {
+          interactionSet.add(`${cell.x},${cell.y}`);
+        }
+      }
+
+      // Move threats out of door and interaction reserves, and require every
+      // shooter placement to retain the runtime's actual clear projectile ray.
+      room.entities.forEach((entity, ei) => {
+        if (!enemyTypes.has(entity.type)) return;
+        const cell = `${entity.x},${entity.y}`;
+        const reactionConflict = reactionSet.has(cell) || interactionSet.has(cell);
+        const shooterBlocked =
+          entity.type === 'shooter' && !adventureShooterHasClearLane(room, entity, safelyReachable);
+        if (!reactionConflict && !shooterBlocked) return;
+        occupied.delete(cell);
+        const replacement = nearestCell(entity, w, h, (x, y) => {
+          const target = `${x},${y}`;
+          if (
+            reactionSet.has(target) ||
+            interactionSet.has(target) ||
+            !adventureEntityCellAvailable(room, occupied, x, y)
+          ) {
+            return false;
+          }
+          return (
+            entity.type !== 'shooter' ||
+            adventureShooterHasClearLane(room, { x, y }, safelyReachable)
+          );
+        });
+        occupied.add(cell);
+        if (!replacement) return;
+        const before = moveAdventureEntity(entity, replacement, occupied);
+        addFix(
+          fixes,
+          shooterBlocked ? 'ADVENTURE_SHOOTER_LANE' : 'ADVENTURE_ENEMY_REACTION_SPACE',
+          `${roomPath}/entities/${ei}`,
+          `moved ${entity.type} from ${before} to clear encounter cell (${entity.x},${entity.y})`,
+        );
+      });
+
+      const enemies = room.entities.filter((entity) => enemyTypes.has(entity.type));
+      if (
+        enemies.length >= 3 &&
+        adventureEnemyEncounterSpread(room.entities) < ADVENTURE_ENCOUNTER_MIN_SPREAD_CELLS
+      ) {
+        const entity = enemies[enemies.length - 1]!;
+        const others = enemies.slice(0, -1);
+        const current = `${entity.x},${entity.y}`;
+        occupied.delete(current);
+        let best: { x: number; y: number; score: number; move: number } | null = null;
+        for (let y = 1; y < h - 1; y++) {
+          for (let x = 1; x < w - 1; x++) {
+            const cell = `${x},${y}`;
+            if (
+              reactionSet.has(cell) ||
+              interactionSet.has(cell) ||
+              !adventureEntityCellAvailable(room, occupied, x, y)
+            ) {
+              continue;
+            }
+            if (
+              entity.type === 'shooter' &&
+              !adventureShooterHasClearLane(room, { x, y }, safelyReachable)
+            ) {
+              continue;
+            }
+            const score = Math.max(
+              ...others.map((other) => Math.abs(other.x - x) + Math.abs(other.y - y)),
+            );
+            const move = Math.abs(entity.x - x) + Math.abs(entity.y - y);
+            if (!best || score > best.score || (score === best.score && move < best.move)) {
+              best = { x, y, score, move };
+            }
+          }
+        }
+        occupied.add(current);
+        if (best && best.score >= ADVENTURE_ENCOUNTER_MIN_SPREAD_CELLS) {
+          const before = moveAdventureEntity(entity, best, occupied);
+          addFix(
+            fixes,
+            'ADVENTURE_ENCOUNTER_SPREAD',
+            `${roomPath}/entities`,
+            `moved ${entity.type} from ${before} to (${entity.x},${entity.y}) so combat uses the expanded room footprint`,
+          );
+        }
+      }
     }
 
     for (const [ei, entity] of room.entities.entries()) {
@@ -1330,7 +1544,7 @@ function normalizeAdventureContent(out: GameSpec, fixes: NormalizationFix[]): vo
       addFix(
         fixes,
         'ADVENTURE_CONTENT',
-        `/levels/0/rooms/${ri}/entities/${ei}/props/item`,
+        `${roomPath}/entities/${ei}/props/item`,
         `matched item pedestal to dungeon secondary item "${dungeon.items.secondary}"`,
       );
     }
@@ -1343,22 +1557,12 @@ function normalizeAdventureContent(out: GameSpec, fixes: NormalizationFix[]): vo
         addFix(
           fixes,
           'ADVENTURE_CONTENT',
-          `/levels/0/rooms/${ri}/entities`,
+          `${roomPath}/entities`,
           `removed ${removed} ordinary enemy ${removed === 1 ? 'spawn' : 'spawns'} from the boss room`,
         );
       }
     }
   });
-  const doorsBefore = JSON.stringify(dungeon.rooms.map((room) => room.doors));
-  reconcileDoors(dungeon);
-  if (doorsBefore !== JSON.stringify(dungeon.rooms.map((room) => room.doors))) {
-    addFix(
-      fixes,
-      'ADVENTURE_CONTENT',
-      '/levels/0/rooms',
-      'mirrored adjacent door declarations so both sides agree',
-    );
-  }
 }
 
 type TimedLevel = Extract<GameSpec, { archetype: 'shooter' | 'hshooter' }>['levels'][number];

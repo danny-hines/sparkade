@@ -68,6 +68,28 @@ const GENERATED_PLAYER_OUTLINE = '#090c18';
 const GENERATED_BOSS_DRAW_W = 48;
 const GENERATED_BOSS_DRAW_H = 56;
 const GENERATED_BOSS_OUTLINE = '#090c18';
+const GENERATED_ENEMY_ATLAS_CELL_SIZE = 96;
+const GENERATED_ENEMY_OUTLINE = '#090c18';
+const GENERATED_ENEMY_ROLES = ['walker', 'flyer', 'shooter', 'chaser', 'bruiser'] as const;
+type GeneratedEnemyRole = (typeof GENERATED_ENEMY_ROLES)[number];
+const GENERATED_ENEMY_DRAW_SIZE: Record<GeneratedEnemyRole, { width: number; height: number }> = {
+  walker: { width: 24, height: 24 },
+  flyer: { width: 26, height: 24 },
+  shooter: { width: 26, height: 26 },
+  chaser: { width: 24, height: 24 },
+  bruiser: { width: 30, height: 30 },
+};
+const GENERATED_OBJECT_ATLAS_CELL_WIDTH = 96;
+const GENERATED_OBJECT_ATLAS_CELL_HEIGHT = 112;
+const GENERATED_OBJECT_OUTLINE = '#090c18';
+const GENERATED_OBJECT_ROLES = ['key', 'item', 'npc', 'secondaryEffect'] as const;
+type GeneratedObjectRole = (typeof GENERATED_OBJECT_ROLES)[number];
+const GENERATED_OBJECT_DRAW_SIZE: Record<GeneratedObjectRole, { width: number; height: number }> = {
+  key: { width: 18, height: 21 },
+  item: { width: 20, height: 23 },
+  npc: { width: 24, height: 28 },
+  secondaryEffect: { width: 16, height: 19 },
+};
 const BOSS_HURTBOX_X_PAD = 8;
 const BOSS_HURTBOX_TOP_PAD = 8;
 const BOSS_HURTBOX_BOTTOM_PAD = 8;
@@ -336,21 +358,19 @@ const ADVENTURE_DEPTH_ORDER: Record<AdventureDepthKind, number> = {
 
 const ROLE_FALLBACK: Record<string, string> = {
   hero: 'lib:hero_wander',
-  walker: 'lib:enemy_walker',
-  flyer: 'lib:enemy_flyer',
-  shooter: 'lib:enemy_shooter',
-  chaser: 'lib:enemy_chaser',
-  bruiser: 'lib:enemy_bruiser',
   boss: 'lib:boss_warden',
-  npc: 'lib:npc_keeper',
-  key: 'lib:pickup_key',
   heart: 'lib:pickup_heart',
-  item: 'lib:pickup_power',
   enemy_shot: 'lib:proj_pellet',
 };
 
-function isEnemyType(t: AdventureEntityType): boolean {
+function isEnemyType(t: AdventureEntityType): t is GeneratedEnemyRole {
   return t === 'walker' || t === 'flyer' || t === 'shooter' || t === 'chaser' || t === 'bruiser';
+}
+
+function isGeneratedObjectEntity(
+  type: AdventureEntityType,
+): type is Extract<GeneratedObjectRole, AdventureEntityType> {
+  return type === 'key' || type === 'item' || type === 'npc';
 }
 
 /** Density-four material packs expose a 4×4 spatial atlas. Compact/custom art
@@ -471,6 +491,64 @@ function prepareAdventureBoss(source: CanvasImageSource): HTMLCanvasElement {
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
   return outlineCanvas(canvas, GENERATED_BOSS_OUTLINE);
+}
+
+/** Split the atomic cast atlas once, cache every role at exact physical display
+ * density, and add the same one-physical-pixel gameplay contour as the hero. */
+function prepareAdventureEnemyCast(
+  source: CanvasImageSource,
+): Record<GeneratedEnemyRole, HTMLCanvasElement> {
+  return Object.fromEntries(
+    GENERATED_ENEMY_ROLES.map((role, index) => {
+      const size = GENERATED_ENEMY_DRAW_SIZE[role];
+      const canvas = document.createElement('canvas');
+      canvas.width = size.width * DISPLAY_SCALE;
+      canvas.height = size.height * DISPLAY_SCALE;
+      const ctx = canvas.getContext('2d')!;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(
+        source,
+        index * GENERATED_ENEMY_ATLAS_CELL_SIZE,
+        0,
+        GENERATED_ENEMY_ATLAS_CELL_SIZE,
+        GENERATED_ENEMY_ATLAS_CELL_SIZE,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
+      return [role, outlineCanvas(canvas, GENERATED_ENEMY_OUTLINE)];
+    }),
+  ) as Record<GeneratedEnemyRole, HTMLCanvasElement>;
+}
+
+/** Split the themed-object atlas into role-specific exact-density canvases.
+ * Visual size remains independent from every pickup, NPC, and projectile hitbox. */
+function prepareAdventureObjects(
+  source: CanvasImageSource,
+): Record<GeneratedObjectRole, HTMLCanvasElement> {
+  return Object.fromEntries(
+    GENERATED_OBJECT_ROLES.map((role, index) => {
+      const size = GENERATED_OBJECT_DRAW_SIZE[role];
+      const canvas = document.createElement('canvas');
+      canvas.width = size.width * DISPLAY_SCALE;
+      canvas.height = size.height * DISPLAY_SCALE;
+      const ctx = canvas.getContext('2d')!;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(
+        source,
+        index * GENERATED_OBJECT_ATLAS_CELL_WIDTH,
+        0,
+        GENERATED_OBJECT_ATLAS_CELL_WIDTH,
+        GENERATED_OBJECT_ATLAS_CELL_HEIGHT,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
+      return [role, outlineCanvas(canvas, GENERATED_OBJECT_OUTLINE)];
+    }),
+  ) as Record<GeneratedObjectRole, HTMLCanvasElement>;
 }
 
 export function createAdventureGame(engine: EngineContext, spec: AdventureSpec): GameInstance {
@@ -598,12 +676,11 @@ class AdventureGame implements GameInstance {
   private entGrid: TileGrid;
 
   private sprites: Record<string, ResolvedSprite> = {};
-  private arrowSprite: ResolvedSprite;
   private waveSprite: ResolvedSprite;
-  private boomSprite: ResolvedSprite;
-  private bombSprite: ResolvedSprite;
   private generatedPlayerPoses: Readonly<Record<string, CanvasImageSource>>;
   private generatedBoss: CanvasImageSource | null;
+  private generatedEnemyCast: Record<GeneratedEnemyRole, HTMLCanvasElement>;
+  private generatedObjects: Record<GeneratedObjectRole, HTMLCanvasElement>;
   private diff!: DifficultyScale;
   private meleeTuning: AdventureMeleeTuning;
 
@@ -617,10 +694,7 @@ class AdventureGame implements GameInstance {
     for (const role of Object.keys(ROLE_FALLBACK)) {
       this.sprites[role] = engine.sprites.byRole(role, ROLE_FALLBACK[role]!);
     }
-    this.arrowSprite = engine.sprites.byRole('proj_arrow', 'lib:proj_arrow');
     this.waveSprite = engine.sprites.byRole('proj_wave', 'lib:proj_wave');
-    this.boomSprite = engine.sprites.byRole('item_boomerang', 'lib:item_boomerang');
-    this.bombSprite = engine.sprites.byRole('proj_bomb', 'lib:proj_bomb');
     if (!engine.adventurePlayerPoses) {
       throw new Error('Adventure games require a complete generated player pose set');
     }
@@ -631,6 +705,14 @@ class AdventureGame implements GameInstance {
       ]),
     );
     this.generatedBoss = engine.adventureBoss ? prepareAdventureBoss(engine.adventureBoss) : null;
+    if (!engine.adventureEnemyAtlas) {
+      throw new Error('Adventure games require a complete generated enemy cast');
+    }
+    this.generatedEnemyCast = prepareAdventureEnemyCast(engine.adventureEnemyAtlas);
+    if (!engine.adventureObjectAtlas) {
+      throw new Error('Adventure games require a complete generated gameplay-object set');
+    }
+    this.generatedObjects = prepareAdventureObjects(engine.adventureObjectAtlas);
 
     const tileArt: Record<string, string> = {
       floor: 'lib:tile_floor',
@@ -2337,6 +2419,20 @@ class AdventureGame implements GameInstance {
     ctx.restore();
   }
 
+  private drawGeneratedSecondaryEffect(x: number, y: number, angle: number, alpha = 1): void {
+    const image = this.generatedObjects.secondaryEffect;
+    const size = GENERATED_OBJECT_DRAW_SIZE.secondaryEffect;
+    const cam = this.engine.camera;
+    const ctx = this.engine.renderer.ctx;
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.globalAlpha = alpha;
+    ctx.translate(Math.round(x - cam.x), Math.round(y - cam.y));
+    ctx.rotate(angle);
+    ctx.drawImage(image, -size.width / 2, -size.height / 2, size.width, size.height);
+    ctx.restore();
+  }
+
   private drawDepthItem(item: AdventureDepthItem): void {
     const r = this.engine.renderer;
     const cam = this.engine.camera;
@@ -2381,15 +2477,8 @@ class AdventureGame implements GameInstance {
 
     if (item.kind === 'bomb') {
       const blink = item.bomb.fuseT < 0.35 && Math.floor(this.animT * 16) % 2 === 0;
-      const image = blink
-        ? (this.bombSprite.flash[0] ?? this.bombSprite.frames[0]!)
-        : this.bombSprite.frames[0]!;
       this.drawGroundShadow(item.bomb.x, item.groundY, 8, 0.16);
-      r.draw(
-        image,
-        item.bomb.x - cam.x - this.bombSprite.w / 2,
-        item.bomb.y - cam.y - this.bombSprite.h / 2,
-      );
+      this.drawGeneratedSecondaryEffect(item.bomb.x, item.bomb.y, 0, blink ? 0.45 : 1);
       return;
     }
 
@@ -2398,14 +2487,53 @@ class AdventureGame implements GameInstance {
       const flicker =
         (e.hitT > 0 && Math.floor(this.animT * 20) % 2 === 0) ||
         (e.stunT > 0 && Math.floor(this.animT * 10) % 2 === 0);
+      if (isEnemyType(e.type)) {
+        const image = this.generatedEnemyCast[e.type];
+        const size = GENERATED_ENEMY_DRAW_SIZE[e.type];
+        const hover = e.type === 'flyer' ? Math.sin(e.t * 5) * 1.5 - 2 : 0;
+        this.drawGroundShadow(
+          e.x + e.w / 2,
+          item.groundY,
+          e.type === 'bruiser' ? 20 : e.w,
+          e.type === 'flyer' ? 0.13 : 0.22,
+        );
+        if (flicker) return;
+        r.drawScaled(
+          image,
+          Math.round(e.x + e.w / 2 - size.width / 2 - cam.x),
+          Math.round(e.y + e.h - size.height - cam.y + hover),
+          size.width,
+          size.height,
+        );
+        return;
+      }
+      if (isGeneratedObjectEntity(e.type)) {
+        const image = this.generatedObjects[e.type];
+        const size = GENERATED_OBJECT_DRAW_SIZE[e.type];
+        const pickup = e.type === 'key' || e.type === 'item';
+        const bob = pickup ? Math.sin(e.t * 4) * 1.5 : 0;
+        this.drawGroundShadow(
+          e.x + e.w / 2,
+          item.groundY,
+          e.type === 'npc' ? 12 : 8,
+          e.type === 'npc' ? 0.18 : 0.11,
+        );
+        r.drawScaled(
+          image,
+          Math.round(e.x + e.w / 2 - size.width / 2 - cam.x),
+          Math.round(e.y + e.h - size.height - cam.y + bob),
+          size.width,
+          size.height,
+        );
+        return;
+      }
       const sprite = this.sprites[e.type];
       if (!sprite) return;
-      const pickup = e.type === 'key' || e.type === 'heart' || e.type === 'item';
+      const pickup = e.type === 'heart';
       this.drawGroundShadow(e.x + e.w / 2, item.groundY, pickup ? 7 : e.w, pickup ? 0.1 : 0.2);
       if (flicker) return;
       const bob = pickup ? Math.sin(e.t * 4) * 1.5 : 0;
-      const anim = isEnemyType(e.type) && e.stunT <= 0 ? 'walk' : 'idle';
-      const image = this.engine.sprites.frame(sprite, anim, e.t, e.dirX > 0);
+      const image = this.engine.sprites.frame(sprite, 'idle', e.t, e.dirX > 0);
       r.draw(image, e.x - cam.x - (sprite.w - e.w) / 2, e.y - cam.y - (sprite.h - e.h) + bob);
       return;
     }
@@ -2590,7 +2718,8 @@ class AdventureGame implements GameInstance {
       this.depthItems.push({
         kind: 'bomb',
         bomb,
-        groundY: bomb.y + Math.min(TILE_SIZE / 2, this.bombSprite.h / 2),
+        groundY:
+          bomb.y + Math.min(TILE_SIZE / 2, GENERATED_OBJECT_DRAW_SIZE.secondaryEffect.height / 2),
         depthOrder: ADVENTURE_DEPTH_ORDER.bomb,
         stableOrder: stableOrder++,
       });
@@ -2627,24 +2756,17 @@ class AdventureGame implements GameInstance {
     const pelletSprite = this.sprites['enemy_shot']!;
     for (const p of this.projs) {
       if (!p.active) continue;
-      const sprite = p.arrow ? this.arrowSprite : pelletSprite;
-      const img = this.engine.sprites.frame(sprite, 'idle', p.t, p.vx < 0);
-      r.draw(img, p.x - cam.x - sprite.w / 2, p.y - cam.y - sprite.h / 2);
+      if (p.arrow) {
+        this.drawGeneratedSecondaryEffect(p.x, p.y, Math.atan2(p.vy, p.vx));
+      } else {
+        const img = this.engine.sprites.frame(pelletSprite, 'idle', p.t, p.vx < 0);
+        r.draw(img, p.x - cam.x - pelletSprite.w / 2, p.y - cam.y - pelletSprite.h / 2);
+      }
     }
 
-    // Boomerang (spins by alternating flip).
+    // Returning equipment rotates continuously while preserving its generated identity.
     if (this.boom.active) {
-      const img = this.engine.sprites.frame(
-        this.boomSprite,
-        'idle',
-        this.boom.t,
-        Math.floor(this.boom.t * 10) % 2 === 0,
-      );
-      r.draw(
-        img,
-        this.boom.x - cam.x - this.boomSprite.w / 2,
-        this.boom.y - cam.y - this.boomSprite.h / 2,
-      );
+      this.drawGeneratedSecondaryEffect(this.boom.x, this.boom.y, this.boom.t * 10);
     }
 
     // Floating hint text.

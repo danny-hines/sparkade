@@ -4,6 +4,7 @@
 import {
   aabbOverlap,
   cellsUnder,
+  createSilhouetteAura,
   drawTileLayer,
   LIBRARY,
   makeBackdrop,
@@ -19,6 +20,7 @@ import {
   type HudState,
   type InputSnapshot,
   type ResolvedSprite,
+  type SilhouetteAura,
   type Solidity,
 } from '@sparkade/engine';
 import {
@@ -355,6 +357,7 @@ class PlatformerGame implements GameInstance {
   private level!: PlatformerLevel;
   private grid!: { cols: number; rows: number; kind(x: number, y: number): TileKind };
   private tileCanvases = new Map<string, CanvasImageSource[]>();
+  private objectiveAuras = new Map<'checkpoint' | 'exit', SilhouetteAura[]>();
   private solidAutotiles: PlatformerSolidAutotiles | null = null;
   private highDensitySolidTerrain = false;
   private decorations: Coord[] = [];
@@ -403,6 +406,7 @@ class PlatformerGame implements GameInstance {
 
   private sprites: Record<string, ResolvedSprite> = {};
   private generatedPlayerPoses: GeneratedPlatformerPoses;
+  private playerAuras: Readonly<Record<PlatformerPlayerPose, SilhouetteAura>>;
   private generatedBoss: CanvasImageSource | null = null;
   private generatedEnemies: Readonly<Record<string, CanvasImageSource>> | null = null;
   private generatedProps: Readonly<Record<string, CanvasImageSource>> | null = null;
@@ -459,6 +463,14 @@ class PlatformerGame implements GameInstance {
       throw new Error('Platformer games require a complete generated player pose set');
     }
     this.generatedPlayerPoses = generatedPlayerPoses;
+    const shieldColor = this.spec.palette[14] ?? '#94e7ff';
+    this.playerAuras = Object.fromEntries(
+      PLATFORMER_PLAYER_POSES.map((pose) => {
+        const image = generatedPlayerPoses[pose];
+        const size = generatedImageDrawSize(image);
+        return [pose, createSilhouetteAura(image, size.w, size.h, shieldColor, 3)];
+      }),
+    ) as unknown as Readonly<Record<PlatformerPlayerPose, SilhouetteAura>>;
     this.generatedBoss = this.engine.platformerBoss;
     this.generatedEnemies = this.engine.platformerEnemies;
     this.generatedProps = this.engine.platformerProps;
@@ -673,6 +685,18 @@ class PlatformerGame implements GameInstance {
       this.tileCanvases.set(
         kind,
         this.engine.sprites.byRef(platformerHdTileRef(assigned), false, { bob: false }).frames,
+      );
+    }
+    const objectiveColor = this.spec.palette[13] ?? '#ffd75e';
+    this.objectiveAuras.clear();
+    for (const [kind, size] of [
+      ['checkpoint', { w: TILE_SIZE, h: TILE_SIZE }],
+      ['exit', { w: TILE_SIZE, h: TILE_SIZE * 2 }],
+    ] as const) {
+      const frames = this.tileCanvases.get(kind) ?? [];
+      this.objectiveAuras.set(
+        kind,
+        frames.map((frame) => createSilhouetteAura(frame, size.w, size.h, objectiveColor, 4)),
       );
     }
 
@@ -1593,15 +1617,18 @@ class PlatformerGame implements GameInstance {
     });
 
     if (this.checkpoint) {
-      const pulse = (Math.sin(this.animT * 7) + 1) / 2;
       const x = this.checkpoint.x * TILE_SIZE - cam.x;
       const y = this.checkpoint.y * TILE_SIZE - cam.y;
-      r.ctx.save();
-      r.ctx.globalAlpha = 0.35 + pulse * 0.45;
-      const accent = this.spec.palette[13] ?? '#ffd75e';
-      r.frame(x + 1, y + 1, TILE_SIZE - 2, TILE_SIZE - 2, accent, 1);
-      r.rect(x + 7, y - 3 - pulse * 2, 2, 4, accent);
-      r.ctx.restore();
+      const auraFrames = this.objectiveAuras.get('checkpoint');
+      const aura = auraFrames?.[frameIx % auraFrames.length] ?? auraFrames?.[0];
+      if (aura) {
+        const phase = (this.animT * 0.9) % 1;
+        const waveRadius = 1 + Math.floor(phase * aura.padding);
+        r.drawSilhouetteAura(aura, x, y, TILE_SIZE, TILE_SIZE, [
+          { radius: 1, alpha: 0.42 },
+          { radius: waveRadius, alpha: 0.78 * (1 - phase) },
+        ]);
+      }
     }
 
     const decorationFrames = this.tileCanvases.get('decoration');
@@ -1621,6 +1648,18 @@ class PlatformerGame implements GameInstance {
     if (this.levelIndex < 3 && this.level) {
       const exitFrames = this.tileCanvases.get('exit')!;
       const door = platformerDoorRect(this.level.exit);
+      const distance = Math.abs(this.playerCenterX() - (door.x + door.w / 2));
+      const near = distance < TILE_SIZE * 6;
+      const auraFrames = this.objectiveAuras.get('exit');
+      const aura = auraFrames?.[frameIx % auraFrames.length] ?? auraFrames?.[0];
+      if (aura) {
+        const phase = (this.animT * (near ? 1.25 : 0.7)) % 1;
+        const waveRadius = 1 + Math.floor(phase * aura.padding);
+        r.drawSilhouetteAura(aura, door.x - cam.x, door.y - cam.y, door.w, door.h, [
+          { radius: 1, alpha: near ? 0.58 : 0.3 },
+          { radius: waveRadius, alpha: (near ? 0.9 : 0.58) * (1 - phase) },
+        ]);
+      }
       r.drawScaled(
         exitFrames[frameIx % exitFrames.length]!,
         door.x - cam.x,
@@ -1628,20 +1667,6 @@ class PlatformerGame implements GameInstance {
         door.w,
         door.h,
       );
-      const distance = Math.abs(this.playerCenterX() - (door.x + door.w / 2));
-      const near = distance < TILE_SIZE * 6;
-      const pulse = (Math.sin(this.animT * (near ? 8 : 4)) + 1) / 2;
-      const inset = pulse > 0.5 ? 1 : 0;
-      r.ctx.save();
-      r.ctx.globalAlpha = (near ? 0.48 : 0.2) + pulse * (near ? 0.35 : 0.15);
-      r.frame(
-        door.x - cam.x - inset,
-        door.y - cam.y - inset,
-        door.w + inset * 2,
-        door.h + inset * 2,
-        this.spec.palette[13] ?? '#ffd75e',
-      );
-      r.ctx.restore();
     }
 
     // entities
@@ -1794,38 +1819,40 @@ class PlatformerGame implements GameInstance {
         flip = Math.floor(this.animT * 12) % 2 === 0;
       }
       const generatedSize = generatedImageDrawSize(generatedImage);
-      const generatedRect =
-        generatedSize
-          ? generatedPlatformerPlayerDrawRect(
-              this.px,
-              this.py,
-              this.playerW,
-              this.playerH,
-              generatedSize.w,
-              generatedSize.h,
-              gait?.compression ?? 0,
-            )
-          : null;
+      const generatedRect = generatedSize
+        ? generatedPlatformerPlayerDrawRect(
+            this.px,
+            this.py,
+            this.playerW,
+            this.playerH,
+            generatedSize.w,
+            generatedSize.h,
+            gait?.compression ?? 0,
+          )
+        : null;
       const drawW = generatedRect?.w ?? hero.w;
       const drawH = generatedRect?.h ?? hero.h;
       const heroWorldX = generatedRect?.x ?? this.px - (drawW - this.playerW) / 2;
       const heroWorldY = generatedRect?.y ?? this.py - (drawH - this.playerH);
       const heroX = heroWorldX - cam.x;
       const heroY = heroWorldY - cam.y;
-      r.drawScaledFlipped(img, heroX, heroY, drawW, drawH, flip);
       if (this.power.shield) {
-        if (hero.appliedPresentation === 'tall-humanoid') {
-          r.frame(heroX - 1, heroY - 1, drawW + 2, drawH + 2, this.spec.palette[4] ?? '#41a6f6');
-        } else {
-          r.frame(
-            this.px - cam.x - 4,
-            this.py - cam.y - 4,
-            18,
-            22,
-            this.spec.palette[4] ?? '#41a6f6',
-          );
-        }
+        const breath = (Math.sin(this.animT * 4.5) + 1) / 2;
+        r.drawSilhouetteAura(
+          this.playerAuras[generatedPose],
+          heroX,
+          heroY,
+          drawW,
+          drawH,
+          [
+            { radius: 1, alpha: 0.76 + breath * 0.14 },
+            { radius: 2, alpha: 0.36 + breath * 0.1 },
+            { radius: 3, alpha: 0.12 + breath * 0.06 },
+          ],
+          flip,
+        );
       }
+      r.drawScaledFlipped(img, heroX, heroY, drawW, drawH, flip);
 
       // Saved games without the two-tile layout marker retain their compact
       // collider. Keep their old foreground masking for one-tile passages;

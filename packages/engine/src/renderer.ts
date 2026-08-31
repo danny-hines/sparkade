@@ -4,6 +4,7 @@
 // drawImage and rect fills only — no per-frame pixel reads.
 import { DISPLAY_SCALE, INTERNAL_HEIGHT, INTERNAL_WIDTH } from '@sparkade/shared';
 import { drawText, textWidth, wrapText, type TextOpts } from './font';
+import type { SilhouetteAura, SilhouetteAuraBand } from './sprites';
 import { DEFAULT_THEME, type UiTheme } from './theme';
 import type { WorldZoom } from './types';
 
@@ -170,6 +171,29 @@ export class Renderer {
     this.ctx.translate(rx * 2 + w, 0);
     this.ctx.scale(-1, 1);
     this.ctx.drawImage(img, rx, ry, w, h);
+    this.ctx.restore();
+  }
+
+  /** Draw selected cached distance bands around a sprite's alpha silhouette. */
+  drawSilhouetteAura(
+    aura: SilhouetteAura,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    bands: readonly SilhouetteAuraBand[],
+    flip = false,
+  ): void {
+    const padX = (aura.padding * w) / aura.contentWidth;
+    const padY = (aura.padding * h) / aura.contentHeight;
+    const previousAlpha = this.ctx.globalAlpha;
+    this.ctx.save();
+    for (const { radius, alpha } of bands) {
+      const ring = aura.rings[Math.round(radius) - 1];
+      if (!ring || alpha <= 0) continue;
+      this.ctx.globalAlpha = previousAlpha * Math.min(1, alpha);
+      this.drawScaledFlipped(ring, x - padX, y - padY, w + padX * 2, h + padY * 2, flip);
+    }
     this.ctx.restore();
   }
 

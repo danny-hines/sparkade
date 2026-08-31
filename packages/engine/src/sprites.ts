@@ -104,6 +104,139 @@ export function outlineCanvas(src: HTMLCanvasElement, color = '#1a1c2c'): HTMLCa
   return out;
 }
 
+export interface SilhouetteAura {
+  /** One mask-only canvas per exact 1px distance band, nearest first. */
+  rings: readonly HTMLCanvasElement[];
+  /** Transparent room reserved on every side for the widest ring. */
+  padding: number;
+  /** Logical footprint used when the source image was rasterized. */
+  contentWidth: number;
+  contentHeight: number;
+}
+
+export interface SilhouetteAuraBand {
+  /** One-based distance from the sprite silhouette. */
+  radius: number;
+  alpha: number;
+}
+
+export interface SilhouetteAuraPixelBands {
+  width: number;
+  height: number;
+  padding: number;
+  bands: readonly Uint8ClampedArray[];
+}
+
+/**
+ * Build exact, 8-connected distance bands around an alpha mask. The sprite
+ * itself is deliberately absent from every result so aura layers can be drawn
+ * either immediately before or after it without tinting the authored pixels.
+ *
+ * Kept pure for tests; createSilhouetteAura performs the one-time canvas read.
+ */
+export function silhouetteAuraRgbaBands(
+  source: Uint8ClampedArray,
+  width: number,
+  height: number,
+  color = '#f4f4f4',
+  maxRadius = 4,
+): SilhouetteAuraPixelBands {
+  const contentWidth = Math.max(1, Math.round(width));
+  const contentHeight = Math.max(1, Math.round(height));
+  const padding = Math.max(1, Math.round(maxRadius));
+  const outputWidth = contentWidth + padding * 2;
+  const outputHeight = contentHeight + padding * 2;
+  const occupied = new Uint8Array(outputWidth * outputHeight);
+  const bands = Array.from(
+    { length: padding },
+    () => new Uint8ClampedArray(outputWidth * outputHeight * 4),
+  );
+  const r = parseInt(color.slice(1, 3), 16);
+  const g = parseInt(color.slice(3, 5), 16);
+  const b = parseInt(color.slice(5, 7), 16);
+
+  for (let y = 0; y < contentHeight; y++) {
+    for (let x = 0; x < contentWidth; x++) {
+      if (source[(y * contentWidth + x) * 4 + 3]! > 0) {
+        occupied[(y + padding) * outputWidth + x + padding] = 1;
+      }
+    }
+  }
+
+  for (let y = 0; y < outputHeight; y++) {
+    for (let x = 0; x < outputWidth; x++) {
+      if (occupied[y * outputWidth + x]) continue;
+      let nearest = padding + 1;
+      for (let dy = -padding; dy <= padding; dy++) {
+        const sy = y + dy;
+        if (sy < 0 || sy >= outputHeight) continue;
+        for (let dx = -padding; dx <= padding; dx++) {
+          const distance = Math.max(Math.abs(dx), Math.abs(dy));
+          if (distance === 0 || distance >= nearest) continue;
+          const sx = x + dx;
+          if (sx < 0 || sx >= outputWidth) continue;
+          if (occupied[sy * outputWidth + sx]) nearest = distance;
+        }
+      }
+      if (nearest > padding) continue;
+      const offset = (y * outputWidth + x) * 4;
+      const band = bands[nearest - 1]!;
+      band[offset] = r;
+      band[offset + 1] = g;
+      band[offset + 2] = b;
+      band[offset + 3] = 255;
+    }
+  }
+
+  return { width: outputWidth, height: outputHeight, padding, bands };
+}
+
+/**
+ * Rasterize a sprite at its logical gameplay footprint and cache its aura
+ * bands. High-density generated art and compact library sprites therefore get
+ * the same apparent world-pixel treatment. No pixel reads happen at runtime.
+ */
+export function createSilhouetteAura(
+  source: CanvasImageSource,
+  drawWidth: number,
+  drawHeight: number,
+  color = '#f4f4f4',
+  maxRadius = 4,
+): SilhouetteAura {
+  const contentWidth = Math.max(1, Math.round(drawWidth));
+  const contentHeight = Math.max(1, Math.round(drawHeight));
+  const raster = document.createElement('canvas');
+  raster.width = contentWidth;
+  raster.height = contentHeight;
+  const rasterCtx = raster.getContext('2d')!;
+  rasterCtx.imageSmoothingEnabled = false;
+  rasterCtx.drawImage(source, 0, 0, contentWidth, contentHeight);
+  const sourcePixels = rasterCtx.getImageData(0, 0, contentWidth, contentHeight).data;
+  const pixelBands = silhouetteAuraRgbaBands(
+    sourcePixels,
+    contentWidth,
+    contentHeight,
+    color,
+    maxRadius,
+  );
+  const rings = pixelBands.bands.map((pixels) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = pixelBands.width;
+    canvas.height = pixelBands.height;
+    const ctx = canvas.getContext('2d')!;
+    const image = ctx.createImageData(pixelBands.width, pixelBands.height);
+    image.data.set(pixels);
+    ctx.putImageData(image, 0, 0);
+    return canvas;
+  });
+  return {
+    rings,
+    padding: pixelBands.padding,
+    contentWidth,
+    contentHeight,
+  };
+}
+
 /** A whitened "damage flash" copy (load-time). */
 export function flashCanvas(src: HTMLCanvasElement): HTMLCanvasElement {
   const out = document.createElement('canvas');

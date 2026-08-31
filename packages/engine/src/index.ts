@@ -12,9 +12,11 @@ export { InputBroker, MenuRepeater, isTextEntryTarget, type RawInputId } from '.
 export { drawText, textWidth, wrapText, GLYPH, type TextOpts } from './font';
 export {
   decodeSprite,
+  createSilhouetteAura,
   flipCanvas,
   outlineCanvas,
   outlineRgbaPixels,
+  silhouetteAuraRgbaBands,
   flashCanvas,
   SpriteStore,
   anchorSpriteOpaqueTop,
@@ -25,6 +27,9 @@ export {
   resolveLibraryEntryArt,
   type ResolvedSprite,
   type ResolvedLibraryArt,
+  type SilhouetteAura,
+  type SilhouetteAuraBand,
+  type SilhouetteAuraPixelBands,
   type SpritePresentation,
   type SpriteResolveOptions,
 } from './sprites';

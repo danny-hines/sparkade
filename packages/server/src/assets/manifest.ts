@@ -16,6 +16,12 @@ const PRIVATE_GENERATED_ASSET_FILES = {
   platformerSideReference: '.platformer-player-side-reference.png',
   hshooterCraftReference: '.hshooter-craft-reference.png',
   shooterCraftReference: '.shooter-craft-reference.png',
+  hshooterEnemyBoard: '.hshooter-enemy-board.png',
+  hshooterEnemyReplacementPopcorn: '.hshooter-enemy-replacement-popcorn.png',
+  hshooterEnemyReplacementWeaver: '.hshooter-enemy-replacement-weaver.png',
+  hshooterEnemyReplacementTank: '.hshooter-enemy-replacement-tank.png',
+  hshooterEnemyReplacementTurret: '.hshooter-enemy-replacement-turret.png',
+  hshooterEnemyReplacementKamikaze: '.hshooter-enemy-replacement-kamikaze.png',
 } as const;
 export const PRIVATE_GENERATED_ASSET_FILENAMES = Object.freeze(
   Object.values(PRIVATE_GENERATED_ASSET_FILES),

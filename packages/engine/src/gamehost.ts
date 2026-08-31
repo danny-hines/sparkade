@@ -60,6 +60,10 @@ export interface EngineContext {
   portraitDefeat: CanvasImageSource | null;
   /** Likeness-independent generated H-scroll player vehicle. */
   hshooterPlayerCraft: CanvasImageSource | null;
+  /** Image-generated H-scroll finale boss. */
+  hshooterBoss: CanvasImageSource | null;
+  /** Required atomic image-generated H-scroll enemy cast. */
+  hshooterEnemyAtlas: CanvasImageSource | null;
   /** Likeness-independent generated vertical-shooter player vehicle. */
   shooterPlayerCraft: CanvasImageSource | null;
   /** Complete image-generated roster, ordered player → three rungs → boss. */
@@ -197,6 +201,8 @@ export class GameHost {
       portrait: opts.likeness?.portrait ?? null,
       portraitDefeat: opts.likeness?.portraitDefeat ?? opts.likeness?.portrait ?? null,
       hshooterPlayerCraft: opts.likeness?.hshooterPlayerCraft ?? null,
+      hshooterBoss: opts.likeness?.hshooterBoss ?? null,
+      hshooterEnemyAtlas: opts.likeness?.hshooterEnemyAtlas ?? null,
       shooterPlayerCraft: opts.likeness?.shooterPlayerCraft ?? null,
       fighterAtlases: opts.likeness?.fighterAtlases ?? null,
       fighterArenaAtlas: opts.likeness?.fighterArenaAtlas ?? null,

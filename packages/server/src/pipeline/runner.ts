@@ -279,6 +279,35 @@ import {
   type GeneratedHShooterBackdrop,
 } from '../assets/hshooter-backdrop';
 import {
+  HSHOOTER_BOSS_JUDGE_PROMPT_VERSION,
+  HSHOOTER_BOSS_PIPELINE_PROMPT_VERSION,
+  HSHOOTER_BOSS_PROMPT_VERSION,
+  buildHShooterBossCandidatePrompt,
+  buildHShooterBossJudgePrompt,
+  processGeneratedHShooterBoss,
+} from '../assets/hshooter-boss';
+import {
+  GENERATED_HSHOOTER_ENEMIES,
+  HSHOOTER_ENEMY_ATLAS_ROLE,
+  HSHOOTER_ENEMY_BOARD_PROMPT_VERSION,
+  HSHOOTER_ENEMY_JUDGE_PROMPT_VERSION,
+  HSHOOTER_ENEMY_PIPELINE_PROMPT_VERSION,
+  HSHOOTER_ENEMY_REPLACEMENT_PROMPT_VERSION,
+  bestHShooterEnemyCandidateId,
+  buildGeneratedHShooterEnemyAtlas,
+  buildHShooterEnemyBoardPrompt,
+  buildHShooterEnemyJudgeBoard,
+  buildHShooterEnemyJudgePrompt,
+  buildHShooterEnemyJudgeSchema,
+  buildHShooterEnemyReplacementPrompt,
+  normalizeHShooterEnemyJudgeDecision,
+  processGeneratedHShooterEnemy,
+  splitGeneratedHShooterEnemyBoard,
+  validateGeneratedHShooterEnemyAtlas,
+  type GeneratedHShooterEnemy,
+  type HShooterEnemyCandidate,
+} from '../assets/hshooter-enemy';
+import {
   GameAssetWorkspace,
   GeneratedAssetStorageError,
   imagePromptHash,
@@ -419,6 +448,14 @@ const PLATFORMER_PROP_ASSET_ROLES = {
   heroProjectile: 'platformerPropHeroProjectile',
   enemyProjectile: 'platformerPropEnemyProjectile',
 } as const satisfies Record<GeneratedPlatformerProp, GeneratedGameAssetRole>;
+
+const HSHOOTER_ENEMY_REPLACEMENT_ASSET_ROLES = {
+  popcorn: 'hshooterEnemyReplacementPopcorn',
+  weaver: 'hshooterEnemyReplacementWeaver',
+  tank: 'hshooterEnemyReplacementTank',
+  turret: 'hshooterEnemyReplacementTurret',
+  kamikaze: 'hshooterEnemyReplacementKamikaze',
+} as const satisfies Record<GeneratedHShooterEnemy, PrivateGeneratedAssetRole>;
 
 /** The player's structured engine choice is authoritative; the design model still gets
  * the instruction, but cannot silently relabel the job by returning another id. */
@@ -3388,6 +3425,462 @@ export class GenerationRunner {
             })
           : Promise.resolve();
 
+      let hshooterBossArtStatus: GameMetaFile['hshooterBossArt'];
+      const hshooterBossTask =
+        spec.archetype === 'hshooter'
+          ? storyAssets.boss.then(async (storyBoss): Promise<void> => {
+              const colors = spec.palette
+                .filter((hex) => {
+                  const r = Number.parseInt(hex.slice(1, 3), 16);
+                  const g = Number.parseInt(hex.slice(3, 5), 16);
+                  const b = Number.parseInt(hex.slice(5, 7), 16);
+                  return !(g > r * 1.15 && g > b * 1.15);
+                })
+                .join(', ');
+              try {
+                const pipelineFingerprint = JSON.stringify({
+                  promptVersions: {
+                    candidate: HSHOOTER_BOSS_PROMPT_VERSION,
+                    judge: HSHOOTER_BOSS_JUDGE_PROMPT_VERSION,
+                  },
+                  bossName: spec.boss.name,
+                  bossIntro: spec.story.bossIntro,
+                  colors,
+                });
+                const pipelineSha = imagePromptHash(pipelineFingerprint, storyBoss);
+                const cached = assetWorkspace.load(
+                  'hshooterBoss',
+                  HSHOOTER_BOSS_PIPELINE_PROMPT_VERSION,
+                  pipelineSha,
+                );
+                if (cached) {
+                  hshooterBossArtStatus = { mode: 'generated', attempted: true };
+                  emit('building-assets', 'Restored the selected H-scroll boss');
+                  return;
+                }
+
+                interface BossCandidate {
+                  id: string;
+                  png: Buffer;
+                }
+                const generateBossCandidate = async (
+                  index: number,
+                  retryGuidance = '',
+                ): Promise<BossCandidate | null> => {
+                  const id = `B${index}`;
+                  let raw: Buffer;
+                  try {
+                    raw = await callImage({
+                      role: `hshooter-boss-${id}`,
+                      label: `H-scroll boss candidate ${id}`,
+                      prompt: buildHShooterBossCandidatePrompt({
+                        bossName: spec.boss.name,
+                        bossIntro: spec.story.bossIntro,
+                        colors,
+                        candidateId: id,
+                        ...(retryGuidance ? { retryGuidance } : {}),
+                      }),
+                      reference: storyBoss,
+                      size: '1536x1024',
+                    });
+                  } catch (error) {
+                    if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
+                    validationFailure(`hshooter-boss-${id}`);
+                    emit(
+                      'building-assets',
+                      `H-scroll boss candidate ${id} was unavailable; continuing…`,
+                    );
+                    return null;
+                  }
+                  try {
+                    const processed = await processGeneratedHShooterBoss(raw);
+                    return { id, png: processed.png };
+                  } catch {
+                    validationFailure(`hshooter-boss-${id}`);
+                    emit(
+                      'building-assets',
+                      `H-scroll boss candidate ${id} failed local sprite validation`,
+                    );
+                    return null;
+                  }
+                };
+                emit('building-assets', 'Painting three H-scroll boss candidates…');
+                let candidates = (
+                  await Promise.all([1, 2, 3].map((index) => generateBossCandidate(index)))
+                ).filter((candidate): candidate is BossCandidate => candidate !== null);
+                if (candidates.length === 0) {
+                  emit(
+                    'building-assets',
+                    'The first boss pool was mechanically unusable; painting three replacements…',
+                  );
+                  candidates = (
+                    await Promise.all(
+                      [4, 5, 6].map((index) =>
+                        generateBossCandidate(
+                          index,
+                          'Return one complete, uncropped, broad LEFT-facing boss with a single cohesive body and a perfectly flat green background',
+                        ),
+                      ),
+                    )
+                  ).filter((candidate): candidate is BossCandidate => candidate !== null);
+                }
+                if (candidates.length === 0) {
+                  throw new Error(
+                    'both generated H-scroll boss candidate pools failed mechanical validation',
+                  );
+                }
+
+                const descriptors: PlatformerBossCandidateDescriptor[] = candidates.map(
+                  ({ id }) => ({ id }),
+                );
+                const board = await buildPlatformerBossJudgeBoard({
+                  storyBoss,
+                  candidates: candidates.map(({ id, png: processed }) => ({ id, processed })),
+                });
+                const mockDecision = {
+                  candidateReviews: descriptors.map(({ id }) => ({
+                    id,
+                    scores: {
+                      villainMatch: 5,
+                      silhouette: 5,
+                      pose: 5,
+                      technical: 5,
+                      gameplayReadability: 5,
+                    },
+                    issues: [],
+                    summary: 'Mock story-faithful H-scroll boss candidate.',
+                  })),
+                  selection: {
+                    candidateId: descriptors[0]!.id,
+                    confidence: 1,
+                    rationale: 'Mock selection.',
+                  },
+                };
+                let rawDecision: unknown = mockDecision;
+                if (!mockImages) {
+                  try {
+                    rawDecision = await callLlm(
+                      'design',
+                      {
+                        ...buildHShooterBossJudgePrompt(descriptors.map(({ id }) => id)),
+                        jsonSchema: buildPlatformerBossJudgeSchema(descriptors),
+                        maxTokens: 2200,
+                        timeoutMs: 120_000,
+                      },
+                      {
+                        stage: 'building-assets',
+                        label: 'Spark selected the signature H-scroll boss',
+                        image: board,
+                        reasoningEffort: 'low',
+                      },
+                    );
+                  } catch (error) {
+                    if (abort.signal.aborted) throw error;
+                    throw new Error(
+                      `H-scroll boss art review failed: ${error instanceof Error ? error.message : String(error)}`,
+                    );
+                  }
+                }
+                const decision = normalizePlatformerBossJudgeDecision(rawDecision, descriptors);
+                const selectedId =
+                  decision.selection.candidateId || bestPlatformerBossCandidateId(decision);
+                const selected = candidates.find(({ id }) => id === selectedId) ?? candidates[0]!;
+                await assetWorkspace.store(
+                  'hshooterBoss',
+                  selected.png,
+                  HSHOOTER_BOSS_PIPELINE_PROMPT_VERSION,
+                  pipelineSha,
+                );
+                hshooterBossArtStatus = { mode: 'generated', attempted: true };
+                emit('building-assets', `Spark selected ${selected.id} as the H-scroll boss`);
+              } catch (error) {
+                if (
+                  abort.signal.aborted ||
+                  error instanceof GeneratedAssetStorageError ||
+                  (error instanceof PipelineError && !isOptionalGeneratedArtProviderFailure(error))
+                ) {
+                  throw error;
+                }
+                await assetWorkspace.discard(['hshooterBoss']);
+                const reason =
+                  error instanceof Error
+                    ? error.message.slice(0, 240)
+                    : 'Generated H-scroll boss failed validation';
+                emit(
+                  'building-assets',
+                  `Required H-scroll boss art did not pass; stopping generation (${reason.slice(0, 120)})`,
+                );
+                throw new PipelineError(
+                  'image-invalid',
+                  `Required H-scroll boss art failed: ${reason}`,
+                  'building-assets',
+                );
+              }
+            })
+          : Promise.resolve();
+
+      let hshooterEnemyArtStatus: GameMetaFile['hshooterEnemyArt'];
+      const hshooterEnemyTask =
+        spec.archetype === 'hshooter'
+          ? keyArtTask.then(async (keyArt): Promise<void> => {
+              const colors = spec.palette
+                .filter((hex) => {
+                  const r = Number.parseInt(hex.slice(1, 3), 16);
+                  const g = Number.parseInt(hex.slice(3, 5), 16);
+                  const b = Number.parseInt(hex.slice(5, 7), 16);
+                  return !(g > r * 1.15 && g > b * 1.15);
+                })
+                .join(', ');
+              const fallbackConcepts: Record<GeneratedHShooterEnemy, string> = {
+                popcorn: 'a small disposable scout native to the hostile faction',
+                weaver: 'a slim agile enemy that darts through the flight lane',
+                tank: 'a broad slow armored ordinary war machine or creature',
+                turret: 'a surface-mounted gun native to the stage architecture',
+                kamikaze: 'a pointed high-speed impact attacker',
+              };
+              const concepts = Object.fromEntries(
+                GENERATED_HSHOOTER_ENEMIES.map((role) => [
+                  role,
+                  design.cast.find((member) => member.role === role)?.concept ??
+                    fallbackConcepts[role],
+                ]),
+              ) as Record<GeneratedHShooterEnemy, string>;
+              const promptOptions = {
+                gameTitle: spec.meta.title,
+                tagline: spec.meta.tagline,
+                concepts,
+                colors,
+              };
+              const boardPrompt = buildHShooterEnemyBoardPrompt(promptOptions);
+              const pipelineFingerprint = JSON.stringify({
+                promptVersions: {
+                  board: HSHOOTER_ENEMY_BOARD_PROMPT_VERSION,
+                  replacement: HSHOOTER_ENEMY_REPLACEMENT_PROMPT_VERSION,
+                  judge: HSHOOTER_ENEMY_JUDGE_PROMPT_VERSION,
+                },
+                concepts,
+                colors,
+              });
+              const pipelineSha = imagePromptHash(pipelineFingerprint, keyArt);
+              const cached = assetWorkspace.load(
+                HSHOOTER_ENEMY_ATLAS_ROLE,
+                HSHOOTER_ENEMY_PIPELINE_PROMPT_VERSION,
+                pipelineSha,
+              );
+              if (cached) {
+                try {
+                  await validateGeneratedHShooterEnemyAtlas(cached);
+                  spec.hshooterEnemyArtVersion = 1;
+                  hshooterEnemyArtStatus = {
+                    mode: 'generated',
+                    attempted: true,
+                    roles: [...GENERATED_HSHOOTER_ENEMIES],
+                  };
+                  emit('building-assets', 'Restored the generated H-scroll enemy cast');
+                  return;
+                } catch {
+                  await assetWorkspace.discard([HSHOOTER_ENEMY_ATLAS_ROLE]);
+                }
+              }
+
+              try {
+                let rawBoard = assetWorkspace.loadPrivate(
+                  'hshooterEnemyBoard',
+                  HSHOOTER_ENEMY_BOARD_PROMPT_VERSION,
+                  pipelineSha,
+                );
+                if (rawBoard) {
+                  emit('building-assets', 'Resuming the H-scroll enemy cast review');
+                } else {
+                  emit(
+                    'building-assets',
+                    'Painting two candidates for all five H-scroll enemies in one board…',
+                  );
+                  rawBoard = await callImage({
+                    role: 'hshooter-enemy-board',
+                    label: 'H-scroll enemy candidate board',
+                    prompt: boardPrompt,
+                    reference: keyArt,
+                    size: '1024x1024',
+                  });
+                  await assetWorkspace.storePrivate(
+                    'hshooterEnemyBoard',
+                    rawBoard,
+                    HSHOOTER_ENEMY_BOARD_PROMPT_VERSION,
+                    pipelineSha,
+                  );
+                }
+
+                const split = await splitGeneratedHShooterEnemyBoard(rawBoard);
+                split.failures.forEach(({ id }) => validationFailure(`hshooter-enemy-board-${id}`));
+                const candidates: HShooterEnemyCandidate[] = [...split.candidates];
+                const missingRoles = GENERATED_HSHOOTER_ENEMIES.filter(
+                  (role) => !candidates.some((candidate) => candidate.role === role),
+                );
+                if (missingRoles.length) {
+                  emit(
+                    'building-assets',
+                    `Repairing ${missingRoles.join(', ')} with one bounded role-specific replacement each…`,
+                  );
+                }
+                for (const role of missingRoles) {
+                  const privateRole = HSHOOTER_ENEMY_REPLACEMENT_ASSET_ROLES[role];
+                  const roleFailures = split.failures
+                    .filter((failure) => failure.role === role)
+                    .map((failure) => failure.reason)
+                    .join('; ');
+                  const replacementPrompt = buildHShooterEnemyReplacementPrompt({
+                    ...promptOptions,
+                    role,
+                    correction:
+                      roleFailures ||
+                      'Return one complete broad silhouette with clean separation from the green background',
+                  });
+                  const replacementSha = imagePromptHash(replacementPrompt, keyArt);
+                  let rawReplacement = assetWorkspace.loadPrivate(
+                    privateRole,
+                    HSHOOTER_ENEMY_REPLACEMENT_PROMPT_VERSION,
+                    replacementSha,
+                  );
+                  if (!rawReplacement) {
+                    rawReplacement = await callImage({
+                      role: `hshooter-enemy-replacement-${role}`,
+                      label: `H-scroll ${role} replacement`,
+                      prompt: replacementPrompt,
+                      reference: keyArt,
+                      size: '1024x1024',
+                    });
+                    await assetWorkspace.storePrivate(
+                      privateRole,
+                      rawReplacement,
+                      HSHOOTER_ENEMY_REPLACEMENT_PROMPT_VERSION,
+                      replacementSha,
+                    );
+                  }
+                  try {
+                    const processed = await processGeneratedHShooterEnemy(rawReplacement, role);
+                    candidates.push({
+                      id: `${role}-replacement`,
+                      role,
+                      png: processed.png,
+                      metrics: processed.metrics,
+                    });
+                  } catch (error) {
+                    validationFailure(`hshooter-enemy-replacement-${role}`);
+                    await assetWorkspace.discardPrivate(privateRole);
+                    throw new PipelineError(
+                      'image-invalid',
+                      `Required H-scroll ${role} replacement failed validation: ${error instanceof Error ? error.message : String(error)}`,
+                      'building-assets',
+                    );
+                  }
+                }
+
+                const unresolved = GENERATED_HSHOOTER_ENEMIES.filter(
+                  (role) => !candidates.some((candidate) => candidate.role === role),
+                );
+                if (unresolved.length) {
+                  throw new PipelineError(
+                    'image-invalid',
+                    `H-scroll enemy cast has no mechanically valid ${unresolved.join(', ')}`,
+                    'building-assets',
+                  );
+                }
+
+                const descriptors = candidates.map(({ id, role }) => ({ id, role }));
+                const reviewBoard = await buildHShooterEnemyJudgeBoard({ keyArt, candidates });
+                const mockDecision = {
+                  candidateReviews: descriptors.map(({ id, role }) => ({
+                    id,
+                    role,
+                    scores: {
+                      conceptMatch: 5,
+                      castCohesion: 5,
+                      silhouette: 5,
+                      roleReadability: 5,
+                      technical: 5,
+                    },
+                    issues: [],
+                    summary: 'Mock coherent H-scroll enemy candidate.',
+                  })),
+                  selections: GENERATED_HSHOOTER_ENEMIES.map((role) => ({
+                    role,
+                    candidateId: descriptors.find((candidate) => candidate.role === role)!.id,
+                    confidence: 1,
+                    rationale: 'Mock selection.',
+                  })),
+                  castSummary: 'Mock coherent H-scroll cast.',
+                };
+                const rawDecision = mockImages
+                  ? mockDecision
+                  : await callLlm(
+                      'design',
+                      {
+                        ...buildHShooterEnemyJudgePrompt(descriptors, concepts),
+                        jsonSchema: buildHShooterEnemyJudgeSchema(descriptors),
+                        maxTokens: 2800,
+                        timeoutMs: 120_000,
+                      },
+                      {
+                        stage: 'building-assets',
+                        label: 'Spark selected the H-scroll enemy cast',
+                        image: reviewBoard,
+                        reasoningEffort: 'low',
+                      },
+                    );
+                const decision = normalizeHShooterEnemyJudgeDecision(rawDecision, descriptors);
+                const selected = Object.fromEntries(
+                  GENERATED_HSHOOTER_ENEMIES.map((role) => {
+                    const requested = decision.selections.find(
+                      (selection) => selection.role === role,
+                    )?.candidateId;
+                    const id =
+                      requested ?? bestHShooterEnemyCandidateId(role, decision) ?? undefined;
+                    const candidate = candidates.find(
+                      (entry) => entry.role === role && entry.id === id,
+                    );
+                    if (!candidate)
+                      throw new Error(`Spark did not select a valid ${role} candidate`);
+                    return [role, candidate.png];
+                  }),
+                ) as Record<GeneratedHShooterEnemy, Buffer>;
+                const atlas = await buildGeneratedHShooterEnemyAtlas(selected);
+                await assetWorkspace.store(
+                  HSHOOTER_ENEMY_ATLAS_ROLE,
+                  atlas,
+                  HSHOOTER_ENEMY_PIPELINE_PROMPT_VERSION,
+                  pipelineSha,
+                );
+                await Promise.all([
+                  assetWorkspace.discardPrivate('hshooterEnemyBoard'),
+                  ...GENERATED_HSHOOTER_ENEMIES.map((role) =>
+                    assetWorkspace.discardPrivate(HSHOOTER_ENEMY_REPLACEMENT_ASSET_ROLES[role]),
+                  ),
+                ]);
+                spec.hshooterEnemyArtVersion = 1;
+                hshooterEnemyArtStatus = {
+                  mode: 'generated',
+                  attempted: true,
+                  roles: [...GENERATED_HSHOOTER_ENEMIES],
+                };
+                emit('building-assets', 'Finished the generated H-scroll enemy cast');
+              } catch (error) {
+                if (
+                  abort.signal.aborted ||
+                  error instanceof PipelineError ||
+                  error instanceof GeneratedAssetStorageError
+                ) {
+                  throw error;
+                }
+                throw new PipelineError(
+                  'image-invalid',
+                  `Required H-scroll enemy cast failed validation: ${error instanceof Error ? error.message.slice(0, 240) : String(error).slice(0, 240)}`,
+                  'building-assets',
+                );
+              }
+            })
+          : Promise.resolve();
+
       let platformerBossArtStatus: GameMetaFile['platformerBossArt'] =
         spec.archetype === 'platformer'
           ? {
@@ -5119,6 +5612,8 @@ export class GenerationRunner {
         storyTask,
         platformerBackdropTask,
         hshooterBackdropTask,
+        hshooterBossTask,
+        hshooterEnemyTask,
         adventureRoomPlateTask,
         adventureBossTask,
         platformerBossTask,
@@ -5174,6 +5669,8 @@ export class GenerationRunner {
           ? { platformerBackdropArt: platformerBackdropArtStatus }
           : {}),
         ...(hshooterBackdropArtStatus ? { hshooterBackdropArt: hshooterBackdropArtStatus } : {}),
+        ...(hshooterBossArtStatus ? { hshooterBossArt: hshooterBossArtStatus } : {}),
+        ...(hshooterEnemyArtStatus ? { hshooterEnemyArt: hshooterEnemyArtStatus } : {}),
         ...(adventureRoomPlateArtStatus
           ? { adventureRoomPlateArt: adventureRoomPlateArtStatus }
           : {}),

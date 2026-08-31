@@ -510,6 +510,8 @@ export interface HShooterSpec extends GameSpecBase {
   archetype: 'hshooter';
   /** Source-authored terrain detail; omitted saved games retain legacy tiles. */
   hshooterArtDensity?: GameplayArtDensity;
+  /** Published with required generated enemy art; omitted pre-migration games use library foes. */
+  hshooterEnemyArtVersion?: 1;
   /** Required likeness-independent side-view player vehicle identity. */
   playerCraft: PlayerCraftIdentity;
   /** Far backdrop behind the terrain (horizontal scene); omitted → seed pick. */
@@ -692,6 +694,17 @@ export interface GameMetaFile {
     generatedRoles?: Array<'level1' | 'level2' | 'level3' | 'boss'>;
     /** Present when at least one stage retained its procedural backdrop. */
     reason?: string;
+  };
+  /** QA/readiness signal for the story-art-derived H-scroll finale boss. */
+  hshooterBossArt?: {
+    mode: 'generated';
+    attempted: true;
+  };
+  /** QA/readiness signal for the required five-role generated H-scroll enemy cast. */
+  hshooterEnemyArt?: {
+    mode: 'generated';
+    attempted: true;
+    roles: Array<'popcorn' | 'weaver' | 'tank' | 'turret' | 'kamikaze'>;
   };
   /** QA/readiness signal for the one-call Adventure room-surface atlas. */
   adventureRoomPlateArt?: {

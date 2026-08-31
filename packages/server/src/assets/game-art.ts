@@ -1,6 +1,11 @@
 import sharp from 'sharp';
 import { FIGHTER_POSES, type FighterPose, type GameSpec } from '@sparkade/shared';
 import { fighterArtDirectionPrompt } from './fighter-art-direction';
+import {
+  GENERATED_HSHOOTER_ENEMIES,
+  HSHOOTER_ENEMY_BOARD_SIZE,
+  hshooterEnemyBoardCellRect,
+} from './hshooter-enemy';
 import { FIGHTER_POSE_SHEET_SIZE, fighterPoseSheetCellRect } from './fighter-pose-sheet';
 
 export const KEY_ART_PROMPT_VERSION = 'key-art-v5';
@@ -248,6 +253,9 @@ async function normalizeLandscape(image: Buffer, width: number, height: number):
  * provider. It exercises the exact normalization/manifest/runtime path without
  * pretending that a local placeholder came from Muse Image. */
 export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
+  if (prompt.includes('H-SCROLL ENEMY CAST BOARD CONTRACT')) {
+    return mockGeneratedHShooterEnemyBoard();
+  }
   if (prompt.includes('ADVENTURE BOSS CANDIDATE BOARD CONTRACT')) {
     return mockGeneratedAdventureBossBoard();
   }
@@ -267,6 +275,8 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
   const platformer = greenScreen && prompt.includes('platform-game sprite');
   const adventurePlayer = greenScreen && prompt.includes('adventure-game sprite');
   const hshooterCraft = greenScreen && prompt.includes('horizontal-shooter player craft');
+  const hshooterBoss = greenScreen && prompt.includes('horizontal-shooter MAIN BOSS');
+  const hshooterEnemy = greenScreen && prompt.includes('horizontal-shooter enemy');
   const shooterCraft = greenScreen && prompt.includes('vertical-shooter player craft');
   const head = greenScreen && prompt.includes('HEAD sprite');
   let hash = 2166136261;
@@ -279,13 +289,17 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
         greenScreen &&
         (hshooterCraft
           ? mockHShooterCraftSubject(x * 2, y * 2)
-          : shooterCraft
-            ? mockShooterCraftSubject(x * 2, y * 2)
-          : fighter || platformer || adventurePlayer
-            ? mockFighterSubject(x * 2, y * 2, prompt)
-            : head
-              ? mockHeadSubject(x * 2, y * 2, prompt)
-              : x >= 90 && x < 166 && y >= 27 && y < 235);
+          : hshooterBoss
+            ? mockHShooterBossSubject(x * 2, y * 2)
+            : hshooterEnemy
+              ? mockHShooterEnemySubject(x * 2, y * 2, prompt)
+              : shooterCraft
+                ? mockShooterCraftSubject(x * 2, y * 2)
+                : fighter || platformer || adventurePlayer
+                  ? mockFighterSubject(x * 2, y * 2, prompt)
+                  : head
+                    ? mockHeadSubject(x * 2, y * 2, prompt)
+                    : x >= 90 && x < 166 && y >= 27 && y < 235);
       if (greenScreen && !subject) {
         raw[offset] = 0;
         raw[offset + 1] = 255;
@@ -307,6 +321,40 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
     }
   }
   return sharp(raw, { raw: { width, height, channels: 4 } })
+    .png()
+    .toBuffer();
+}
+
+async function mockGeneratedHShooterEnemyBoard(): Promise<Buffer> {
+  const cells = await Promise.all(
+    GENERATED_HSHOOTER_ENEMIES.flatMap((role) =>
+      [0, 1].map(async (candidateIndex): Promise<sharp.OverlayOptions> => {
+        const index = GENERATED_HSHOOTER_ENEMIES.indexOf(role) * 2 + candidateIndex;
+        const rect = hshooterEnemyBoardCellRect(index);
+        const image = await mockGeneratedImage(
+          `One isolated horizontal-shooter enemy sprite on #00ff00. ${role} candidate ${candidateIndex + 1}.`,
+        );
+        const input = await sharp(image)
+          .resize(rect.width, rect.height, {
+            fit: 'contain',
+            kernel: sharp.kernel.nearest,
+            background: { r: 0, g: 255, b: 0, alpha: 1 },
+          })
+          .png()
+          .toBuffer();
+        return { input, left: rect.left, top: rect.top };
+      }),
+    ),
+  );
+  return sharp({
+    create: {
+      width: HSHOOTER_ENEMY_BOARD_SIZE,
+      height: HSHOOTER_ENEMY_BOARD_SIZE,
+      channels: 4,
+      background: { r: 0, g: 255, b: 0, alpha: 1 },
+    },
+  })
+    .composite(cells)
     .png()
     .toBuffer();
 }
@@ -418,6 +466,36 @@ function mockHShooterCraftSubject(x: number, y: number): boolean {
   const lowerFin = x >= 132 && x <= 260 && y >= 304 && y <= 370 && y <= 304 + (x - 132) * 0.52;
   const engine = x >= 52 && x <= 116 && y >= 212 && y <= 300;
   return hull || upperFin || lowerFin || engine;
+}
+
+function mockHShooterBossSubject(x: number, y: number): boolean {
+  const armoredHull =
+    x >= 58 &&
+    x <= 454 &&
+    y >= 150 &&
+    y <= 362 &&
+    Math.abs(y - 256) <= 106 - Math.max(0, x - 330) * 0.55;
+  const upperCrown = x >= 235 && x <= 395 && y >= 88 && y <= 175 && y >= 175 - (x - 235) * 0.55;
+  const lowerFin = x >= 170 && x <= 345 && y >= 337 && y <= 418 && y <= 337 + (x - 170) * 0.46;
+  const rearEngine = x >= 395 && x <= 478 && y >= 196 && y <= 316;
+  const forwardJaw = x >= 34 && x <= 104 && y >= 215 && y <= 302;
+  return armoredHull || upperCrown || lowerFin || rearEngine || forwardJaw;
+}
+
+function mockHShooterEnemySubject(x: number, y: number, prompt: string): boolean {
+  const tank = prompt.includes('tank');
+  const turret = prompt.includes('turret');
+  const kamikaze = prompt.includes('kamikaze');
+  const halfHeight = tank ? 76 : turret ? 64 : kamikaze ? 42 : 52;
+  const left = tank ? 72 : 102;
+  const right = tank ? 446 : kamikaze ? 432 : 410;
+  const body =
+    x >= left && x <= right && Math.abs(y - 256) <= halfHeight - Math.max(0, left + 46 - x) * 0.18;
+  const rearFin = x >= right - 72 && x <= right + 24 && y >= 186 && y <= 326;
+  const forwardPoint = x >= left - 34 && x <= left + 34 && Math.abs(y - 256) <= 34;
+  const turretBase = turret && x >= 190 && x <= 356 && y >= 310 && y <= 346;
+  const barrel = turret && x >= 42 && x <= 210 && y >= 237 && y <= 275;
+  return body || rearFin || forwardPoint || turretBase || barrel;
 }
 
 function mockShooterCraftSubject(x: number, y: number): boolean {

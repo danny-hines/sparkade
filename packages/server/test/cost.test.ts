@@ -19,8 +19,8 @@ describe('cost calculator', () => {
     expect(estimateImageCount(true, 'fighter')).toBe(33);
     expect(estimateImageCount(false, 'adventure')).toBe(12);
     expect(estimateImageCount(true, 'adventure')).toBe(14);
-    expect(estimateImageCount(false, 'hshooter')).toBe(12);
-    expect(estimateImageCount(true, 'hshooter')).toBe(14);
+    expect(estimateImageCount(false, 'hshooter')).toBe(16);
+    expect(estimateImageCount(true, 'hshooter')).toBe(18);
     expect(estimateImageCount(false, 'shooter')).toBe(8);
     expect(estimateImageCount(true, 'shooter')).toBe(10);
     expect(estimateImageCount(true)).toBe(40);
@@ -84,6 +84,10 @@ describe('cost calculator', () => {
       platformerBossJudge: true,
       platformerEnemyJudge: true,
     });
+    const hshooter = estimateGenerationCost('muse-spark-1.1', SNAPSHOT, {
+      hshooterBossJudge: true,
+      hshooterEnemyJudge: true,
+    });
     const adventureWithoutPhoto = estimateGenerationCost('muse-spark-1.1', SNAPSHOT, {
       adventurePlayerSetJudge: true,
       adventureBossJudge: true,
@@ -95,6 +99,7 @@ describe('cost calculator', () => {
     });
     expect(est).not.toBeNull();
     expect(platformer).toBeGreaterThan(est!);
+    expect(hshooter).toBeGreaterThan(est!);
     expect(adventureWithoutPhoto).toBeGreaterThan(est!);
     expect(adventureWithPhoto).toBeGreaterThan(adventureWithoutPhoto!);
     expect(est!).toBeGreaterThan(0.01);

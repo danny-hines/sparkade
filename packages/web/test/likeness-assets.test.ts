@@ -8,6 +8,8 @@ import {
   FIGHTER_ARENA_ASSET,
   FIGHTER_ROSTER_ATLAS_ASSETS,
   HSHOOTER_BACKDROP_ASSETS,
+  HSHOOTER_BOSS_ASSET,
+  HSHOOTER_ENEMY_ATLAS_ASSET,
   HSHOOTER_PLAYER_CRAFT_ASSET,
   PLATFORMER_BACKDROP_ASSETS,
   PLATFORMER_ENEMY_ASSETS,
@@ -136,6 +138,45 @@ describe('loadLikenessAssets', () => {
     expect(result?.hshooterPlayerCraft).not.toBeNull();
     expect(requested).toEqual([
       `/api/games/hscroll-game/assets/${GENERATED_GAME_ASSET_FILES.hshooterPlayerCraft}`,
+    ]);
+  });
+
+  it('loads the generated H-scroll boss independently from its craft and backgrounds', async () => {
+    const result = await loadLikenessAssets('hscroll-boss-game', {
+      head12: false,
+      head12Side: false,
+      head12Back: false,
+      head16: false,
+      head16Side: false,
+      head16Back: false,
+      portrait: false,
+      ...unavailableGeneratedAssets,
+      [HSHOOTER_BOSS_ASSET]: true,
+    });
+
+    expect(result?.hshooterBoss).not.toBeNull();
+    expect(result?.hshooterPlayerCraft).toBeNull();
+    expect(requested).toEqual([
+      `/api/games/hscroll-boss-game/assets/${GENERATED_GAME_ASSET_FILES.hshooterBoss}`,
+    ]);
+  });
+
+  it('loads the atomic generated H-scroll enemy atlas', async () => {
+    const result = await loadLikenessAssets('hscroll-enemies', {
+      head12: false,
+      head12Side: false,
+      head12Back: false,
+      head16: false,
+      head16Side: false,
+      head16Back: false,
+      portrait: false,
+      ...unavailableGeneratedAssets,
+      [HSHOOTER_ENEMY_ATLAS_ASSET]: true,
+    });
+
+    expect(result?.hshooterEnemyAtlas).not.toBeNull();
+    expect(requested).toEqual([
+      `/api/games/hscroll-enemies/assets/${GENERATED_GAME_ASSET_FILES.hshooterEnemyAtlas}`,
     ]);
   });
 

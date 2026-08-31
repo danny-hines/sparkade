@@ -105,8 +105,22 @@ describe('entities prompt likeness casting', () => {
     expect(system).toContain('city_*');
     expect(system).toContain('spaceship_*');
     expect(system).toContain('automatically rendered at high density');
-    expect(system).toContain('stable likeness-free fallbacks');
+    expect(system).toContain('COMPATIBILITY-ONLY FOE ASSIGNMENTS');
+    expect(system).toContain('five-role cast is required generated art');
+    expect(system).toContain('newly generated H-scroll games never display them');
+    expect(system).toContain('Do NOT draw custom sprites for those roles');
     expect(system).not.toContain('all take the generated likeness head in the canopy');
+  });
+
+  it('teaches H-scroll level generation the temporal ship-clearance contract', () => {
+    const hshooterDesign = { ...design, archetype: 'hshooter' } as DesignDoc;
+    const system = buildLevelsPrompt('hshooter', hshooterDesign).system;
+
+    expect(system).toContain('temporally flyable corridor');
+    expect(system).toContain('real 12×10 ship at up to 190 px/s');
+    expect(system).toContain('0.25 seconds of forward reaction clearance');
+    expect(system).toContain('cell-connected maze does not pass');
+    expect(system).toContain('Never use a one-column vertical shaft');
   });
 
   it('keeps image-generated platformer characters on lightweight library fallbacks', () => {

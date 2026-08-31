@@ -345,6 +345,8 @@ describe('H-scroll presentation schema migration', () => {
     const chunky = { ...current, hshooterArtDensity: 'chunky' };
     expect(validateGameSchema('hshooter', chunky)).toEqual([]);
 
+    expect(validateGameSchema('hshooter', { ...current, hshooterEnemyArtVersion: 1 })).toEqual([]);
+
     const legacy = structuredClone(current);
     delete legacy.hshooterArtDensity;
     const missingCraft = structuredClone(current) as Partial<HShooterSpec>;
@@ -353,6 +355,9 @@ describe('H-scroll presentation schema migration', () => {
 
     const invalid = { ...current, hshooterArtDensity: 'smooth' };
     expect(validateGameSchema('hshooter', invalid)).not.toEqual([]);
+    expect(validateGameSchema('hshooter', { ...current, hshooterEnemyArtVersion: 2 })).not.toEqual(
+      [],
+    );
 
     expect(
       validateGameSchema('hshooter', {

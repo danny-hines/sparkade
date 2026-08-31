@@ -33,6 +33,16 @@ export {
 } from './platformer/autotile';
 export { lintShooter, estimateShooterDurationS } from './shooter/lint';
 export { lintHShooter, estimateHShooterDurationS } from './hshooter/lint';
+export {
+  analyzeHShooterRoute,
+  HSHOOTER_PLAYER_HITBOX,
+  HSHOOTER_PLAYER_MAX_SCREEN_X,
+  HSHOOTER_PLAYER_MIN_SCREEN_X,
+  HSHOOTER_PLAYER_SPEED_HIGH,
+  HSHOOTER_PLAYER_SPEED_LOW,
+  HSHOOTER_ROUTE_REACTION_S,
+  type HShooterRouteAnalysis,
+} from './hshooter/traversal';
 export { lintFighter, estimateFighterDurationS } from './fighter/lint';
 export { FIGHTER_POSES, type FighterPose } from '@sparkade/shared';
 export {

@@ -283,11 +283,11 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       `SMALL ART (self-describing): ${small}`,
     ].join('\n'),
     hshooter: [
-      '\nSHIPS (stable likeness-free fallbacks; the generated player craft replaces the selected hero when available):',
+      '\nCOMPATIBILITY-ONLY SHIP ASSIGNMENTS (unused by newly generated H-scroll games, whose player craft is required generated art):',
       annotated(LIB_SHIPS),
-      'FOE BODIES (any body can skin any behavior role; they fly in from the right):',
+      'COMPATIBILITY-ONLY FOE ASSIGNMENTS (unused by newly generated H-scroll games, whose five-role cast is required generated art):',
       annotated(LIB_FOES_SHOOTER),
-      'BOSSES (top-down craft, screen-scale; enters from the right) — pick the one that fits your premise and differs from recent games:',
+      'COMPATIBILITY-ONLY BOSS ASSIGNMENTS (unused by newly generated H-scroll games, whose finale boss is required generated art):',
       annotated(LIB_BOSSES_SHOOTER),
       `SMALL ART (self-describing): ${small}`,
     ].join('\n'),
@@ -346,6 +346,12 @@ CONNECTED SOLID PAIR: \`tile_solid\` is the exposed cap and \`tile_solid_inner\`
 IMAGE-FIRST CHARACTER FALLBACKS: a later Muse Image stage authors the visible platformer boss and all four ordinary enemies. Set \`boss\`, \`walker\`, \`flyer\`, \`shooter\`, and \`chaser\` to appropriate \`lib:\` sprites as stable fallbacks; do NOT draw custom sprites for those roles. For platformer, this overrides the generic signature-sprite examples above. Spend any bespoke custom-pixel budget on terrain or a gameplay object that remains visible after generated character art loads.
 `
       : '';
+  const hshooterGeneratedCharacterNote =
+    archetype === 'hshooter'
+      ? `
+REQUIRED IMAGE-GENERATED COMBATANTS: a later Muse Image stage authors the visible player craft, finale boss, and complete popcorn/weaver/tank/turret/kamikaze enemy cast. Their \`sprites.assign\` entries remain required compatibility placeholders for the schema and old saved games only; newly generated H-scroll games never display them. Do NOT draw custom sprites for those roles. Spend bespoke custom-pixel budget on terrain or a small gameplay object that remains visible after the generated atlas loads.
+`
+      : '';
   const familyKinds =
     archetype === 'platformer' || archetype === 'hshooter'
       ? archetype === 'platformer'
@@ -364,7 +370,7 @@ IMAGE-FIRST CHARACTER FALLBACKS: a later Muse Image stage authors the visible pl
       ? `TERRAIN RESKIN — the strongest identity lever after the palette. ALWAYS reskin the terrain — assigning every tile slot is expected, not optional. The example just shows one family for format; pick the family that fits THIS game's world and never leave the tiles on the plain default. Each tile slot (${roles.join(', ')}) can be re-assigned:
 - to a THEMED library family: castle_*, cave_*, wasteland_*, alien_*, ice_*, desert_*, clockwork_* (brass machinery), candy_* (confectionery), coral_* (undersea reef), garden_* (overgrown greenery) — e.g. "tile_solid": "lib:ice_solid". Every core family has every kind (${familyKinds}).${highDensityNote} Pick the family whose material and shapes fit the premise and stay within ONE family for coherence.
 - or to a custom 16×16 sprite you draw (must be EXACTLY 16×16; solid/wall/floor tiles should be fully opaque and tile seamlessly edge-to-edge). When unsure, use a themed family — it always looks professional.
-${connectedSolidNote}${platformerImageFallbackNote}`
+${connectedSolidNote}${platformerImageFallbackNote}${hshooterGeneratedCharacterNote}`
       : 'This archetype has no terrain tiles; its look comes from palette, backdrop, ship/foe sprites and wave choreography.\n') +
     extraRoles[archetype] +
     '\n\n' +

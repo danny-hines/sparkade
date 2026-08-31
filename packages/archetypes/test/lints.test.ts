@@ -8,6 +8,7 @@ import type {
   AdventureSpec,
   FighterSpec,
   GameSpec,
+  HShooterSpec,
   PlatformerSpec,
   ShooterSpec,
 } from '@sparkade/shared';
@@ -78,13 +79,81 @@ function golden<T extends GameSpec>(archetype: string): T {
 const codes = (errors: { code: string }[]) => errors.map((e) => e.code);
 
 describe('golden games are golden', () => {
-  for (const a of ['platformer', 'shooter', 'adventure'] as const) {
+  for (const a of ['platformer', 'shooter', 'adventure', 'hshooter'] as const) {
     it(`golden-${a} passes lint with zero errors and meets the five-minute rule`, () => {
       const spec = golden(a);
       expect(archetypes[a].lint(spec)).toEqual([]);
       expect(archetypes[a].estimateDurationS(spec)).toBeGreaterThanOrEqual(MIN_DURATION_S);
     });
   }
+});
+
+describe('horizontal-shooter encounter lints', () => {
+  it('reports the first impossible temporal corridor column with actionable guidance', () => {
+    const spec = golden<HShooterSpec>('hshooter');
+    const level = spec.levels[0]!;
+    const wallColumn = 70;
+    level.tiles = level.tiles.map(
+      (row) => row.slice(0, wallColumn) + '#' + row.slice(wallColumn + 1),
+    );
+
+    const issue = archetypes.hshooter
+      .lint(spec)
+      .find(
+        (error) => error.code === 'HSHOOT_ROUTE_SPEED' || error.code === 'HSHOOT_ROUTE_CLEARANCE',
+      );
+    expect(issue?.path).toBe('/levels/0/tiles');
+    expect(issue?.message).toContain('temporal route fails at t=');
+    expect(issue?.message).toContain('tile column');
+    expect(issue?.message).toContain('forward reaction clearance');
+  });
+
+  it('rejects formations that cannot fit at their actual terrain spawn columns', () => {
+    const spec = golden<HShooterSpec>('hshooter');
+    const level = spec.levels[0]!;
+    const solid = '#'.repeat(level.tiles[0]!.length);
+    const open = '.'.repeat(level.tiles[0]!.length);
+    level.tiles = [
+      ...Array.from({ length: 7 }, () => solid),
+      ...Array.from({ length: 5 }, () => open),
+      ...Array.from({ length: 7 }, () => solid),
+    ];
+    level.waves[0] = {
+      ...level.waves[0]!,
+      enemyType: 'popcorn',
+      count: 5,
+      formation: 'line',
+    };
+
+    expect(codes(archetypes.hshooter.lint(spec))).toContain('HSHOOT_WAVE_SPAWN_TERRAIN');
+  });
+
+  it('requires mounted turrets to retain a firing window and dodge lane', () => {
+    const spec = golden<HShooterSpec>('hshooter');
+    const wave = spec.levels[0]!.waves[0]!;
+    spec.levels[0]!.waves[0] = {
+      ...wave,
+      enemyType: 'turret',
+      count: 8,
+      formation: 'line',
+      path: 'hold',
+    };
+
+    expect(codes(archetypes.hshooter.lint(spec))).toContain('HSHOOT_TURRET_NO_SURFACE');
+  });
+
+  it('rejects a pickup that enters too late to reach a collection lane', () => {
+    const spec = golden<HShooterSpec>('hshooter');
+    const level = spec.levels[0]!;
+    level.pickups[0] = { ...level.pickups[0]!, t: level.durationS - 1 };
+
+    const issue = archetypes.hshooter
+      .lint(spec)
+      .find((error) => error.code === 'HSHOOT_PICKUP_UNREACHABLE');
+    expect(issue?.path).toBe('/levels/0/pickups/0');
+    expect(issue?.message).toContain('safe reachable trajectory');
+    expect(issue?.message).toContain('schedule it earlier');
+  });
 });
 
 describe('platformer lints', () => {

@@ -116,7 +116,7 @@
           "t": 7.8,
           "enemyType": "kamikaze",
           "count": 5,
-          "formation": "arc",
+          "formation": "vee",
           "path": "dive",
           "hp": 1,
           "fireRate": 0
@@ -361,7 +361,7 @@
           "t": 19.6,
           "enemyType": "kamikaze",
           "count": 6,
-          "formation": "arc",
+          "formation": "vee",
           "path": "dive",
           "hp": 1,
           "fireRate": 0
@@ -433,7 +433,7 @@
           "t": 49.9,
           "enemyType": "popcorn",
           "count": 5,
-          "formation": "arc",
+          "formation": "vee",
           "path": "sweep",
           "hp": 1,
           "fireRate": 0
@@ -514,7 +514,7 @@
           "t": 83.9,
           "enemyType": "kamikaze",
           "count": 6,
-          "formation": "arc",
+          "formation": "vee",
           "path": "dive",
           "hp": 1,
           "fireRate": 0
@@ -714,7 +714,7 @@
           "t": 64.7,
           "enemyType": "turret",
           "count": 2,
-          "formation": "vee",
+          "formation": "column",
           "path": "hold",
           "hp": 5,
           "fireRate": 0.5

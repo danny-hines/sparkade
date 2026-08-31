@@ -15,10 +15,16 @@ describe('attract screen Muse assets', () => {
     );
     expect(attractAssetSpecs('hshooter').map((asset) => asset.role)).toEqual([
       'hshooterPlayerCraft',
+      'hshooterEnemyAtlas',
+      'hshooterBoss',
     ]);
-    expect(attractAssetSpecs('shooter').map(({ role }) => role)).toEqual([
-      'shooterPlayerCraft',
-    ]);
+    expect(attractAssetSpecs('shooter').map(({ role }) => role)).toEqual(['shooterPlayerCraft']);
+  });
+
+  it('crops the H-scroll enemy atlas to one native role cell', () => {
+    expect(
+      attractAssetSpecs('hshooter').find((asset) => asset.role === 'hshooterEnemyAtlas')?.crop,
+    ).toEqual({ x: 0, y: 0, width: 96, height: 96 });
   });
 
   it('crops fighter atlases to a single native idle cell', () => {

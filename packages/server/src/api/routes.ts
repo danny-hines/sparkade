@@ -505,6 +505,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     const textUsd = estimateGenerationCost(model, c.pricing, {
       platformerPoseJudges: hasPhoto && (archetype === undefined || archetype === 'platformer'),
       platformerBossJudge: archetype === undefined || archetype === 'platformer',
+      hshooterBossJudge: archetype === undefined || archetype === 'hshooter',
+      hshooterEnemyJudge: archetype === undefined || archetype === 'hshooter',
       platformerEnemyJudge: archetype === undefined || archetype === 'platformer',
       adventurePlayerIdentityJudge: hasPhoto && archetype === 'adventure',
       adventurePlayerSetJudge: archetype === 'adventure',

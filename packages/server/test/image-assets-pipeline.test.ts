@@ -56,6 +56,12 @@ const HSHOOTER_CRAFT_ROLES = [
   'hshooterPlayerCraft',
 ] as const satisfies readonly GeneratedGameAssetRole[];
 
+const HSHOOTER_BOSS_ROLES = ['hshooterBoss'] as const satisfies readonly GeneratedGameAssetRole[];
+
+const HSHOOTER_ENEMY_ROLES = [
+  'hshooterEnemyAtlas',
+] as const satisfies readonly GeneratedGameAssetRole[];
+
 const SHOOTER_CRAFT_ROLES = [
   'shooterPlayerCraft',
 ] as const satisfies readonly GeneratedGameAssetRole[];
@@ -693,10 +699,22 @@ describe.sequential('mock image asset pipeline', () => {
       attempted: true,
       generatedRoles: ['level1', 'level2', 'level3', 'boss'],
     });
+    expect(files.readMeta(gameId)?.hshooterBossArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+    });
+    expect(spec.hshooterEnemyArtVersion).toBe(1);
+    expect(files.readMeta(gameId)?.hshooterEnemyArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+      roles: ['popcorn', 'weaver', 'tank', 'turret', 'kamikaze'],
+    });
     await expectPublishedPngs(files, gameId, [
       ...PRESENTATION_ROLES,
       ...PORTRAIT_ROLES,
       ...HSHOOTER_CRAFT_ROLES,
+      ...HSHOOTER_BOSS_ROLES,
+      ...HSHOOTER_ENEMY_ROLES,
       ...HSHOOTER_BACKDROP_ROLES,
     ]);
 
@@ -705,6 +723,12 @@ describe.sequential('mock image asset pipeline', () => {
       'hshooterPlayerCraft',
     );
     expect(craft).toMatchObject({ width: 96, height: 64 });
+    expect(
+      generatedAssetForRole(join(files.gameDir(gameId), 'assets'), 'hshooterBoss'),
+    ).toMatchObject({ width: 192, height: 128 });
+    expect(
+      generatedAssetForRole(join(files.gameDir(gameId), 'assets'), 'hshooterEnemyAtlas'),
+    ).toMatchObject({ width: 480, height: 96 });
     expect(
       HSHOOTER_BACKDROP_ROLES.map((role) =>
         generatedAssetForRole(join(files.gameDir(gameId), 'assets'), role),
@@ -720,7 +744,7 @@ describe.sequential('mock image asset pipeline', () => {
     );
     expect(
       db.usageForGame(gameId).filter((event) => event.stage.startsWith('image:') && !event.failed),
-    ).toHaveLength(14);
+    ).toHaveLength(18);
   });
 
   it('publishes a Spark-selected top-down craft for vertical shooters', async () => {
@@ -776,6 +800,9 @@ describe.sequential('mock image asset pipeline', () => {
     expect(
       generatedAssetForRole(join(files.gameDir(gameId), 'assets'), 'hshooterPlayerCraft'),
     ).toMatchObject({ width: 96, height: 64 });
+    expect(
+      generatedAssetForRole(join(files.gameDir(gameId), 'assets'), 'hshooterEnemyAtlas'),
+    ).toMatchObject({ width: 480, height: 96 });
   });
 
   it('publishes a distinct 13-state atlas for every fighter in the five-character roster', async () => {

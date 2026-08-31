@@ -11,11 +11,20 @@
       "description": "Source-art resolution for terrain. Omitted saved games retain legacy tiles; newly generated games use detailed.",
       "enum": ["chunky", "detailed"]
     },
+    "hshooterEnemyArtVersion": {
+      "description": "Present on games published with the required generated five-role enemy atlas. Omitted pre-migration saves retain library foes.",
+      "const": 1
+    },
     "playerCraft": {
       "description": "Required likeness-independent side-view identity for the generated player vehicle.",
       "type": "object",
       "properties": {
-        "visualConcept": { "type": "string", "minLength": 12, "maxLength": 180, "pattern": "^[ -~]+$" }
+        "visualConcept": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 180,
+          "pattern": "^[ -~]+$"
+        }
       },
       "required": ["visualConcept"],
       "additionalProperties": false
@@ -467,7 +476,7 @@
           "maximum": 150
         },
         "tiles": {
-          "description": "The stage as row strings, top to bottom (like a platformer level, but it auto-scrolls). Every row must be the SAME length. Make it ~19 rows tall to fill the screen; a solid ceiling band up top and floor band along the bottom, plus mid-field obstacle blocks to weave around. Width must cover the whole scroll: cols*16 >= scroll*durationS + a screen. 1 tile = 16px. '.' = empty.",
+          "description": "The stage as row strings, top to bottom (like a platformer level, but it auto-scrolls). Every row must be the SAME length. Make it ~19 rows tall to fill the screen; a solid ceiling band up top and floor band along the bottom, plus mid-field obstacle blocks to weave around. The complete autoscroll must retain a ship-sized, speed-reachable corridor with gradual readable lane changes; cell connectivity alone is insufficient. Width must cover the whole scroll: cols*16 >= scroll*durationS + a screen. 1 tile = 16px. '.' = empty.",
           "type": "array",
           "minItems": 12,
           "maxItems": 20,

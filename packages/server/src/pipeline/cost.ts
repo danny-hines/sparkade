@@ -45,6 +45,8 @@ export function estimateGenerationCost(
   options: {
     platformerPoseJudges?: boolean;
     platformerBossJudge?: boolean;
+    hshooterBossJudge?: boolean;
+    hshooterEnemyJudge?: boolean;
     platformerEnemyJudge?: boolean;
     adventurePlayerIdentityJudge?: boolean;
     adventurePlayerSetJudge?: boolean;
@@ -66,6 +68,12 @@ export function estimateGenerationCost(
       : []),
     ...(options.platformerBossJudge
       ? [{ input: 1600, output: 1900 }] // story-art-to-gameplay boss selection + reasoning
+      : []),
+    ...(options.hshooterBossJudge
+      ? [{ input: 1600, output: 1900 }] // H-scroll story-art-to-gameplay boss selection
+      : []),
+    ...(options.hshooterEnemyJudge
+      ? [{ input: 2400, output: 2600 }] // one ten-candidate board selects the five-role H-scroll cast
       : []),
     ...(options.platformerEnemyJudge
       ? [{ input: 2200, output: 2800 }] // one board selects two candidates for all four enemies
@@ -102,8 +110,9 @@ export function estimateImageCount(hasPhoto: boolean, archetype?: ArchetypeId): 
   // replaces the three legacy head calls.
   if (archetype === 'adventure') return hasPhoto ? 14 : 12;
   // Both shooter orientations select from three locally validated craft
-  // candidates. H-scroll additionally authors four stage panoramas.
-  if (archetype === 'hshooter') return hasPhoto ? 14 : 12;
+  // candidates. H-scroll additionally authors four stage panoramas and three
+  // story-art-derived boss candidates, and one ten-candidate enemy-cast board.
+  if (archetype === 'hshooter') return hasPhoto ? 18 : 16;
   if (archetype === 'shooter') return hasPhoto ? 10 : 8;
   if (archetype === undefined) return hasPhoto ? 40 : 31;
   if (!hasPhoto) return 8;

@@ -419,6 +419,8 @@ export const GENERATED_GAME_ASSET_FILES = {
   storyVictory: 'story-victory.png',
   storyDefeat: 'story-defeat.png',
   hshooterPlayerCraft: 'hshooter-player-craft.png',
+  hshooterBoss: 'hshooter-boss.png',
+  hshooterEnemyAtlas: 'hshooter-enemy-atlas.png',
   shooterPlayerCraft: 'shooter-player-craft.png',
   fighterPlayerAtlas: 'fighter-player-atlas.png',
   fighterOpponent1Atlas: 'fighter-opponent-1-atlas.png',

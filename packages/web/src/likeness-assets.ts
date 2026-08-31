@@ -84,6 +84,9 @@ export type AdventurePlayerPoseName = (typeof ADVENTURE_PLAYER_POSE_ASSETS)[numb
 
 export const HSHOOTER_PLAYER_CRAFT_ASSET =
   'hshooterPlayerCraft' as const satisfies GeneratedGameAssetRole;
+export const HSHOOTER_BOSS_ASSET = 'hshooterBoss' as const satisfies GeneratedGameAssetRole;
+export const HSHOOTER_ENEMY_ATLAS_ASSET =
+  'hshooterEnemyAtlas' as const satisfies GeneratedGameAssetRole;
 export const SHOOTER_PLAYER_CRAFT_ASSET =
   'shooterPlayerCraft' as const satisfies GeneratedGameAssetRole;
 
@@ -117,6 +120,8 @@ export async function loadLikenessAssets(
     !assets.storyVictory &&
     !assets.storyDefeat &&
     !assets.hshooterPlayerCraft &&
+    !assets[HSHOOTER_BOSS_ASSET] &&
+    !assets[HSHOOTER_ENEMY_ATLAS_ASSET] &&
     !assets.shooterPlayerCraft &&
     !assets[FIGHTER_ARENA_ASSET] &&
     !assets.platformerBoss &&
@@ -159,6 +164,12 @@ export async function loadLikenessAssets(
   ]);
   const hshooterPlayerCraftPromise = assets.hshooterPlayerCraft
     ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES.hshooterPlayerCraft))
+    : Promise.resolve(null);
+  const hshooterBossPromise = assets[HSHOOTER_BOSS_ASSET]
+    ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[HSHOOTER_BOSS_ASSET]))
+    : Promise.resolve(null);
+  const hshooterEnemyAtlasPromise = assets[HSHOOTER_ENEMY_ATLAS_ASSET]
+    ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[HSHOOTER_ENEMY_ATLAS_ASSET]))
     : Promise.resolve(null);
   const shooterPlayerCraftPromise = assets.shooterPlayerCraft
     ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES.shooterPlayerCraft))
@@ -282,6 +293,8 @@ export async function loadLikenessAssets(
     adventureBoss,
     adventurePlayerPoses,
     hshooterPlayerCraft,
+    hshooterBoss,
+    hshooterEnemyAtlas,
     shooterPlayerCraft,
   ] = await Promise.all([
     likenessPromise,
@@ -298,6 +311,8 @@ export async function loadLikenessAssets(
     adventureBossPromise,
     adventurePlayerPromise,
     hshooterPlayerCraftPromise,
+    hshooterBossPromise,
+    hshooterEnemyAtlasPromise,
     shooterPlayerCraftPromise,
   ]);
 
@@ -326,6 +341,8 @@ export async function loadLikenessAssets(
     adventureBoss,
     adventurePlayerPoses,
     hshooterPlayerCraft,
+    hshooterBoss,
+    hshooterEnemyAtlas,
     shooterPlayerCraft,
   };
 }

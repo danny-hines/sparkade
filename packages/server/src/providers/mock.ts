@@ -165,12 +165,21 @@ export class MockProvider implements Provider {
             { name: 'Gauntlet', summary: 'Everything the world has learned about you' },
             { name: 'The Boss', summary: 'A showdown with the big bad' },
           ],
-          cast: [
-            { role: 'walker', concept: 'A grumpy ground patroller' },
-            { role: 'flyer', concept: 'A swooping nuisance' },
-            { role: 'shooter', concept: 'A lobbing turret' },
-            { role: 'chaser', concept: 'A fast, angry pursuer' },
-          ],
+          cast:
+            archetype === 'hshooter' || archetype === 'shooter'
+              ? [
+                  { role: 'popcorn', concept: 'A small disposable cobalt scout' },
+                  { role: 'weaver', concept: 'A slim brass-vane interceptor' },
+                  { role: 'tank', concept: 'A broad armored hostile gunship' },
+                  { role: 'turret', concept: 'A surface-mounted trench cannon' },
+                  { role: 'kamikaze', concept: 'A pointed high-speed impact drone' },
+                ]
+              : [
+                  { role: 'walker', concept: 'A grumpy ground patroller' },
+                  { role: 'flyer', concept: 'A swooping nuisance' },
+                  { role: 'shooter', concept: 'A lobbing turret' },
+                  { role: 'chaser', concept: 'A fast, angry pursuer' },
+                ],
           musicBrief: {
             key: golden.music.key,
             bpm: golden.music.bpm,

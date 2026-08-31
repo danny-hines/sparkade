@@ -7,17 +7,18 @@ continuous forward motion that make an H-scroll shooter work.
 
 The archetype already shares compact `tileRuns`, semantic solid/hazard/decoration cells, world-space
 collision, source-authored high-density terrain, a per-game player craft, generated key/story art,
-weather, lighting, music, and the common game host. Its next gaps are generated combatants, richer
-encounter composition, and temporal corridor validation.
+required per-game boss and ordinary-enemy silhouettes, weather, lighting, music, and the common game
+host. Its next gaps are richer coordinated encounter composition and optional small combat props.
 
 ## Generation principle
 
 Existing games are test content, not a compatibility constraint. The player craft is required
 generated art. Muse Image creates a candidate pool, Spark ranks it, and the best locally valid craft
 ships even when it misses the ideal semantic bar. If no candidate has a mechanically usable
-silhouette, generation fails instead of rotating or likeness-compositing a library ship. Optional
-environment and enemy art may still retain independent fallbacks until their own generated-only
-pipelines are mature.
+silhouette, generation fails instead of rotating or likeness-compositing a library ship. The finale
+boss and five-role ordinary-enemy cast follow the same generated-only rule for new games. Library
+combatants remain read-time compatibility for pre-migration specs only; optional environment plates
+may still fall back independently.
 
 ## Slice 1: richer presentation without new image calls
 
@@ -74,26 +75,50 @@ Status: implemented locally; focused validation is green.
   it at low opacity so forward motion and depth remain visible throughout cleanup time.
 - Track generated, partial, and procedural readiness in `hshooterBackdropArt` metadata.
 
-## Per-game gameplay art
+## Slice 4: per-game gameplay art
+
+Status: boss and ordinary-enemy cast implemented locally; focused validation is green.
 
 - Player craft identity and generation are covered by Slice 2.
-- Generate the finale boss from boss story art using candidate selection and a stable library fallback.
+- Generate three native left-facing finale-boss candidates from the boss story card and publish the
+  strongest mechanically valid identity/readability match as one 192×128 gameplay sprite. If the
+  first pool has no mechanically valid candidate, generate one bounded replacement pool of three
+  with corrective guidance. New games must not publish with the unrelated legacy boss: if neither
+  pool produces a valid candidate, fail asset generation. Retain the library boss only as read-time
+  compatibility for pre-migration games, while supplying motion, hit flicker, pods, projectiles, and
+  destruction procedurally.
 - Generate a coherent five-role enemy cast (`popcorn`, `weaver`, `tank`, `turret`, `kamikaze`) in
-  native left-facing side view. Keep collision geometry independent from visual bounds.
+  native left-facing side view. One Muse board provides two candidates per role, local processing
+  rejects mechanically unusable cells, and Spark selects the strongest coherent combination. If a
+  role has no valid board candidate, make exactly one role-specific corrective replacement call;
+  fail the job if that replacement is still unusable. Publish the complete five-cell atlas
+  atomically, require it for marked new specs, and keep collision geometry independent from visual
+  bounds.
 - Generate projectiles, pods, and pickup icons only after the larger silhouettes prove their value;
   these roles add many image calls for relatively few on-screen pixels.
-- Track generated/partial/procedural readiness in metadata and expose every role in the asset gallery.
+- Track the required generated boss and enemy-cast identities in metadata and expose the craft,
+  atlas, and boss in the asset gallery.
 
 ## Encounter and level quality
 
+Status: actual-column wave reconciliation, surface-mounted turrets, temporal route proof, and safe
+pickup trajectories implemented locally; coordinated encounter regions remain pending.
+
 - Replace the current cell-only flood fill with a clearance- and time-aware corridor proof that
   accounts for the ship hitbox, scroll speed, vertical travel speed, reaction distance, and hazards.
-- Reconcile wave formations with terrain at their actual spawn columns so members never begin inside
-  walls or immediately crash while steering around them.
-- Mount turrets to a real exposed terrain surface, orient them toward the flight lane, and reserve
-  enough dodge space around their firing window.
+  The implemented proof advances the real screen-space control envelope at 30 Hz, shares its
+  12×10 hit box, speed modes, and horizontal bounds with runtime, treats hazards as unavailable
+  clearance, and reports the first impossible time/world column with repair guidance.
+- Reconcile wave formations with terrain at every member's actual spawn column. Shift flying
+  formations together toward open space, reject only members that still intersect terrain, and lint
+  incomplete authored formations before publication.
+- Mount turrets to a real exposed ceiling or floor surface, orient their presentation into the lane,
+  require a clear leftward firing window, and reserve at least 48 px of inward dodge space.
 - Place pickups on a safe reachable trajectory before difficult stretches rather than merely choosing
-  an open center cell at spawn time.
+  an open center cell at spawn time. The implemented planner follows the pickup's full 70px/s screen
+  drift through real terrain columns, excludes both solids and hazards, bounds vertical motion to the
+  player's normal 120px/s speed, and rejects pickups that cannot enter a collection lane before the
+  level ends.
 - Add bounded authorable encounter regions so terrain, waves, hazards, and rewards can describe one
   coordinated beat instead of four independent timelines.
 - Consider an H-scroll design lab only after the runtime and validator share the same temporal
@@ -101,8 +126,19 @@ Status: implemented locally; focused validation is green.
 
 ## Presentation and game feel
 
+Status: kiosk closeout pass implemented locally; focused validation is green.
+
 - Add clear boss-pattern telegraphs, projectile trails, charge effects, hit flashes, and layered defeat
-  bursts using the shared particle and hit-stop systems.
+  bursts using the shared particle and hit-stop systems. Boss fan, spiral, wall, and aimed patterns now
+  reserve distinct visible windups; ordinary shooters and pods gain muzzle warnings; the runtime adds
+  directional shot trails, speed-responsive exhaust, power-up weapon glow, an animated shield and
+  charge core fed by short-lived, reshuffling energy lanes whose pixel ribbons and motes fade in as
+  they travel inward,
+  stronger impacts, and a delayed multi-stage boss destruction sequence. The ship shield
+  now reuses the platformer's cached alpha-distance aura bands; exhaust and weapon effects attach to
+  rear/muzzle points derived from each generated craft's real opaque silhouette; homing enemies pitch
+  into their screen-space velocity; and the aimed warning uses restrained pixel guide lights instead
+  of an out-of-style target reticle.
 - Use modest per-role draw scaling rather than a platformer-style whole-world heroic zoom; the player
   must retain enough forward visibility to read terrain and bullet patterns.
 - Explore safe close-parallax elements that stay outside the central lane. Platformer foreground
@@ -115,7 +151,7 @@ Status: implemented locally; focused validation is green.
 1. High-density connected terrain, corridor decoration, orientation fixes, HUD, and runtime tests.
 2. Separate pilot/craft identities and generate the native side-view player craft.
 3. Generated level and boss backgrounds with continuous-scroll-aware presentation.
-4. Generate the finale boss, then the enemy cast after terrain-aware turret and wave placement are
-   reliable.
-5. Temporal route validation and coordinated encounter regions.
-6. Generated small props, broader VFX polish, and an H-scroll design lab if still valuable.
+4. Generate the finale boss, establish terrain-aware turret and wave placement, then generate the
+   enemy cast.
+5. Temporal route validation and safe pickup trajectories.
+6. Coordinated encounter regions, generated small props, and an H-scroll design lab if still valuable.

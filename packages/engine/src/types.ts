@@ -61,6 +61,10 @@ export interface LikenessAssets {
   storyDefeat?: CanvasImageSource | null;
   /** Likeness-independent native side-view H-scroll player craft. */
   hshooterPlayerCraft?: CanvasImageSource | null;
+  /** Story-art-derived native side-view H-scroll finale boss. */
+  hshooterBoss?: CanvasImageSource | null;
+  /** Required atomic five-role H-scroll enemy atlas. */
+  hshooterEnemyAtlas?: CanvasImageSource | null;
   /** Likeness-independent native top-down vertical-shooter player craft. */
   shooterPlayerCraft?: CanvasImageSource | null;
   /** Five complete generated Fighter atlases in player, rung 1-3, boss order. */

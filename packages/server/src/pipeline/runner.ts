@@ -131,6 +131,15 @@ import {
   type PlatformerIdleCandidateDescriptor,
 } from '../assets/platformer-idle-judge';
 import {
+  PLATFORMER_JUMP_JUDGE_PROMPT_VERSION,
+  bestPlatformerJumpCandidateId,
+  buildPlatformerJumpJudgeBoard,
+  buildPlatformerJumpJudgePrompt,
+  buildPlatformerJumpJudgeSchema,
+  normalizePlatformerJumpJudgeDecision,
+  type PlatformerJumpCandidateDescriptor,
+} from '../assets/platformer-jump-judge';
+import {
   PLATFORMER_PLAYER_PIPELINE_PROMPT_VERSION,
   PLATFORMER_POSE_JUDGE_PROMPT_VERSION,
   bestPlatformerPosePair,
@@ -5624,6 +5633,7 @@ export class GenerationRunner {
                     pose: GENERATED_PLATFORMER_POSE_PROMPT_VERSION,
                     idleJudge: PLATFORMER_IDLE_JUDGE_PROMPT_VERSION,
                     poseJudge: PLATFORMER_POSE_JUDGE_PROMPT_VERSION,
+                    jumpJudge: PLATFORMER_JUMP_JUDGE_PROMPT_VERSION,
                   },
                   heroConcept: canonicalHeroConcept,
                   colors,
@@ -5894,7 +5904,10 @@ export class GenerationRunner {
                         `J${index}`,
                         'jump',
                         `Player jump candidate ${index}`,
-                        buildPlatformerJumpCandidatePrompt(index, { colors }),
+                        buildPlatformerJumpCandidatePrompt(index, {
+                          heroConcept: canonicalHeroConcept,
+                          colors,
+                        }),
                         sideReference,
                       ),
                     ),
@@ -5903,11 +5916,121 @@ export class GenerationRunner {
                 const jumpCandidates = jumpResults.filter(
                   (candidate): candidate is Candidate => candidate !== null,
                 );
-                const jump = jumpCandidates[0]?.png ?? sideAnchor.png;
-                if (jumpCandidates.length === 0) {
+                const sourceKind = photoReference ? ('photo' as const) : ('key-art' as const);
+                const reviewJumpCandidates = async (candidates: Candidate[]) => {
+                  const jumpDescriptors: PlatformerJumpCandidateDescriptor[] = candidates.map(
+                    ({ id }) => ({ id }),
+                  );
+                  const board = await buildPlatformerJumpJudgeBoard({
+                    source: playerReference,
+                    sourceKind,
+                    idle: idle.png,
+                    sideAnchor: sideAnchor.png,
+                    candidates: candidates.map(({ id, png: processed }) => ({ id, processed })),
+                  });
+                  const mockDecision = {
+                    candidateReviews: jumpDescriptors.map(({ id }) => ({
+                      id,
+                      scores: { identity: 5, costume: 5, pose: 5, technical: 5 },
+                      fatalIssues: [],
+                      summary: 'Mock identity-safe jump candidate.',
+                    })),
+                    selection: {
+                      accepted: true,
+                      candidateId: jumpDescriptors[0]!.id,
+                      confidence: 1,
+                      rationale: 'Mock selection.',
+                      retryGuidance: '',
+                    },
+                  };
+                  return normalizePlatformerJumpJudgeDecision(
+                    await judge(
+                      buildPlatformerJumpJudgePrompt(jumpDescriptors, {
+                        heroConcept: canonicalHeroConcept,
+                        sourceKind,
+                      }),
+                      buildPlatformerJumpJudgeSchema(jumpDescriptors),
+                      board,
+                      2400,
+                      'Spark selected the player jump pose',
+                      mockDecision,
+                    ),
+                    jumpDescriptors,
+                  );
+                };
+
+                let jumpDecision =
+                  jumpCandidates.length > 0
+                    ? await reviewJumpCandidates(jumpCandidates)
+                    : undefined;
+                const initialJumpGuidance =
+                  jumpDecision?.selection.retryGuidance ||
+                  'Return the same complete canonical costume and adult identity in a clear RIGHT-facing airborne jump.';
+                let jumpRetried = false;
+                const jumpRetryStarted = Date.now();
+                if (!jumpDecision?.selection.accepted) {
+                  jumpRetried = true;
+                  emit(
+                    'building-assets',
+                    'Repainting three jump poses with Spark wardrobe guidance…',
+                  );
+                  const retryResults = await Promise.all(
+                    [4, 5, 6].map((index) =>
+                      generateCandidate(
+                        `J${index}`,
+                        'jump',
+                        `Player jump retry candidate ${index}`,
+                        buildPlatformerJumpCandidatePrompt(index, {
+                          heroConcept: canonicalHeroConcept,
+                          colors,
+                          retryGuidance: initialJumpGuidance,
+                        }),
+                        sideReference,
+                      ),
+                    ),
+                  );
+                  const retryCandidates = retryResults.filter(
+                    (candidate): candidate is Candidate => candidate !== null,
+                  );
+                  jumpCandidates.push(...retryCandidates);
+                  if (retryCandidates.length > 0) {
+                    jumpDecision = await reviewJumpCandidates(jumpCandidates);
+                  }
+                }
+                const selectedJumpId = jumpDecision?.selection.accepted
+                  ? jumpDecision.selection.candidateId
+                  : jumpDecision
+                    ? bestPlatformerJumpCandidateId(jumpDecision)
+                    : null;
+                const selectedJump = jumpCandidates.find(({ id }) => id === selectedJumpId);
+                const jump = selectedJump?.png ?? sideAnchor.png;
+                if (selectedJump) {
+                  emit(
+                    'building-assets',
+                    jumpDecision?.selection.accepted
+                      ? `Spark selected ${selectedJump.id} for the player jump pose`
+                      : `Spark selected ${selectedJump.id} as the best available player jump pose`,
+                  );
+                } else {
                   emit(
                     'building-assets',
                     'Jump candidates were unusable; keeping the generated side pose for jumping',
+                  );
+                }
+                if (jumpRetried) {
+                  recordEarlyRepairEvent(
+                    'entities',
+                    'platformer-jump-candidate-retry',
+                    [
+                      {
+                        code: 'PLATFORMER_JUMP_CONTINUITY_REJECTED',
+                        path: '/assets/platformer-player/jump',
+                        message: initialJumpGuidance.slice(0, 240),
+                      },
+                    ],
+                    [],
+                    jumpRetryStarted,
+                    jumpDecision?.selection.accepted ? 'fixed' : 'downgraded',
                   );
                 }
                 const runCandidates = runResults.filter(

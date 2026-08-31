@@ -3,8 +3,8 @@ import type { ProviderUsage } from '@sparkade/shared';
 import { buildPlatformerPosePrompt, type PlatformerPosePromptOptions } from './platformer-pose';
 
 export const PLATFORMER_POSE_LAB_PROMPT_VERSION = 'platformer-pose-lab-v3';
-export const PLATFORMER_POSE_JUDGE_PROMPT_VERSION = 'platformer-pose-judge-v4';
-export const PLATFORMER_PLAYER_PIPELINE_PROMPT_VERSION = 'platformer-player-pipeline-v1';
+export const PLATFORMER_POSE_JUDGE_PROMPT_VERSION = 'platformer-pose-judge-v5';
+export const PLATFORMER_PLAYER_PIPELINE_PROMPT_VERSION = 'platformer-player-pipeline-v2';
 
 export type PlatformerPoseCandidateKind = 'phase-a' | 'phase-b';
 
@@ -192,12 +192,18 @@ export function buildPlatformerPhaseBCandidatePrompt(
 
 export function buildPlatformerJumpCandidatePrompt(
   candidateNumber: number,
-  options: PlatformerPosePromptOptions = {},
+  options: PlatformerPosePromptOptions & { retryGuidance?: string } = {},
 ): string {
+  const retryGuidance = clean(options.retryGuidance);
   return [
     buildPlatformerPosePrompt('jump', options),
     `Generate an independent jump-pose variation labeled J${candidateNumber} for evaluation. Do not render this label in the image.`,
-  ].join(' ');
+    retryGuidance
+      ? `TARGETED RETRY GUIDANCE: ${retryGuidance}. Correct that problem while preserving the exact identity, complete canonical costume, proportions, scale, and RIGHT-facing airborne pose.`
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 export function buildPlatformerPoseJudgeSchema(
@@ -311,7 +317,7 @@ export function buildPlatformerPoseJudgePrompt(
       'Then evaluate every labeled A+B comparison cell on the board. Compare the visible pixels around the hips, crotch, knees, shoes, shoulders, elbows, and hands. Ask whether the foreground/background limb contours exchange roles strongly enough that alternating the two images reads as a stride rather than one character wiggling in place. You do not need to assign anatomical near/far labels to either isolated image.',
       'A valid two-frame pair must depict the same character at the same scale, side angle, pixel density, palette, costume, and ground line. Clear visible leg alternation is the non-negotiable gate. Arm alternation is important but secondary and must not by itself reject an otherwise convincing stride.',
       'Candidate fatal failures include identity drift, invented props, lanterns, tools, weapons, detached objects, extra limbs, merged or cropped legs, wrong facing direction, and severe technical defects. Pair fatal failures include no visible leg swap and severe scale, framing, or ground-line inconsistency.',
-      'Score each category from 0 (unusable) to 5 (excellent). Select a pair only if both candidates have no fatal issue, identity and pose are each at least 4, the selected pair has no fatal issue, legAlternation is at least 4, and pairConsistency is at least 4. Otherwise reject all by returning accepted=false and empty candidate IDs.',
+      'Score each category from 0 (unusable) to 5 (excellent). Select a pair only if both candidates have no fatal issue, identity, costume, and pose are each at least 4, the selected pair has no fatal issue, legAlternation is at least 4, and pairConsistency is at least 4. Otherwise reject all by returning accepted=false and empty candidate IDs.',
       'Return only the requested JSON object.',
     ].join(' '),
     user: [
@@ -452,6 +458,7 @@ export function normalizePlatformerPoseJudgeDecision(
     !!review &&
     review.fatalIssues.length === 0 &&
     review.scores.identity >= 4 &&
+    review.scores.costume >= 4 &&
     review.scores.pose >= 4;
   const accepted =
     rawSelection.accepted === true &&

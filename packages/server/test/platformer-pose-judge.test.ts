@@ -52,7 +52,10 @@ describe('platformer pose lab prompts', () => {
     const anchor = buildPlatformerSideAnchorPrompt({ colors: '#123456' });
     const phaseA = buildPlatformerPhaseACandidatePrompt(2);
     const phaseB = buildPlatformerPhaseBCandidatePrompt(3);
-    const jump = buildPlatformerJumpCandidatePrompt(2);
+    const jump = buildPlatformerJumpCandidatePrompt(2, {
+      heroConcept: 'an olive field jacket with rolled sleeves and hazard-yellow tape',
+      retryGuidance: 'the previous frame removed the jacket sleeves',
+    });
 
     expect(anchor).toContain('neutral standing pose');
     expect(anchor).toContain('not a running, walking, jumping');
@@ -65,6 +68,10 @@ describe('platformer pose lab prompts', () => {
     expect(phaseB).toContain('CAMERA-SIDE ARM must swing forward');
     expect(phaseB).toContain('do not mirror');
     expect(jump).toContain('independent jump-pose variation labeled J2');
+    expect(jump).toContain('Canonical game-world costume contract');
+    expect(jump).toContain('olive field jacket with rolled sleeves');
+    expect(jump).toContain('TARGETED RETRY GUIDANCE');
+    expect(jump).toContain('previous frame removed the jacket sleeves');
     for (const prompt of [anchor, phaseA, phaseB]) {
       expect(prompt).toContain('apparent adult age');
       expect(prompt).toContain('make them bald');
@@ -81,6 +88,7 @@ describe('platformer pose lab prompts', () => {
     expect(prompt.system).toContain('Do not reject an individual candidate');
     expect(prompt.system).toContain('every labeled A+B comparison cell');
     expect(prompt.system).toContain('Select a pair only if');
+    expect(prompt.system).toContain('identity, costume, and pose are each at least 4');
     expect(prompt.user).toContain('A1=phase-a');
     expect(prompt.user).toContain('B2=phase-b');
     expect(prompt.user).toContain('every possible A+B pair');
@@ -256,6 +264,35 @@ describe('platformer pose judge normalization', () => {
       phaseBId: '',
       legAlternation: 3,
     });
+  });
+
+  it('rejects a selected run frame whose costume drifted from front idle', () => {
+    const reviews = candidateReviews();
+    reviews.find(({ id }) => id === 'A1')!.scores.costume = 2;
+    const decision = normalizePlatformerPoseJudgeDecision(
+      {
+        anchorReview: {
+          identity: 5,
+          sideView: 5,
+          costume: 5,
+          fatalIssues: [],
+          summary: 'same anchor',
+        },
+        candidateReviews: reviews,
+        pairReviews: pairReviews(),
+        selection: {
+          accepted: true,
+          phaseAId: 'A1',
+          phaseBId: 'B1',
+          confidence: 0.9,
+          rationale: 'pose is strong but costume changed',
+          retryGuidance: 'restore the jacket',
+        },
+      },
+      candidates,
+    );
+
+    expect(decision.selection.accepted).toBe(false);
   });
 
   it('fails closed when the selected pair comparison was omitted', () => {

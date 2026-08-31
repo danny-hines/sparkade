@@ -13,7 +13,12 @@ import type {
 } from '@sparkade/shared';
 import { MIN_DURATION_S } from '@sparkade/shared';
 import { archetypes } from '@sparkade/archetypes';
-import { checkKeyTopology, buildGraph, reconcileDoors } from '../src/adventure/lint';
+import {
+  checkKeyTopology,
+  buildGraph,
+  reconcileDoors,
+  safelyReachableRoomCells,
+} from '../src/adventure/lint';
 import {
   analyzePlatformerTraversal,
   parseLevelGrid,
@@ -53,6 +58,16 @@ function setLevelCell(
 ): void {
   const row = level.tiles[y]!;
   level.tiles[y] = row.slice(0, x) + ch + row.slice(x + 1);
+}
+
+function setAdventureCell(
+  room: AdventureSpec['levels'][number]['rooms'][number],
+  x: number,
+  y: number,
+  ch: string,
+): void {
+  const row = room.tiles[y]!;
+  room.tiles[y] = row.slice(0, x) + ch + row.slice(x + 1);
 }
 
 function golden<T extends GameSpec>(archetype: string): T {
@@ -581,6 +596,68 @@ describe('adventure lints (key/lock topology)', () => {
     bossRoom.doors[direction] = 'open';
     neighbor.doors[opposite] = 'open';
     expect(codes(archetypes.adventure.lint(spec))).toContain('ADV_BOSS_GATE_REQUIRED');
+  });
+
+  it('requires hazard-free access to keys and the secondary item', () => {
+    const spec = golden<AdventureSpec>('adventure');
+    const room = spec.levels[0]!.rooms.find((candidate) => candidate.id === 'mosshall')!;
+    const key = room.entities.find((entity) => entity.type === 'key')!;
+    key.x = 15;
+    key.y = 7;
+
+    expect(codes(archetypes.adventure.lint(spec))).toContain('ADV_REQUIRED_PICKUP_UNSAFE');
+  });
+
+  it('models the two-tile doorway landing that runtime carves into thick walls', () => {
+    const room = golden<AdventureSpec>('adventure').levels[0]!.rooms.find(
+      (candidate) => candidate.id === 'belfry',
+    )!;
+    const height = room.tiles.length;
+    const middleX = Math.floor(room.tiles[0]!.length / 2);
+    setAdventureCell(room, middleX - 1, height - 3, '#');
+    setAdventureCell(room, middleX, height - 3, '#');
+
+    const reachable = safelyReachableRoomCells(room);
+    expect(reachable.has(`${middleX},${height - 3}`)).toBe(true);
+    expect(reachable.has(`${middleX},${height - 4}`)).toBe(true);
+  });
+
+  it('rejects decorative or mechanically impossible pressure plates', () => {
+    const noHazards = golden<AdventureSpec>('adventure');
+    const noHazardRoom = noHazards.levels[0]!.rooms.find(
+      (candidate) => candidate.id === 'mosshall',
+    )!;
+    noHazardRoom.tiles = noHazardRoom.tiles.map((row) => row.replaceAll('~', '.'));
+    expect(codes(archetypes.adventure.lint(noHazards))).toContain('ADV_SWITCH_NO_HAZARDS');
+
+    const tooFewBlocks = golden<AdventureSpec>('adventure');
+    const shortRoom = tooFewBlocks.levels[0]!.rooms.find(
+      (candidate) => candidate.id === 'mosshall',
+    )!;
+    let removed = false;
+    shortRoom.tiles = shortRoom.tiles.map((row) =>
+      row.replace(/B/g, (cell) => {
+        if (removed) return cell;
+        removed = true;
+        return '.';
+      }),
+    );
+    expect(codes(archetypes.adventure.lint(tooFewBlocks))).toContain('ADV_SWITCH_BLOCK_SHORT');
+  });
+
+  it('proves the pressure-plate puzzle has a legal block-push solution', () => {
+    const spec = golden<AdventureSpec>('adventure');
+    const room = spec.levels[0]!.rooms.find((candidate) => candidate.id === 'mosshall')!;
+    for (const [x, y] of [
+      [6, 4],
+      [8, 4],
+      [7, 3],
+      [7, 5],
+    ] as const) {
+      setAdventureCell(room, x, y, '#');
+    }
+
+    expect(codes(archetypes.adventure.lint(spec))).toContain('ADV_SWITCH_UNSOLVABLE');
   });
 });
 

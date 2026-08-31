@@ -1,7 +1,7 @@
 // Durable generation feed. History is loaded from SQLite, new cards arrive by
 // SSE, and the player can scroll away from live updates without being yanked
 // back to the bottom.
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { type GenerationFeedEvent, type JobEvent, type JobStage } from '@sparkade/shared';
 import { api, subscribeJob } from '../api';
@@ -50,7 +50,13 @@ function eventTime(at: string): string {
     : date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-function FeedCard(props: { event: GenerationFeedEvent; jobId: string }): ComponentChildren {
+function FeedCard(props: {
+  event: GenerationFeedEvent;
+  jobId: string;
+  onRetry?: () => void;
+  retrying?: boolean;
+  retryError?: string | null;
+}): ComponentChildren {
   const event = props.event;
   const title = textPayload(event, 'title');
   const tagline = textPayload(event, 'tagline');
@@ -153,9 +159,19 @@ function FeedCard(props: { event: GenerationFeedEvent; jobId: string }): Compone
         <div class="gen-feed-terminal-label">GENERATION FAILED</div>
         <div class="gen-feed-message">{friendly(code ?? 'failed', event.message)}</div>
         {code ? <div class="error-code">CODE: {code.toUpperCase()}</div> : null}
-        <div class="focusable focused gen-feed-action">
-          <Icon name="refresh" /> Go to Retry
-        </div>
+        {props.onRetry ? (
+          <button
+            type="button"
+            class="focusable focused gen-feed-action"
+            disabled={props.retrying}
+            onClick={props.onRetry}
+          >
+            <Icon name="refresh" /> {props.retrying ? 'Starting retry…' : 'Retry now'}
+          </button>
+        ) : (
+          <div class="gen-feed-note">This attempt ended here; retry progress continues below.</div>
+        )}
+        {props.retryError ? <div class="gen-feed-retry-error">{props.retryError}</div> : null}
       </article>
     );
   }
@@ -199,11 +215,14 @@ export function GenerationScreen(props: {
   const [jobEvent, setJobEvent] = useState<JobEvent | null>(null);
   const [events, setEvents] = useState<GenerationFeedEvent[]>([]);
   const [newCount, setNewCount] = useState(0);
-  const [startClock] = useState(Date.now());
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const startClock = useRef(Date.now());
   const feedRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
   const autoScrollingRef = useRef(false);
   const eventRef = useRef<JobEvent | null>(null);
+  const retryingRef = useRef(false);
   const priorCountRef = useRef(0);
   const baseElapsed = useRef(0);
   const now = useNow(1000);
@@ -223,6 +242,7 @@ export function GenerationScreen(props: {
         return;
       }
       baseElapsed.current = incoming.elapsedMs;
+      startClock.current = Date.now() - incoming.elapsedMs;
       setJobEvent(incoming);
       if (incoming.type === 'done') shellInput.blip('success');
       if (incoming.type === 'failed') shellInput.blip('error');
@@ -232,6 +252,50 @@ export function GenerationScreen(props: {
       unsubscribe();
     };
   }, [props.jobId]);
+
+  const startRetry = useCallback(async (): Promise<void> => {
+    if (retryingRef.current) return;
+    retryingRef.current = true;
+    setRetrying(true);
+    setRetryError(null);
+    shellInput.blip('select');
+    try {
+      const result = await api.retryGame(props.gameId);
+      if (result.jobId !== props.jobId) {
+        props.go({ name: 'generation', jobId: result.jobId, gameId: props.gameId });
+        return;
+      }
+      const current = eventRef.current;
+      const costSoFarUsd =
+        current?.type === 'failed' || current?.type === 'progress'
+          ? current.costSoFarUsd
+          : current?.type === 'done'
+            ? current.costUsd
+            : 0;
+      baseElapsed.current = 0;
+      startClock.current = Date.now();
+      followRef.current = true;
+      setNewCount(0);
+      setJobEvent({
+        type: 'progress',
+        jobId: props.jobId,
+        stage: 'queued',
+        detail: 'Retrying — restoring completed work',
+        elapsedMs: 0,
+        costSoFarUsd,
+      });
+      requestAnimationFrame(() => {
+        const element = feedRef.current;
+        if (element) element.scrollTop = element.scrollHeight;
+      });
+    } catch (error) {
+      shellInput.blip('error');
+      setRetryError(error instanceof Error ? error.message : 'Could not start the retry.');
+    } finally {
+      retryingRef.current = false;
+      setRetrying(false);
+    }
+  }, [props.gameId, props.go, props.jobId]);
 
   useEffect(() => {
     const added = Math.max(0, events.length - priorCountRef.current);
@@ -275,8 +339,7 @@ export function GenerationScreen(props: {
         }
         if (current?.type === 'failed') {
           if (button === 'A') {
-            shellInput.blip('select');
-            props.go({ name: 'home', id: props.gameId });
+            void startRetry();
           } else if (button === 'B') {
             shellInput.blip('back');
             props.go({ name: 'home' });
@@ -288,10 +351,13 @@ export function GenerationScreen(props: {
           props.go({ name: 'home' });
         }
       }),
-    [props.gameId, props.go],
+    [props.gameId, props.go, startRetry],
   );
 
-  const elapsed = Math.max(baseElapsed.current, now - startClock);
+  const elapsed =
+    jobEvent?.type === 'done' || jobEvent?.type === 'failed'
+      ? baseElapsed.current
+      : Math.max(baseElapsed.current, now - startClock.current);
   const stage: JobStage = jobEvent
     ? jobEvent.type === 'progress'
       ? jobEvent.stage
@@ -324,6 +390,10 @@ export function GenerationScreen(props: {
           at: new Date().toISOString(),
         },
       ];
+  const activeFailureId =
+    jobEvent?.type === 'failed'
+      ? [...events].reverse().find((event) => event.kind === 'failure')?.id
+      : undefined;
 
   return (
     <div class="screen generation-feed-screen">
@@ -363,7 +433,13 @@ export function GenerationScreen(props: {
               {feedEvent.attempt !== previousAttempt ? (
                 <div class="gen-attempt-divider">RETRY {feedEvent.attempt}</div>
               ) : null}
-              <FeedCard event={feedEvent} jobId={props.jobId} />
+              <FeedCard
+                event={feedEvent}
+                jobId={props.jobId}
+                onRetry={feedEvent.id === activeFailureId ? () => void startRetry() : undefined}
+                retrying={feedEvent.id === activeFailureId && retrying}
+                retryError={feedEvent.id === activeFailureId ? retryError : null}
+              />
             </div>
           );
         })}
@@ -404,7 +480,7 @@ export function GenerationScreen(props: {
             : jobEvent?.type === 'failed'
               ? [
                   ['↑/↓', 'Scroll'],
-                  ['A', 'Retry screen'],
+                  ['A', retrying ? 'Starting retry' : 'Retry now'],
                   ['B', 'Menu'],
                 ]
               : [

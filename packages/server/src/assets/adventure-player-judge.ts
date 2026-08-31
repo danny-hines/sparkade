@@ -5,7 +5,7 @@ import {
   type GeneratedAdventurePlayerPose,
 } from './adventure-player';
 
-export const ADVENTURE_PLAYER_SET_JUDGE_PROMPT_VERSION = 'adventure-player-set-judge-v3';
+export const ADVENTURE_PLAYER_SET_JUDGE_PROMPT_VERSION = 'adventure-player-set-judge-v4';
 
 export interface AdventurePlayerCandidateDescriptor {
   id: string;
@@ -173,8 +173,10 @@ export function buildAdventurePlayerSetJudgePrompt(
     ? [
         combatKit.primary.unarmed
           ? `PRIMARY ${combatKit.primary.name}: ${combatKit.primary.visualConcept}; ${combatKit.primary.profile}; explicitly unarmed.`
-          : `PRIMARY ${combatKit.primary.name}: ${combatKit.primary.visualConcept}; ${combatKit.primary.profile}; it must be visible in movement and melee poses and must never become a generic sword.`,
-        `SECONDARY ${combatKit.secondary.name}: ${combatKit.secondary.visualConcept}; ${combatKit.secondary.behavior}; it appears only in secondary-use poses, without a launched effect.`,
+          : `PRIMARY ${combatKit.primary.name}: ${combatKit.primary.visualConcept}; ${combatKit.primary.profile}; its main grip stays in the anatomical RIGHT hand and it remains visible in movement, melee, and secondary-use poses; it must never become a generic sword or move to the back.`,
+        combatKit.primary.unarmed
+          ? `SECONDARY ${combatKit.secondary.name}: ${combatKit.secondary.visualConcept}; ${combatKit.secondary.behavior}; it appears in secondary-use poses in the anatomical RIGHT hand, without a launched effect.`
+          : `SECONDARY ${combatKit.secondary.name}: ${combatKit.secondary.visualConcept}; ${combatKit.secondary.behavior}; it appears in the anatomical LEFT hand only in secondary-use poses while the primary remains low in the anatomical RIGHT hand, without a launched effect.`,
       ].join(' ')
     : '';
   return {
@@ -183,8 +185,10 @@ export function buildAdventurePlayerSetJudgePrompt(
       'The SELECTED DOWN-IDLE ANCHOR is immutable truth. Compare every labeled candidate directly against it and judge only visible evidence.',
       'Identity includes apparent adult age, face and head shape, skin tone, hairline, hair texture and style, facial hair, glasses, headwear, and every visible head accessory. Inventing, removing, or replacing any of these is fatal. Costume includes every garment, material, color, collar, belt, pouch, body-worn accessory, trouser, and shoe.',
       'Direction must be unmistakable. Down poses face the bottom edge in the same top-down three-quarter camera. Up poses are true rear views with correct rear hair, headwear, eyewear arms, collar, and costume back—and absolutely no face on the back of the head. Side poses face right with the same readable profile and are mirrored by the engine for left.',
-      'Idle and walk must differ visibly. Walk poses need a clear contact stride while preserving camera, identity, costume, equipment, proportions, scale, and foot ground line. Melee poses must be unmistakable contact frames. Secondary poses must be unmistakable release/use frames and must not include a launched projectile, trail, or explosion.',
-      'The combat-kit contract is immutable. Movement poses consistently show the exact primary equipment unless it is explicitly unarmed; melee poses show that exact primary at contact; secondary-use poses show the exact secondary item. Missing equipment, generic substitutions, equipment that changes construction between directions, or showing both items incorrectly are fatal.',
+      'Idle, walk, melee, and secondary must have immediately distinct silhouettes. Walk poses need a clear contact stride while preserving camera, identity, costume, equipment, proportions, scale, and foot ground line. Melee poses must be unmistakable contact frames. Secondary poses must be unmistakable release/use frames and must not include a launched projectile, trail, or explosion.',
+      "The combat-kit contract is immutable and the hero is canonically right-handed. Track ANATOMICAL hands across camera rotation: the hero's RIGHT hand appears on the viewer's LEFT in DOWN/front poses, on the viewer's RIGHT in UP/back poses, and is the near/lower arm in generated RIGHT-facing side poses. It is wrong to keep the weapon on one viewer-side by swapping anatomical hands.",
+      'For an armed hero, the exact primary must keep its main grip in the anatomical RIGHT hand in every movement and melee pose. It must never migrate into the anatomical left hand, onto the back or shoulder, or onto the belt between poses. The same silhouette, length, active end, handle, palette, grip ordering, and carry location must persist. Armed idle and walk poses carry it LOW AND PASSIVE beside the hip or thigh with the anatomical left hand free and low; a long item may extend upward only along the outer side of the body. If movement equipment is centered above the head, raised overhead, brandished across the chest, extended toward the facing direction, aimed, wound up, or otherwise attack-like, score motion and equipment below 4 and mark it fatal. Only melee poses may visibly raise, swing, thrust, or extend the primary at contact; the anatomical left hand may assist only for clearly two-handed equipment.',
+      'For an armed hero, secondary-use poses operate the exact secondary with the anatomical LEFT hand while the primary remains visibly low and passive in the anatomical RIGHT hand; omitting, slinging, sheathing, or moving the primary to the back is fatal. For an unarmed-primary hero, secondary-use poses operate the secondary with the anatomical RIGHT hand. Missing equipment, generic substitutions, inconsistent construction, a hand swap, a changed stow location, or an incorrect two-item arrangement must score equipment below 4 and be marked fatal.',
       'Technical quality includes gameplay visibility. Use the mixed light, dark, saturated, and noisy floor-preview fields on the board to verify that the complete head-to-foot silhouette, major limb separations, and ground contact remain immediately legible. Reject weak or broken contour separation.',
       'Reject crops, extra or merged limbs, wrong facing, props, weapons, duplicate idle/walk silhouettes, inconsistent identity or wardrobe, major scale drift, green spill, blur, text, scenery, or severe pixel-technique changes.',
       'Review every candidate, select one candidate for every required pose, then judge the selected combination as one set. accepted=true requires no fatal issue and every set score at least 4.',
@@ -426,7 +430,7 @@ export async function buildAdventurePlayerSetJudgeBoard(input: {
       input: svg(
         900,
         170,
-        '<text x="0" y="28" fill="#ffd75e" font-family="monospace" font-size="21" font-weight="bold">NON-NEGOTIABLE SET CHECKS</text><text x="0" y="68" fill="#c4cae8" font-family="monospace" font-size="17"><tspan x="0" dy="0">• Same adult face, accessories, wardrobe, proportions and pixel technique</tspan><tspan x="0" dy="32">• Down, true rear-up and right-side views read instantly; no rear face</tspan><tspan x="0" dy="32">• Exact primary/secondary gear; readable movement, contact and release frames</tspan></text>',
+        '<text x="0" y="28" fill="#ffd75e" font-family="monospace" font-size="21" font-weight="bold">NON-NEGOTIABLE SET CHECKS</text><text x="0" y="68" fill="#c4cae8" font-family="monospace" font-size="17"><tspan x="0" dy="0">• Same adult face, accessories, wardrobe, proportions and pixel technique</tspan><tspan x="0" dy="32">• Down, true rear-up and right-side views read instantly; no rear face</tspan><tspan x="0" dy="32">• Primary stays in anatomical RIGHT hand, never swaps or moves to the back</tspan><tspan x="0" dy="32">• Movement carry is low; melee raises it; secondary uses LEFT hand</tspan></text>',
       ),
       left: 325,
       top: 112,

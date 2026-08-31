@@ -213,6 +213,7 @@ export type FighterPoseImageErrorCode =
   | 'multiple-subjects'
   | 'subject-too-small'
   | 'subject-too-large'
+  | 'residual-background'
   | 'inconsistent-scale'
   | 'insufficient-pose-change';
 

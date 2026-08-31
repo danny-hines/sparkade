@@ -41,4 +41,5 @@ export {
   buildGraph,
   checkKeyTopology,
   reconcileDoors,
+  safelyReachableRoomCells,
 } from './adventure/lint';

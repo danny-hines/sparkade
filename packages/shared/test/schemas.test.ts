@@ -159,7 +159,7 @@ describe('archetype schemas', () => {
     expect(schema.required).toContain('playerCraft');
   });
 
-  it('uses the expanded 28×14 single-screen Adventure room contract', () => {
+  it('uses the full-width 32×16 single-screen Adventure room contract', () => {
     const defs = (
       ARCHETYPE_SCHEMAS.adventure as {
         $defs: {
@@ -183,12 +183,12 @@ describe('archetype schemas', () => {
     ).$defs;
 
     expect(defs.room.properties.tiles).toMatchObject({
-      minItems: 14,
-      maxItems: 14,
-      items: { minLength: 28, maxLength: 28 },
+      minItems: 16,
+      maxItems: 16,
+      items: { minLength: 32, maxLength: 32 },
     });
-    expect(defs.entity.properties.x.maximum).toBe(27);
-    expect(defs.entity.properties.y.maximum).toBe(13);
+    expect(defs.entity.properties.x.maximum).toBe(31);
+    expect(defs.entity.properties.y.maximum).toBe(15);
   });
 
   it('bounds Adventure boss health to a readable fight length', () => {

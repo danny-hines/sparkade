@@ -162,6 +162,40 @@ describe('generated likeness heads', () => {
     });
   });
 
+  it('locks Adventure portraits to key-art and gameplay style without chibi drift', async () => {
+    const board = await sharp({
+      create: { width: 1024, height: 1024, channels: 3, background: '#18213b' },
+    })
+      .png()
+      .toBuffer();
+    const generated = await sharp({
+      create: { width: 128, height: 128, channels: 3, background: '#4b365f' },
+    })
+      .png()
+      .toBuffer();
+    let prompt = '';
+    const edit: LikenessImageEdit = async (request) => {
+      prompt = request.prompt;
+      return {
+        image: generated,
+        usage: undefined,
+        outputFormat: 'png',
+        imageCount: 1,
+      };
+    };
+
+    await generatePortrait(board, null, edit, {
+      heroConcept: 'a violet acolyte coat with brass star clasps',
+      referenceLayout: 'adventure-hero-board',
+    });
+
+    expect(prompt).toContain('TOP LEFT is the exact player photo');
+    expect(prompt).toContain('TOP RIGHT is the canonical key-art hero');
+    expect(prompt).toContain('BOTTOM is the selected gameplay hero');
+    expect(prompt).toContain('natural heroic adult proportions');
+    expect(prompt).toContain('No chibi, super-deformed, oversized head');
+  });
+
   it('authors a story-aware defeat expression while preserving photo identity', async () => {
     const source = await sharp({
       create: { width: 80, height: 80, channels: 3, background: '#ac7654' },

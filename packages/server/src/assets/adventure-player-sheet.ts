@@ -12,7 +12,7 @@ import {
   type GeneratedAdventurePlayerPose,
 } from './adventure-player';
 
-export const ADVENTURE_PLAYER_SHEET_PROMPT_VERSION = 'adventure-player-sheet-v3';
+export const ADVENTURE_PLAYER_SHEET_PROMPT_VERSION = 'adventure-player-sheet-v4';
 export const ADVENTURE_PLAYER_SHEET_GROUPS = [
   {
     id: 'movement',
@@ -55,17 +55,17 @@ interface AdventurePlayerSheetPromptOptions {
 
 const POSE_CONTRACT: Record<GeneratedAdventurePlayerPose, string> = {
   downIdle:
-    'DOWN-facing top-down three-quarter neutral idle, both feet planted, arms relaxed, face and head accessories readable',
+    'DOWN-facing top-down three-quarter neutral idle, both feet planted, shoulders and elbows relaxed, primary carried low beside the hip or thigh and never overhead or attack-ready, face and head accessories readable',
   downWalk:
-    'DOWN-facing walking contact pose toward the bottom edge, one foot clearly advanced with natural opposite arm swing',
+    'DOWN-facing walking contact pose toward the bottom edge, one foot clearly advanced, free arm swinging naturally, and primary carried low and passive beside the body',
   upIdle:
-    'UP-facing true back-view neutral idle, both feet planted, correct rear hair, headwear, eyewear arms, collar, and costume back, with no face on the back of the head',
+    'UP-facing true back-view neutral idle, both feet planted, primary carried low and passive beside the hip or thigh, correct rear hair, headwear, eyewear arms, collar, and costume back, with no face on the back of the head',
   upWalk:
-    'UP-facing true back-view walking contact pose toward the top edge, one foot clearly advanced with natural opposite arm swing and no face on the back of the head',
+    'UP-facing true back-view walking contact pose toward the top edge, one foot clearly advanced, free arm swinging naturally, primary carried low beside the body, and no face on the back of the head',
   sideIdle:
-    'RIGHT-facing top-down three-quarter side idle, both feet planted, exact matching face profile, hair, eyewear, headwear, and costume',
+    'RIGHT-facing top-down three-quarter side idle, both feet planted, primary carried low and passive beside the hip or thigh, exact matching face profile, hair, eyewear, headwear, and costume',
   sideWalk:
-    'RIGHT-facing top-down three-quarter walking contact pose toward the right edge, clear stride and natural opposite arm swing',
+    'RIGHT-facing top-down three-quarter walking contact pose toward the right edge, clear stride, natural free-arm swing, and primary carried low and passive beside the body',
   downMelee:
     'DOWN-facing primary-melee contact frame toward the bottom edge, planted feet and full readable attack extension',
   upMelee:
@@ -134,8 +134,10 @@ export function buildAdventurePlayerSheetPrompt(
     ? [
         kit.primary.unarmed
           ? `PRIMARY: ${kit.primary.name}; ${kit.primary.visualConcept}; ${kit.primary.profile}; explicitly unarmed, so movement cells keep empty hands and melee cells show an unarmed contact action.`
-          : `PRIMARY: ${kit.primary.name}; ${kit.primary.visualConcept}; ${kit.primary.profile}; movement cells visibly hold this exact equipment at rest and melee cells show it at contact extension. Never substitute a generic sword.`,
-        `SECONDARY: ${kit.secondary.name}; ${kit.secondary.visualConcept}; ${kit.secondary.behavior}; secondary cells show this exact item at the use/release moment without a launched projectile, explosion, trail, or effect.`,
+          : `PRIMARY: ${kit.primary.name}; ${kit.primary.visualConcept}; ${kit.primary.profile}; the hero is canonically right-handed. Every movement and melee cell keeps the primary's main grip in the hero's anatomical RIGHT hand: viewer's LEFT in DOWN/front cells, viewer's RIGHT in UP/back cells, and the near/lower arm in generated RIGHT-facing side cells. Preserve the anatomical hand, not one screen side. Never swap it into the anatomical left hand or move it onto the back, shoulder, or belt. Movement cells carry this exact equipment low and passive beside the hip or thigh, with the anatomical left hand free and both hands and elbows low. A long item may rise along the outside of the body but never above the center of the head. Movement cells never hold it overhead, across the chest, extended, aimed, wound up, or attack-ready. Melee cells alone show it raised or extended at contact; the anatomical left hand may assist only when its construction clearly requires two hands. Never substitute a generic sword.`,
+        kit.primary.unarmed
+          ? `SECONDARY: ${kit.secondary.name}; ${kit.secondary.visualConcept}; ${kit.secondary.behavior}; secondary cells operate this exact item with the anatomical RIGHT hand at the use/release moment without a launched projectile, explosion, trail, or effect.`
+          : `SECONDARY: ${kit.secondary.name}; ${kit.secondary.visualConcept}; ${kit.secondary.behavior}; secondary cells operate this exact item with the anatomical LEFT hand while the exact primary remains visibly low and passive in the anatomical RIGHT hand. Never omit, sling, sheath, or move the primary to the back. Do not draw a launched projectile, explosion, trail, or effect.`,
       ].join(' ')
     : 'No combat-kit brief was supplied; keep hands empty and do not invent equipment.';
   return [
@@ -148,6 +150,8 @@ export function buildAdventurePlayerSheetPrompt(
     colors ? `Limited costume color direction shared by every cell: ${colors}.` : '',
     `IMMUTABLE COMBAT-KIT CONTRACT: ${equipment}`,
     `Use this exact row-major order and do not swap, omit, duplicate, or merge poses. ${cells}`,
+    'STATE-CONTRAST CONTRACT: idle and walk silhouettes must read as calm locomotion at a glance, with the primary resting low at one side. Only melee cells may raise, brandish, swing, thrust, or extend the primary. An idle or walk cell that resembles a melee wind-up or contact frame is wrong.',
+    "EQUIPMENT-CONTINUITY CONTRACT: preserve the primary's exact silhouette, length, active end, handle, palette, anatomical grip hand, and carry location across all six cells. Camera rotation changes where the anatomical RIGHT hand appears on screen; it does not authorize a hand swap or moving the equipment to the hero's back.",
     'Change only facing and the requested locomotion or combat state. Keep the same camera pitch, character scale, foot ground line, silhouette proportions, costume construction, equipment construction, and crisp pixel density across the sheet.',
     'Every pose needs the same clean darkest outer contour around the complete head-to-foot silhouette and readable separations between limbs and torso. Preserve the anchor character’s internal identity detail while ensuring no body edge dissolves into a light, dark, noisy, or similarly colored floor.',
     'Keep one and only one complete uncropped character inside each cell with generous green clearance on every edge. No body part may cross into another cell.',

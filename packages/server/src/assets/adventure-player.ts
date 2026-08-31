@@ -1,9 +1,11 @@
 import sharp from 'sharp';
 import type { AdventureCombatKit } from '@sparkade/shared';
+import { prepareGeneratedPlatformerReference } from './platformer-pose';
 import {
-  prepareGeneratedPlatformerReference,
-  processGeneratedPlatformerPose,
-} from './platformer-pose';
+  FighterPoseImageError,
+  processGeneratedFighterPose,
+  type ProcessedFighterPose,
+} from './fighter-pose';
 import type { PlatformerIdleCandidateDescriptor } from './platformer-idle-judge';
 
 export const GENERATED_ADVENTURE_PLAYER_POSES = [
@@ -24,8 +26,15 @@ export type GeneratedAdventurePlayerPose = (typeof GENERATED_ADVENTURE_PLAYER_PO
 
 export const ADVENTURE_PLAYER_POSE_WIDTH = 112;
 export const ADVENTURE_PLAYER_POSE_HEIGHT = 128;
-export const ADVENTURE_PLAYER_POSE_PROMPT_VERSION = 'adventure-player-pose-v3';
-export const ADVENTURE_PLAYER_PIPELINE_PROMPT_VERSION = 'adventure-player-pipeline-v4';
+export const ADVENTURE_PLAYER_POSE_PROMPT_VERSION = 'adventure-player-pose-v5';
+export const ADVENTURE_PLAYER_PIPELINE_PROMPT_VERSION = 'adventure-player-pipeline-v6';
+
+// Adventure equipment and side-facing actions legitimately make a silhouette
+// wider than a platformer runner. Keep a useful mechanical floor, then restore
+// the common character height without allowing a long rod, whip, bow, or gun
+// to shrink the entire hero into a miniature.
+const ADVENTURE_MIN_NORMALIZABLE_POSE_HEIGHT = 64;
+const ADVENTURE_TARGET_POSE_HEIGHT = 112;
 
 interface AdventurePlayerPromptOptions {
   heroConcept?: string;
@@ -40,15 +49,15 @@ interface AdventurePlayerIdentityPromptOptions extends AdventurePlayerPromptOpti
 
 const POSE_DIRECTIONS: Record<Exclude<GeneratedAdventurePlayerPose, 'downIdle'>, string> = {
   downWalk:
-    'a DOWN-facing top-down three-quarter walking contact frame, stepping toward the bottom edge with one foot clearly advanced and the opposite arm swinging naturally',
+    'a DOWN-facing top-down three-quarter walking contact frame, stepping toward the bottom edge with one foot clearly advanced; the free arm swings naturally while the primary-equipment arm remains low and passive',
   upIdle:
     'a neutral UP-facing back view, turned directly away toward the top edge with both feet planted; preserve the correct rear silhouette of the hair, headwear, eyewear temple arms when visible, collar, clothing, and body-worn accessories, with no face painted onto the back of the head',
   upWalk:
-    'an UP-facing back-view walking contact frame, stepping toward the top edge with one foot clearly advanced and a natural opposite arm swing; preserve the exact rear camera angle and head silhouette from the reference',
+    'an UP-facing back-view walking contact frame, stepping toward the top edge with one foot clearly advanced; the free arm swings naturally while the primary-equipment arm remains low and passive; preserve the exact rear camera angle and head silhouette from the reference',
   sideIdle:
-    'a neutral RIGHT-facing top-down three-quarter side view with both feet planted, upright posture, empty relaxed hands, and a readable profile of the same face, hair, eyewear, and headwear',
+    'a neutral RIGHT-facing top-down three-quarter side view with both feet planted, upright posture, relaxed low hands, and a readable profile of the same face, hair, eyewear, and headwear',
   sideWalk:
-    'a RIGHT-facing top-down three-quarter walking contact frame with a clear stride toward the right edge and natural opposite arm swing; preserve the exact side camera angle and head profile from the reference',
+    'a RIGHT-facing top-down three-quarter walking contact frame with a clear stride toward the right edge; the free arm swings naturally while the primary-equipment arm remains low and passive; preserve the exact side camera angle and head profile from the reference',
   downMelee:
     'a DOWN-facing top-down three-quarter primary-melee CONTACT frame aimed toward the bottom edge, with planted readable feet, a committed arm action, and the named primary attack visibly at full useful extension',
   upMelee:
@@ -88,17 +97,21 @@ function equipmentContract(
   if (!kit) return 'Keep both hands empty and do not add a weapon or held prop.';
   const primary = kit.primary;
   const secondary = kit.secondary;
+  const handedness =
+    "CANONICAL HANDEDNESS: the hero is right-handed. Keep the primary's main grip in the hero's anatomical RIGHT hand in every movement and melee pose. In a DOWN/front view that hand appears on the viewer's LEFT; in an UP/back view it appears on the viewer's RIGHT; in the generated RIGHT-facing side view it is the near/lower arm. Preserve the anatomical hand rather than keeping the equipment on one screen side. Never swap the primary into the anatomical left hand, move it onto the back or shoulder, hang it from the belt, or change its stow location between directions.";
   if (pose.endsWith('Melee')) {
     return primary.unarmed
       ? `Primary melee contract: ${primary.name}, ${primary.visualConcept}. This is explicitly unarmed: show the hands and body performing the ${primary.profile} contact action with no invented weapon.`
-      : `Primary melee contract: ${primary.name}, ${primary.visualConcept}. Show this exact ${primary.profile} equipment in the hands at the contact moment; never substitute a generic sword, knife, or fantasy weapon.`;
+      : `Primary melee contract: ${primary.name}, ${primary.visualConcept}. ${handedness} Show this exact ${primary.profile} equipment at the contact moment with the anatomical RIGHT hand as the main grip; the anatomical left hand may assist when the equipment clearly requires two hands, but it must never become the main grip. Never substitute a generic sword, knife, or fantasy weapon.`;
   }
   if (pose.endsWith('Secondary')) {
-    return `Secondary-use contract: ${secondary.name}, ${secondary.visualConcept}. Show this exact ${secondary.behavior} item being operated at its release moment. Do not substitute generic gear and do not draw the launched projectile, explosion, trail, or effect. The primary may be naturally stowed or out of frame, but must not transform into the secondary.`;
+    return primary.unarmed
+      ? `Secondary-use contract: ${secondary.name}, ${secondary.visualConcept}. Because the hero has no held primary, operate this exact ${secondary.behavior} item with the anatomical RIGHT hand at its release moment. Do not substitute generic gear and do not draw the launched projectile, explosion, trail, or effect.`
+      : `Secondary-use contract: ${secondary.name}, ${secondary.visualConcept}. ${handedness} Operate this exact ${secondary.behavior} item with the anatomical LEFT hand at its release moment while the exact primary remains visibly low and passive in the anatomical RIGHT hand. Do not omit, sling, sheath, or move the primary to the back to make room for the secondary. Do not substitute generic gear and do not draw the launched projectile, explosion, trail, or effect.`;
   }
   return primary.unarmed
     ? `Default-ready contract: ${primary.name}, ${primary.visualConcept}. Because unarmed=true, keep both hands visibly empty in a relaxed but capable ready pose; never invent a held weapon.`
-    : `Default-ready contract: visibly hold ${primary.name}, ${primary.visualConcept}, in a safe readable rest position integrated into the silhouette. Preserve this exact equipment identity in every idle and walk pose; never replace it with a generic sword.`;
+    : `Default-ready contract: visibly carry ${primary.name}, ${primary.visualConcept}, LOW AND PASSIVE BESIDE THE BODY. ${handedness} Keep the anatomical RIGHT grip hand at hip or thigh height, the anatomical left hand relaxed and free, both hands and elbows below the shoulders, and the equipment close to the right-hand outer side of the silhouette with its active end pointed down or resting toward the ground. A naturally long staff, bow, or tool may extend above the shoulder only along the OUTSIDE of the body; it must never be centered above the head. Idle and walk are non-attacking states: never raise the equipment overhead, brandish it across the chest, extend it toward the facing direction, aim it at a target, or pose as if winding up or making contact. Preserve this exact equipment identity, construction, grip, and carry location in every idle and walk pose; never replace it with a generic sword.`;
 }
 
 function spriteConstraints(): string[] {
@@ -172,6 +185,8 @@ export function buildAdventurePlayerIdentityJudgePrompt(
       'Identity includes apparent adult age, face and head shape, skin tone, hairline, hair texture and style, facial hair, eyewear, headwear, and visible head accessories. Inventing or removing glasses, hats, hair, facial hair, or another head accessory is fatal. Becoming bald, childlike, generically younger, or a different person is fatal.',
       'Costume must realize the supplied wardrobe with consistent garments, materials, colors, footwear, silhouette, and body-worn details.',
       'A usable foundation shows exactly one complete uncropped adult, a neutral DOWN-facing top-down three-quarter idle, the exact primary-equipment state required by the combat kit, coherent anatomy, a clear ground line, readable native-scale pixel technique, and no extra props, text, scenery, or severe artifacts.',
+      'For an armed hero, the down-idle foundation must carry the primary low and passive beside the hip or thigh with relaxed shoulders and low elbows. A weapon held overhead, centered above the head, across the chest, extended toward an opponent, aimed, wound up, or otherwise attack-like is a fatal pose and equipment error.',
+      "The hero is canonically right-handed. In this DOWN/front foundation, the anatomical RIGHT hand appears on the viewer's LEFT. The exact primary must be held there, never in the anatomical left hand and never on the back, shoulder, or belt. A hand swap or alternate stow location is a fatal equipment error.",
       'Gameplay readability is part of technical quality. The complete head-to-foot silhouette and major limb separations must remain immediately legible over light, dark, and noisy floor art; weak or broken outer contour separation is not acceptable.',
       'Score every category from 0 to 5. Select the strongest candidate only if it has no fatal issue, eyewearMatch=true, and every score is at least 4. Otherwise reject the batch and give concrete retry guidance. Return only the requested JSON object.',
     ].join(' '),
@@ -256,10 +271,127 @@ export async function buildAdventureStoryIdentityReference(
     .toBuffer();
 }
 
+/** Give the compact dialogue portrait the same selected hero used by key art,
+ * story scenes, and gameplay. The photo remains neck-up identity truth while
+ * the other panels lock adult proportions, wardrobe, and pixel technique. */
+export async function buildAdventurePortraitIdentityReference(
+  photo: Buffer,
+  keyArt: Buffer,
+  downIdle: Buffer,
+): Promise<Buffer> {
+  const photoPanel = await sharp(photo)
+    .resize(440, 440, { fit: 'contain', background: '#10131f' })
+    .png()
+    .toBuffer();
+  const keyArtPanel = await sharp(keyArt)
+    .resize(480, 300, { fit: 'contain', background: '#10131f' })
+    .png()
+    .toBuffer();
+  const heroPanel = await sharp(downIdle)
+    .resize(300, 340, { fit: 'contain', kernel: sharp.kernel.nearest })
+    .png()
+    .toBuffer();
+  const labels = Buffer.from(
+    '<svg width="1024" height="1024" xmlns="http://www.w3.org/2000/svg"><text x="250" y="38" text-anchor="middle" fill="#f5f7ff" font-family="monospace" font-size="22" font-weight="bold">TOP LEFT · PHOTO · HEAD IDENTITY</text><text x="752" y="38" text-anchor="middle" fill="#f5f7ff" font-family="monospace" font-size="22" font-weight="bold">TOP RIGHT · KEY ART · PORTRAIT STYLE</text><text x="512" y="650" text-anchor="middle" fill="#f5f7ff" font-family="monospace" font-size="22" font-weight="bold">BOTTOM · SELECTED GAMEPLAY HERO · WARDROBE + PROPORTIONS</text></svg>',
+  );
+  return sharp({ create: { width: 1024, height: 1024, channels: 3, background: '#10131f' } })
+    .composite([
+      { input: photoPanel, left: 30, top: 55 },
+      { input: keyArtPanel, left: 512, top: 120 },
+      { input: heroPanel, left: 362, top: 670 },
+      { input: labels, left: 0, top: 0 },
+    ])
+    .png()
+    .toBuffer();
+}
+
 export const prepareGeneratedAdventurePlayerReference = prepareGeneratedPlatformerReference;
 
 export async function processGeneratedAdventurePlayerPose(image: Buffer): Promise<Buffer> {
-  return (await processGeneratedPlatformerPose(image)).png;
+  const processed = await processGeneratedFighterPose(image, {
+    width: ADVENTURE_PLAYER_POSE_WIDTH,
+    height: ADVENTURE_PLAYER_POSE_HEIGHT,
+    padding: 6,
+    bottomPadding: 0,
+    removeGreenSpill: true,
+    colors: 32,
+  });
+  await assertNoAdventurePoseBackdrop(processed.png);
+  if (processed.metrics.outputBounds.height < ADVENTURE_MIN_NORMALIZABLE_POSE_HEIGHT) {
+    throw new FighterPoseImageError(
+      'inconsistent-scale',
+      `generated Adventure pose is too wide to preserve player scale (${processed.metrics.outputBounds.width}x${processed.metrics.outputBounds.height})`,
+    );
+  }
+  return normalizeAdventurePoseHeight(processed);
+}
+
+/** A failed green-screen edit can leave one opaque rectangular panel behind
+ * the hero. Generic component checks mistake that panel for the subject and
+ * shrink the actual character to fit it. A real articulated sprite does not
+ * occupy both full horizontal edges of its own alpha bounds. */
+async function assertNoAdventurePoseBackdrop(png: Buffer): Promise<void> {
+  const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  let minX = info.width;
+  let minY = info.height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < info.height; y++) {
+    for (let x = 0; x < info.width; x++) {
+      if (data[(y * info.width + x) * 4 + 3]! <= 8) continue;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  if (maxX < minX || maxY < minY) return;
+  const width = maxX - minX + 1;
+  const edgeCoverage = (y: number): number => {
+    let opaque = 0;
+    for (let x = minX; x <= maxX; x++) {
+      if (data[(y * info.width + x) * 4 + 3]! > 8) opaque++;
+    }
+    return opaque / width;
+  };
+  if (edgeCoverage(minY) >= 0.8 && edgeCoverage(maxY) >= 0.8) {
+    throw new FighterPoseImageError(
+      'residual-background',
+      'generated Adventure pose contains an opaque rectangular background panel',
+    );
+  }
+}
+
+async function normalizeAdventurePoseHeight(processed: ProcessedFighterPose): Promise<Buffer> {
+  const bounds = processed.metrics.outputBounds;
+  if (bounds.height >= ADVENTURE_TARGET_POSE_HEIGHT) return processed.png;
+
+  const targetBounds = {
+    ...bounds,
+    top: ADVENTURE_PLAYER_POSE_HEIGHT - ADVENTURE_TARGET_POSE_HEIGHT,
+    height: ADVENTURE_TARGET_POSE_HEIGHT,
+  };
+  return sharp(processed.png)
+    .extract(bounds)
+    .resize(bounds.width, targetBounds.height, {
+      fit: 'fill',
+      kernel: sharp.kernel.nearest,
+    })
+    .extend({
+      left: targetBounds.left,
+      right: ADVENTURE_PLAYER_POSE_WIDTH - targetBounds.left - targetBounds.width,
+      top: targetBounds.top,
+      bottom: 0,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    })
+    .png({
+      palette: true,
+      colours: 32,
+      dither: 0,
+      compressionLevel: 9,
+      adaptiveFiltering: false,
+    })
+    .toBuffer();
 }
 
 /** Every direction is atomic and must retain a common scale and ground line. */
@@ -268,6 +400,7 @@ export async function validateGeneratedAdventurePlayerPoseSet(
 ): Promise<void> {
   const bounds = await Promise.all(
     GENERATED_ADVENTURE_PLAYER_POSES.map(async (pose) => {
+      await assertNoAdventurePoseBackdrop(poses[pose]);
       const { data, info } = await sharp(poses[pose])
         .ensureAlpha()
         .raw()
@@ -299,16 +432,8 @@ export async function validateGeneratedAdventurePlayerPoseSet(
       return { pose, width: maxX - minX + 1, height: maxY - minY + 1 };
     }),
   );
-  const movementPoses = new Set<GeneratedAdventurePlayerPose>([
-    'downIdle',
-    'downWalk',
-    'upIdle',
-    'upWalk',
-    'sideIdle',
-    'sideWalk',
-  ]);
-  const heights = bounds.filter(({ pose }) => movementPoses.has(pose)).map(({ height }) => height);
+  const heights = bounds.map(({ height }) => height);
   if (Math.max(...heights) - Math.min(...heights) > 10) {
-    throw new Error('generated Adventure player directions change character height');
+    throw new Error('generated Adventure player poses change character height');
   }
 }

@@ -20,8 +20,8 @@ export const TILE_SIZE = 16;
 /** Adventure rooms remain single-screen, but fill most of the cabinet viewport.
  * These dimensions are shared by generation, validation, asset processing, and
  * runtime rendering so a room cannot silently target the legacy 24×12 grid. */
-export const ADVENTURE_ROOM_COLUMNS = 28;
-export const ADVENTURE_ROOM_ROWS = 14;
+export const ADVENTURE_ROOM_COLUMNS = 32;
+export const ADVENTURE_ROOM_ROWS = 16;
 export const ADVENTURE_ROOM_WIDTH = ADVENTURE_ROOM_COLUMNS * TILE_SIZE;
 export const ADVENTURE_ROOM_HEIGHT = ADVENTURE_ROOM_ROWS * TILE_SIZE;
 

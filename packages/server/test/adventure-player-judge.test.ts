@@ -76,8 +76,19 @@ describe('Adventure player set judge', () => {
     expect(prompt.system).toContain('SELECTED DOWN-IDLE ANCHOR is immutable truth');
     expect(prompt.system).toContain('Inventing, removing, or replacing any of these is fatal');
     expect(prompt.system).toContain('absolutely no face on the back of the head');
-    expect(prompt.system).toContain('Idle and walk must differ visibly');
+    expect(prompt.system).toContain(
+      'Idle, walk, melee, and secondary must have immediately distinct silhouettes',
+    );
     expect(prompt.system).toContain('combat-kit contract is immutable');
+    expect(prompt.system).toContain('hero is canonically right-handed');
+    expect(prompt.system).toContain("RIGHT hand appears on the viewer's LEFT in DOWN/front poses");
+    expect(prompt.system).toContain('primary must keep its main grip in the anatomical RIGHT hand');
+    expect(prompt.system).toContain('never migrate into the anatomical left hand');
+    expect(prompt.system).toContain('onto the back or shoulder');
+    expect(prompt.system).toContain(
+      'secondary-use poses operate the exact secondary with the anatomical LEFT hand',
+    );
+    expect(prompt.system).toContain('a hand swap, a changed stow location');
     expect(prompt.user).toContain('CANONICAL GAME-WORLD WARDROBE');
     expect(prompt.user).toContain('Arc Lash');
     expect(prompt.user).toContain('Pulse Charge');

@@ -20,6 +20,7 @@ import {
   platformerEntityReachabilityIssue,
   reachableCells,
   reconcileDoors,
+  safelyReachableRoomCells,
 } from '@sparkade/archetypes';
 
 const ajv = new Ajv2020({ allErrors: true, strict: false });
@@ -484,6 +485,7 @@ export interface NormalizationFix {
     | 'PLATFORMER_ARENA_HEADROOM'
     | 'PLATFORMER_ROUTE_FALLBACK'
     | 'ADVENTURE_COORD'
+    | 'ADVENTURE_REQUIRED_PICKUP_PATH'
     | 'ADVENTURE_CONTENT'
     | 'ADVENTURE_COMBAT_KIT'
     | 'SHOOTER_TIMING';
@@ -1279,6 +1281,8 @@ function normalizeAdventureContent(out: GameSpec, fixes: NormalizationFix[]): vo
         const ch = room.tiles[y]?.[x];
         return ch === undefined || ch === '.' ? 'floor' : (room.legend[ch] ?? 'floor');
       };
+      const safelyReachable = safelyReachableRoomCells(room);
+      const occupied = new Set(room.entities.map((entity) => `${entity.x},${entity.y}`));
       room.entities.forEach((entity, ei) => {
         if (!Number.isFinite(entity.x) || !Number.isFinite(entity.y)) return;
         const origin = { x: Math.round(entity.x), y: Math.round(entity.y) };
@@ -1286,19 +1290,36 @@ function normalizeAdventureContent(out: GameSpec, fixes: NormalizationFix[]): vo
           x: Math.max(0, Math.min(w - 1, origin.x)),
           y: Math.max(0, Math.min(h - 1, origin.y)),
         };
-        const replacement =
+        let replacement =
           kind(clamped.x, clamped.y) === 'wall' || kind(clamped.x, clamped.y) === 'pit'
             ? nearestCell(clamped, w, h, (x, y) => kind(x, y) !== 'wall' && kind(x, y) !== 'pit')
             : clamped;
+        if (
+          replacement &&
+          (entity.type === 'key' || entity.type === 'item') &&
+          !safelyReachable.has(`${replacement.x},${replacement.y}`)
+        ) {
+          replacement = nearestCell(clamped, w, h, (x, y) => {
+            const cell = `${x},${y}`;
+            return (
+              safelyReachable.has(cell) &&
+              kind(x, y) === 'floor' &&
+              (cell === `${entity.x},${entity.y}` || !occupied.has(cell))
+            );
+          });
+        }
         if (!replacement || (replacement.x === entity.x && replacement.y === entity.y)) return;
         const before = `(${entity.x},${entity.y})`;
+        occupied.delete(`${entity.x},${entity.y}`);
         entity.x = replacement.x;
         entity.y = replacement.y;
+        occupied.add(`${entity.x},${entity.y}`);
+        const requiredPickup = entity.type === 'key' || entity.type === 'item';
         addFix(
           fixes,
-          'ADVENTURE_COORD',
+          requiredPickup ? 'ADVENTURE_REQUIRED_PICKUP_PATH' : 'ADVENTURE_COORD',
           `/levels/0/rooms/${ri}/entities/${ei}`,
-          `moved ${entity.type} from ${before} to walkable cell (${entity.x},${entity.y})`,
+          `moved ${entity.type} from ${before} to ${requiredPickup ? 'safely reachable ' : ''}walkable cell (${entity.x},${entity.y})`,
         );
       });
     }

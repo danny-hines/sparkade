@@ -496,6 +496,33 @@ describe('deterministic generated-spec normalization', () => {
     expect(contentErrors).toEqual([]);
   });
 
+  it('moves required Adventure pickups out of hazard-enclosed pockets', () => {
+    const input = golden<AdventureSpec>('adventure');
+    const room = input.levels[0]!.rooms.find((candidate) => candidate.id === 'mosshall')!;
+    const key = room.entities.find((entity) => entity.type === 'key')!;
+    key.x = 15;
+    key.y = 7;
+
+    const result = normalizeGeneratedSpec(input);
+    const fixedRoom = (result.spec as AdventureSpec).levels[0]!.rooms.find(
+      (candidate) => candidate.id === 'mosshall',
+    )!;
+    const fixedKey = fixedRoom.entities.find((entity) => entity.type === 'key')!;
+
+    expect(fixedKey).not.toMatchObject({ x: 15, y: 7 });
+    expect(result.fixes).toContainEqual(
+      expect.objectContaining({
+        code: 'ADVENTURE_REQUIRED_PICKUP_PATH',
+        path: expect.stringContaining('/entities/'),
+      }),
+    );
+    expect(
+      lintAdventure(result.spec as AdventureSpec).some(
+        (error) => error.code === 'ADV_REQUIRED_PICKUP_UNSAFE',
+      ),
+    ).toBe(false);
+  });
+
   it('sorts/clamps shooter events and enforces active-entity/bullet budgets', () => {
     const input = golden<ShooterSpec>('shooter');
     const level = input.levels[0]!;

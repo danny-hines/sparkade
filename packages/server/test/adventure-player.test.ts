@@ -9,6 +9,7 @@ import {
   buildAdventurePlayerIdentityPrompt,
   buildAdventurePlayerIdentityReference,
   buildAdventurePlayerPosePrompt,
+  buildAdventurePortraitIdentityReference,
   buildAdventureStoryIdentityReference,
   processGeneratedAdventurePlayerPose,
   validateGeneratedAdventurePlayerPoseSet,
@@ -22,15 +23,32 @@ async function solid(width: number, height: number, color: string): Promise<Buff
 
 async function footAnchoredPose(width: number, height = 116): Promise<Buffer> {
   const raw = Buffer.alloc(ADVENTURE_PLAYER_POSE_WIDTH * ADVENTURE_PLAYER_POSE_HEIGHT * 4);
-  const left = Math.floor((ADVENTURE_PLAYER_POSE_WIDTH - width) / 2);
   const top = ADVENTURE_PLAYER_POSE_HEIGHT - height;
-  for (let y = top; y < ADVENTURE_PLAYER_POSE_HEIGHT; y++) {
-    for (let x = left; x < left + width; x++) {
-      const offset = (y * ADVENTURE_PLAYER_POSE_WIDTH + x) * 4;
-      raw[offset] = 58;
-      raw[offset + 1] = 86;
-      raw[offset + 2] = 142;
-      raw[offset + 3] = 255;
+  const centerX = Math.floor(ADVENTURE_PLAYER_POSE_WIDTH / 2);
+  const paintRect = (left: number, y0: number, rectWidth: number, rectHeight: number): void => {
+    for (let y = y0; y < y0 + rectHeight; y++) {
+      for (let x = left; x < left + rectWidth; x++) {
+        const offset = (y * ADVENTURE_PLAYER_POSE_WIDTH + x) * 4;
+        raw[offset] = 58;
+        raw[offset + 1] = 86;
+        raw[offset + 2] = 142;
+        raw[offset + 3] = 255;
+      }
+    }
+  };
+  const bodyWidth = Math.min(28, width);
+  paintRect(centerX - 7, top, 14, 14);
+  paintRect(centerX - Math.floor(bodyWidth / 2), top + 12, bodyWidth, height - 34);
+  paintRect(Math.floor((ADVENTURE_PLAYER_POSE_WIDTH - width) / 2), top + 28, width, 5);
+  for (const left of [centerX - 13, centerX + 5]) {
+    for (let y = ADVENTURE_PLAYER_POSE_HEIGHT - 22; y < ADVENTURE_PLAYER_POSE_HEIGHT; y++) {
+      for (let x = left; x < left + 8; x++) {
+        const offset = (y * ADVENTURE_PLAYER_POSE_WIDTH + x) * 4;
+        raw[offset] = 58;
+        raw[offset + 1] = 86;
+        raw[offset + 2] = 142;
+        raw[offset + 3] = 255;
+      }
     }
   }
   return sharp(raw, {
@@ -81,6 +99,14 @@ describe('generated Adventure player prompts', () => {
     expect(prompt).toContain('similarly colored floor');
     expect(prompt).toContain('flat solid #00ff00');
     expect(prompt).toContain('Signal Wrench');
+    expect(prompt).toContain('LOW AND PASSIVE BESIDE THE BODY');
+    expect(prompt).toContain('grip hand at hip or thigh height');
+    expect(prompt).toContain('never raise the equipment overhead');
+    expect(prompt).toContain('never be centered above the head');
+    expect(prompt).toContain('hero is right-handed');
+    expect(prompt).toContain("DOWN/front view that hand appears on the viewer's LEFT");
+    expect(prompt).toContain('Never swap the primary into the anatomical left hand');
+    expect(prompt).toContain('move it onto the back or shoulder');
     expect(prompt).toContain('never replace it with a generic sword');
   });
 
@@ -98,8 +124,12 @@ describe('generated Adventure player prompts', () => {
     expect(sideWalk).toContain('Change only the requested facing and action state');
     expect(melee).toContain('Signal Wrench');
     expect(melee).toContain('contact moment');
+    expect(melee).toContain('anatomical RIGHT hand as the main grip');
     expect(secondary).toContain('Flare Caster');
     expect(secondary).toContain('launched projectile');
+    expect(secondary).toContain('anatomical LEFT hand');
+    expect(secondary).toContain('primary remains visibly low and passive');
+    expect(secondary).toContain('move the primary to the back');
   });
 
   it('requires the identity judge to preserve hats, glasses, hair, and adult likeness', () => {
@@ -113,6 +143,13 @@ describe('generated Adventure player prompts', () => {
     expect(judge.system).toContain('Inventing or removing glasses, hats, hair');
     expect(judge.system).toContain('childlike');
     expect(judge.system).toContain('light, dark, and noisy floor art');
+    expect(judge.system).toContain('carry the primary low and passive beside the hip or thigh');
+    expect(judge.system).toContain('centered above the head');
+    expect(judge.system).toContain('fatal pose and equipment error');
+    expect(judge.system).toContain('canonically right-handed');
+    expect(judge.system).toContain("anatomical RIGHT hand appears on the viewer's LEFT");
+    expect(judge.system).toContain('never on the back, shoulder, or belt');
+    expect(judge.system).toContain('hand swap or alternate stow location');
     expect(judge.user).toContain('CANONICAL GAME-WORLD WARDROBE');
     expect(
       buildAdventurePlayerIdentityJudgePrompt(
@@ -152,6 +189,58 @@ describe('generated Adventure player processing', () => {
     expect(Array.from(bottom).some((value, index) => index % 4 === 3 && value > 0)).toBe(true);
   });
 
+  it('keeps wide equipment poses at the common hero height instead of applying platformer scale rejection', async () => {
+    const widePose = await sharp({
+      create: { width: 1024, height: 1024, channels: 4, background: '#00ff00' },
+    })
+      .composite([
+        {
+          input: await solid(260, 720, '#8b5e3c'),
+          left: 382,
+          top: 152,
+        },
+        {
+          input: await solid(860, 30, '#8b5e3c'),
+          left: 82,
+          top: 470,
+        },
+      ])
+      .png()
+      .toBuffer();
+
+    const png = await processGeneratedAdventurePlayerPose(widePose);
+    const { data, info } = await sharp(png)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const opaqueRows = new Set<number>();
+    for (let pixel = 0; pixel < info.width * info.height; pixel++) {
+      if (data[pixel * 4 + 3]! > 8) opaqueRows.add(Math.floor(pixel / info.width));
+    }
+
+    expect(info).toMatchObject({ width: 112, height: 128 });
+    expect(opaqueRows.size).toBe(112);
+  });
+
+  it('rejects an opaque rectangular panel that would shrink the actual hero', async () => {
+    const failedGreenScreen = await sharp({
+      create: { width: 1024, height: 1024, channels: 4, background: '#00ff00' },
+    })
+      .composite([
+        {
+          input: await solid(720, 840, '#17232c'),
+          left: 152,
+          top: 92,
+        },
+      ])
+      .png()
+      .toBuffer();
+
+    await expect(processGeneratedAdventurePlayerPose(failedGreenScreen)).rejects.toThrow(
+      'opaque rectangular background panel',
+    );
+  });
+
   it('accepts a complete scale-consistent movement-and-combat pose set', async () => {
     const entries = await Promise.all(
       GENERATED_ADVENTURE_PLAYER_POSES.map(async (pose) => {
@@ -184,7 +273,7 @@ describe('generated Adventure player processing', () => {
     await expect(validateGeneratedAdventurePlayerPoseSet(set)).resolves.toBeUndefined();
   });
 
-  it('still rejects a direction that changes the character height', async () => {
+  it('still rejects a pose that changes the character height', async () => {
     const entries = await Promise.all(
       GENERATED_ADVENTURE_PLAYER_POSES.map(async (pose, index) => [
         pose,
@@ -197,7 +286,7 @@ describe('generated Adventure player processing', () => {
     >;
 
     await expect(validateGeneratedAdventurePlayerPoseSet(set)).rejects.toThrow(
-      'directions change character height',
+      'poses change character height',
     );
   });
 
@@ -209,12 +298,17 @@ describe('generated Adventure player processing', () => {
       await mockGeneratedImage(buildAdventurePlayerIdentityPrompt('I1', { hasPhoto: false })),
     );
     const storyBoard = await buildAdventureStoryIdentityReference(keyArt, sprite);
+    const portraitBoard = await buildAdventurePortraitIdentityReference(photo, keyArt, sprite);
 
     await expect(sharp(identityBoard).metadata()).resolves.toMatchObject({
       width: 1024,
       height: 1024,
     });
     await expect(sharp(storyBoard).metadata()).resolves.toMatchObject({
+      width: 1024,
+      height: 1024,
+    });
+    await expect(sharp(portraitBoard).metadata()).resolves.toMatchObject({
       width: 1024,
       height: 1024,
     });

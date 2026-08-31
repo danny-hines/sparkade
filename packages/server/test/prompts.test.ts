@@ -140,6 +140,16 @@ describe('entities prompt likeness casting', () => {
     expect(system).toContain('Do not use the side-view backdrop names starfield, circuit');
   });
 
+  it('uses Adventure backdrop vocabulary only as a room-surface environment hint', () => {
+    const adventureDesign = { ...design, archetype: 'adventure' } as DesignDoc;
+    const system = buildEntitiesPrompt('adventure', adventureDesign, false).system;
+
+    expect(system).toContain('ENVIRONMENT FAMILY');
+    expect(system).toContain('generated top-down room surfaces');
+    expect(system).toContain('does NOT draw a procedural panoramic backdrop');
+    expect(system).not.toContain('parallax scene behind gameplay');
+  });
+
   it('projects repairs to one owner and can regenerate one level', () => {
     const currentLevels = [
       { name: 'One', tiles: ['....'] },

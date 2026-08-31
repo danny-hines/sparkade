@@ -5,14 +5,12 @@ import {
   aabbOverlap,
   adventureHdTileRef,
   drawTileLayer,
-  makeBackdrop,
   moveAABB,
   outlineCanvas,
   solidNeighborMask,
   terrainAtlasFrame,
   TopDownConnectedAutotiles,
   type AABB,
-  type Backdrop,
   type EngineContext,
   type GameInstance,
   type GameResult,
@@ -57,7 +55,7 @@ const DOOR_RIGHT_TX = ROOM_CENTER_TX;
 const DOOR_TOP_TY = ROOM_CENTER_TY - 1;
 const DOOR_BOTTOM_TY = ROOM_CENTER_TY;
 const VIEW_X = Math.floor((INTERNAL_WIDTH - ROOM_W) / 2);
-const VIEW_Y = Math.floor((INTERNAL_HEIGHT - ROOM_H) / 2) + 12;
+const VIEW_Y = Math.max(20, Math.floor((INTERNAL_HEIGHT - ROOM_H) / 2) + 2);
 const ROOM_PLATE_COLUMNS = 2;
 const ROOM_PLATE_ROWS = 2;
 
@@ -492,7 +490,6 @@ class AdventureGame implements GameInstance {
   private startIx = 0;
   private bossIx = 0;
   private posIndex = new Map<string, number>();
-  private backdrop: Backdrop;
   private tileFrames: Record<string, HTMLCanvasElement[]> = {};
   private depthItems: AdventureDepthItem[] = [];
   private wallAutotiles: TopDownConnectedAutotiles;
@@ -668,7 +665,6 @@ class AdventureGame implements GameInstance {
         w: orientDoorCanvas(source, 'w'),
       };
     }
-    this.backdrop = makeBackdrop(spec.palette, spec.seed + 33, spec.backdrop);
     this.roomPlate = engine.adventureRoomPlates;
     this.roomPlateSize = canvasImageSize(this.roomPlate);
     if (!this.roomPlateSize) this.roomPlate = null;
@@ -1396,7 +1392,9 @@ class AdventureGame implements GameInstance {
       this.hazardsActive = true;
       return;
     }
+    const hazardsWereActive = this.hazardsActive;
     let pressed = 0;
+    let newlyPressed = false;
     const pcx = Math.floor((this.px + PLAYER_W / 2) / TILE_SIZE);
     const pcy = Math.floor((this.py + PLAYER_H / 2) / TILE_SIZE);
     for (const s of this.switchCells) {
@@ -1413,11 +1411,19 @@ class AdventureGame implements GameInstance {
           }
         }
       }
-      if (on && !s.pressed) this.engine.sfx.play('uiSelect');
+      if (on && !s.pressed) {
+        this.engine.sfx.play('uiSelect');
+        newlyPressed = true;
+      }
       s.pressed = on;
       if (on) pressed++;
     }
     this.hazardsActive = pressed < this.switchCells.length;
+    if (hazardsWereActive !== this.hazardsActive) {
+      this.showFloat(this.hazardsActive ? 'HAZARDS REARMED' : 'HAZARDS RETRACTED', 1.4);
+    } else if (newlyPressed) {
+      this.showFloat(`PLATES ${pressed}/${this.switchCells.length}`, 1.1);
+    }
   }
 
   // ------------------------------------------------------ primary & secondary
@@ -2485,11 +2491,10 @@ class AdventureGame implements GameInstance {
     r.clear(this.spec.palette[2] ?? '#1a1c2c');
     if (!this.roomReady) return;
 
-    this.backdrop.draw(r.ctx, this.room.gridPos.x * 120, this.room.gridPos.y * 80);
     this.drawRoomPlate();
     // Keep the room edge above the generated plate even if the atlas contains
     // high-contrast pixels at the exact panel boundary.
-    r.frame(VIEW_X - 2, VIEW_Y - 2, ROOM_W + 4, ROOM_H + 4, this.spec.palette[1] ?? '#10122b', 2);
+    r.frame(VIEW_X, VIEW_Y, ROOM_W, ROOM_H, this.spec.palette[1] ?? '#10122b', 2);
 
     const frameIx = Math.floor(this.animT * 4) % 2;
     drawTileLayer(r, cam, COLS, ROWS, TILE_SIZE, (tx, ty) => {

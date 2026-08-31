@@ -500,7 +500,7 @@ export interface AdventureSpec extends GameSpecBase {
   archetype: 'adventure';
   /** Story-specific presentation layered over bounded engine combat behaviors. */
   combatKit: AdventureCombatKit;
-  /** Horizontal side-scroll scene; omitted → seed-varied pick. */
+  /** Semantic environment-family hint for generated room surfaces. */
   backdrop?: BackdropVariantId;
   levels: AdventureDungeon[];
   boss: AdventureBoss;

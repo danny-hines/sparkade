@@ -49,8 +49,8 @@ part of this slice.
 
 Status: implemented. Every new Adventure generation now makes one additional Muse Image call,
 conditioned on that game's key art, for a 2×2 atlas of entrance, ordinary, deep, and finale room
-surfaces. Each panel is normalized to 896×448—one source pixel per physical display pixel for the
-expanded 448×224 logical room. The runtime selects a panel deterministically from room identity and
+surfaces. Each panel is normalized to 1024×512—one source pixel per physical display pixel for the
+full-width 512×256 logical room. The runtime selects a panel deterministically from room identity and
 graph depth, then draws semantic walls, pits, doors, hazards, switches, blocks, fixtures, actors,
 and effects above it.
 
@@ -61,9 +61,16 @@ Prompt study: [Drowned Observatory room-surface atlas](assets/adventure-room-pla
 - Generate all four progression treatments in one call so palette, material language, and texture
   scale remain coherent while image cost stays bounded.
 - Preserve large-scale composition while rendering materials at full native density with small,
-  human-scale motifs, nuanced true-color ramps, and one-to-three-pixel texture marks. Quiet gameplay
-  bands are low contrast rather than low detail. Explicitly reject macro-pixels, giant floor units,
-  coarse mosaics, and simulated low-resolution enlargement.
+  low-contrast grain and nuanced true-color ramps at three scales: broad tonal fields, medium-scale
+  material flow and wear, and connected high-density microtexture. Keep 65–75% calm continuous
+  material while explicitly rejecting the bland failure mode of a flat base covered in isolated
+  square flecks, uniform dots, or random block noise. Every richer mark must remain flat,
+  low-contrast, and noninteractive, with no focal point, object-like cluster, dark contour, bright
+  pinpoint, glow, branching crack network, or prop-sized motif that could be mistaken for runtime
+  state. Reserve the strongest edges, darkest outlines, brightest lights, warm danger colors, and
+  saturated accents for actors, fixtures, hazards, pickups, projectiles, and telegraphs drawn above
+  it. Explicitly reject macro-pixels, giant floor units, coarse mosaics, and simulated low-resolution
+  enlargement.
 - Keep a clear retro, pixel-art-esque identity through deliberate pixel placement, stepped edges,
   small intentional clusters, controlled ramps, and selective dithering. The target is modern
   high-density pixel art—not photorealism, smooth digital painting, or strict SNES-era limitations.
@@ -112,10 +119,18 @@ and [fixed 3×2 pose-sheet contract](assets/adventure-player-sheet-study.png).
   secondary equipment, wardrobe, accessories, scale, ground contact, and pixel technique. If a
   sheet misses a pose or the review identifies a weak one, generate only that isolated pose and
   review the repaired set again.
+- Give every hero one camera-aware canonical handedness contract. Armed movement and melee keep the
+  primary's main grip in the anatomical right hand—viewer-left from the front, viewer-right from
+  behind, and the near arm in the generated right-facing profile—rather than pinning it to one
+  screen side. Idle and walk carry it low beside the hip; only melee raises it. Secondary-use poses
+  use the anatomical left hand while the primary remains low in the right, so no pose may swap hands
+  or opportunistically move the primary onto the back, shoulder, or belt. Treat construction, grip,
+  and stow-position drift as a fatal equipment inconsistency during Spark review.
 - Feed a composite reference containing key art plus the exact selected gameplay hero into all four
-  story-scene generations. Story cards therefore inherit the same person and game-aligned outfit
-  that gameplay uses, while the photo-conditioned card portraits continue to preserve head identity
-  and show the same canonical collar and shoulders.
+  story-scene generations. For photo games, generate dialogue portraits from a second labeled board
+  containing the player photo, key art, and selected gameplay hero. The photo stays neck-up likeness
+  truth while key art and gameplay lock the same natural adult proportions, high-density pixel
+  technique, wardrobe, and palette; explicitly reject chibi or mascot-style reinterpretations.
 - Publish all twelve stable filenames together and activate them only after the entire set loads. The
   normal player path now uses five image calls—three identity candidates plus two pose sheets—instead
   of eight. Including all other current Adventure art and the one-call boss board, the expected
@@ -125,6 +140,10 @@ and [fixed 3×2 pose-sheet contract](assets/adventure-player-sheet-study.png).
   wider 34%-opacity hard-edged contact shadow under the player. Author and review the source poses
   over mixed light, dark, saturated, and noisy floor samples so the renderer reinforces an already
   readable silhouette rather than rescuing an unusable one.
+- Fail local pose processing when a broken green-screen edit leaves an opaque rectangular panel or
+  edge bars behind the hero. Those panels otherwise masquerade as the subject bounds and shrink the
+  actual character. Route the failed cell through isolated-pose recovery, then mechanically validate
+  scale and transparency across all twelve selected poses before publication.
 - Treat Spark's acceptance threshold as quality telemetry rather than permission to replace generated
   art with a library body. After bounded targeted recovery, publish the strongest locally valid pose
   combination. Fail the job only when a pose is missing or the complete set fails mechanical image
@@ -173,22 +192,22 @@ shadow, and renders a 48×56 visual over the unchanged 24×24 collider and exist
 
 ## Rooms, progression, and environment variety
 
-Status: framing expansion implemented. Adventure rooms now use a shared 28×14-cell contract across
+Status: framing expansion implemented. Adventure rooms now use a shared 32×16-cell contract across
 the schema, generation prompt, normalizer, golden fixture, door geometry, collision grids, and
-runtime. The 448×224 playfield occupies 87.5% of the cabinet's logical width while retaining full
-one-screen visibility, centered two-cell doors, and enough surround for atmosphere and HUD
-separation.
+runtime. The 512×256 playfield occupies the cabinet's full logical width while retaining full
+one-screen visibility, centered two-cell doors, and a small HUD-safe vertical margin. Adventure no
+longer draws the old procedural backdrop around generated room plates.
 
 - Build on the four generated surface treatments with bounded fixture, lighting, and ambience
   variants for the start, puzzle wing, deep dungeon, and boss approach.
 - Give authored room roles—entrance, combat, puzzle, NPC, treasure, transition, boss approach—small
   presentation vocabularies that affect fixtures, lighting accents, and ambient effects without
   altering solvability.
-- Author new layouts across the full 28×14 footprint rather than clustering content into the legacy
+- Author new layouts across the full 32×16 footprint rather than clustering content into a smaller
   center. Keep broad navigable lanes, every door visible, and reaction space for projectiles and
   charge attacks.
-- Keep the old panoramic backdrop only as the room surround. The generated top-down room surface is
-  the primary environment layer inside the playable frame.
+- Use the generated top-down room surface as the only environment layer. Keep any residual
+  HUD-safe margin flat and subordinate instead of exposing a mismatched panoramic backdrop.
 
 ## Combat, puzzles, and encounter quality
 
@@ -202,6 +221,12 @@ generation and lint prove it is reachable before every boss-room entrance, and t
 forgiving damage target and shorter HP range. The complete generated player set now visibly carries
 the primary during locomotion and switches to dedicated primary-contact or secondary-release frames
 when the corresponding button is pressed, without increasing the normal two-sheet image-call count.
+Required keys and secondary-item pedestals are normalized onto hazard-free entrance-connected paths
+and linted against hazard, pit, or wall enclosures. Pressure plates are functional rather than
+decorative: they retract all room hazards only while every plate is held, generation must provide
+hazards plus at least one pushable block per plate, and a bounded Sokoban search proves there is a
+safe legal sequence of player movement and block pushes that completes the room. Runtime feedback
+reports plate progress and hazard retraction/rearming.
 
 - Add explicit line-of-sight and projectile-clearance checks for shooter placement.
 - Validate free space for boss charge lanes, teleport destinations, summon points, and the player's
@@ -218,7 +243,8 @@ when the corresponding button is pressed, without increasing the normal two-shee
 1. Semantic connected walls/pits, scaled overlays, Y depth, shadows, and fixtures. Done.
 2. One-call generated entrance/ordinary/deep/finale room-surface atlas. Done.
 3. Complete generated player identity and directional walk presentation. Done.
-4. Expand rooms to 28×14 and retain room plates at physical display density. Done.
+4. Expand rooms to 32×16, remove the old backdrop surround, and retain room plates at physical
+   display density. Done.
 5. Generated finale boss from boss story art. Done.
 6. Generated five-role enemy cast.
 7. Themed key, item, NPC, and selected projectile art.

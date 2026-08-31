@@ -21,12 +21,12 @@ import {
 describe('Adventure high-density terrain selection', () => {
   it('uses the expanded single-screen room footprint', () => {
     expect({ columns: ADVENTURE_ROOM_COLUMNS, rows: ADVENTURE_ROOM_ROWS }).toEqual({
-      columns: 28,
-      rows: 14,
+      columns: 32,
+      rows: 16,
     });
     expect({ width: ADVENTURE_ROOM_WIDTH, height: ADVENTURE_ROOM_HEIGHT }).toEqual({
-      width: 448,
-      height: 224,
+      width: 512,
+      height: 256,
     });
   });
 

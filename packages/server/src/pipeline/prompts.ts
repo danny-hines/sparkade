@@ -244,6 +244,8 @@ JUICE (optional) — set the top-level "juice" number (0–1.5) to scale screen-
 
 const SHOOTER_BACKDROP_NOTE = `BACKDROP — this vertical shooter flies over the scene, so use ONLY one of: deepspace (star sea + planets), nebula (glowing gas clouds), asteroids (drifting rock field), ocean (open sea under clouds), metropolis (night rooftops), canyon (rocky gorge), swamp (toxic bog), tundra (cracked ice). Do not use the side-view backdrop names starfield, circuit, city, hills, or factory. Pick the scene that matches the premise; omit only if none fit.${BACKDROP_NOTE.slice(BACKDROP_NOTE.indexOf('\n\nWEATHER'))}`;
 
+const ADVENTURE_ENVIRONMENT_NOTE = `ENVIRONMENT FAMILY — set the top-level "backdrop" field only as a semantic material and atmosphere hint for the later generated top-down room surfaces: starfield (space-station or astral), hills (countryside), clouds (sky realm), caves (cavern), mountains (alpine), candy (confectionery), city (urban), ruins (ancient remains), pyramids (desert), circuit (digital), factory (industrial). Adventure does NOT draw a procedural panoramic backdrop around its full-width rooms. Pick the closest family to the premise; omit only if none fit.${BACKDROP_NOTE.slice(BACKDROP_NOTE.indexOf('\n\nWEATHER'))}`;
+
 /** Per-archetype library menus (annotated, grouped) + reskinnable-slot documentation. */
 function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: string } {
   const small = [...LIB_PROJECTILES, ...LIB_PICKUPS].join(', ');
@@ -366,7 +368,11 @@ ${connectedSolidNote}${platformerImageFallbackNote}`
       : 'This archetype has no terrain tiles; its look comes from palette, backdrop, ship/foe sprites and wave choreography.\n') +
     extraRoles[archetype] +
     '\n\n' +
-    (archetype === 'shooter' ? SHOOTER_BACKDROP_NOTE : BACKDROP_NOTE);
+    (archetype === 'shooter'
+      ? SHOOTER_BACKDROP_NOTE
+      : archetype === 'adventure'
+        ? ADVENTURE_ENVIRONMENT_NOTE
+        : BACKDROP_NOTE);
   return { libList: byArchetype[archetype], reskinNotes };
 }
 

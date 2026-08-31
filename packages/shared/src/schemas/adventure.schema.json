@@ -13,7 +13,7 @@
     "combatKit": { "$ref": "#/$defs/combatKit" },
     "sprites": { "$ref": "#/$defs/spritesBlock" },
     "backdrop": {
-      "description": "Parallax backdrop scene drawn behind gameplay in your palette's background colors. Pick the scene that matches the premise; omit for a mood-based default.",
+      "description": "Environment-family hint for the generated top-down room surfaces. Adventure does not draw a procedural panoramic surround; pick the vocabulary entry that best matches the premise, or omit for a mood-based default.",
       "enum": [
         "starfield",
         "hills",
@@ -446,8 +446,8 @@
       "type": "object",
       "properties": {
         "type": { "$ref": "#/$defs/entityType" },
-        "x": { "type": "integer", "minimum": 0, "maximum": 27 },
-        "y": { "type": "integer", "minimum": 0, "maximum": 13 },
+        "x": { "type": "integer", "minimum": 0, "maximum": 31 },
+        "y": { "type": "integer", "minimum": 0, "maximum": 15 },
         "props": {
           "type": "object",
           "properties": {
@@ -489,11 +489,11 @@
           "additionalProperties": false
         },
         "tiles": {
-          "description": "Exactly 14 rows of exactly 28 characters (one screen). The outer border should be wall; door openings are carved automatically. Each character must appear in the legend or be '.' (floor).",
+          "description": "Exactly 16 rows of exactly 32 characters (one screen). The outer border should be wall; door openings are carved automatically. Each character must appear in the legend or be '.' (floor).",
           "type": "array",
-          "minItems": 14,
-          "maxItems": 14,
-          "items": { "type": "string", "minLength": 28, "maxLength": 28, "pattern": "^[ -~]+$" }
+          "minItems": 16,
+          "maxItems": 16,
+          "items": { "type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[ -~]+$" }
         },
         "legend": {
           "description": "Single character -> tile type. '.' is always floor and may be omitted.",

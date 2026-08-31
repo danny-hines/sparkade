@@ -29,10 +29,13 @@ export interface LikenessImageGenerationOptions {
   /** Design-stage canonical game-world wardrobe. Portraits use the visible
    * collar and shoulders to match story and gameplay art. */
   heroConcept?: string;
+  /** Adventure supplies a labeled photo + key-art + selected-gameplay board so
+   * the dialogue portrait cannot drift into an unrelated rendering style. */
+  referenceLayout?: 'photo' | 'adventure-hero-board';
 }
 
-export const GENERATED_PORTRAIT_PROMPT_VERSION = 'generated-portrait-v3';
-export const GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION = 'generated-defeat-portrait-v3';
+export const GENERATED_PORTRAIT_PROMPT_VERSION = 'generated-portrait-v4';
+export const GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION = 'generated-defeat-portrait-v4';
 
 export function describeVisibleTraits(feat: FaceFeatures | null): string {
   if (!feat) {
@@ -72,7 +75,10 @@ async function requestImageEdit(
       prompt,
       image: png,
       imageMimeType: 'image/png',
-      imageFilename: 'player-photo.png',
+      imageFilename:
+        options.referenceLayout === 'adventure-hero-board'
+          ? 'adventure-hero-reference-board.png'
+          : 'player-photo.png',
       outputFormat: 'png',
       size: options.size ?? '1024x1024',
       ...(options.user ? { user: options.user } : {}),
@@ -88,12 +94,20 @@ export async function generatePortrait(
   edit: LikenessImageEdit,
   options: LikenessImageGenerationOptions = {},
 ): Promise<Buffer> {
+  const adventureBoard = options.referenceLayout === 'adventure-hero-board';
   const prompt = [
-    'Redraw the person in this photo as a friendly 16-bit pixel-art arcade video-game character —',
+    adventureBoard
+      ? 'Use the attached labeled Adventure hero board to create the one canonical dialogue portrait. TOP LEFT is the exact player photo and immutable neck-up likeness truth. TOP RIGHT is the canonical key-art hero and immutable portrait rendering-style, apparent adult age, and wardrobe truth. BOTTOM is the selected gameplay hero and immutable costume, palette, and body-proportion truth.'
+      : 'Redraw the person in this photo as a friendly 16-bit pixel-art arcade video-game character —',
     'a front-facing head-and-shoulders portrait bust.',
-    `Preserve their likeness from the neck up: ${describeVisibleTraits(feat)}, their skin tone, and their expression.`,
+    adventureBoard
+      ? `Preserve the TOP-LEFT person's recognizable likeness from the neck up: ${describeVisibleTraits(feat)}, their skin tone, face shape, facial proportions, and expression. Match the TOP-RIGHT key art's high-density pixel technique, natural heroic adult proportions, outline weight, color ramps, and level of facial detail.`
+      : `Preserve their likeness from the neck up: ${describeVisibleTraits(feat)}, their skin tone, and their expression.`,
     'Preserve visible glasses, headwear, hair, facial hair, and other head accessories exactly. Never remove or replace an accessory that is present, and never invent one that is absent.',
     wardrobeInstruction(options.heroConcept),
+    adventureBoard
+      ? 'The portrait must look like a close crop of the same adult hero shown in the key art and gameplay sprite—not a separate mascot interpretation. Use normal adult head-to-shoulder proportions. No chibi, super-deformed, oversized head, tiny shoulders, rounded baby-like face, doll proportions, childlike anatomy, or cute caricature.'
+      : '',
     'Clean flat colours, a bold dark outline, a simple plain dark background.',
     'Cheerful retro SNES game art, stylised and characterful, NOT photorealistic.',
   ].join(' ');
@@ -120,13 +134,21 @@ export async function generateDefeatPortrait(
       ? 'Preserve their glasses exactly.'
       : 'The person is not wearing eyewear. Do not add glasses, sunglasses, goggles, lenses, or frames.'
     : 'Preserve accessories exactly as visibly shown in the reference photo. Add no accessory that is absent.';
+  const adventureBoard = options.referenceLayout === 'adventure-hero-board';
   const prompt = [
-    'Redraw the exact person in this photo as a friendly 16-bit pixel-art arcade video-game character —',
+    adventureBoard
+      ? 'Use the attached labeled Adventure hero board to create the one canonical defeat dialogue portrait. TOP LEFT is the exact player photo and immutable neck-up likeness truth. TOP RIGHT is the canonical key-art hero and immutable portrait rendering-style, apparent adult age, and wardrobe truth. BOTTOM is the selected gameplay hero and immutable costume, palette, and body-proportion truth.'
+      : 'Redraw the exact person in this photo as a friendly 16-bit pixel-art arcade video-game character —',
     'a front-facing head-and-shoulders portrait bust for a game defeat story card.',
     `Defeat context: ${context || 'The hero has lost this round.'}`,
     'Give them a clearly readable, natural expression of disappointment, worry, sadness, or concern that best fits this specific setback. Keep the emotion sympathetic and resilient, not comedic or exaggerated.',
-    `Preserve their recognizable likeness: ${describeVisibleTraits(feat)}, their skin tone, hair, facial proportions, and all visible identity cues. ${accessoryInstruction}`,
+    adventureBoard
+      ? `Preserve the TOP-LEFT person's recognizable likeness: ${describeVisibleTraits(feat)}, their skin tone, hair, face shape, facial proportions, and all visible identity cues. Match the TOP-RIGHT key art's high-density pixel technique, natural heroic adult proportions, outline weight, color ramps, and facial detail. ${accessoryInstruction}`
+      : `Preserve their recognizable likeness: ${describeVisibleTraits(feat)}, their skin tone, hair, facial proportions, and all visible identity cues. ${accessoryInstruction}`,
     wardrobeInstruction(options.heroConcept),
+    adventureBoard
+      ? 'The portrait must look like an alternate expression of the same adult hero shown in the key art and gameplay sprite—not a separate mascot interpretation. Use normal adult head-to-shoulder proportions. No chibi, super-deformed, oversized head, tiny shoulders, rounded baby-like face, doll proportions, childlike anatomy, or cute caricature.'
+      : '',
     'Change only the expression; do not add injuries, wounds, bruises, gore, tears streaming down the face, or signs of death.',
     'Clean flat colours, a bold dark outline, a simple plain dark background.',
     'Polished retro SNES game art, stylised and characterful, NOT photorealistic. No text, caption, border, or watermark.',

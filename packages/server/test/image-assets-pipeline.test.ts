@@ -399,8 +399,8 @@ describe.sequential('mock image asset pipeline', () => {
     expect(
       generatedAssetForRole(join(files.gameDir(gameId), 'assets'), 'adventureRoomPlates'),
     ).toMatchObject({
-      width: 1792,
-      height: 896,
+      width: 2048,
+      height: 1024,
     });
     for (const role of ADVENTURE_PLAYER_ROLES) {
       expect(generatedAssetForRole(join(files.gameDir(gameId), 'assets'), role)).toMatchObject({
@@ -467,6 +467,83 @@ describe.sequential('mock image asset pipeline', () => {
     expect(
       successfulImageStages.filter((stage) => stage.includes('adventure-player-sheet-')),
     ).toHaveLength(2);
+    const messages = db.generationEventsForJob(jobId).map((event) => event.message);
+    expect(messages.indexOf('Player portrait')).toBeGreaterThan(
+      messages.indexOf('Finished the generated Adventure player'),
+    );
+  });
+
+  it('retries an incomplete Adventure player from healthy pose checkpoints in the same feed', async () => {
+    const originalStore = GameAssetWorkspace.prototype.store;
+    let failOnePoseCheckpoint = true;
+    const storeSpy = vi
+      .spyOn(GameAssetWorkspace.prototype, 'store')
+      .mockImplementation(async function (
+        this: GameAssetWorkspace,
+        role,
+        image,
+        promptVersion,
+        promptSha256,
+      ) {
+        if (role === 'adventurePlayerSideSecondary' && failOnePoseCheckpoint) {
+          failOnePoseCheckpoint = false;
+          throw new Error('synthetic Adventure pose checkpoint failure');
+        }
+        return originalStore.call(this, role, image, promptVersion, promptSha256);
+      });
+    try {
+      const { db, files, runner } = createHarness();
+      const { jobId, gameId } = runner.createJob({
+        promptText: 'A surveyor maps a clockwork desert with a long brass staff',
+        sourceKind: 'surprise',
+        requestedArchetype: 'adventure',
+        idempotencyKey: 'mock-adventure-partial-player-retry-cache',
+      });
+
+      expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'failed', attempt: 1 });
+      await delay(50);
+      const stagingManifest = readGameAssetManifest(join(files.stagingFor(jobId), 'assets'))!;
+      const cachedPlayerRoles = stagingManifest.assets.filter(({ role }) =>
+        ADVENTURE_PLAYER_ROLES.includes(role as (typeof ADVENTURE_PLAYER_ROLES)[number]),
+      );
+      expect(cachedPlayerRoles.length).toBeGreaterThan(0);
+      expect(cachedPlayerRoles.length).toBeLessThan(ADVENTURE_PLAYER_ROLES.length);
+      const playerImagesBeforeRetry = db
+        .usageForGame(gameId)
+        .filter((event) => event.stage.startsWith('image:adventure-player-') && !event.failed);
+
+      storeSpy.mockRestore();
+      expect(runner.retryJob(gameId)).toEqual({ jobId });
+      expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done', attempt: 2 });
+
+      const playerImagesAfterRetry = db
+        .usageForGame(gameId)
+        .filter((event) => event.stage.startsWith('image:adventure-player-') && !event.failed);
+      const retryPlayerStages = playerImagesAfterRetry
+        .slice(playerImagesBeforeRetry.length)
+        .map(({ stage }) => stage);
+      expect(retryPlayerStages).toHaveLength(
+        ADVENTURE_PLAYER_ROLES.length - cachedPlayerRoles.length,
+      );
+      expect(retryPlayerStages.some((stage) => /adventure-player-I\d/.test(stage))).toBe(false);
+      expect(
+        retryPlayerStages.some((stage) => /adventure-player-sheet-(movement|combat)/.test(stage)),
+      ).toBe(false);
+
+      const feed = db.generationEventsForJob(jobId);
+      expect(feed.some((event) => event.attempt === 1 && event.kind === 'failure')).toBe(true);
+      expect(
+        feed.some(
+          (event) =>
+            event.attempt === 2 &&
+            event.kind === 'progress' &&
+            event.message.includes('restoring completed work'),
+        ),
+      ).toBe(true);
+      expect(feed.at(-1)).toMatchObject({ attempt: 2, kind: 'complete', stage: 'done' });
+    } finally {
+      storeSpy.mockRestore();
+    }
   });
 
   it('publishes key/story art and portraits without redundant heads when full-body art succeeds', async () => {

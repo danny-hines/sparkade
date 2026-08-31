@@ -212,6 +212,7 @@ import {
   buildAdventurePlayerIdentityPrompt,
   buildAdventurePlayerIdentityReference,
   buildAdventurePlayerPosePrompt,
+  buildAdventurePortraitIdentityReference,
   buildAdventureStoryIdentityReference,
   prepareGeneratedAdventurePlayerReference,
   processGeneratedAdventurePlayerPose,
@@ -2005,7 +2006,10 @@ export class GenerationRunner {
               } catch (error) {
                 if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                 validationFailure(`${horizontal ? 'hshooter' : 'shooter'}-player-craft-${id}`);
-                emit('building-assets', `Player craft candidate ${id} was unavailable; continuing…`);
+                emit(
+                  'building-assets',
+                  `Player craft candidate ${id} was unavailable; continuing…`,
+                );
                 return null;
               }
               try {
@@ -2145,6 +2149,12 @@ export class GenerationRunner {
         });
       });
 
+      let resolveAdventurePortraitReference!: (reference: Buffer) => void;
+      let rejectAdventurePortraitReference!: (error: unknown) => void;
+      const adventurePortraitReferenceTask = new Promise<Buffer>((resolve, reject) => {
+        resolveAdventurePortraitReference = resolve;
+        rejectAdventurePortraitReference = reject;
+      });
       const identityKey = JSON.stringify({
         portraitVersion: GENERATED_PORTRAIT_PROMPT_VERSION,
         defeatPortraitVersion: GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION,
@@ -2153,9 +2163,11 @@ export class GenerationRunner {
       });
       const portraitTask: Promise<Buffer | null> = photo
         ? (async () => {
+            const reference =
+              spec.archetype === 'adventure' ? await adventurePortraitReferenceTask : photo;
             const portraitSha = imagePromptHash(
-              `${GENERATED_PORTRAIT_PROMPT_VERSION}:${identityKey}`,
-              photo,
+              `${GENERATED_PORTRAIT_PROMPT_VERSION}:${identityKey}:${spec.archetype === 'adventure' ? 'adventure-hero-board' : 'photo'}`,
+              reference,
             );
             let portrait = assetWorkspace.load(
               'generatedPortrait',
@@ -2167,13 +2179,15 @@ export class GenerationRunner {
               for (let pass = 0; pass < 2 && !portrait; pass++) {
                 try {
                   portrait = await generatePortrait(
-                    photo,
+                    reference,
                     feat,
                     imageEditFor('portrait', 'Player portrait'),
                     {
                       size: '1024x1024',
                       user: gameId,
                       heroConcept: canonicalHeroConcept,
+                      referenceLayout:
+                        spec.archetype === 'adventure' ? 'adventure-hero-board' : 'photo',
                     },
                   );
                 } catch (error) {
@@ -2203,13 +2217,15 @@ export class GenerationRunner {
 
       const portraitDefeatTask: Promise<Buffer | null> = photo
         ? (async () => {
+            const reference =
+              spec.archetype === 'adventure' ? await adventurePortraitReferenceTask : photo;
             const defeatContext = [
               `${spec.meta.title} is a ${spec.archetype} game.`,
               spec.story.defeat.join(' '),
             ].join(' ');
             const defeatPortraitSha = imagePromptHash(
               `${GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION}:${identityKey}:${defeatContext}`,
-              photo,
+              reference,
             );
             let portraitDefeat = assetWorkspace.load(
               'generatedPortraitDefeat',
@@ -2221,7 +2237,7 @@ export class GenerationRunner {
               for (let pass = 0; pass < 2 && !portraitDefeat; pass++) {
                 try {
                   portraitDefeat = await generateDefeatPortrait(
-                    photo,
+                    reference,
                     feat,
                     defeatContext,
                     imageEditFor('portrait-defeat', 'Defeat portrait'),
@@ -2229,6 +2245,8 @@ export class GenerationRunner {
                       size: '1024x1024',
                       user: gameId,
                       heroConcept: canonicalHeroConcept,
+                      referenceLayout:
+                        spec.archetype === 'adventure' ? 'adventure-hero-board' : 'photo',
                     },
                   );
                 } catch (error) {
@@ -2297,10 +2315,19 @@ export class GenerationRunner {
                 ) as Record<GeneratedAdventurePlayerPose, Buffer | null>;
                 if (GENERATED_ADVENTURE_PLAYER_POSES.every((pose) => cached[pose])) {
                   const restored = cached as Record<GeneratedAdventurePlayerPose, Buffer>;
-                  await validateGeneratedAdventurePlayerPoseSet(restored);
-                  adventurePlayerArtStatus = { mode: 'generated', attempted: true };
-                  emit('building-assets', 'Restored the generated Adventure player');
-                  return restored.downIdle;
+                  try {
+                    await validateGeneratedAdventurePlayerPoseSet(restored);
+                    adventurePlayerArtStatus = { mode: 'generated', attempted: true };
+                    emit('building-assets', 'Restored the generated Adventure player');
+                    return restored.downIdle;
+                  } catch (error) {
+                    await assetWorkspace.discard(Object.values(ADVENTURE_PLAYER_ASSET_ROLES));
+                    for (const pose of GENERATED_ADVENTURE_PLAYER_POSES) cached[pose] = null;
+                    emit(
+                      'building-assets',
+                      `Discarded an inconsistent cached Adventure player set (${error instanceof Error ? error.message.slice(0, 140) : 'set validation failed'})`,
+                    );
+                  }
                 }
 
                 interface Candidate {
@@ -2311,6 +2338,20 @@ export class GenerationRunner {
                 interface PoseCandidate extends Candidate {
                   pose: GeneratedAdventurePlayerPose;
                 }
+                const checkpointed = { ...cached };
+                const checkpointPose = async (candidate: PoseCandidate): Promise<void> => {
+                  if (checkpointed[candidate.pose]?.equals(candidate.png)) return;
+                  await assetWorkspace.store(
+                    ADVENTURE_PLAYER_ASSET_ROLES[candidate.pose],
+                    candidate.png,
+                    ADVENTURE_PLAYER_PIPELINE_PROMPT_VERSION,
+                    pipelineSha,
+                  );
+                  checkpointed[candidate.pose] = candidate.png;
+                };
+                const resumedWithPoseCheckpoints = GENERATED_ADVENTURE_PLAYER_POSES.some(
+                  (pose) => pose !== 'downIdle' && cached[pose] !== null,
+                );
                 const generateCandidate = async (
                   id: string,
                   label: string,
@@ -2344,15 +2385,31 @@ export class GenerationRunner {
                       png = await processGeneratedAdventurePlayerPose(normalizedReference);
                     }
                     return { id, reference: normalizedReference, png };
-                  } catch (_error) {
+                  } catch (error) {
                     validationFailure(`adventure-player-${id}`);
-                    emit('building-assets', `${label} failed local sprite validation`);
+                    const reason =
+                      error instanceof Error
+                        ? error.message.replace(/\s+/g, ' ').slice(0, 160)
+                        : '';
+                    emit(
+                      'building-assets',
+                      `${label} failed local sprite validation${reason ? ` (${reason})` : ''}`,
+                    );
                     return null;
                   }
                 };
 
-                let downIdle: Candidate | null = null;
+                let downIdle: Candidate | null = cached.downIdle
+                  ? {
+                      id: 'checkpoint-downIdle',
+                      reference: cached.downIdle,
+                      png: cached.downIdle,
+                    }
+                  : null;
                 let retryGuidance = '';
+                if (downIdle) {
+                  emit('building-assets', 'Restored the Adventure player identity checkpoint');
+                }
                 for (let round = 1; round <= 2 && !downIdle; round++) {
                   emit(
                     'building-assets',
@@ -2456,6 +2513,7 @@ export class GenerationRunner {
                 }
 
                 const downIdlePose: PoseCandidate = { ...downIdle, pose: 'downIdle' };
+                await checkpointPose(downIdlePose);
                 const downReference = await prepareGeneratedAdventurePlayerReference(
                   downIdle.reference,
                 );
@@ -2496,35 +2554,51 @@ export class GenerationRunner {
                     );
                     return [];
                   }
-                  return cells.flatMap((cell): PoseCandidate[] => {
-                    if (cell.pose === 'downIdle') return [];
+                  const candidates: PoseCandidate[] = [];
+                  for (const cell of cells) {
+                    if (cell.pose === 'downIdle') continue;
                     if (!cell.processed) {
                       validationFailure(`adventure-player-${cell.pose}-sheet-${group.id}`);
                       emit(
                         'building-assets',
-                        `Adventure player ${cell.pose} from the ${group.id} sheet failed local validation`,
+                        `Adventure player ${cell.pose} from the ${group.id} sheet failed local validation${cell.error ? ` (${cell.error.replace(/\s+/g, ' ').slice(0, 160)})` : ''}`,
                       );
-                      return [];
+                      continue;
                     }
-                    return [
-                      {
-                        id: cell.id,
-                        pose: cell.pose,
-                        reference: cell.raw,
-                        png: cell.processed,
-                      },
-                    ];
-                  });
+                    const candidate: PoseCandidate = {
+                      id: cell.id,
+                      pose: cell.pose,
+                      reference: cell.raw,
+                      png: cell.processed,
+                    };
+                    await checkpointPose(candidate);
+                    candidates.push(candidate);
+                  }
+                  return candidates;
                 };
 
-                emit('building-assets', 'Painting Adventure movement and combat pose sheets…');
+                const restoredPoseCandidates = GENERATED_ADVENTURE_PLAYER_POSES.flatMap(
+                  (pose): PoseCandidate[] => {
+                    const png = cached[pose];
+                    return png ? [{ id: `checkpoint-${pose}`, pose, reference: png, png }] : [];
+                  },
+                ).filter((candidate) => candidate.pose !== 'downIdle');
+                emit(
+                  'building-assets',
+                  resumedWithPoseCheckpoints
+                    ? `Restored ${restoredPoseCandidates.length + 1} healthy Adventure player pose checkpoints`
+                    : 'Painting Adventure movement and combat pose sheets…',
+                );
                 const poseCandidates: PoseCandidate[] = [
                   downIdlePose,
-                  ...(
-                    await Promise.all(
-                      ADVENTURE_PLAYER_SHEET_GROUPS.map((group) => generateSheet(group)),
-                    )
-                  ).flat(),
+                  ...restoredPoseCandidates,
+                  ...(resumedWithPoseCheckpoints
+                    ? []
+                    : (
+                        await Promise.all(
+                          ADVENTURE_PLAYER_SHEET_GROUPS.map((group) => generateSheet(group)),
+                        )
+                      ).flat()),
                 ];
 
                 const generateIsolatedPose = async (
@@ -2546,7 +2620,10 @@ export class GenerationRunner {
                     })}${correction}`,
                     reference,
                   );
-                  return candidate ? { ...candidate, pose } : null;
+                  if (!candidate) return null;
+                  const poseCandidate: PoseCandidate = { ...candidate, pose };
+                  await checkpointPose(poseCandidate);
+                  return poseCandidate;
                 };
 
                 const missingAfterSheets = GENERATED_ADVENTURE_PLAYER_POSES.filter(
@@ -2722,21 +2799,18 @@ export class GenerationRunner {
                 ) as Record<GeneratedAdventurePlayerPose, Buffer>;
                 await validateGeneratedAdventurePlayerPoseSet(generated);
                 await Promise.all(
-                  GENERATED_ADVENTURE_PLAYER_POSES.map((pose) =>
-                    assetWorkspace.store(
-                      ADVENTURE_PLAYER_ASSET_ROLES[pose],
-                      generated[pose],
-                      ADVENTURE_PLAYER_PIPELINE_PROMPT_VERSION,
-                      pipelineSha,
-                    ),
-                  ),
+                  GENERATED_ADVENTURE_PLAYER_POSES.map((pose) => {
+                    const selected = poseCandidates.find(
+                      (candidate) => candidate.pose === pose && candidate.id === selectedIds[pose],
+                    )!;
+                    return checkpointPose(selected);
+                  }),
                 );
                 adventurePlayerArtStatus = { mode: 'generated', attempted: true };
                 emit('building-assets', 'Finished the generated Adventure player');
                 return generated.downIdle;
               } catch (error) {
                 if (abort.signal.aborted) throw error;
-                await assetWorkspace.discard(Object.values(ADVENTURE_PLAYER_ASSET_ROLES));
                 const reason =
                   error instanceof Error
                     ? error.message.slice(0, 240)
@@ -2752,6 +2826,21 @@ export class GenerationRunner {
               }
             })
           : Promise.resolve(null);
+
+      if (spec.archetype === 'adventure' && photo) {
+        void Promise.all([keyArtTask, adventurePlayerTask])
+          .then(async ([keyArt, adventurePlayer]) => {
+            if (!adventurePlayer) {
+              throw new Error('Adventure portrait requires the selected gameplay hero');
+            }
+            return buildAdventurePortraitIdentityReference(
+              photoReference ?? photo,
+              keyArt,
+              adventurePlayer,
+            );
+          })
+          .then(resolveAdventurePortraitReference, rejectAdventurePortraitReference);
+      }
 
       const storyAssetTask = (
         role: StoryArtRole,

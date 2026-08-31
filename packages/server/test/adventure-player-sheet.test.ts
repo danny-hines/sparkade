@@ -55,6 +55,23 @@ describe('Adventure player pose sheets', () => {
     expect(prompt).toContain('Cell 6 (row 2, column 3) — sideSecondary');
     expect(prompt).toContain('Signal Wrench');
     expect(prompt).toContain('Flare Caster');
+    expect(prompt).toContain('Movement cells carry this exact equipment low and passive');
+    expect(prompt).toContain('never above the center of the head');
+    expect(prompt).toContain('Melee cells alone show it raised or extended at contact');
+    expect(prompt).toContain('STATE-CONTRAST CONTRACT');
+    expect(prompt).toContain('Only melee cells may raise, brandish, swing, thrust, or extend');
+    expect(prompt).toContain('hero is canonically right-handed');
+    expect(prompt).toContain("viewer's LEFT in DOWN/front cells");
+    expect(prompt).toContain("viewer's RIGHT in UP/back cells");
+    expect(prompt).toContain('Never swap it into the anatomical left hand');
+    expect(prompt).toContain(
+      'secondary cells operate this exact item with the anatomical LEFT hand',
+    );
+    expect(prompt).toContain(
+      'primary remains visibly low and passive in the anatomical RIGHT hand',
+    );
+    expect(prompt).toContain('EQUIPMENT-CONTINUITY CONTRACT');
+    expect(prompt).toContain('does not authorize a hand swap');
     expect(prompt).toContain('Never substitute a generic sword');
     expect(prompt).toContain('No body part may cross into another cell');
     expect(prompt).toContain('clean darkest outer contour');

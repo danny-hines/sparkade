@@ -103,6 +103,15 @@ describe('prompt templates', () => {
     expect(prompt).toContain('REQUIRED `outfit`');
   });
 
+  it('teaches Adventure generation the full-width room and safe functional puzzle contract', () => {
+    const prompt = loadTemplate('levels-adventure');
+
+    expect(prompt).toContain('EXACTLY 16 rows of EXACTLY 32 chars');
+    expect(prompt).toContain('continuous hazard-free walking path');
+    expect(prompt).toContain('Switches are functional, never decorative');
+    expect(prompt).toContain('at least one pushable block for every switch');
+  });
+
   it('teaches platformer generation the two-tile body and omits engine-owned grid art', () => {
     const excerpt = JSON.parse(goldenExcerpt('platformer', 'levels')) as {
       levels: Array<{ tiles: string[]; legend: Record<string, string> }>;

@@ -362,10 +362,10 @@ export const GENERATION = {
    *  on the model), so a few in parallel overlap those waits; kept small to stay
    *  gentle on the cabinet + the API. Override with SPARKADE_GEN_CONCURRENCY. */
   maxConcurrentJobs: 3,
-  /** Shared across jobs. This intentionally sits above the largest healthy
-   * single-game fan-out so local queuing does not hide the provider's practical
-   * burst ceiling; override with SPARKADE_IMAGE_CONCURRENCY when needed. */
-  maxConcurrentImageCalls: 30,
+  /** Shared across jobs. The default allows substantial parallelism without
+   * making stress-test values the cabinet baseline; override with
+   * SPARKADE_IMAGE_CONCURRENCY when testing provider limits. */
+  maxConcurrentImageCalls: 16,
 } as const;
 
 export const STAGE_NAMES = ['design', 'levels', 'entities', 'music', 'repair', 'stt'] as const;

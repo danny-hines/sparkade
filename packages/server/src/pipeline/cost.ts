@@ -47,6 +47,8 @@ export function estimateGenerationCost(
     platformerBossJudge?: boolean;
     hshooterBossJudge?: boolean;
     hshooterEnemyJudge?: boolean;
+    shooterBossJudge?: boolean;
+    shooterEnemyJudge?: boolean;
     platformerEnemyJudge?: boolean;
     adventurePlayerIdentityJudge?: boolean;
     adventurePlayerSetJudge?: boolean;
@@ -76,6 +78,12 @@ export function estimateGenerationCost(
       : []),
     ...(options.hshooterEnemyJudge
       ? [{ input: 2400, output: 2600 }] // one ten-candidate board selects the five-role H-scroll cast
+      : []),
+    ...(options.shooterBossJudge
+      ? [{ input: 1600, output: 1900 }] // vertical story-art-to-gameplay boss selection
+      : []),
+    ...(options.shooterEnemyJudge
+      ? [{ input: 2400, output: 2600 }] // one board selects the five-role vertical cast
       : []),
     ...(options.platformerEnemyJudge
       ? [{ input: 2200, output: 2800 }] // one board selects two candidates for all four enemies
@@ -122,7 +130,7 @@ export function estimateImageCount(hasPhoto: boolean, archetype?: ArchetypeId): 
   // candidates. H-scroll additionally authors four stage panoramas and three
   // story-art-derived boss candidates, and one ten-candidate enemy-cast board.
   if (archetype === 'hshooter') return hasPhoto ? 18 : 16;
-  if (archetype === 'shooter') return hasPhoto ? 10 : 8;
+  if (archetype === 'shooter') return hasPhoto ? 18 : 16;
   if (archetype === undefined) return hasPhoto ? 40 : 31;
   if (!hasPhoto) return 8;
   return 10;

@@ -507,6 +507,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       platformerBossJudge: archetype === undefined || archetype === 'platformer',
       hshooterBossJudge: archetype === undefined || archetype === 'hshooter',
       hshooterEnemyJudge: archetype === undefined || archetype === 'hshooter',
+      shooterBossJudge: archetype === undefined || archetype === 'shooter',
+      shooterEnemyJudge: archetype === undefined || archetype === 'shooter',
       platformerEnemyJudge: archetype === undefined || archetype === 'platformer',
       adventurePlayerIdentityJudge: hasPhoto && archetype === 'adventure',
       adventurePlayerSetJudge: archetype === 'adventure',

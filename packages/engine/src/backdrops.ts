@@ -31,6 +31,9 @@ export interface GeneratedBackdropOptions {
   /** When present, travel from the plate's left crop to its right crop over
    * this world distance instead of using the platformer's centered drift. */
   panAcrossDistance?: number;
+  /** Axis of the generated plate travel. Vertical plates advance bottom-to-top
+   * so scenery moves downward as a vertical shooter flies upward. */
+  panAxis?: 'horizontal' | 'vertical';
 }
 
 /** Select a viewport-shaped crop from an extra-wide generated plate. Starting
@@ -86,6 +89,35 @@ export function generatedBackdropProgressSourceRect(
   return { ...base, sx: Math.round(maxX * normalized) };
 }
 
+export function generatedVerticalBackdropProgressSourceRect(
+  imageWidth: number,
+  imageHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  progress: number,
+): GeneratedBackdropSourceRect {
+  const safeWidth = Math.max(1, imageWidth);
+  const safeHeight = Math.max(1, imageHeight);
+  const aspect = Math.max(1, viewportWidth) / Math.max(1, viewportHeight);
+  let sw = safeWidth;
+  let sh = Math.max(1, Math.round(sw / aspect));
+  if (sh > safeHeight) {
+    sh = safeHeight;
+    sw = Math.max(1, Math.round(sh * aspect));
+  }
+  sw = Math.min(sw, safeWidth);
+  sh = Math.min(sh, safeHeight);
+  const maxX = Math.max(0, safeWidth - sw);
+  const maxY = Math.max(0, safeHeight - sh);
+  const normalized = Math.max(0, Math.min(1, Number.isFinite(progress) ? progress : 0));
+  return {
+    sx: Math.round(maxX / 2),
+    sy: Math.round(maxY * (1 - normalized)),
+    sw,
+    sh,
+  };
+}
+
 function imageDimensions(image: CanvasImageSource): { width: number; height: number } {
   if ('naturalWidth' in image) {
     const htmlImage = image as HTMLImageElement;
@@ -110,17 +142,25 @@ export function makeGeneratedBackdrop(
 ): Backdrop {
   const dimensions = imageDimensions(image);
   return {
-    draw(ctx: CanvasRenderingContext2D, scrollX: number) {
+    draw(ctx: CanvasRenderingContext2D, scrollX: number, scrollY: number) {
       const panDistance = options.panAcrossDistance;
       const source =
         panDistance !== undefined && Number.isFinite(panDistance) && panDistance > 0
-          ? generatedBackdropProgressSourceRect(
-              dimensions.width,
-              dimensions.height,
-              viewportWidth,
-              viewportHeight,
-              scrollX / panDistance,
-            )
+          ? options.panAxis === 'vertical'
+            ? generatedVerticalBackdropProgressSourceRect(
+                dimensions.width,
+                dimensions.height,
+                viewportWidth,
+                viewportHeight,
+                scrollY / panDistance,
+              )
+            : generatedBackdropProgressSourceRect(
+                dimensions.width,
+                dimensions.height,
+                viewportWidth,
+                viewportHeight,
+                scrollX / panDistance,
+              )
           : generatedBackdropSourceRect(
               dimensions.width,
               dimensions.height,

@@ -47,7 +47,11 @@ const ATTRACT_ASSETS: Partial<Record<ArchetypeId, readonly AttractAssetSpec[]>> 
     asset('hshooterEnemyAtlas', { crop: { x: 0, y: 0, width: 96, height: 96 } }),
     asset('hshooterBoss', { big: true }),
   ],
-  shooter: [asset('shooterPlayerCraft')],
+  shooter: [
+    asset('shooterPlayerCraft'),
+    asset('shooterEnemyAtlas', { crop: { x: 0, y: 0, width: 96, height: 96 } }),
+    asset('shooterBoss', { big: true }),
+  ],
 };
 
 /** A small, representative set of actual gameplay art for the attract screen.

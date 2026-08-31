@@ -66,6 +66,8 @@ export interface EngineContext {
   hshooterEnemyAtlas: CanvasImageSource | null;
   /** Likeness-independent generated vertical-shooter player vehicle. */
   shooterPlayerCraft: CanvasImageSource | null;
+  shooterBoss: CanvasImageSource | null;
+  shooterEnemyAtlas: CanvasImageSource | null;
   /** Complete image-generated roster, ordered player → three rungs → boss. */
   fighterAtlases: readonly CanvasImageSource[] | null;
   /** Two stacked generated Fighter arena plates: reusable ladder, then boss. */
@@ -82,6 +84,7 @@ export interface EngineContext {
   platformerBackdrops: Readonly<Record<string, CanvasImageSource>> | null;
   /** Image-generated H-scroll stage plates, independently available by stage. */
   hshooterBackdrops: Readonly<Record<string, CanvasImageSource>> | null;
+  shooterBackdrops: Readonly<Record<string, CanvasImageSource>> | null;
   /** Image-generated Adventure entrance, ordinary, deep, and finale room surfaces. */
   adventureRoomPlates: CanvasImageSource | null;
   /** Complete image-generated Adventure player set, keyed by direction and motion. */
@@ -208,6 +211,8 @@ export class GameHost {
       hshooterBoss: opts.likeness?.hshooterBoss ?? null,
       hshooterEnemyAtlas: opts.likeness?.hshooterEnemyAtlas ?? null,
       shooterPlayerCraft: opts.likeness?.shooterPlayerCraft ?? null,
+      shooterBoss: opts.likeness?.shooterBoss ?? null,
+      shooterEnemyAtlas: opts.likeness?.shooterEnemyAtlas ?? null,
       fighterAtlases: opts.likeness?.fighterAtlases ?? null,
       fighterArenaAtlas: opts.likeness?.fighterArenaAtlas ?? null,
       platformerPoses: opts.likeness?.platformerPoses ?? null,
@@ -216,6 +221,7 @@ export class GameHost {
       platformerProps: opts.likeness?.platformerProps ?? null,
       platformerBackdrops: opts.likeness?.platformerBackdrops ?? null,
       hshooterBackdrops: opts.likeness?.hshooterBackdrops ?? null,
+      shooterBackdrops: opts.likeness?.shooterBackdrops ?? null,
       adventureRoomPlates: opts.likeness?.adventureRoomPlates ?? null,
       adventurePlayerPoses: opts.likeness?.adventurePlayerPoses ?? null,
       adventureBoss: opts.likeness?.adventureBoss ?? null,

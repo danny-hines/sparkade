@@ -6,12 +6,21 @@
   "properties": {
     "specVersion": { "const": 1 },
     "archetype": { "const": "shooter" },
+    "shooterGameplayArtVersion": {
+      "const": 1,
+      "description": "Published on new games whose required top-down boss and five-role enemy cast were generated and mechanically validated. Omitted legacy games retain library compatibility."
+    },
     "seed": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
     "playerCraft": {
       "description": "Required likeness-independent top-down identity for the generated player vehicle.",
       "type": "object",
       "properties": {
-        "visualConcept": { "type": "string", "minLength": 12, "maxLength": 180, "pattern": "^[ -~]+$" }
+        "visualConcept": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 180,
+          "pattern": "^[ -~]+$"
+        }
       },
       "required": ["visualConcept"],
       "additionalProperties": false
@@ -429,7 +438,13 @@
       "type": "object",
       "properties": {
         "t": { "type": "number", "minimum": 0, "maximum": 300 },
-        "type": { "enum": ["spread", "rapid", "shield", "bomb"] }
+        "type": { "enum": ["spread", "rapid", "shield", "bomb"] },
+        "x": {
+          "description": "Optional screen-space entry lane in pixels. Keep within 40-472 so the drifting reward remains readable and reachable.",
+          "type": "number",
+          "minimum": 40,
+          "maximum": 472
+        }
       },
       "required": ["t", "type"],
       "additionalProperties": false

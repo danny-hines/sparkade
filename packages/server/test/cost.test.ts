@@ -21,8 +21,8 @@ describe('cost calculator', () => {
     expect(estimateImageCount(true, 'adventure')).toBe(16);
     expect(estimateImageCount(false, 'hshooter')).toBe(16);
     expect(estimateImageCount(true, 'hshooter')).toBe(18);
-    expect(estimateImageCount(false, 'shooter')).toBe(8);
-    expect(estimateImageCount(true, 'shooter')).toBe(10);
+    expect(estimateImageCount(false, 'shooter')).toBe(16);
+    expect(estimateImageCount(true, 'shooter')).toBe(18);
     expect(estimateImageCount(true)).toBe(40);
   });
 

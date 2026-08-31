@@ -17,6 +17,9 @@ import {
   PLATFORMER_ENEMY_ASSETS,
   PLATFORMER_POSE_ASSETS,
   PLATFORMER_PROP_ASSETS,
+  SHOOTER_BACKDROP_ASSETS,
+  SHOOTER_BOSS_ASSET,
+  SHOOTER_ENEMY_ATLAS_ASSET,
   loadLikenessAssets,
 } from '../src/likeness-assets';
 
@@ -208,6 +211,38 @@ describe('loadLikenessAssets', () => {
           `/api/games/hscroll-backdrop-game/assets/${GENERATED_GAME_ASSET_FILES[assetRole]}`,
       ),
     );
+  });
+
+  it('loads the required vertical boss, enemy atlas, and available flyover plates', async () => {
+    const result = await loadLikenessAssets('vertical-art-game', {
+      head12: false,
+      head12Side: false,
+      head12Back: false,
+      head16: false,
+      head16Side: false,
+      head16Back: false,
+      portrait: false,
+      ...unavailableGeneratedAssets,
+      [SHOOTER_BOSS_ASSET]: true,
+      [SHOOTER_ENEMY_ATLAS_ASSET]: true,
+      shooterBackdropLevel1: true,
+      shooterBackdropBoss: true,
+    });
+
+    expect(result?.shooterBoss).not.toBeNull();
+    expect(result?.shooterEnemyAtlas).not.toBeNull();
+    expect(Object.keys(result?.shooterBackdrops ?? {})).toEqual(['level1', 'boss']);
+    expect(requested).toContain(
+      `/api/games/vertical-art-game/assets/${GENERATED_GAME_ASSET_FILES.shooterBoss}`,
+    );
+    expect(requested).toContain(
+      `/api/games/vertical-art-game/assets/${GENERATED_GAME_ASSET_FILES.shooterEnemyAtlas}`,
+    );
+    expect(
+      requested.filter((url) =>
+        SHOOTER_BACKDROP_ASSETS.some(([, role]) => url.endsWith(GENERATED_GAME_ASSET_FILES[role])),
+      ),
+    ).toHaveLength(2);
   });
 
   it('loads the complete generated fighter roster as five stable identity atlases', async () => {

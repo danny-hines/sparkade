@@ -255,7 +255,7 @@ export interface ShooterLevel {
   scroll: number;
   durationS: number;
   waves: ShooterWave[];
-  pickups: { t: number; type: ShooterPickupType }[];
+  pickups: { t: number; type: ShooterPickupType; x?: number }[];
 }
 
 export type ShooterBossPattern = 'fan' | 'spiral' | 'walls' | 'aimed';
@@ -488,6 +488,8 @@ export interface PlatformerSpec extends GameSpecBase {
 
 export interface ShooterSpec extends GameSpecBase {
   archetype: 'shooter';
+  /** Published with the required generated boss and five-role enemy cast. */
+  shooterGameplayArtVersion?: 1;
   /** Required likeness-independent top-down player vehicle identity. */
   playerCraft: PlayerCraftIdentity;
   /** Vertical-scroll scene (top-down / fly-through); omitted → seed-varied pick. */
@@ -695,6 +697,13 @@ export interface GameMetaFile {
     /** Present when at least one stage retained its procedural backdrop. */
     reason?: string;
   };
+  /** QA/readiness signal for the four generated vertical flyover plates. */
+  shooterBackdropArt?: {
+    mode: 'generated' | 'partial' | 'procedural';
+    attempted: boolean;
+    generatedRoles?: Array<'level1' | 'level2' | 'level3' | 'boss'>;
+    reason?: string;
+  };
   /** QA/readiness signal for the story-art-derived H-scroll finale boss. */
   hshooterBossArt?: {
     mode: 'generated';
@@ -702,6 +711,17 @@ export interface GameMetaFile {
   };
   /** QA/readiness signal for the required five-role generated H-scroll enemy cast. */
   hshooterEnemyArt?: {
+    mode: 'generated';
+    attempted: true;
+    roles: Array<'popcorn' | 'weaver' | 'tank' | 'turret' | 'kamikaze'>;
+  };
+  /** QA/readiness signal for the required top-down vertical-shooter finale boss. */
+  shooterBossArt?: {
+    mode: 'generated';
+    attempted: true;
+  };
+  /** QA/readiness signal for the required five-role generated vertical cast. */
+  shooterEnemyArt?: {
     mode: 'generated';
     attempted: true;
     roles: Array<'popcorn' | 'weaver' | 'tank' | 'turret' | 'kamikaze'>;

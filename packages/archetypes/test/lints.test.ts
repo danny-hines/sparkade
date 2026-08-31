@@ -516,6 +516,30 @@ describe('shooter lints', () => {
     spec.boss.podHp = 40;
     expect(codes(archetypes.shooter.lint(spec))).toContain('SHOOT_BOSS_TOO_LONG');
   });
+
+  it('rejects missing recovery after a dense wave', () => {
+    const spec = golden<ShooterSpec>('shooter');
+    const waves = spec.levels[0]!.waves;
+    waves[0]!.count = 6;
+    waves[1]!.t = waves[0]!.t + 0.8;
+    expect(codes(archetypes.shooter.lint(spec))).toContain('SHOOT_DENSE_RECOVERY');
+  });
+
+  it('keeps pickups clear of dense wave arrivals', () => {
+    const spec = golden<ShooterSpec>('shooter');
+    const level = spec.levels[0]!;
+    level.waves[0]!.count = 6;
+    level.pickups[0]!.t = level.waves[0]!.t + 0.5;
+    expect(codes(archetypes.shooter.lint(spec))).toContain('SHOOT_PICKUP_DENSE_OVERLAP');
+  });
+
+  it('rejects a formation whose authored geometry cannot fit the playfield', () => {
+    const spec = golden<ShooterSpec>('shooter');
+    const wave = spec.levels[0]!.waves[0]!;
+    wave.count = 30;
+    wave.formation = 'line';
+    expect(codes(archetypes.shooter.lint(spec))).toContain('SHOOT_FORMATION_TOO_WIDE');
+  });
 });
 
 describe('fighter roster lints', () => {

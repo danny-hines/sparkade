@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { generatedBackdropProgressSourceRect, generatedBackdropSourceRect } from '../src/backdrops';
+import {
+  generatedBackdropProgressSourceRect,
+  generatedBackdropSourceRect,
+  generatedVerticalBackdropProgressSourceRect,
+} from '../src/backdrops';
 
 describe('generated backdrop framing', () => {
   it('starts from the center of an extra-wide plate and pans without wrapping', () => {
@@ -42,5 +46,16 @@ describe('generated backdrop framing', () => {
     expect(generatedBackdropProgressSourceRect(1536, 600, 480, 270, 1).sx).toBe(469);
     expect(generatedBackdropProgressSourceRect(1536, 600, 480, 270, 50).sx).toBe(469);
     expect(generatedBackdropProgressSourceRect(1536, 600, 480, 270, -2).sx).toBe(0);
+  });
+
+  it('travels bottom-to-top through portrait flyover art so scenery moves downward', () => {
+    expect(generatedVerticalBackdropProgressSourceRect(960, 1536, 512, 300, 0)).toEqual({
+      sx: 0,
+      sy: 973,
+      sw: 960,
+      sh: 563,
+    });
+    expect(generatedVerticalBackdropProgressSourceRect(960, 1536, 512, 300, 0.5).sy).toBe(487);
+    expect(generatedVerticalBackdropProgressSourceRect(960, 1536, 512, 300, 1).sy).toBe(0);
   });
 });

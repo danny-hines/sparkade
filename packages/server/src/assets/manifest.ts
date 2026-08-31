@@ -24,6 +24,12 @@ const PRIVATE_GENERATED_ASSET_FILES = {
   hshooterEnemyReplacementTank: '.hshooter-enemy-replacement-tank.png',
   hshooterEnemyReplacementTurret: '.hshooter-enemy-replacement-turret.png',
   hshooterEnemyReplacementKamikaze: '.hshooter-enemy-replacement-kamikaze.png',
+  shooterEnemyBoard: '.shooter-enemy-board.png',
+  shooterEnemyReplacementPopcorn: '.shooter-enemy-replacement-popcorn.png',
+  shooterEnemyReplacementWeaver: '.shooter-enemy-replacement-weaver.png',
+  shooterEnemyReplacementTank: '.shooter-enemy-replacement-tank.png',
+  shooterEnemyReplacementTurret: '.shooter-enemy-replacement-turret.png',
+  shooterEnemyReplacementKamikaze: '.shooter-enemy-replacement-kamikaze.png',
 } as const;
 export const PRIVATE_GENERATED_ASSET_FILENAMES = Object.freeze(
   Object.values(PRIVATE_GENERATED_ASSET_FILES),

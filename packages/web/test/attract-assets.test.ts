@@ -24,7 +24,11 @@ describe('attract screen Muse assets', () => {
       'hshooterEnemyAtlas',
       'hshooterBoss',
     ]);
-    expect(attractAssetSpecs('shooter').map(({ role }) => role)).toEqual(['shooterPlayerCraft']);
+    expect(attractAssetSpecs('shooter').map(({ role }) => role)).toEqual([
+      'shooterPlayerCraft',
+      'shooterEnemyAtlas',
+      'shooterBoss',
+    ]);
   });
 
   it('crops the H-scroll enemy atlas to one native role cell', () => {

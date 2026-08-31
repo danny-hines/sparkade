@@ -66,11 +66,24 @@ const SHOOTER_CRAFT_ROLES = [
   'shooterPlayerCraft',
 ] as const satisfies readonly GeneratedGameAssetRole[];
 
+const SHOOTER_BOSS_ROLES = ['shooterBoss'] as const satisfies readonly GeneratedGameAssetRole[];
+
+const SHOOTER_ENEMY_ROLES = [
+  'shooterEnemyAtlas',
+] as const satisfies readonly GeneratedGameAssetRole[];
+
 const HSHOOTER_BACKDROP_ROLES = [
   'hshooterBackdropLevel1',
   'hshooterBackdropLevel2',
   'hshooterBackdropLevel3',
   'hshooterBackdropBoss',
+] as const satisfies readonly GeneratedGameAssetRole[];
+
+const SHOOTER_BACKDROP_ROLES = [
+  'shooterBackdropLevel1',
+  'shooterBackdropLevel2',
+  'shooterBackdropLevel3',
+  'shooterBackdropBoss',
 ] as const satisfies readonly GeneratedGameAssetRole[];
 
 const FIGHTER_ROLES = [
@@ -787,7 +800,7 @@ describe.sequential('mock image asset pipeline', () => {
     ).toHaveLength(18);
   });
 
-  it('publishes a Spark-selected top-down craft for vertical shooters', async () => {
+  it('publishes the selected top-down craft, boss, enemy cast, and flyover plates for vertical shooters', async () => {
     const { db, files, runner } = createHarness();
     const { jobId, gameId } = runner.createJob({
       promptText: 'A flower-shaped interceptor defends a floating garden',
@@ -799,17 +812,54 @@ describe.sequential('mock image asset pipeline', () => {
     expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done' });
     const spec = files.readSpec(gameId) as Extract<GameSpec, { archetype: 'shooter' }>;
     expect(spec.playerCraft.visualConcept.length).toBeGreaterThan(20);
+    expect(spec.shooterGameplayArtVersion).toBe(1);
     expect(files.readMeta(gameId)?.shooterPlayerCraftArt).toEqual({
       mode: 'generated',
       attempted: true,
     });
-    await expectPublishedPngs(files, gameId, [...PRESENTATION_ROLES, ...SHOOTER_CRAFT_ROLES]);
+    expect(files.readMeta(gameId)?.shooterBossArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+    });
+    expect(files.readMeta(gameId)?.shooterEnemyArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+      roles: ['popcorn', 'weaver', 'tank', 'turret', 'kamikaze'],
+    });
+    expect(files.readMeta(gameId)?.shooterBackdropArt).toEqual({
+      mode: 'generated',
+      attempted: true,
+      generatedRoles: ['level1', 'level2', 'level3', 'boss'],
+    });
+    await expectPublishedPngs(files, gameId, [
+      ...PRESENTATION_ROLES,
+      ...SHOOTER_CRAFT_ROLES,
+      ...SHOOTER_BOSS_ROLES,
+      ...SHOOTER_ENEMY_ROLES,
+      ...SHOOTER_BACKDROP_ROLES,
+    ]);
     expect(
       generatedAssetForRole(join(files.gameDir(gameId), 'assets'), 'shooterPlayerCraft'),
     ).toMatchObject({ width: 64, height: 96 });
     expect(
+      generatedAssetForRole(join(files.gameDir(gameId), 'assets'), 'shooterBoss'),
+    ).toMatchObject({ width: 128, height: 192 });
+    expect(
+      generatedAssetForRole(join(files.gameDir(gameId), 'assets'), 'shooterEnemyAtlas'),
+    ).toMatchObject({ width: 480, height: 96 });
+    expect(
+      SHOOTER_BACKDROP_ROLES.map((role) =>
+        generatedAssetForRole(join(files.gameDir(gameId), 'assets'), role),
+      ),
+    ).toEqual(
+      SHOOTER_BACKDROP_ROLES.map(() => expect.objectContaining({ width: 960, height: 1536 })),
+    );
+    expect(
       HEAD_ROLES.some((role) => generatedAssetForRole(join(files.gameDir(gameId), 'assets'), role)),
     ).toBe(false);
+    expect(
+      db.usageForGame(gameId).filter((event) => event.stage.startsWith('image:') && !event.failed),
+    ).toHaveLength(16);
   });
 
   it('reuses both H-scroll craft derivatives after a late publish failure', async () => {

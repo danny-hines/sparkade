@@ -2,9 +2,12 @@
 // convention: d-pad move, Y fire (hold = autofire), X hold-then-release charge
 // shot, B bomb, A speed toggle, START pause (host-owned).
 import {
+  createSilhouetteAura,
+  makeGeneratedBackdrop,
   makeScrollBackdrop,
   pickScrollVariant,
   type EngineContext,
+  type Backdrop,
   type GameInstance,
   type GameResult,
   type HudState,
@@ -12,6 +15,7 @@ import {
   type ResolvedSprite,
   type ScrollBackdrop,
   type ScrollBackdropVariant,
+  type SilhouetteAura,
 } from '@sparkade/engine';
 import {
   FEEL,
@@ -21,12 +25,14 @@ import {
   type DifficultyScale,
   type ShooterEnemyType,
   type ShooterLevel,
+  type ShooterBossPattern,
   type ShooterPath,
   type ShooterPickupType,
   type ShooterSpec,
   type ShooterWave,
 } from '@sparkade/shared';
 import { estimateShooterDurationS } from './lint';
+import { planShooterWaveCenterX, shooterFormationOffsets } from './encounters';
 
 const W = INTERNAL_WIDTH;
 const H = INTERNAL_HEIGHT;
@@ -49,6 +55,9 @@ const BOMB_DMG = 3;
 const PICKUP_FALL = 40;
 const POD_FIRE_INTERVAL = 1.6;
 const BOSS_ENTRANCE_S = 2;
+const BOSS_DEFEAT_DURATION_S = 1.55;
+const BOSS_DEFEAT_BURST_INTERVAL_S = 0.16;
+const BOSS_DEFEAT_FINALE_LEAD_S = 0.3;
 const BOSS_Y = 70;
 const KAMIKAZE_TRIGGER_Y = 120;
 // enemy states
@@ -56,6 +65,41 @@ const ST_APPROACH = 0;
 const ST_HOLD = 1;
 const ST_LEAVE = 2;
 const ST_HOMING = 3;
+
+export const SHOOTER_GENERATED_BACKDROP_ALPHA = 0.78;
+export const SHOOTER_PROCEDURAL_BACKDROP_ALPHA = 0.45;
+export const GENERATED_SHOOTER_PLAYER_DRAW_SIZE = { w: 26, h: 36 } as const;
+export const GENERATED_SHOOTER_BOSS_DRAW_SIZE = { w: 64, h: 92 } as const;
+export const GENERATED_SHOOTER_BOSS_HIT_SIZE = { w: 46, h: 66 } as const;
+export const GENERATED_SHOOTER_ENEMY_ATLAS_CELL_SIZE = 96;
+export const GENERATED_SHOOTER_ENEMY_ROLES = [
+  'popcorn',
+  'weaver',
+  'tank',
+  'turret',
+  'kamikaze',
+] as const satisfies readonly ShooterEnemyType[];
+export const GENERATED_SHOOTER_ENEMY_DRAW_SIZE: Record<ShooterEnemyType, { w: number; h: number }> =
+  {
+    popcorn: { w: 20, h: 28 },
+    weaver: { w: 24, h: 34 },
+    tank: { w: 36, h: 44 },
+    turret: { w: 30, h: 34 },
+    kamikaze: { w: 20, h: 32 },
+  };
+export const GENERATED_SHOOTER_ENEMY_HIT_SIZE: Record<ShooterEnemyType, { w: number; h: number }> =
+  {
+    popcorn: { w: 12, h: 17 },
+    weaver: { w: 15, h: 21 },
+    tank: { w: 24, h: 30 },
+    turret: { w: 20, h: 23 },
+    kamikaze: { w: 12, h: 19 },
+  };
+
+export interface ShooterCraftAnchors {
+  rear: { x: number; y: number };
+  muzzle: { x: number; y: number };
+}
 
 interface Foe {
   active: boolean;
@@ -138,6 +182,11 @@ interface BossState {
   spiralAngle: number;
   flashT: number;
   chargeSeq: number;
+  telegraphPrepared: boolean;
+  telegraphAimAngle: number;
+  telegraphTargetX: number;
+  telegraphTargetY: number;
+  telegraphGapX: number;
 }
 
 const ROLE_FALLBACK: Record<string, string> = {
@@ -157,6 +206,132 @@ function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
+function fallbackShooterCraftAnchors(): ShooterCraftAnchors {
+  return {
+    rear: { x: 0, y: GENERATED_SHOOTER_PLAYER_DRAW_SIZE.h / 2 },
+    muzzle: { x: 0, y: -GENERATED_SHOOTER_PLAYER_DRAW_SIZE.h / 2 },
+  };
+}
+
+/** Derive exhaust and weapon attachment points from the real opaque top-down craft. */
+export function shooterCraftAnchorsFromRgba(
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+): ShooterCraftAnchors {
+  const w = Math.max(0, Math.floor(width));
+  const h = Math.max(0, Math.floor(height));
+  if (w === 0 || h === 0 || rgba.length < w * h * 4) return fallbackShooterCraftAnchors();
+  const rowCounts = new Uint16Array(h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (rgba[(y * w + x) * 4 + 3]! >= 48) rowCounts[y] = rowCounts[y]! + 1;
+    }
+  }
+  const stablePixels = Math.max(2, Math.ceil(w * 0.02));
+  const minY = rowCounts.findIndex((count) => count >= stablePixels);
+  let maxY = -1;
+  for (let y = h - 1; y >= 0; y--) {
+    if (rowCounts[y]! >= stablePixels) {
+      maxY = y;
+      break;
+    }
+  }
+  if (minY < 0 || maxY < 0) return fallbackShooterCraftAnchors();
+  const band = Math.max(1, Math.round(h * 0.04));
+  const averageX = (fromY: number, toY: number): number => {
+    let total = 0;
+    let count = 0;
+    for (let y = Math.max(0, fromY); y <= Math.min(h - 1, toY); y++) {
+      for (let x = 0; x < w; x++) {
+        if (rgba[(y * w + x) * 4 + 3]! < 48) continue;
+        total += x + 0.5;
+        count++;
+      }
+    }
+    return count > 0 ? total / count : w / 2;
+  };
+  const localX = (x: number) => (x / w - 0.5) * GENERATED_SHOOTER_PLAYER_DRAW_SIZE.w;
+  const localY = (y: number) => ((y + 0.5) / h - 0.5) * GENERATED_SHOOTER_PLAYER_DRAW_SIZE.h;
+  return {
+    muzzle: { x: localX(averageX(minY, minY + band)), y: localY(minY) },
+    rear: { x: localX(averageX(maxY - band, maxY)), y: localY(maxY) },
+  };
+}
+
+function generatedShooterCraftAnchors(source: CanvasImageSource): ShooterCraftAnchors {
+  try {
+    const sized = source as {
+      naturalWidth?: number;
+      naturalHeight?: number;
+      videoWidth?: number;
+      videoHeight?: number;
+      width?: number;
+      height?: number;
+    };
+    const width = Math.round(sized.naturalWidth ?? sized.videoWidth ?? sized.width ?? 0);
+    const height = Math.round(sized.naturalHeight ?? sized.videoHeight ?? sized.height ?? 0);
+    if (width < 1 || height < 1) return fallbackShooterCraftAnchors();
+    const raster = document.createElement('canvas');
+    raster.width = width;
+    raster.height = height;
+    const ctx = raster.getContext('2d');
+    if (!ctx) return fallbackShooterCraftAnchors();
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(source, 0, 0, width, height);
+    return shooterCraftAnchorsFromRgba(ctx.getImageData(0, 0, width, height).data, width, height);
+  } catch {
+    return fallbackShooterCraftAnchors();
+  }
+}
+
+/** Native generated enemies point down at rest. */
+export function shooterEnemyTravelRotation(vx: number, vy: number): number {
+  if (Math.hypot(vx, vy) < 0.01) return 0;
+  let rotation = Math.atan2(vy, vx) - Math.PI / 2;
+  while (rotation > Math.PI) rotation -= Math.PI * 2;
+  while (rotation < -Math.PI) rotation += Math.PI * 2;
+  return rotation;
+}
+
+export function shooterBossAttackCadenceS(
+  pattern: ShooterBossPattern,
+  fireIntervalMs: number,
+): number {
+  const intervalS = Math.max(0.12, fireIntervalMs / 1000);
+  return pattern === 'spiral' ? intervalS / 3 : intervalS;
+}
+
+export function shooterBossTelegraphDurationS(
+  pattern: ShooterBossPattern,
+  fireIntervalMs: number,
+): number {
+  const cadenceS = shooterBossAttackCadenceS(pattern, fireIntervalMs);
+  const preferred = pattern === 'walls' ? 0.58 : pattern === 'aimed' ? 0.48 : 0.4;
+  return Math.min(cadenceS * 0.72, Math.max(0.14, preferred));
+}
+
+export function shooterBossTelegraphProgress(
+  fireT: number,
+  pattern: ShooterBossPattern,
+  fireIntervalMs: number,
+): number {
+  const cadenceS = shooterBossAttackCadenceS(pattern, fireIntervalMs);
+  const telegraphS = shooterBossTelegraphDurationS(pattern, fireIntervalMs);
+  return clamp((fireT - (cadenceS - telegraphS)) / Math.max(0.001, telegraphS), 0, 1);
+}
+
+export function shooterBackdropTravelDistance(level: {
+  scroll: number;
+  durationS: number;
+}): number {
+  return Math.max(1, level.scroll * level.durationS);
+}
+
+export function generatedShooterEnemyAtlasX(role: ShooterEnemyType): number {
+  return GENERATED_SHOOTER_ENEMY_ROLES.indexOf(role) * GENERATED_SHOOTER_ENEMY_ATLAS_CELL_SIZE;
+}
+
 function hitDims(s: ResolvedSprite): { w: number; h: number } {
   return { w: Math.max(8, s.w - 4), h: Math.max(8, s.h - 4) };
 }
@@ -173,6 +348,7 @@ class ShooterGame implements GameInstance {
   private levelIndex = 0; // 0..2 levels, spec.levels.length = boss
   private level!: ShooterLevel;
   private backdrop!: ScrollBackdrop;
+  private generatedBackdrop: Backdrop | null = null;
   /** One vertical-scroll scene for the whole game (levels vary only the seed, so
    *  layout differs but the theme stays consistent). Model-picked, else seeded. */
   private bgVariant: ScrollBackdropVariant;
@@ -253,6 +429,11 @@ class ShooterGame implements GameInstance {
   private chargeSeqCounter = 0;
   private animT = 0;
   private playT = 0;
+  private bombFlashT = 0;
+  private bossDefeatT = 0;
+  private bossDefeatBurstT = 0;
+  private bossDefeatBurstIndex = 0;
+  private bossDefeatFinaleFired = false;
 
   // boss
   private boss: BossState | null = null;
@@ -260,8 +441,14 @@ class ShooterGame implements GameInstance {
 
   private sprites: Record<string, ResolvedSprite> = {};
   private generatedPlayerCraft: CanvasImageSource;
+  private generatedBoss: CanvasImageSource | null;
+  private generatedEnemyAtlas: CanvasImageSource | null;
+  private generatedBackdrops: Readonly<Record<string, CanvasImageSource>> | null;
+  private playerCraftAnchors: ShooterCraftAnchors;
+  private playerShieldAura: SilhouetteAura;
   private pickupSprites: Record<ShooterPickupType, ResolvedSprite>;
   private foeDims: Record<ShooterEnemyType, { w: number; h: number }>;
+  private bossDims: { w: number; h: number };
 
   private diff!: DifficultyScale;
 
@@ -274,6 +461,25 @@ class ShooterGame implements GameInstance {
       throw new Error('Vertical-shooter games require a generated player craft');
     }
     this.generatedPlayerCraft = engine.shooterPlayerCraft;
+    this.playerCraftAnchors = generatedShooterCraftAnchors(this.generatedPlayerCraft);
+    this.playerShieldAura = createSilhouetteAura(
+      this.generatedPlayerCraft,
+      GENERATED_SHOOTER_PLAYER_DRAW_SIZE.w,
+      GENERATED_SHOOTER_PLAYER_DRAW_SIZE.h,
+      this.spec.palette[14] ?? '#94e7ff',
+      4,
+    );
+    this.generatedBoss = engine.shooterBoss;
+    this.generatedEnemyAtlas = engine.shooterEnemyAtlas;
+    this.generatedBackdrops = engine.shooterBackdrops;
+    if (
+      spec.shooterGameplayArtVersion === 1 &&
+      (!this.generatedBoss || !this.generatedEnemyAtlas)
+    ) {
+      throw new Error(
+        'This vertical-shooter game requires its generated boss and complete enemy cast',
+      );
+    }
     this.bgVariant = pickScrollVariant(this.spec.palette, this.spec.seed, this.spec.backdrop);
     for (const role of Object.keys(ROLE_FALLBACK)) {
       this.sprites[role] = engine.sprites.byRole(role, ROLE_FALLBACK[role]!);
@@ -284,13 +490,19 @@ class ShooterGame implements GameInstance {
       shield: engine.sprites.byRole('pickup_shield', 'lib:pickup_shield'),
       bomb: engine.sprites.byRole('pickup_bomb', 'lib:pickup_bomb'),
     };
-    this.foeDims = {
-      popcorn: hitDims(this.sprites['popcorn']!),
-      weaver: hitDims(this.sprites['weaver']!),
-      tank: hitDims(this.sprites['tank']!),
-      turret: hitDims(this.sprites['turret']!),
-      kamikaze: hitDims(this.sprites['kamikaze']!),
-    };
+    this.foeDims = this.generatedEnemyAtlas
+      ? GENERATED_SHOOTER_ENEMY_HIT_SIZE
+      : {
+          popcorn: hitDims(this.sprites['popcorn']!),
+          weaver: hitDims(this.sprites['weaver']!),
+          tank: hitDims(this.sprites['tank']!),
+          turret: hitDims(this.sprites['turret']!),
+          kamikaze: hitDims(this.sprites['kamikaze']!),
+        };
+    const bossSprite = this.sprites['boss']!;
+    this.bossDims = this.generatedBoss
+      ? GENERATED_SHOOTER_BOSS_HIT_SIZE
+      : { w: bossSprite.w - 8, h: bossSprite.h - 8 };
   }
 
   start(): void {
@@ -352,6 +564,13 @@ class ShooterGame implements GameInstance {
       this.spec.seed + ix * 101,
       this.bgVariant,
     );
+    const generatedBackdrop = this.generatedBackdrops?.[`level${ix + 1}`];
+    this.generatedBackdrop = generatedBackdrop
+      ? makeGeneratedBackdrop(generatedBackdrop, W, H, {
+          panAcrossDistance: shooterBackdropTravelDistance(level),
+          panAxis: 'vertical',
+        })
+      : null;
     this.scrollY = 0;
     this.clock = 0;
     this.lastWaveT = 0;
@@ -407,8 +626,21 @@ class ShooterGame implements GameInstance {
       spiralAngle: 0,
       flashT: 0,
       chargeSeq: 0,
+      telegraphPrepared: false,
+      telegraphAimAngle: Math.PI / 2,
+      telegraphTargetX: this.px,
+      telegraphTargetY: this.py,
+      telegraphGapX: W / 2 - 24,
     };
+    const generatedBackdrop = this.generatedBackdrops?.boss;
+    this.generatedBackdrop = generatedBackdrop
+      ? makeGeneratedBackdrop(generatedBackdrop, W, H, {
+          panAcrossDistance: 1200,
+          panAxis: 'vertical',
+        })
+      : null;
     const bossSprite = this.sprites['boss']!;
+    const bossVisualWidth = this.generatedBoss ? GENERATED_SHOOTER_BOSS_DRAW_SIZE.w : bossSprite.w;
     this.pods = [];
     for (let i = 0; i < b.pods; i++) {
       const side = i % 2 === 0 ? -1 : 1;
@@ -416,7 +648,7 @@ class ShooterGame implements GameInstance {
       this.pods.push({
         alive: true,
         hp: b.podHp,
-        ox: side * (bossSprite.w / 2 + 8 + (rank - 1) * 24),
+        ox: side * (bossVisualWidth / 2 + 8 + (rank - 1) * 24),
         oy: 8 + (rank - 1) * 10,
         fireT: i * 0.4,
         flashT: 0,
@@ -450,7 +682,13 @@ class ShooterGame implements GameInstance {
     if (this.phase !== 'play') return;
     this.playT += dt;
     this.animT += dt;
+    this.bombFlashT = Math.max(0, this.bombFlashT - dt);
     this.scrollY += (this.isBoss() ? 40 : this.level.scroll) * dt;
+
+    if (this.bossDefeatT > 0) {
+      this.updateBossDefeat(dt);
+      return;
+    }
 
     this.updatePlayer(dt, input);
     if (this.phase !== 'play') return;
@@ -467,6 +705,28 @@ class ShooterGame implements GameInstance {
     if (!this.isBoss()) this.checkLevelEnd();
   }
 
+  private playerCraftBank(): number {
+    return clamp(this.pvx / SPEED_HIGH, -1, 1) * 0.14;
+  }
+
+  private playerCraftAnchorAt(anchor: { x: number; y: number }): { x: number; y: number } {
+    const bank = this.playerCraftBank();
+    const cos = Math.cos(bank);
+    const sin = Math.sin(bank);
+    return {
+      x: this.px + anchor.x * cos - anchor.y * sin,
+      y: this.py + anchor.x * sin + anchor.y * cos,
+    };
+  }
+
+  private playerMuzzleAt(): { x: number; y: number } {
+    return this.playerCraftAnchorAt(this.playerCraftAnchors.muzzle);
+  }
+
+  private playerRearAt(): { x: number; y: number } {
+    return this.playerCraftAnchorAt(this.playerCraftAnchors.rear);
+  }
+
   private updatePlayer(dt: number, input: InputSnapshot): void {
     // d-pad move, clamped to the screen
     const ax = (input.LEFT.held ? -1 : 0) + (input.RIGHT.held ? 1 : 0);
@@ -481,7 +741,8 @@ class ShooterGame implements GameInstance {
     this.thrustT += dt;
     if (this.thrustT >= 0.07) {
       this.thrustT = 0;
-      this.engine.particles.burst(this.px, this.py + 8, 1, {
+      const rear = this.playerRearAt();
+      this.engine.particles.burst(rear.x, rear.y, this.fast ? 2 : 1, {
         color: this.spec.palette[12],
         speed: 30,
         life: 0.22,
@@ -507,10 +768,11 @@ class ShooterGame implements GameInstance {
     // Y: autofire
     this.fireCd = Math.max(0, this.fireCd - dt);
     if (input.Y.held && this.fireCd <= 0) {
-      if (this.fireNormalShot(this.px, this.py - 8, 0, -PLAYER_SHOT_SPEED)) {
+      const muzzle = this.playerMuzzleAt();
+      if (this.fireNormalShot(muzzle.x, muzzle.y, 0, -PLAYER_SHOT_SPEED)) {
         if (this.spread) {
-          this.fireNormalShot(this.px - 5, this.py - 6, -70, -PLAYER_SHOT_SPEED * 0.92);
-          this.fireNormalShot(this.px + 5, this.py - 6, 70, -PLAYER_SHOT_SPEED * 0.92);
+          this.fireNormalShot(muzzle.x - 5, muzzle.y + 2, -70, -PLAYER_SHOT_SPEED * 0.92);
+          this.fireNormalShot(muzzle.x + 5, muzzle.y + 2, 70, -PLAYER_SHOT_SPEED * 0.92);
         }
         this.fireCd = 1 / (this.rapid ? RAPID_RATE : FIRE_RATE);
         this.engine.sfx.play('shoot');
@@ -527,7 +789,8 @@ class ShooterGame implements GameInstance {
       this.glowT += dt;
       if (this.glowT >= 0.05) {
         this.glowT = 0;
-        this.engine.particles.burst(this.px, this.py - 10, this.chargeReady ? 2 : 1, {
+        const muzzle = this.playerMuzzleAt();
+        this.engine.particles.burst(muzzle.x, muzzle.y, this.chargeReady ? 2 : 1, {
           color: this.spec.palette[this.chargeReady ? 15 : 7],
           speed: 26,
           life: 0.25,
@@ -538,10 +801,11 @@ class ShooterGame implements GameInstance {
     } else if (this.chargeT > 0) {
       if (this.chargeT >= CHARGE_TIME) {
         this.chargeSeqCounter++;
-        if (this.fireChargeShot(this.px, this.py - 10, 0, -CHARGE_SHOT_SPEED)) {
+        const muzzle = this.playerMuzzleAt();
+        if (this.fireChargeShot(muzzle.x, muzzle.y, 0, -CHARGE_SHOT_SPEED)) {
           this.engine.sfx.play('shoot');
           this.engine.shake(80, 1);
-          this.engine.particles.burst(this.px, this.py - 12, 10, {
+          this.engine.particles.burst(muzzle.x, muzzle.y - 2, 10, {
             color: this.spec.palette[15],
             speed: 90,
             life: 0.3,
@@ -568,6 +832,7 @@ class ShooterGame implements GameInstance {
 
   private detonateBomb(): void {
     this.hud.bombs--;
+    this.bombFlashT = 0.45;
     // clear every enemy bullet
     for (const s of this.eshots) {
       if (!s.active) continue;
@@ -634,7 +899,7 @@ class ShooterGame implements GameInstance {
       const p = level.pickups[i]!;
       if (this.clock >= p.t) {
         this.pickupFired[i] = true;
-        this.spawnPickup(p.type);
+        this.spawnPickup(p.type, p.x);
       }
     }
   }
@@ -642,37 +907,18 @@ class ShooterGame implements GameInstance {
   private spawnWave(w: ShooterWave): void {
     const rng = this.engine.rng;
     const sweepDir = rng.chance(0.5) ? 1 : -1;
-    const centerX = w.path === 'sweep' ? (sweepDir > 0 ? 80 : W - 80) : rng.range(120, W - 120);
-    const width = Math.max(96, (w.count - 1) * 32);
+    const preferredCenterX =
+      w.path === 'sweep' ? (sweepDir > 0 ? 80 : W - 80) : rng.range(120, W - 120);
+    const centerX = planShooterWaveCenterX(w, preferredCenterX);
+    if (centerX === null) return;
+    const offsets = shooterFormationOffsets(w);
     for (let i = 0; i < w.count; i++) {
       const e = this.claimFoe();
       if (!e) break; // budget: skip spawns beyond the 24-entity cap
-      let ox = 0;
-      let oy = 0;
-      switch (w.formation) {
-        case 'line':
-          ox = (i - (w.count - 1) / 2) * 32;
-          break;
-        case 'vee': {
-          const k = Math.ceil(i / 2);
-          const side = i === 0 ? 0 : i % 2 === 1 ? -1 : 1;
-          ox = side * k * 26;
-          oy = -k * 20;
-          break;
-        }
-        case 'column':
-          oy = -i * 36; // stacked above: they enter one by one
-          break;
-        case 'arc': {
-          const f = w.count > 1 ? i / (w.count - 1) : 0.5;
-          ox = (f - 0.5) * width;
-          oy = -Math.sin(f * Math.PI) * 26;
-          break;
-        }
-      }
+      const { x: ox, y: oy } = offsets[i]!;
       e.type = w.enemyType;
       e.path = w.path;
-      e.x = clamp(centerX + ox, 14, W - 14);
+      e.x = centerX + ox;
       e.y = -16 + oy;
       e.baseX = e.x;
       e.t = 0;
@@ -726,12 +972,12 @@ class ShooterGame implements GameInstance {
     return null;
   }
 
-  private spawnPickup(type: ShooterPickupType): void {
+  private spawnPickup(type: ShooterPickupType, authoredX?: number): void {
     for (const p of this.picks) {
       if (p.active) continue;
       p.active = true;
       p.type = type;
-      p.baseX = this.engine.rng.range(50, W - 50);
+      p.baseX = clamp(authoredX ?? this.engine.rng.range(50, W - 50), 40, W - 40);
       p.x = p.baseX;
       p.y = -10;
       p.t = 0;
@@ -843,23 +1089,74 @@ class ShooterGame implements GameInstance {
     e.active = false;
     this.hud.score += this.spec.scoring.events.enemyKill;
     this.engine.sfx.play('hit');
-    this.engine.particles.burst(e.x, e.y, 10, {
+    const heavy = e.type === 'tank' || e.type === 'turret';
+    this.engine.particles.burst(e.x, e.y, heavy ? 15 : 10, {
       color: this.spec.palette[8],
-      speed: 95,
-      life: 0.45,
+      speed: heavy ? 120 : 95,
+      life: heavy ? 0.62 : 0.45,
       gravity: 30,
+      size: heavy ? 3 : 2,
     });
+    this.engine.particles.burst(e.x, e.y, heavy ? 7 : 4, {
+      color: this.spec.palette[14],
+      speed: heavy ? 65 : 48,
+      life: heavy ? 0.45 : 0.3,
+      gravity: 0,
+      size: 2,
+    });
+    if (heavy) this.engine.shake(110, 1.5);
+    if (e.type === 'tank') this.engine.hitStop(24);
   }
 
   // ------------------------------------------------------------------- boss
+
+  private bossMuzzleY(b: BossState, inset = 6): number {
+    return this.generatedBoss ? b.y + GENERATED_SHOOTER_BOSS_DRAW_SIZE.h / 2 - inset : b.y + inset;
+  }
+
+  private prepareBossTelegraph(
+    b: BossState,
+    pattern: ShooterBossPattern,
+    cadenceS: number,
+    telegraphS: number,
+  ): void {
+    if (b.telegraphPrepared || b.burstLeft > 0 || b.fireT < cadenceS - telegraphS) return;
+    b.telegraphPrepared = true;
+    b.telegraphTargetX = this.px;
+    b.telegraphTargetY = this.py;
+    b.telegraphAimAngle =
+      pattern === 'spiral'
+        ? b.spiralAngle + (25 * Math.PI) / 180
+        : Math.atan2(this.py - this.bossMuzzleY(b), this.px - b.x);
+    if (pattern === 'walls') b.telegraphGapX = this.engine.rng.range(30, W - 78);
+    this.engine.particles.burst(b.x, this.bossMuzzleY(b), pattern === 'walls' ? 7 : 4, {
+      color: this.spec.palette[10],
+      speed: 34,
+      life: telegraphS,
+      gravity: 0,
+      size: 2,
+    });
+  }
+
+  private finishBossAttack(b: BossState, cadenceS: number): void {
+    b.fireT = Math.max(0, b.fireT - cadenceS);
+    b.telegraphPrepared = false;
+    this.engine.particles.burst(b.x, this.bossMuzzleY(b), 5, {
+      color: this.spec.palette[15],
+      speed: 55,
+      life: 0.22,
+      gravity: 0,
+      size: 2,
+      angle: Math.PI / 2,
+      spread: 0.8,
+    });
+  }
 
   private updateBoss(dt: number): void {
     const b = this.boss!;
     if (!b.active) return;
     b.t += dt;
     b.flashT = Math.max(0, b.flashT - dt);
-    const bossSprite = this.sprites['boss']!;
-
     // slow entrance from the top; invulnerable until parked
     if (b.entranceT < BOSS_ENTRANCE_S) {
       b.entranceT = Math.min(BOSS_ENTRANCE_S, b.entranceT + dt);
@@ -877,6 +1174,7 @@ class ShooterGame implements GameInstance {
       b.phaseIx = phaseIx;
       b.fireT = 0;
       b.burstLeft = 0;
+      b.telegraphPrepared = false;
       this.engine.shake(300, 4);
       this.engine.particles.burst(b.x, b.y, 20, {
         color: this.spec.palette[11],
@@ -885,50 +1183,56 @@ class ShooterGame implements GameInstance {
       });
     }
     const phase = phases[b.phaseIx]!;
-    const interval = phase.fireIntervalMs / 1000;
+    const cadenceS = shooterBossAttackCadenceS(phase.pattern, phase.fireIntervalMs);
+    const telegraphS = shooterBossTelegraphDurationS(phase.pattern, phase.fireIntervalMs);
     const spd = BOSS_SHOT_SPEED * phase.bulletSpeed;
     b.fireT += dt;
+    this.prepareBossTelegraph(b, phase.pattern, cadenceS, telegraphS);
 
     switch (phase.pattern) {
       case 'fan': {
         // 5-7 bullet arc aimed at the player
-        if (b.fireT >= interval) {
-          b.fireT -= interval;
+        if (b.fireT >= cadenceS) {
           const n = 5 + this.engine.rng.int(0, 2);
-          const aim = Math.atan2(this.py - b.y, this.px - b.x);
+          const aim = b.telegraphPrepared
+            ? b.telegraphAimAngle
+            : Math.atan2(this.py - b.y, this.px - b.x);
           for (let i = 0; i < n; i++) {
             const a = aim + ((i - (n - 1) / 2) * Math.PI) / 12;
-            this.fireEnemyShot(b.x, b.y + 8, Math.cos(a) * spd, Math.sin(a) * spd, 1);
+            this.fireEnemyShot(b.x, this.bossMuzzleY(b), Math.cos(a) * spd, Math.sin(a) * spd, 1);
           }
+          this.finishBossAttack(b, cadenceS);
           this.engine.sfx.play('shoot');
         }
         break;
       }
       case 'spiral': {
         // continuous rotating emitter: one bullet each interval/3, +25° each
-        const step = interval / 3;
-        while (b.fireT >= step) {
-          b.fireT -= step;
-          b.spiralAngle += (25 * Math.PI) / 180;
+        if (b.fireT >= cadenceS) {
+          b.spiralAngle = b.telegraphPrepared
+            ? b.telegraphAimAngle
+            : b.spiralAngle + (25 * Math.PI) / 180;
           this.fireEnemyShot(
             b.x,
-            b.y + 8,
+            this.bossMuzzleY(b),
             Math.cos(b.spiralAngle) * spd,
             Math.sin(b.spiralAngle) * spd,
             1,
           );
+          this.finishBossAttack(b, cadenceS);
+          this.engine.sfx.play('shoot');
         }
         break;
       }
       case 'walls': {
         // horizontal bullet row with a 48px random gap
-        if (b.fireT >= interval) {
-          b.fireT -= interval;
-          const gapX = this.engine.rng.range(30, W - 78);
+        if (b.fireT >= cadenceS) {
+          const gapX = b.telegraphPrepared ? b.telegraphGapX : this.engine.rng.range(30, W - 78);
           for (let bx = 14; bx < W; bx += 26) {
             if (bx > gapX && bx < gapX + 48) continue;
-            this.fireEnemyShot(bx, b.y + 14, 0, spd, 1);
+            this.fireEnemyShot(bx, this.bossMuzzleY(b, 2), 0, spd, 1);
           }
+          this.finishBossAttack(b, cadenceS);
           this.engine.sfx.play('shoot');
         }
         break;
@@ -940,12 +1244,22 @@ class ShooterGame implements GameInstance {
           if (b.burstT >= 0.09) {
             b.burstT -= 0.09;
             b.burstLeft--;
-            this.fireEnemyAimed(b.x, b.y + 8, spd * 1.15, 1);
+            const aim = Math.atan2(
+              b.telegraphTargetY - this.bossMuzzleY(b),
+              b.telegraphTargetX - b.x,
+            );
+            this.fireEnemyShot(
+              b.x,
+              this.bossMuzzleY(b),
+              Math.cos(aim) * spd * 1.15,
+              Math.sin(aim) * spd * 1.15,
+              1,
+            );
           }
-        } else if (b.fireT >= interval) {
-          b.fireT -= interval;
+        } else if (b.fireT >= cadenceS) {
           b.burstLeft = 3;
           b.burstT = 0.09;
+          this.finishBossAttack(b, cadenceS);
           this.engine.sfx.play('shoot');
         }
         break;
@@ -960,13 +1274,21 @@ class ShooterGame implements GameInstance {
       if (pod.fireT >= POD_FIRE_INTERVAL) {
         pod.fireT -= POD_FIRE_INTERVAL;
         this.fireEnemyAimed(b.x + pod.ox, b.y + pod.oy + 6, ENEMY_SHOT_SPEED, 1);
+        this.engine.particles.burst(b.x + pod.ox, b.y + pod.oy + 6, 3, {
+          color: this.spec.palette[14],
+          speed: 38,
+          life: 0.2,
+          gravity: 0,
+          angle: Math.PI / 2,
+          spread: 0.5,
+        });
       }
     }
 
     // ramming the boss hurts
     if (
       this.invulnT <= 0 &&
-      this.overlap(b.x, b.y, bossSprite.w - 8, bossSprite.h - 8, this.px, this.py, 4, 4)
+      this.overlap(b.x, b.y, this.bossDims.w, this.bossDims.h, this.px, this.py, 4, 4)
     ) {
       this.hurtPlayer(1);
       if (this.phase !== 'play') return;
@@ -990,22 +1312,80 @@ class ShooterGame implements GameInstance {
 
   private defeatBoss(b: BossState): void {
     b.active = false;
+    b.telegraphPrepared = false;
     this.hud.boss = undefined;
     this.hud.score += this.spec.scoring.events.levelClear;
-    const rng = this.engine.rng;
-    for (let i = 0; i < 5; i++) {
-      this.engine.particles.burst(b.x + rng.range(-24, 24), b.y + rng.range(-16, 16), 16, {
-        color: this.spec.palette[i % 2 === 0 ? 12 : 14],
-        speed: 170,
-        life: 0.9,
-        gravity: 0,
-        size: 3,
-      });
-    }
-    this.engine.shake(600, 6);
+    this.bossDefeatT = BOSS_DEFEAT_DURATION_S;
+    this.bossDefeatBurstT = 0;
+    this.bossDefeatBurstIndex = 0;
+    this.bossDefeatFinaleFired = false;
+    for (const shot of this.pshots) shot.active = false;
+    for (const shot of this.eshots) shot.active = false;
+    for (const pod of this.pods) pod.alive = false;
+    this.engine.particles.burst(b.x, b.y, 22, {
+      color: this.spec.palette[15],
+      speed: 125,
+      life: 0.7,
+      size: 3,
+    });
+    this.engine.shake(260, 4);
     this.engine.hitStop(80);
     this.engine.sfx.play('hit');
     this.engine.music.stopSong();
+  }
+
+  private updateBossDefeat(dt: number): void {
+    const b = this.boss;
+    if (!b) return;
+    this.bossDefeatT = Math.max(0, this.bossDefeatT - dt);
+    this.bossDefeatBurstT += dt;
+    while (
+      this.bossDefeatBurstT >= BOSS_DEFEAT_BURST_INTERVAL_S &&
+      this.bossDefeatT > BOSS_DEFEAT_FINALE_LEAD_S
+    ) {
+      this.bossDefeatBurstT -= BOSS_DEFEAT_BURST_INTERVAL_S;
+      this.bossDefeatBurstIndex++;
+      const wide = this.bossDefeatBurstIndex % 3 === 0;
+      this.engine.particles.burst(
+        b.x +
+          this.engine.rng.range(
+            -GENERATED_SHOOTER_BOSS_DRAW_SIZE.w * 0.42,
+            GENERATED_SHOOTER_BOSS_DRAW_SIZE.w * 0.42,
+          ),
+        b.y +
+          this.engine.rng.range(
+            -GENERATED_SHOOTER_BOSS_DRAW_SIZE.h * 0.42,
+            GENERATED_SHOOTER_BOSS_DRAW_SIZE.h * 0.42,
+          ),
+        wide ? 15 : 9,
+        {
+          color: this.spec.palette[this.bossDefeatBurstIndex % 2 === 0 ? 12 : 14],
+          speed: wide ? 155 : 95,
+          life: wide ? 0.7 : 0.48,
+          gravity: 0,
+          size: wide ? 3 : 2,
+        },
+      );
+      if (wide) this.engine.shake(110, 2.5);
+    }
+    if (!this.bossDefeatFinaleFired && this.bossDefeatT <= BOSS_DEFEAT_FINALE_LEAD_S) {
+      this.bossDefeatFinaleFired = true;
+      this.engine.particles.burst(b.x, b.y, 36, {
+        color: this.spec.palette[15],
+        speed: 210,
+        life: 1,
+        gravity: 0,
+        size: 4,
+      });
+      this.engine.shake(650, 7);
+      this.engine.hitStop(100);
+      this.engine.sfx.play('hit');
+    }
+    if (this.bossDefeatT > 0) return;
+    this.showVictoryCards();
+  }
+
+  private showVictoryCards(): void {
     this.phase = 'cards';
     this.engine.cards.show(
       this.spec.story.victory.map((line) => ({
@@ -1087,7 +1467,6 @@ class ShooterGame implements GameInstance {
 
   private updatePlayerShots(dt: number): void {
     const b = this.boss;
-    const bossSprite = this.sprites['boss']!;
     for (const p of this.pshots) {
       if (!p.active) continue;
       p.t += dt;
@@ -1132,7 +1511,7 @@ class ShooterGame implements GameInstance {
         if (
           p.active &&
           !(p.pierce && b.chargeSeq === p.seq) &&
-          this.overlap(p.x, p.y, pw, ph, b.x, b.y, bossSprite.w - 8, bossSprite.h - 8)
+          this.overlap(p.x, p.y, pw, ph, b.x, b.y, this.bossDims.w, this.bossDims.h)
         ) {
           b.hp -= p.dmg;
           b.flashT = 0.12;
@@ -1316,6 +1695,315 @@ class ShooterGame implements GameInstance {
     return Math.abs(ax - bx) * 2 < aw + bw && Math.abs(ay - by) * 2 < ah + bh;
   }
 
+  private strokeLine(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    color: string,
+    width: number,
+    alpha: number,
+    dash: readonly number[] = [],
+  ): void {
+    const ctx = this.engine.renderer.ctx;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.globalAlpha = alpha;
+    ctx.setLineDash([...dash]);
+    ctx.beginPath();
+    ctx.moveTo(Math.round(x1), Math.round(y1));
+    ctx.lineTo(Math.round(x2), Math.round(y2));
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private strokeRing(
+    x: number,
+    y: number,
+    radius: number,
+    color: string,
+    width: number,
+    alpha: number,
+  ): void {
+    const ctx = this.engine.renderer.ctx;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.arc(Math.round(x), Math.round(y), Math.max(1, radius), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private drawVelocityTrail(
+    x: number,
+    y: number,
+    vx: number,
+    vy: number,
+    length: number,
+    color: string,
+    width: number,
+    alpha: number,
+  ): void {
+    const speed = Math.max(1, Math.hypot(vx, vy));
+    this.strokeLine(
+      x,
+      y,
+      x - (vx / speed) * length,
+      y - (vy / speed) * length,
+      color,
+      width,
+      alpha,
+    );
+  }
+
+  private drawPixelGuide(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    color: string,
+    alpha: number,
+  ): void {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const steps = Math.max(2, Math.floor(Math.hypot(dx, dy) / 14));
+    const ctx = this.engine.renderer.ctx;
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = alpha;
+    for (let index = 1; index < steps; index++) {
+      if ((index + Math.floor(this.animT * 12)) % 3 === 0) continue;
+      const progress = index / steps;
+      const size = progress > 0.72 ? 2 : 1;
+      ctx.fillRect(
+        Math.round(x1 + dx * progress - size / 2),
+        Math.round(y1 + dy * progress - size / 2),
+        size,
+        size,
+      );
+    }
+    ctx.restore();
+  }
+
+  private drawFoeMuzzleWarning(enemy: Foe): void {
+    if (enemy.fireRate <= 0) return;
+    const gated = (enemy.type === 'turret' || enemy.path === 'hold') && enemy.state !== ST_HOLD;
+    if (gated) return;
+    const interval = 1 / enemy.fireRate;
+    const warningS = Math.min(0.26, interval * 0.4);
+    const progress = clamp((enemy.fireT - (interval - warningS)) / Math.max(0.01, warningS), 0, 1);
+    if (progress <= 0) return;
+    const y = enemy.y + GENERATED_SHOOTER_ENEMY_DRAW_SIZE[enemy.type].h / 2 - 3;
+    this.strokeRing(
+      enemy.x,
+      y,
+      2 + progress * 4 + Math.sin(this.animT * 22) * 0.8,
+      this.spec.palette[enemy.type === 'tank' ? 15 : 14] ?? '#ffec6e',
+      progress > 0.7 ? 2 : 1,
+      0.35 + progress * 0.6,
+    );
+  }
+
+  private drawPodMuzzleWarning(boss: BossState, pod: Pod): void {
+    const progress = clamp((pod.fireT - (POD_FIRE_INTERVAL - 0.28)) / 0.28, 0, 1);
+    if (progress <= 0) return;
+    this.strokeRing(
+      boss.x + pod.ox,
+      boss.y + pod.oy + 6,
+      2 + progress * 5,
+      this.spec.palette[14] ?? '#ffec6e',
+      progress > 0.75 ? 2 : 1,
+      0.35 + progress * 0.6,
+    );
+  }
+
+  private drawBossTelegraph(boss: BossState): void {
+    if (!boss.telegraphPrepared) return;
+    const phase = this.spec.boss.phases[boss.phaseIx];
+    if (!phase) return;
+    const progress = shooterBossTelegraphProgress(boss.fireT, phase.pattern, phase.fireIntervalMs);
+    if (progress <= 0) return;
+    const muzzleY = this.bossMuzzleY(boss);
+    const color = this.spec.palette[10] ?? '#ff5c5c';
+    const bright = this.spec.palette[15] ?? '#fff1a8';
+    const alpha = 0.45 + progress * 0.5;
+    switch (phase.pattern) {
+      case 'fan':
+        for (const offset of [-Math.PI / 6, 0, Math.PI / 6]) {
+          const angle = boss.telegraphAimAngle + offset;
+          this.strokeLine(
+            boss.x,
+            muzzleY,
+            boss.x + Math.cos(angle) * 170,
+            muzzleY + Math.sin(angle) * 170,
+            color,
+            offset === 0 ? 2 : 1,
+            alpha,
+            [6, 5],
+          );
+        }
+        break;
+      case 'spiral': {
+        const radius = 9 + progress * 10;
+        this.strokeRing(boss.x, muzzleY, radius, color, 2, alpha);
+        this.strokeLine(
+          boss.x,
+          muzzleY,
+          boss.x + Math.cos(boss.telegraphAimAngle) * (radius + 18),
+          muzzleY + Math.sin(boss.telegraphAimAngle) * (radius + 18),
+          bright,
+          2,
+          alpha,
+        );
+        break;
+      }
+      case 'walls':
+        for (let x = 14; x < W; x += 26) {
+          if (x > boss.telegraphGapX && x < boss.telegraphGapX + 48) continue;
+          this.strokeLine(
+            x,
+            muzzleY,
+            x,
+            muzzleY + 70,
+            color,
+            progress > 0.75 ? 3 : 2,
+            alpha,
+            [5, 4],
+          );
+        }
+        this.strokeLine(
+          boss.telegraphGapX,
+          muzzleY + 8,
+          boss.telegraphGapX,
+          muzzleY + 82,
+          bright,
+          1,
+          alpha,
+        );
+        this.strokeLine(
+          boss.telegraphGapX + 48,
+          muzzleY + 8,
+          boss.telegraphGapX + 48,
+          muzzleY + 82,
+          bright,
+          1,
+          alpha,
+        );
+        break;
+      case 'aimed':
+        this.drawPixelGuide(
+          boss.x,
+          muzzleY,
+          boss.telegraphTargetX,
+          boss.telegraphTargetY,
+          progress > 0.78 ? bright : color,
+          alpha,
+        );
+        break;
+    }
+    this.strokeRing(boss.x, muzzleY, 4 + progress * 5, bright, progress > 0.8 ? 3 : 2, alpha);
+  }
+
+  private drawPlayerShield(): void {
+    const renderer = this.engine.renderer;
+    const ctx = renderer.ctx;
+    const breath = (Math.sin(this.animT * 4.5) + 1) / 2;
+    ctx.save();
+    ctx.translate(Math.round(this.px), Math.round(this.py));
+    ctx.rotate(this.playerCraftBank());
+    ctx.translate(-Math.round(this.px), -Math.round(this.py));
+    renderer.drawSilhouetteAura(
+      this.playerShieldAura,
+      this.px - GENERATED_SHOOTER_PLAYER_DRAW_SIZE.w / 2,
+      this.py - GENERATED_SHOOTER_PLAYER_DRAW_SIZE.h / 2,
+      GENERATED_SHOOTER_PLAYER_DRAW_SIZE.w,
+      GENERATED_SHOOTER_PLAYER_DRAW_SIZE.h,
+      [
+        { radius: 1, alpha: 0.76 + breath * 0.14 },
+        { radius: 3, alpha: 0.3 + breath * 0.1 },
+        { radius: 4, alpha: 0.1 + breath * 0.06 },
+      ],
+    );
+    ctx.restore();
+  }
+
+  private drawPlayerExhaust(): void {
+    const rear = this.playerRearAt();
+    const pulse = (Math.sin(this.animT * (this.fast ? 34 : 24)) + 1) * 0.5;
+    const length = (this.fast ? 15 : 9) + pulse * (this.fast ? 6 : 4);
+    const ctx = this.engine.renderer.ctx;
+    ctx.save();
+    ctx.translate(Math.round(rear.x), Math.round(rear.y));
+    ctx.rotate(this.playerCraftBank());
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = this.spec.palette[this.fast ? 15 : 12] ?? '#ffec6e';
+    ctx.beginPath();
+    ctx.moveTo(-2, 0);
+    ctx.lineTo(0, Math.round(length));
+    ctx.lineTo(2, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  private drawPlayerCharge(): void {
+    const muzzle = this.playerMuzzleAt();
+    const progress = Math.min(1, this.chargeT / CHARGE_TIME);
+    const color = this.spec.palette[this.chargeReady ? 15 : 14] ?? '#f4f4f4';
+    const ctx = this.engine.renderer.ctx;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let lane = 0; lane < 10; lane++) {
+      const phase = this.animT * (2.8 + lane * 0.08) + lane * 0.63;
+      const radius = 20 + (lane % 3) * 6;
+      const travel = (phase - Math.floor(phase)) ** 1.4;
+      const x = muzzle.x + Math.cos(phase * Math.PI * 2) * radius * (1 - travel);
+      const y = muzzle.y + Math.sin(phase * Math.PI * 2) * radius * (1 - travel);
+      this.strokeLine(
+        x,
+        y,
+        muzzle.x,
+        muzzle.y,
+        color,
+        this.chargeReady ? 2 : 1,
+        0.16 + progress * 0.34,
+      );
+    }
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.7 + progress * 0.3;
+    ctx.beginPath();
+    ctx.arc(muzzle.x, muzzle.y, 3 + progress * 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  private drawGeneratedEnemy(enemy: Foe): void {
+    if (!this.generatedEnemyAtlas) return;
+    const size = GENERATED_SHOOTER_ENEMY_DRAW_SIZE[enemy.type];
+    const ctx = this.engine.renderer.ctx;
+    ctx.save();
+    ctx.translate(Math.round(enemy.x), Math.round(enemy.y));
+    if (enemy.type === 'kamikaze' && enemy.state === ST_HOMING) {
+      ctx.rotate(shooterEnemyTravelRotation(enemy.vx, enemy.vy));
+    }
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(
+      this.generatedEnemyAtlas,
+      generatedShooterEnemyAtlasX(enemy.type),
+      0,
+      GENERATED_SHOOTER_ENEMY_ATLAS_CELL_SIZE,
+      GENERATED_SHOOTER_ENEMY_ATLAS_CELL_SIZE,
+      -size.w / 2,
+      -size.h / 2,
+      size.w,
+      size.h,
+    );
+    ctx.restore();
+  }
+
   // ------------------------------------------------------------------ render
 
   render(): void {
@@ -1323,9 +2011,21 @@ class ShooterGame implements GameInstance {
     r.clear(this.spec.palette[2]);
     if (!this.backdrop) return; // pre-first-level intro cards
 
-    // Vertical-scroll scene: the generator tiles its layers at H and parallaxes
-    // them downward (reads as flying up) as scrollY grows.
-    this.backdrop.draw(r.ctx, this.scrollY);
+    // A finite generated flyover supplies game identity while the wrapping
+    // procedural layers keep motion and depth alive through cleanup time.
+    if (this.generatedBackdrop) {
+      r.ctx.save();
+      r.ctx.globalAlpha = SHOOTER_GENERATED_BACKDROP_ALPHA;
+      this.generatedBackdrop.draw(r.ctx, 0, this.scrollY);
+      r.ctx.restore();
+      r.rect(0, 0, W, H, 'rgba(0, 0, 0, 0.22)');
+      r.ctx.save();
+      r.ctx.globalAlpha = SHOOTER_PROCEDURAL_BACKDROP_ALPHA;
+      this.backdrop.draw(r.ctx, this.scrollY);
+      r.ctx.restore();
+    } else {
+      this.backdrop.draw(r.ctx, this.scrollY);
+    }
 
     // pickups
     for (const p of this.picks) {
@@ -1340,6 +2040,16 @@ class ShooterGame implements GameInstance {
     for (const p of this.pshots) {
       if (!p.active) continue;
       const img = this.engine.sprites.frame(projSprite, 'idle', p.t);
+      this.drawVelocityTrail(
+        p.x,
+        p.y,
+        p.vx,
+        p.vy,
+        p.pierce ? 24 : 12,
+        this.spec.palette[p.pierce ? 15 : 14] ?? '#fff1a8',
+        p.pierce ? 4 : 2,
+        p.pierce ? 0.9 : 0.7,
+      );
       if (p.pierce) {
         r.drawScaled(
           img,
@@ -1356,19 +2066,51 @@ class ShooterGame implements GameInstance {
     // enemies
     for (const e of this.foes) {
       if (!e.active) continue;
+      if (this.generatedEnemyAtlas) {
+        if (e.flashT <= 0 || Math.floor(this.animT * 24) % 2 === 0) {
+          this.drawGeneratedEnemy(e);
+        }
+        this.drawFoeMuzzleWarning(e);
+        continue;
+      }
       const sprite = this.sprites[e.type]!;
       const img =
         e.flashT > 0 ? sprite.flash[0]! : this.engine.sprites.frame(sprite, 'fly', e.t, e.vx < 0);
       r.draw(img, e.x - sprite.w / 2, e.y - sprite.h / 2);
+      this.drawFoeMuzzleWarning(e);
     }
 
     // boss + pods
     const b = this.boss;
-    if (b && b.active) {
-      const sprite = this.sprites['boss']!;
-      const img =
-        b.flashT > 0 ? sprite.flash[0]! : this.engine.sprites.frame(sprite, 'idle', this.animT);
-      r.draw(img, b.x - sprite.w / 2, b.y - sprite.h / 2);
+    if (b && (b.active || this.bossDefeatT > 0)) {
+      if (b.active && b.entranceT >= BOSS_ENTRANCE_S) this.drawBossTelegraph(b);
+      const ctx = r.ctx;
+      ctx.save();
+      if (!b.active) {
+        const remaining = this.bossDefeatT / BOSS_DEFEAT_DURATION_S;
+        ctx.globalAlpha = 0.35 + remaining * 0.5;
+        const pulse = 1 + (1 - remaining) * 0.12 + Math.sin(this.animT * 38) * 0.025;
+        ctx.translate(Math.round(b.x), Math.round(b.y));
+        ctx.scale(pulse, pulse);
+        ctx.translate(-Math.round(b.x), -Math.round(b.y));
+      }
+      if (this.generatedBoss) {
+        if (b.flashT <= 0 || Math.floor(this.animT * 24) % 2 === 0) {
+          r.drawScaled(
+            this.generatedBoss,
+            b.x - GENERATED_SHOOTER_BOSS_DRAW_SIZE.w / 2,
+            b.y - GENERATED_SHOOTER_BOSS_DRAW_SIZE.h / 2,
+            GENERATED_SHOOTER_BOSS_DRAW_SIZE.w,
+            GENERATED_SHOOTER_BOSS_DRAW_SIZE.h,
+          );
+        }
+      } else {
+        const sprite = this.sprites['boss']!;
+        const img =
+          b.flashT > 0 ? sprite.flash[0]! : this.engine.sprites.frame(sprite, 'idle', this.animT);
+        r.draw(img, b.x - sprite.w / 2, b.y - sprite.h / 2);
+      }
+      ctx.restore();
       const podSprite = this.sprites['pod']!;
       for (const pod of this.pods) {
         if (!pod.alive) continue;
@@ -1377,6 +2119,7 @@ class ShooterGame implements GameInstance {
             ? podSprite.flash[0]!
             : this.engine.sprites.frame(podSprite, 'fly', this.animT);
         r.draw(pimg, b.x + pod.ox - podSprite.w / 2, b.y + pod.oy - podSprite.h / 2);
+        this.drawPodMuzzleWarning(b, pod);
       }
     }
 
@@ -1385,31 +2128,57 @@ class ShooterGame implements GameInstance {
     for (const sh of this.eshots) {
       if (!sh.active) continue;
       const img = this.engine.sprites.frame(shotSprite, 'idle', sh.t);
+      this.drawVelocityTrail(
+        sh.x,
+        sh.y,
+        sh.vx,
+        sh.vy,
+        sh.dmg > 1 ? 15 : 9,
+        this.spec.palette[sh.dmg > 1 ? 8 : 10] ?? '#ff5c5c',
+        sh.dmg > 1 ? 3 : 2,
+        0.72,
+      );
       r.draw(img, sh.x - shotSprite.w / 2, sh.y - shotSprite.h / 2);
     }
 
     // Required generated craft with a small runtime banking transform.
     if (this.invulnT <= 0 || Math.floor(this.animT * 12) % 2 === 0) {
+      this.drawPlayerExhaust();
+      if (this.shieldUp) this.drawPlayerShield();
       this.drawGeneratedPlayerCraft();
-      if (this.shieldUp) {
-        r.frame(this.px - 11, this.py - 11, 22, 22, this.spec.palette[4] ?? '#41a6f6');
+      if (this.spread || this.rapid) {
+        const muzzle = this.playerMuzzleAt();
+        const size = this.spread ? 4 : 3;
+        r.rect(
+          muzzle.x - size / 2,
+          muzzle.y - size / 2,
+          size,
+          size,
+          this.spec.palette[this.rapid ? 15 : 14] ?? '#fff1a8',
+        );
       }
-      if (this.chargeT > 0.15) {
-        const size = 10 + Math.min(1, this.chargeT / CHARGE_TIME) * 8;
-        const color =
-          this.chargeReady && Math.floor(this.animT * 10) % 2 === 0
-            ? this.spec.palette[15]
-            : this.spec.palette[7];
-        r.frame(this.px - size / 2, this.py - size / 2, size, size, color ?? '#f4f4f4');
-      }
+      if (this.chargeT > 0.15) this.drawPlayerCharge();
+    }
+
+    if (this.bombFlashT > 0) {
+      const progress = 1 - this.bombFlashT / 0.45;
+      const radius = 18 + progress * Math.hypot(W, H);
+      this.strokeRing(
+        this.px,
+        this.py,
+        radius,
+        this.spec.palette[15] ?? '#ffffff',
+        progress < 0.2 ? 6 : 3,
+        0.9 * (1 - progress),
+      );
+      r.rect(0, 0, W, H, `rgba(255, 255, 255, ${Math.max(0, 0.16 - progress * 0.16)})`);
     }
   }
 
   private drawGeneratedPlayerCraft(): void {
     const ctx = this.engine.renderer.ctx;
-    const width = 20;
-    const height = 30;
-    const bank = clamp(this.pvx / SPEED_HIGH, -1, 1) * 0.14;
+    const { w: width, h: height } = GENERATED_SHOOTER_PLAYER_DRAW_SIZE;
+    const bank = this.playerCraftBank();
     ctx.save();
     ctx.translate(Math.round(this.px), Math.round(this.py));
     ctx.rotate(bank);

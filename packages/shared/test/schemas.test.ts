@@ -63,6 +63,21 @@ describe('archetype schemas', () => {
     }
   });
 
+  it('allows the generated vertical gameplay-art marker and authored pickup lanes', () => {
+    const schema = ARCHETYPE_SCHEMAS.shooter as {
+      properties: Record<string, { const?: number }>;
+      required: string[];
+      $defs: {
+        levelPickup: {
+          properties: Record<string, { minimum?: number; maximum?: number }>;
+        };
+      };
+    };
+    expect(schema.properties['shooterGameplayArtVersion']?.const).toBe(1);
+    expect(schema.required).not.toContain('shooterGameplayArtVersion');
+    expect(schema.$defs.levelPickup.properties.x).toMatchObject({ minimum: 40, maximum: 472 });
+  });
+
   it('weather enum matches the engine kind list (schema/engine sync guard)', () => {
     for (const [id, schema] of Object.entries(ARCHETYPE_SCHEMAS)) {
       const s = schema as { properties: Record<string, { enum?: string[] }>; required: string[] };

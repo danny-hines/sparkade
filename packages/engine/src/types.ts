@@ -67,6 +67,10 @@ export interface LikenessAssets {
   hshooterEnemyAtlas?: CanvasImageSource | null;
   /** Likeness-independent native top-down vertical-shooter player craft. */
   shooterPlayerCraft?: CanvasImageSource | null;
+  /** Generated top-down vertical-shooter finale boss. */
+  shooterBoss?: CanvasImageSource | null;
+  /** Five 96x96 top-down enemy cells in canonical shooter-role order. */
+  shooterEnemyAtlas?: CanvasImageSource | null;
   /** Five complete generated Fighter atlases in player, rung 1-3, boss order. */
   fighterAtlases?: readonly CanvasImageSource[] | null;
   /** Two stacked generated Fighter arena plates: reusable ladder, then boss. */
@@ -83,6 +87,8 @@ export interface LikenessAssets {
   platformerBackdrops?: Readonly<Record<string, CanvasImageSource>> | null;
   /** Independently generated panoramic H-scroll stage plates. */
   hshooterBackdrops?: Readonly<Record<string, CanvasImageSource>> | null;
+  /** Generated vertical flyover plates keyed by level1..level3 and boss. */
+  shooterBackdrops?: Readonly<Record<string, CanvasImageSource>> | null;
   /** One 2x2 atlas of entrance, ordinary, deep, and finale Adventure room surfaces. */
   adventureRoomPlates?: CanvasImageSource | null;
   /** Atomic generated Adventure player directions and motion poses. */

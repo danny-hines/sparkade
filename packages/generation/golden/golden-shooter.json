@@ -1,6 +1,7 @@
 {
   "specVersion": 1,
   "archetype": "shooter",
+  "shooterGameplayArtVersion": 1,
   "playerCraft": {
     "visualConcept": "The Petal Lance, a narrow ivory top-down seedship with four magenta leaf fins, a dark teardrop canopy, and a bright green engine heart"
   },
@@ -148,8 +149,8 @@
         { "t": 71, "enemyType": "kamikaze", "count": 4, "formation": "arc", "path": "dive", "hp": 1, "fireRate": 0 }
       ],
       "pickups": [
-        { "t": 14, "type": "spread" },
-        { "t": 52, "type": "bomb" }
+        { "t": 14, "type": "spread", "x": 176 },
+        { "t": 52, "type": "bomb", "x": 336 }
       ]
     },
     {
@@ -168,9 +169,9 @@
         { "t": 80, "enemyType": "popcorn", "count": 7, "formation": "arc", "path": "sweep", "hp": 1, "fireRate": 0 }
       ],
       "pickups": [
-        { "t": 20, "type": "spread" },
-        { "t": 47, "type": "rapid" },
-        { "t": 72, "type": "bomb" }
+        { "t": 20, "type": "spread", "x": 160 },
+        { "t": 47, "type": "rapid", "x": 352 },
+        { "t": 72, "type": "bomb", "x": 256 }
       ]
     },
     {
@@ -190,9 +191,9 @@
         { "t": 92, "enemyType": "kamikaze", "count": 6, "formation": "vee", "path": "dive", "hp": 1, "fireRate": 0 }
       ],
       "pickups": [
-        { "t": 28, "type": "rapid" },
-        { "t": 54, "type": "bomb" },
-        { "t": 80, "type": "shield" }
+        { "t": 28, "type": "rapid", "x": 144 },
+        { "t": 54, "type": "bomb", "x": 368 },
+        { "t": 80, "type": "shield", "x": 256 }
       ]
     }
   ],

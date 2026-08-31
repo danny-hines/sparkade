@@ -2,6 +2,13 @@
 // finite boss fights, content floors.
 import { BUDGET, type LintError, type ShooterSpec } from '@sparkade/shared';
 import { err, lintDuration, lintMusic, lintSongRef, lintSpriteRefs } from '../common';
+import {
+  SHOOTER_DENSE_WAVE_RECOVERY_S,
+  SHOOTER_PICKUP_CLEARANCE_S,
+  isShooterWaveDense,
+  planShooterWaveCenterX,
+  shooterFormationBounds,
+} from './encounters';
 
 /** How long a spawned wave typically stays on screen (seconds). */
 const WAVE_LIFETIME_S = 8;
@@ -25,16 +32,79 @@ export function lintShooter(spec: ShooterSpec): LintError[] {
       waveTotal++;
       enemyTypes.add(w.enemyType);
       if (i > 0 && w.t < level.waves[i - 1]!.t) {
-        out.push(err('SHOOT_WAVES_UNSORTED', `${path}/waves/${i}/t`, `wave timestamps must be sorted ascending (t=${w.t} after t=${level.waves[i - 1]!.t})`));
+        out.push(
+          err(
+            'SHOOT_WAVES_UNSORTED',
+            `${path}/waves/${i}/t`,
+            `wave timestamps must be sorted ascending (t=${w.t} after t=${level.waves[i - 1]!.t})`,
+          ),
+        );
       }
       if (w.t > level.durationS - 4) {
-        out.push(err('SHOOT_WAVE_AFTER_END', `${path}/waves/${i}/t`, `wave at t=${w.t}s spawns too close to the level end (durationS=${level.durationS}; keep waves ≤ durationS - 4)`));
+        out.push(
+          err(
+            'SHOOT_WAVE_AFTER_END',
+            `${path}/waves/${i}/t`,
+            `wave at t=${w.t}s spawns too close to the level end (durationS=${level.durationS}; keep waves ≤ durationS - 4)`,
+          ),
+        );
+      }
+      const bounds = shooterFormationBounds(w);
+      if (planShooterWaveCenterX(w, 256) === null) {
+        out.push(
+          err(
+            'SHOOT_FORMATION_TOO_WIDE',
+            `${path}/waves/${i}`,
+            `${w.formation} formation spans ${bounds.width.toFixed(0)}px and cannot enter with readable screen margins`,
+          ),
+        );
+      }
+      if (bounds.stagger > 220) {
+        out.push(
+          err(
+            'SHOOT_FORMATION_STAGGER',
+            `${path}/waves/${i}`,
+            `${w.formation} formation staggers members across ${bounds.stagger.toFixed(0)}px; reduce count so it reads as one authored wave`,
+          ),
+        );
+      }
+      const previous = level.waves[i - 1];
+      if (
+        previous &&
+        isShooterWaveDense(previous) &&
+        w.t - previous.t < SHOOTER_DENSE_WAVE_RECOVERY_S
+      ) {
+        out.push(
+          err(
+            'SHOOT_DENSE_RECOVERY',
+            `${path}/waves/${i}/t`,
+            `dense wave at t=${previous.t}s needs ${SHOOTER_DENSE_WAVE_RECOVERY_S}s before the next spawn`,
+          ),
+        );
       }
     }
     for (const [pi, p] of level.pickups.entries()) {
       pickupTypes.add(p.type);
       if (p.t > level.durationS - 2) {
-        out.push(err('SHOOT_PICKUP_AFTER_END', `${path}/pickups/${pi}/t`, `pickup at t=${p.t}s is after the level effectively ends`));
+        out.push(
+          err(
+            'SHOOT_PICKUP_AFTER_END',
+            `${path}/pickups/${pi}/t`,
+            `pickup at t=${p.t}s is after the level effectively ends`,
+          ),
+        );
+      }
+      const nearbyDenseWave = level.waves.find(
+        (wave) => isShooterWaveDense(wave) && Math.abs(wave.t - p.t) < SHOOTER_PICKUP_CLEARANCE_S,
+      );
+      if (nearbyDenseWave) {
+        out.push(
+          err(
+            'SHOOT_PICKUP_DENSE_OVERLAP',
+            `${path}/pickups/${pi}/t`,
+            `pickup at t=${p.t}s overlaps the dense wave at t=${nearbyDenseWave.t}s; reserve ${SHOOTER_PICKUP_CLEARANCE_S}s of readable reward space`,
+          ),
+        );
       }
     }
 
@@ -45,7 +115,13 @@ export function lintShooter(spec: ShooterSpec): LintError[] {
         if (other.t <= w.t + 0.01 && other.t + WAVE_LIFETIME_S > w.t) concurrent += other.count;
       }
       if (concurrent > BUDGET.maxActiveEntities - 6) {
-        out.push(err('SHOOT_ONSCREEN_BUDGET', `${path}/waves`, `~${concurrent} enemies on screen around t=${w.t}s; keep it under ${BUDGET.maxActiveEntities - 6} (space the waves out)`));
+        out.push(
+          err(
+            'SHOOT_ONSCREEN_BUDGET',
+            `${path}/waves`,
+            `~${concurrent} enemies on screen around t=${w.t}s; keep it under ${BUDGET.maxActiveEntities - 6} (space the waves out)`,
+          ),
+        );
         break;
       }
     }
@@ -54,10 +130,17 @@ export function lintShooter(spec: ShooterSpec): LintError[] {
     for (const w of level.waves) {
       let bps = 0;
       for (const other of level.waves) {
-        if (other.t <= w.t + 0.01 && other.t + WAVE_LIFETIME_S > w.t) bps += other.count * other.fireRate;
+        if (other.t <= w.t + 0.01 && other.t + WAVE_LIFETIME_S > w.t)
+          bps += other.count * other.fireRate;
       }
       if (bps > MAX_BULLETS_PER_SECOND) {
-        out.push(err('SHOOT_BULLET_DENSITY', `${path}/waves`, `~${bps.toFixed(1)} enemy bullets/sec around t=${w.t}s; cap is ${MAX_BULLETS_PER_SECOND} (lower fireRate or counts)`));
+        out.push(
+          err(
+            'SHOOT_BULLET_DENSITY',
+            `${path}/waves`,
+            `~${bps.toFixed(1)} enemy bullets/sec around t=${w.t}s; cap is ${MAX_BULLETS_PER_SECOND} (lower fireRate or counts)`,
+          ),
+        );
         break;
       }
     }
@@ -66,7 +149,13 @@ export function lintShooter(spec: ShooterSpec): LintError[] {
   // Boss: finite fight.
   const bossEffortHp = spec.boss.hp + spec.boss.pods * spec.boss.podHp;
   if (bossEffortHp > 320) {
-    out.push(err('SHOOT_BOSS_TOO_LONG', '/boss', `hp + pods*podHp = ${bossEffortHp}; keep it ≤ 320 so the fight stays under ~3 minutes`));
+    out.push(
+      err(
+        'SHOOT_BOSS_TOO_LONG',
+        '/boss',
+        `hp + pods*podHp = ${bossEffortHp}; keep it ≤ 320 so the fight stays under ~3 minutes`,
+      ),
+    );
   }
 
   // Content floors
@@ -74,10 +163,22 @@ export function lintShooter(spec: ShooterSpec): LintError[] {
     out.push(err('SHOOT_FLOOR_WAVES', '/levels', `${waveTotal} waves total; the floor is 15`));
   }
   if (enemyTypes.size < 4) {
-    out.push(err('SHOOT_FLOOR_ENEMY_TYPES', '/levels', `uses ${enemyTypes.size} enemy types; the floor is 4`));
+    out.push(
+      err(
+        'SHOOT_FLOOR_ENEMY_TYPES',
+        '/levels',
+        `uses ${enemyTypes.size} enemy types; the floor is 4`,
+      ),
+    );
   }
   if (pickupTypes.size < 2) {
-    out.push(err('SHOOT_FLOOR_POWERUPS', '/levels', `uses ${pickupTypes.size} pickup types; the floor is 2`));
+    out.push(
+      err(
+        'SHOOT_FLOOR_POWERUPS',
+        '/levels',
+        `uses ${pickupTypes.size} pickup types; the floor is 2`,
+      ),
+    );
   }
 
   out.push(...lintDuration(estimateShooterDurationS(spec)));

@@ -323,6 +323,15 @@ import {
   type GeneratedHShooterBackdrop,
 } from '../assets/hshooter-backdrop';
 import {
+  GENERATED_SHOOTER_BACKDROPS,
+  SHOOTER_BACKDROP_ASPECT_HINT,
+  SHOOTER_BACKDROP_ASSET_ROLES,
+  SHOOTER_BACKDROP_PROMPT_VERSION,
+  buildShooterBackdropPrompt,
+  normalizeShooterBackdrop,
+  type GeneratedShooterBackdrop,
+} from '../assets/shooter-backdrop';
+import {
   HSHOOTER_BOSS_JUDGE_PROMPT_VERSION,
   HSHOOTER_BOSS_PIPELINE_PROMPT_VERSION,
   HSHOOTER_BOSS_PROMPT_VERSION,
@@ -330,6 +339,14 @@ import {
   buildHShooterBossJudgePrompt,
   processGeneratedHShooterBoss,
 } from '../assets/hshooter-boss';
+import {
+  SHOOTER_BOSS_JUDGE_PROMPT_VERSION,
+  SHOOTER_BOSS_PIPELINE_PROMPT_VERSION,
+  SHOOTER_BOSS_PROMPT_VERSION,
+  buildShooterBossCandidatePrompt,
+  buildShooterBossJudgePrompt,
+  processGeneratedShooterBoss,
+} from '../assets/shooter-boss';
 import {
   GENERATED_HSHOOTER_ENEMIES,
   HSHOOTER_ENEMY_ATLAS_ROLE,
@@ -351,6 +368,27 @@ import {
   type GeneratedHShooterEnemy,
   type HShooterEnemyCandidate,
 } from '../assets/hshooter-enemy';
+import {
+  GENERATED_SHOOTER_ENEMIES,
+  SHOOTER_ENEMY_ATLAS_ROLE,
+  SHOOTER_ENEMY_BOARD_PROMPT_VERSION,
+  SHOOTER_ENEMY_JUDGE_PROMPT_VERSION,
+  SHOOTER_ENEMY_PIPELINE_PROMPT_VERSION,
+  SHOOTER_ENEMY_REPLACEMENT_PROMPT_VERSION,
+  bestShooterEnemyCandidateId,
+  buildGeneratedShooterEnemyAtlas,
+  buildShooterEnemyBoardPrompt,
+  buildShooterEnemyJudgeBoard,
+  buildShooterEnemyJudgePrompt,
+  buildShooterEnemyJudgeSchema,
+  buildShooterEnemyReplacementPrompt,
+  normalizeShooterEnemyJudgeDecision,
+  processGeneratedShooterEnemy,
+  splitGeneratedShooterEnemyBoard,
+  validateGeneratedShooterEnemyAtlas,
+  type GeneratedShooterEnemy,
+  type ShooterEnemyCandidate,
+} from '../assets/shooter-enemy';
 import {
   GameAssetWorkspace,
   GeneratedAssetStorageError,
@@ -500,6 +538,14 @@ const HSHOOTER_ENEMY_REPLACEMENT_ASSET_ROLES = {
   turret: 'hshooterEnemyReplacementTurret',
   kamikaze: 'hshooterEnemyReplacementKamikaze',
 } as const satisfies Record<GeneratedHShooterEnemy, PrivateGeneratedAssetRole>;
+
+const SHOOTER_ENEMY_REPLACEMENT_ASSET_ROLES = {
+  popcorn: 'shooterEnemyReplacementPopcorn',
+  weaver: 'shooterEnemyReplacementWeaver',
+  tank: 'shooterEnemyReplacementTank',
+  turret: 'shooterEnemyReplacementTurret',
+  kamikaze: 'shooterEnemyReplacementKamikaze',
+} as const satisfies Record<GeneratedShooterEnemy, PrivateGeneratedAssetRole>;
 
 /** The player's structured engine choice is authoritative; the design model still gets
  * the instruction, but cannot silently relabel the job by returning another id. */
@@ -3196,6 +3242,109 @@ export class GenerationRunner {
             })
           : Promise.resolve();
 
+      let shooterBackdropArtStatus: GameMetaFile['shooterBackdropArt'] =
+        spec.archetype === 'shooter'
+          ? {
+              mode: 'procedural',
+              attempted: true,
+              reason: 'Generated vertical-shooter backgrounds did not complete',
+            }
+          : undefined;
+      const shooterBackdropTask =
+        spec.archetype === 'shooter'
+          ? keyArtTask.then(async (keyArt): Promise<void> => {
+              const generationStarted = Date.now();
+              const generated = new Set<GeneratedShooterBackdrop>();
+              const colors = spec.palette.join(', ');
+              const sceneFor = (role: GeneratedShooterBackdrop) => {
+                if (role === 'boss') {
+                  return { sceneName: 'Final flyover arena', sceneBeat: spec.meta.tagline };
+                }
+                const index = Number.parseInt(role.slice(-1), 10) - 1;
+                return {
+                  sceneName: spec.levels[index]?.name ?? `Flight stage ${index + 1}`,
+                  sceneBeat: spec.story.levelIntros[index] ?? spec.meta.tagline,
+                };
+              };
+
+              emit('building-assets', 'Painting four vertical flyover backgrounds in parallel…');
+              await Promise.all(
+                GENERATED_SHOOTER_BACKDROPS.map(async (role) => {
+                  const scene = sceneFor(role);
+                  const prompt = buildShooterBackdropPrompt({
+                    gameTitle: spec.meta.title,
+                    tagline: spec.meta.tagline,
+                    role,
+                    ...scene,
+                    backdrop: spec.backdrop ?? 'the game-specific environment shown in the key art',
+                    colors,
+                  });
+                  try {
+                    await cachedGeneratedAsset({
+                      role: SHOOTER_BACKDROP_ASSET_ROLES[role],
+                      promptVersion: SHOOTER_BACKDROP_PROMPT_VERSION,
+                      prompt,
+                      label:
+                        role === 'boss'
+                          ? 'Vertical shooter boss flyover background'
+                          : `${scene.sceneName} flyover background`,
+                      reference: keyArt,
+                      size: SHOOTER_BACKDROP_ASPECT_HINT,
+                      normalize: normalizeShooterBackdrop,
+                    });
+                    generated.add(role);
+                  } catch (error) {
+                    if (
+                      abort.signal.aborted ||
+                      error instanceof GeneratedAssetStorageError ||
+                      (error instanceof PipelineError &&
+                        error.code !== 'image-invalid' &&
+                        !isOptionalGeneratedArtProviderFailure(error))
+                    ) {
+                      throw error;
+                    }
+                    validationFailure(`shooter-backdrop-${role}`);
+                    emit(
+                      'building-assets',
+                      `${scene.sceneName} flyover was unavailable; keeping procedural depth`,
+                    );
+                  }
+                }),
+              );
+
+              const generatedRoles = GENERATED_SHOOTER_BACKDROPS.filter((role) =>
+                generated.has(role),
+              );
+              const missingRoles = GENERATED_SHOOTER_BACKDROPS.filter(
+                (role) => !generated.has(role),
+              );
+              if (missingRoles.length === 0) {
+                shooterBackdropArtStatus = { mode: 'generated', attempted: true, generatedRoles };
+                emit('building-assets', 'Finished the vertical flyover backgrounds');
+                return;
+              }
+              const reason = `No valid generated background for ${missingRoles.join(', ')}`;
+              shooterBackdropArtStatus = {
+                mode: generatedRoles.length ? 'partial' : 'procedural',
+                attempted: true,
+                ...(generatedRoles.length ? { generatedRoles } : {}),
+                reason,
+              };
+              recordEarlyRepairEvent(
+                'entities',
+                'shooter-backdrop-art-fallback',
+                missingRoles.map((role) => ({
+                  code: 'SHOOTER_BACKDROP_ART_FALLBACK',
+                  path: `/assets/shooter-backdrop/${role}`,
+                  message: reason,
+                })),
+                [],
+                generationStarted,
+                'downgraded',
+              );
+            })
+          : Promise.resolve();
+
       let adventureRoomPlateArtStatus: GameMetaFile['adventureRoomPlateArt'] =
         spec.archetype === 'adventure'
           ? {
@@ -4317,6 +4466,448 @@ export class GenerationRunner {
                 throw new PipelineError(
                   'image-invalid',
                   `Required H-scroll enemy cast failed validation: ${error instanceof Error ? error.message.slice(0, 240) : String(error).slice(0, 240)}`,
+                  'building-assets',
+                );
+              }
+            })
+          : Promise.resolve();
+
+      let shooterBossArtStatus: GameMetaFile['shooterBossArt'];
+      const shooterBossTask =
+        spec.archetype === 'shooter'
+          ? storyAssets.boss.then(async (storyBoss): Promise<void> => {
+              const colors = spec.palette
+                .filter((hex) => {
+                  const r = Number.parseInt(hex.slice(1, 3), 16);
+                  const g = Number.parseInt(hex.slice(3, 5), 16);
+                  const b = Number.parseInt(hex.slice(5, 7), 16);
+                  return !(g > r * 1.15 && g > b * 1.15);
+                })
+                .join(', ');
+              try {
+                const pipelineFingerprint = JSON.stringify({
+                  promptVersions: {
+                    candidate: SHOOTER_BOSS_PROMPT_VERSION,
+                    judge: SHOOTER_BOSS_JUDGE_PROMPT_VERSION,
+                  },
+                  bossName: spec.boss.name,
+                  bossIntro: spec.story.bossIntro,
+                  colors,
+                });
+                const pipelineSha = imagePromptHash(pipelineFingerprint, storyBoss);
+                const cached = assetWorkspace.load(
+                  'shooterBoss',
+                  SHOOTER_BOSS_PIPELINE_PROMPT_VERSION,
+                  pipelineSha,
+                );
+                if (cached) {
+                  shooterBossArtStatus = { mode: 'generated', attempted: true };
+                  emit('building-assets', 'Restored the selected vertical-shooter boss');
+                  return;
+                }
+
+                interface BossCandidate {
+                  id: string;
+                  png: Buffer;
+                }
+                const generateBossCandidate = async (
+                  index: number,
+                  retryGuidance = '',
+                ): Promise<BossCandidate | null> => {
+                  const id = `B${index}`;
+                  let raw: Buffer;
+                  try {
+                    raw = await callImage({
+                      role: `shooter-boss-${id}`,
+                      label: `Vertical-shooter boss candidate ${id}`,
+                      prompt: buildShooterBossCandidatePrompt({
+                        bossName: spec.boss.name,
+                        bossIntro: spec.story.bossIntro,
+                        colors,
+                        candidateId: id,
+                        ...(retryGuidance ? { retryGuidance } : {}),
+                      }),
+                      reference: storyBoss,
+                      size: '1024x1536',
+                    });
+                  } catch (error) {
+                    if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
+                    validationFailure(`shooter-boss-${id}`);
+                    emit(
+                      'building-assets',
+                      `Vertical-shooter boss candidate ${id} was unavailable; continuing…`,
+                    );
+                    return null;
+                  }
+                  try {
+                    const processed = await processGeneratedShooterBoss(raw);
+                    return { id, png: processed.png };
+                  } catch {
+                    validationFailure(`shooter-boss-${id}`);
+                    emit(
+                      'building-assets',
+                      `Vertical-shooter boss candidate ${id} failed local silhouette validation`,
+                    );
+                    return null;
+                  }
+                };
+
+                emit('building-assets', 'Painting three vertical-shooter boss candidates…');
+                let candidates = (
+                  await Promise.all([1, 2, 3].map((index) => generateBossCandidate(index)))
+                ).filter((candidate): candidate is BossCandidate => candidate !== null);
+                if (candidates.length === 0) {
+                  emit(
+                    'building-assets',
+                    'The first vertical boss pool was unusable; painting one corrective pool…',
+                  );
+                  candidates = (
+                    await Promise.all(
+                      [4, 5, 6].map((index) =>
+                        generateBossCandidate(
+                          index,
+                          'Return one complete uncropped tall TOP-DOWN boss with its attack end pointing DOWN and a perfectly flat green background',
+                        ),
+                      ),
+                    )
+                  ).filter((candidate): candidate is BossCandidate => candidate !== null);
+                }
+                if (candidates.length === 0) {
+                  throw new Error(
+                    'both generated vertical-shooter boss pools failed mechanical validation',
+                  );
+                }
+
+                const descriptors: PlatformerBossCandidateDescriptor[] = candidates.map(
+                  ({ id }) => ({ id }),
+                );
+                const board = await buildPlatformerBossJudgeBoard({
+                  storyBoss,
+                  candidates: candidates.map(({ id, png: processed }) => ({ id, processed })),
+                });
+                const mockDecision = {
+                  candidateReviews: descriptors.map(({ id }) => ({
+                    id,
+                    scores: {
+                      villainMatch: 5,
+                      silhouette: 5,
+                      pose: 5,
+                      technical: 5,
+                      gameplayReadability: 5,
+                    },
+                    issues: [],
+                    summary: 'Mock story-faithful vertical boss candidate.',
+                  })),
+                  selection: {
+                    candidateId: descriptors[0]!.id,
+                    confidence: 1,
+                    rationale: 'Mock selection.',
+                  },
+                };
+                const rawDecision = mockImages
+                  ? mockDecision
+                  : await callLlm(
+                      'design',
+                      {
+                        ...buildShooterBossJudgePrompt(descriptors.map(({ id }) => id)),
+                        jsonSchema: buildPlatformerBossJudgeSchema(descriptors),
+                        maxTokens: 2200,
+                        timeoutMs: 120_000,
+                      },
+                      {
+                        stage: 'building-assets',
+                        label: 'Spark selected the signature vertical-shooter boss',
+                        image: board,
+                        reasoningEffort: 'low',
+                      },
+                    );
+                const decision = normalizePlatformerBossJudgeDecision(rawDecision, descriptors);
+                const selectedId =
+                  decision.selection.candidateId || bestPlatformerBossCandidateId(decision);
+                const selected = candidates.find(({ id }) => id === selectedId) ?? candidates[0]!;
+                await assetWorkspace.store(
+                  'shooterBoss',
+                  selected.png,
+                  SHOOTER_BOSS_PIPELINE_PROMPT_VERSION,
+                  pipelineSha,
+                );
+                shooterBossArtStatus = { mode: 'generated', attempted: true };
+                emit('building-assets', `Spark selected ${selected.id} as the vertical boss`);
+              } catch (error) {
+                if (
+                  abort.signal.aborted ||
+                  error instanceof GeneratedAssetStorageError ||
+                  (error instanceof PipelineError && !isOptionalGeneratedArtProviderFailure(error))
+                ) {
+                  throw error;
+                }
+                await assetWorkspace.discard(['shooterBoss']);
+                const reason =
+                  error instanceof Error
+                    ? error.message.slice(0, 240)
+                    : 'Generated vertical-shooter boss failed validation';
+                throw new PipelineError(
+                  'image-invalid',
+                  `Required vertical-shooter boss art failed: ${reason}`,
+                  'building-assets',
+                );
+              }
+            })
+          : Promise.resolve();
+
+      let shooterEnemyArtStatus: GameMetaFile['shooterEnemyArt'];
+      const shooterEnemyTask =
+        spec.archetype === 'shooter'
+          ? keyArtTask.then(async (keyArt): Promise<void> => {
+              const colors = spec.palette
+                .filter((hex) => {
+                  const r = Number.parseInt(hex.slice(1, 3), 16);
+                  const g = Number.parseInt(hex.slice(3, 5), 16);
+                  const b = Number.parseInt(hex.slice(5, 7), 16);
+                  return !(g > r * 1.15 && g > b * 1.15);
+                })
+                .join(', ');
+              const fallbackConcepts: Record<GeneratedShooterEnemy, string> = {
+                popcorn: 'a small disposable scout native to the hostile faction',
+                weaver: 'a slim agile enemy that darts laterally across the flight field',
+                tank: 'a broad slow armored ordinary war machine or creature',
+                turret: 'a stable free-flying gun platform native to the hostile faction',
+                kamikaze: 'a pointed high-speed impact attacker',
+              };
+              const concepts = Object.fromEntries(
+                GENERATED_SHOOTER_ENEMIES.map((role) => [
+                  role,
+                  design.cast.find((member) => member.role === role)?.concept ??
+                    fallbackConcepts[role],
+                ]),
+              ) as Record<GeneratedShooterEnemy, string>;
+              const promptOptions = {
+                gameTitle: spec.meta.title,
+                tagline: spec.meta.tagline,
+                concepts,
+                colors,
+              };
+              const boardPrompt = buildShooterEnemyBoardPrompt(promptOptions);
+              const pipelineFingerprint = JSON.stringify({
+                promptVersions: {
+                  board: SHOOTER_ENEMY_BOARD_PROMPT_VERSION,
+                  replacement: SHOOTER_ENEMY_REPLACEMENT_PROMPT_VERSION,
+                  judge: SHOOTER_ENEMY_JUDGE_PROMPT_VERSION,
+                },
+                concepts,
+                colors,
+              });
+              const pipelineSha = imagePromptHash(pipelineFingerprint, keyArt);
+              const cached = assetWorkspace.load(
+                SHOOTER_ENEMY_ATLAS_ROLE,
+                SHOOTER_ENEMY_PIPELINE_PROMPT_VERSION,
+                pipelineSha,
+              );
+              if (cached) {
+                try {
+                  await validateGeneratedShooterEnemyAtlas(cached);
+                  spec.shooterGameplayArtVersion = 1;
+                  shooterEnemyArtStatus = {
+                    mode: 'generated',
+                    attempted: true,
+                    roles: [...GENERATED_SHOOTER_ENEMIES],
+                  };
+                  emit('building-assets', 'Restored the generated vertical enemy cast');
+                  return;
+                } catch {
+                  await assetWorkspace.discard([SHOOTER_ENEMY_ATLAS_ROLE]);
+                }
+              }
+
+              try {
+                let rawBoard = assetWorkspace.loadPrivate(
+                  'shooterEnemyBoard',
+                  SHOOTER_ENEMY_BOARD_PROMPT_VERSION,
+                  pipelineSha,
+                );
+                if (!rawBoard) {
+                  emit(
+                    'building-assets',
+                    'Painting two candidates for all five vertical-shooter enemies in one board…',
+                  );
+                  rawBoard = await callImage({
+                    role: 'shooter-enemy-board',
+                    label: 'Vertical-shooter enemy candidate board',
+                    prompt: boardPrompt,
+                    reference: keyArt,
+                    size: '1024x1024',
+                  });
+                  await assetWorkspace.storePrivate(
+                    'shooterEnemyBoard',
+                    rawBoard,
+                    SHOOTER_ENEMY_BOARD_PROMPT_VERSION,
+                    pipelineSha,
+                  );
+                }
+
+                const split = await splitGeneratedShooterEnemyBoard(rawBoard);
+                split.failures.forEach(({ id }) => validationFailure(`shooter-enemy-board-${id}`));
+                const candidates: ShooterEnemyCandidate[] = [...split.candidates];
+                const missingRoles = GENERATED_SHOOTER_ENEMIES.filter(
+                  (role) => !candidates.some((candidate) => candidate.role === role),
+                );
+                if (missingRoles.length) {
+                  emit(
+                    'building-assets',
+                    `Repairing ${missingRoles.join(', ')} with one bounded role-specific call each…`,
+                  );
+                }
+                for (const role of missingRoles) {
+                  const privateRole = SHOOTER_ENEMY_REPLACEMENT_ASSET_ROLES[role];
+                  const correction =
+                    split.failures
+                      .filter((failure) => failure.role === role)
+                      .map((failure) => failure.reason)
+                      .join('; ') ||
+                    'Return one complete top-down silhouette cleanly separated from the green background';
+                  const replacementPrompt = buildShooterEnemyReplacementPrompt({
+                    ...promptOptions,
+                    role,
+                    correction,
+                  });
+                  const replacementSha = imagePromptHash(replacementPrompt, keyArt);
+                  let rawReplacement = assetWorkspace.loadPrivate(
+                    privateRole,
+                    SHOOTER_ENEMY_REPLACEMENT_PROMPT_VERSION,
+                    replacementSha,
+                  );
+                  if (!rawReplacement) {
+                    rawReplacement = await callImage({
+                      role: `shooter-enemy-replacement-${role}`,
+                      label: `Vertical-shooter ${role} replacement`,
+                      prompt: replacementPrompt,
+                      reference: keyArt,
+                      size: '1024x1024',
+                    });
+                    await assetWorkspace.storePrivate(
+                      privateRole,
+                      rawReplacement,
+                      SHOOTER_ENEMY_REPLACEMENT_PROMPT_VERSION,
+                      replacementSha,
+                    );
+                  }
+                  try {
+                    const processed = await processGeneratedShooterEnemy(rawReplacement, role);
+                    candidates.push({
+                      id: `${role}-replacement`,
+                      role,
+                      png: processed.png,
+                      metrics: processed.metrics,
+                    });
+                  } catch (error) {
+                    validationFailure(`shooter-enemy-replacement-${role}`);
+                    await assetWorkspace.discardPrivate(privateRole);
+                    throw new PipelineError(
+                      'image-invalid',
+                      `Required vertical ${role} replacement failed validation: ${error instanceof Error ? error.message : String(error)}`,
+                      'building-assets',
+                    );
+                  }
+                }
+
+                const unresolved = GENERATED_SHOOTER_ENEMIES.filter(
+                  (role) => !candidates.some((candidate) => candidate.role === role),
+                );
+                if (unresolved.length) {
+                  throw new PipelineError(
+                    'image-invalid',
+                    `Vertical enemy cast has no mechanically valid ${unresolved.join(', ')}`,
+                    'building-assets',
+                  );
+                }
+
+                const descriptors = candidates.map(({ id, role }) => ({ id, role }));
+                const reviewBoard = await buildShooterEnemyJudgeBoard({ keyArt, candidates });
+                const mockDecision = {
+                  candidateReviews: descriptors.map(({ id, role }) => ({
+                    id,
+                    role,
+                    scores: {
+                      conceptMatch: 5,
+                      castCohesion: 5,
+                      silhouette: 5,
+                      roleReadability: 5,
+                      technical: 5,
+                    },
+                    issues: [],
+                    summary: 'Mock coherent vertical enemy candidate.',
+                  })),
+                  selections: GENERATED_SHOOTER_ENEMIES.map((role) => ({
+                    role,
+                    candidateId: descriptors.find((candidate) => candidate.role === role)!.id,
+                    confidence: 1,
+                    rationale: 'Mock selection.',
+                  })),
+                  castSummary: 'Mock coherent vertical cast.',
+                };
+                const rawDecision = mockImages
+                  ? mockDecision
+                  : await callLlm(
+                      'design',
+                      {
+                        ...buildShooterEnemyJudgePrompt(descriptors, concepts),
+                        jsonSchema: buildShooterEnemyJudgeSchema(descriptors),
+                        maxTokens: 2800,
+                        timeoutMs: 120_000,
+                      },
+                      {
+                        stage: 'building-assets',
+                        label: 'Spark selected the vertical-shooter enemy cast',
+                        image: reviewBoard,
+                        reasoningEffort: 'low',
+                      },
+                    );
+                const decision = normalizeShooterEnemyJudgeDecision(rawDecision, descriptors);
+                const selected = Object.fromEntries(
+                  GENERATED_SHOOTER_ENEMIES.map((role) => {
+                    const requested = decision.selections.find(
+                      (selection) => selection.role === role,
+                    )?.candidateId;
+                    const id =
+                      requested ?? bestShooterEnemyCandidateId(role, decision) ?? undefined;
+                    const candidate = candidates.find(
+                      (entry) => entry.role === role && entry.id === id,
+                    );
+                    if (!candidate) throw new Error(`Spark did not select a valid ${role}`);
+                    return [role, candidate.png];
+                  }),
+                ) as Record<GeneratedShooterEnemy, Buffer>;
+                const atlas = await buildGeneratedShooterEnemyAtlas(selected);
+                await assetWorkspace.store(
+                  SHOOTER_ENEMY_ATLAS_ROLE,
+                  atlas,
+                  SHOOTER_ENEMY_PIPELINE_PROMPT_VERSION,
+                  pipelineSha,
+                );
+                await Promise.all([
+                  assetWorkspace.discardPrivate('shooterEnemyBoard'),
+                  ...GENERATED_SHOOTER_ENEMIES.map((role) =>
+                    assetWorkspace.discardPrivate(SHOOTER_ENEMY_REPLACEMENT_ASSET_ROLES[role]),
+                  ),
+                ]);
+                spec.shooterGameplayArtVersion = 1;
+                shooterEnemyArtStatus = {
+                  mode: 'generated',
+                  attempted: true,
+                  roles: [...GENERATED_SHOOTER_ENEMIES],
+                };
+                emit('building-assets', 'Finished the generated vertical enemy cast');
+              } catch (error) {
+                if (
+                  abort.signal.aborted ||
+                  error instanceof PipelineError ||
+                  error instanceof GeneratedAssetStorageError
+                ) {
+                  throw error;
+                }
+                throw new PipelineError(
+                  'image-invalid',
+                  `Required vertical enemy cast failed validation: ${error instanceof Error ? error.message.slice(0, 240) : String(error).slice(0, 240)}`,
                   'building-assets',
                 );
               }
@@ -6168,8 +6759,11 @@ export class GenerationRunner {
         storyTask,
         platformerBackdropTask,
         hshooterBackdropTask,
+        shooterBackdropTask,
         hshooterBossTask,
         hshooterEnemyTask,
+        shooterBossTask,
+        shooterEnemyTask,
         adventureRoomPlateTask,
         adventureEnemyTask,
         adventureObjectTask,
@@ -6227,8 +6821,11 @@ export class GenerationRunner {
           ? { platformerBackdropArt: platformerBackdropArtStatus }
           : {}),
         ...(hshooterBackdropArtStatus ? { hshooterBackdropArt: hshooterBackdropArtStatus } : {}),
+        ...(shooterBackdropArtStatus ? { shooterBackdropArt: shooterBackdropArtStatus } : {}),
         ...(hshooterBossArtStatus ? { hshooterBossArt: hshooterBossArtStatus } : {}),
         ...(hshooterEnemyArtStatus ? { hshooterEnemyArt: hshooterEnemyArtStatus } : {}),
+        ...(shooterBossArtStatus ? { shooterBossArt: shooterBossArtStatus } : {}),
+        ...(shooterEnemyArtStatus ? { shooterEnemyArt: shooterEnemyArtStatus } : {}),
         ...(adventureRoomPlateArtStatus
           ? { adventureRoomPlateArt: adventureRoomPlateArtStatus }
           : {}),

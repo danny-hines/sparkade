@@ -60,6 +60,15 @@ export const HSHOOTER_BACKDROP_ASSETS = [
 
 export type HShooterBackdropName = (typeof HSHOOTER_BACKDROP_ASSETS)[number][0];
 
+export const SHOOTER_BACKDROP_ASSETS = [
+  ['level1', 'shooterBackdropLevel1'],
+  ['level2', 'shooterBackdropLevel2'],
+  ['level3', 'shooterBackdropLevel3'],
+  ['boss', 'shooterBackdropBoss'],
+] as const satisfies readonly (readonly [string, GeneratedGameAssetRole])[];
+
+export type ShooterBackdropName = (typeof SHOOTER_BACKDROP_ASSETS)[number][0];
+
 export const ADVENTURE_ROOM_PLATES_ASSET =
   'adventureRoomPlates' as const satisfies GeneratedGameAssetRole;
 
@@ -93,6 +102,9 @@ export const HSHOOTER_ENEMY_ATLAS_ASSET =
   'hshooterEnemyAtlas' as const satisfies GeneratedGameAssetRole;
 export const SHOOTER_PLAYER_CRAFT_ASSET =
   'shooterPlayerCraft' as const satisfies GeneratedGameAssetRole;
+export const SHOOTER_BOSS_ASSET = 'shooterBoss' as const satisfies GeneratedGameAssetRole;
+export const SHOOTER_ENEMY_ATLAS_ASSET =
+  'shooterEnemyAtlas' as const satisfies GeneratedGameAssetRole;
 
 function loadImage(url: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
@@ -127,6 +139,8 @@ export async function loadLikenessAssets(
     !assets[HSHOOTER_BOSS_ASSET] &&
     !assets[HSHOOTER_ENEMY_ATLAS_ASSET] &&
     !assets.shooterPlayerCraft &&
+    !assets[SHOOTER_BOSS_ASSET] &&
+    !assets[SHOOTER_ENEMY_ATLAS_ASSET] &&
     !assets[FIGHTER_ARENA_ASSET] &&
     !assets.platformerBoss &&
     !assets.adventureRoomPlates &&
@@ -137,6 +151,7 @@ export async function loadLikenessAssets(
     !PLATFORMER_PROP_ASSETS.some(([, role]) => assets[role]) &&
     !PLATFORMER_BACKDROP_ASSETS.some(([, role]) => assets[role]) &&
     !HSHOOTER_BACKDROP_ASSETS.some(([, role]) => assets[role]) &&
+    !SHOOTER_BACKDROP_ASSETS.some(([, role]) => assets[role]) &&
     !hasCompleteFighterRoster &&
     !hasCompletePlatformerSet &&
     !hasCompleteAdventurePlayerSet
@@ -179,6 +194,12 @@ export async function loadLikenessAssets(
     : Promise.resolve(null);
   const shooterPlayerCraftPromise = assets.shooterPlayerCraft
     ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES.shooterPlayerCraft))
+    : Promise.resolve(null);
+  const shooterBossPromise = assets[SHOOTER_BOSS_ASSET]
+    ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[SHOOTER_BOSS_ASSET]))
+    : Promise.resolve(null);
+  const shooterEnemyAtlasPromise = assets[SHOOTER_ENEMY_ATLAS_ASSET]
+    ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[SHOOTER_ENEMY_ATLAS_ASSET]))
     : Promise.resolve(null);
   const fighterRosterPromise: Promise<readonly HTMLImageElement[] | null> = hasCompleteFighterRoster
     ? Promise.all(
@@ -264,6 +285,20 @@ export async function loadLikenessAssets(
     );
     return loaded.length ? Object.fromEntries(loaded) : null;
   });
+  const shooterBackdropsPromise = Promise.all(
+    SHOOTER_BACKDROP_ASSETS.map(async ([role, assetRole]) => {
+      if (!assets[assetRole]) return [role, null] as const;
+      return [
+        role,
+        await loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[assetRole])),
+      ] as const;
+    }),
+  ).then((entries) => {
+    const loaded = entries.filter(
+      (entry): entry is readonly [ShooterBackdropName, HTMLImageElement] => entry[1] !== null,
+    );
+    return loaded.length ? Object.fromEntries(loaded) : null;
+  });
   const adventureRoomPlatesPromise = assets[ADVENTURE_ROOM_PLATES_ASSET]
     ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[ADVENTURE_ROOM_PLATES_ASSET]))
     : Promise.resolve(null);
@@ -301,6 +336,7 @@ export async function loadLikenessAssets(
     platformerProps,
     platformerBackdrops,
     hshooterBackdrops,
+    shooterBackdrops,
     adventureRoomPlates,
     adventureBoss,
     adventureEnemyAtlas,
@@ -310,6 +346,8 @@ export async function loadLikenessAssets(
     hshooterBoss,
     hshooterEnemyAtlas,
     shooterPlayerCraft,
+    shooterBoss,
+    shooterEnemyAtlas,
   ] = await Promise.all([
     likenessPromise,
     storyPromise,
@@ -321,6 +359,7 @@ export async function loadLikenessAssets(
     platformerPropsPromise,
     platformerBackdropsPromise,
     hshooterBackdropsPromise,
+    shooterBackdropsPromise,
     adventureRoomPlatesPromise,
     adventureBossPromise,
     adventureEnemyAtlasPromise,
@@ -330,6 +369,8 @@ export async function loadLikenessAssets(
     hshooterBossPromise,
     hshooterEnemyAtlasPromise,
     shooterPlayerCraftPromise,
+    shooterBossPromise,
+    shooterEnemyAtlasPromise,
   ]);
 
   return {
@@ -353,6 +394,7 @@ export async function loadLikenessAssets(
     platformerProps,
     platformerBackdrops,
     hshooterBackdrops,
+    shooterBackdrops,
     adventureRoomPlates,
     adventureBoss,
     adventureEnemyAtlas,
@@ -362,5 +404,7 @@ export async function loadLikenessAssets(
     hshooterBoss,
     hshooterEnemyAtlas,
     shooterPlayerCraft,
+    shooterBoss,
+    shooterEnemyAtlas,
   };
 }

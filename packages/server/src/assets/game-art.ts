@@ -16,6 +16,7 @@ import {
   HSHOOTER_ENEMY_BOARD_SIZE,
   hshooterEnemyBoardCellRect,
 } from './hshooter-enemy';
+import { GENERATED_SHOOTER_ENEMIES, SHOOTER_ENEMY_BOARD_SIZE } from './shooter-enemy';
 import { FIGHTER_POSE_SHEET_SIZE, fighterPoseSheetCellRect } from './fighter-pose-sheet';
 
 export const KEY_ART_PROMPT_VERSION = 'key-art-v5';
@@ -266,6 +267,9 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
   if (prompt.includes('ADVENTURE THEMED OBJECT BOARD CONTRACT')) {
     return mockGeneratedAdventureObjectBoard();
   }
+  if (prompt.includes('VERTICAL-SHOOTER ENEMY CAST BOARD CONTRACT')) {
+    return mockGeneratedShooterEnemyBoard();
+  }
   if (prompt.includes('H-SCROLL ENEMY CAST BOARD CONTRACT')) {
     return mockGeneratedHShooterEnemyBoard();
   }
@@ -284,8 +288,9 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
   // grid so their coordinates stay easy to reason about.
   const wideEnvironment =
     prompt.includes('panoramic BACKGROUND PLATE') || prompt.includes('ROOM-SURFACE ATLAS');
+  const verticalEnvironment = prompt.includes('portrait BACKGROUND FLYOVER PLATE');
   const width = wideEnvironment ? 512 : 256;
-  const height = 256;
+  const height = verticalEnvironment ? 512 : 256;
   const greenScreen = prompt.includes('#00ff00');
   const fighter = greenScreen && prompt.includes('fighting-game sprite');
   const platformer = greenScreen && prompt.includes('platform-game sprite');
@@ -294,6 +299,8 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
   const hshooterBoss = greenScreen && prompt.includes('horizontal-shooter MAIN BOSS');
   const hshooterEnemy = greenScreen && prompt.includes('horizontal-shooter enemy');
   const shooterCraft = greenScreen && prompt.includes('vertical-shooter player craft');
+  const shooterBoss = greenScreen && prompt.includes('vertical-shooter MAIN BOSS');
+  const shooterEnemy = greenScreen && prompt.includes('top-down enemy gameplay sprite');
   const head = greenScreen && prompt.includes('HEAD sprite');
   let hash = 2166136261;
   for (const char of prompt) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
@@ -311,11 +318,15 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
               ? mockHShooterEnemySubject(x * 2, y * 2, prompt)
               : shooterCraft
                 ? mockShooterCraftSubject(x * 2, y * 2)
-                : fighter || platformer || adventurePlayer
-                  ? mockFighterSubject(x * 2, y * 2, prompt)
-                  : head
-                    ? mockHeadSubject(x * 2, y * 2, prompt)
-                    : x >= 90 && x < 166 && y >= 27 && y < 235);
+                : shooterBoss
+                  ? mockShooterBossSubject(x * 2, y * 2)
+                  : shooterEnemy
+                    ? mockShooterEnemySubject(x * 2, y * 2, prompt)
+                    : fighter || platformer || adventurePlayer
+                      ? mockFighterSubject(x * 2, y * 2, prompt)
+                      : head
+                        ? mockHeadSubject(x * 2, y * 2, prompt)
+                        : x >= 90 && x < 166 && y >= 27 && y < 235);
       if (greenScreen && !subject) {
         raw[offset] = 0;
         raw[offset + 1] = 255;
@@ -434,6 +445,40 @@ async function mockGeneratedHShooterEnemyBoard(): Promise<Buffer> {
     create: {
       width: HSHOOTER_ENEMY_BOARD_SIZE,
       height: HSHOOTER_ENEMY_BOARD_SIZE,
+      channels: 4,
+      background: { r: 0, g: 255, b: 0, alpha: 1 },
+    },
+  })
+    .composite(cells)
+    .png()
+    .toBuffer();
+}
+
+async function mockGeneratedShooterEnemyBoard(): Promise<Buffer> {
+  const cells = await Promise.all(
+    GENERATED_SHOOTER_ENEMIES.flatMap((role) =>
+      [0, 1].map(async (candidateIndex): Promise<sharp.OverlayOptions> => {
+        const index = GENERATED_SHOOTER_ENEMIES.indexOf(role) * 2 + candidateIndex;
+        const rect = hshooterEnemyBoardCellRect(index);
+        const image = await mockGeneratedImage(
+          `One isolated top-down enemy gameplay sprite on #00ff00. ${role} candidate ${candidateIndex + 1}.`,
+        );
+        const input = await sharp(image)
+          .resize(rect.width, rect.height, {
+            fit: 'contain',
+            kernel: sharp.kernel.nearest,
+            background: { r: 0, g: 255, b: 0, alpha: 1 },
+          })
+          .png()
+          .toBuffer();
+        return { input, left: rect.left, top: rect.top };
+      }),
+    ),
+  );
+  return sharp({
+    create: {
+      width: SHOOTER_ENEMY_BOARD_SIZE,
+      height: SHOOTER_ENEMY_BOARD_SIZE,
       channels: 4,
       background: { r: 0, g: 255, b: 0, alpha: 1 },
     },
@@ -584,6 +629,14 @@ function mockHShooterEnemySubject(x: number, y: number, prompt: string): boolean
 
 function mockShooterCraftSubject(x: number, y: number): boolean {
   return mockHShooterCraftSubject(y, 512 - x);
+}
+
+function mockShooterBossSubject(x: number, y: number): boolean {
+  return mockHShooterBossSubject(512 - y, x);
+}
+
+function mockShooterEnemySubject(x: number, y: number, prompt: string): boolean {
+  return mockHShooterEnemySubject(512 - y, x, prompt);
 }
 
 const MOCK_FIGHTER_POSE_HINTS: Record<FighterPose, string> = {

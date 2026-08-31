@@ -47,6 +47,7 @@ export {
 export {
   BACKDROP_VARIANTS,
   generatedBackdropProgressSourceRect,
+  generatedVerticalBackdropProgressSourceRect,
   generatedBackdropSourceRect,
   makeBackdrop,
   makeGeneratedBackdrop,

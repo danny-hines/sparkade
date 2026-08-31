@@ -68,6 +68,8 @@ interface Dream {
   swayAmp: number;
   swayHz: number;
   swayPhase: number;
+  rotation: number;
+  rotationSpeed: number; // radians/s; each dream chooses its own direction
   scale: number;
   peakAlpha: number;
   spawnY: number;
@@ -205,6 +207,8 @@ function DreamField(props: { games: GameListItem[] }): ComponentChildren {
       swayAmp: 0,
       swayHz: 0,
       swayPhase: 0,
+      rotation: 0,
+      rotationSpeed: 0,
       scale: 2,
       peakAlpha: 0.4,
       spawnY: H,
@@ -253,6 +257,10 @@ function DreamField(props: { games: GameListItem[] }): ComponentChildren {
       slot.swayAmp = 8 + Math.random() * 14;
       slot.swayHz = 0.08 + Math.random() * 0.1;
       slot.swayPhase = Math.random() * Math.PI * 2;
+      slot.rotation = (Math.random() - 0.5) * 0.24;
+      const rotationDirection = Math.random() < 0.5 ? -1 : 1;
+      const degreesPerSecond = pick.big ? 3 + Math.random() * 4 : 7 + Math.random() * 10;
+      slot.rotationSpeed = rotationDirection * degreesPerSecond * (Math.PI / 180);
       // Bosses stay extra faint; small sprites still gentle.
       slot.peakAlpha = pick.big
         ? 0.16 + Math.random() * 0.08
@@ -280,6 +288,7 @@ function DreamField(props: { games: GameListItem[] }): ComponentChildren {
         if (!d.active) continue;
         d.t += dt;
         d.y -= d.speed * dt;
+        d.rotation += d.rotationSpeed * dt;
         const h = d.img.height * d.scale;
         if (d.y + h < d.dissolveY) {
           d.active = false;
@@ -294,6 +303,16 @@ function DreamField(props: { games: GameListItem[] }): ComponentChildren {
         const y = Math.round(d.y);
         const sw = d.img.width * d.scale;
         const c = Math.min(1, d.t / COALESCE_S); // 0 = scattered star-pixels, 1 = assembled
+        const cx = x + sw / 2;
+        const cy = y + h / 2;
+
+        // Rotate the whole dream—including its assembling star-pixels—around
+        // its visual center while it rises. Large bosses turn more slowly so
+        // they keep their weight; smaller props and characters tumble more.
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(d.rotation);
+        ctx.translate(-cx, -cy);
 
         // The finished sprite ramps in as the star-pixels land, holds at
         // peakAlpha, then dissolves near its ceiling.
@@ -311,8 +330,6 @@ function DreamField(props: { games: GameListItem[] }): ComponentChildren {
           if (pAlpha > 0.01) {
             const inv = 1 - easeOut(c); // 1 = scattered, 0 = home
             const white = easeOut(c) < 0.7;
-            const cx = x + sw / 2;
-            const cy = y + h / 2;
             const sz = Math.max(2, Math.round(d.scale));
             ctx.globalAlpha = pAlpha;
             if (white) ctx.fillStyle = '#ffffff';
@@ -329,7 +346,7 @@ function DreamField(props: { games: GameListItem[] }): ComponentChildren {
             }
           }
         }
-        ctx.globalAlpha = 1;
+        ctx.restore();
       }
     };
     raf = requestAnimationFrame(tick);

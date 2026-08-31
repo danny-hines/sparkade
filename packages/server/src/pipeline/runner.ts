@@ -1234,15 +1234,23 @@ export class GenerationRunner {
           const transient = error instanceof ProviderHttpError && error.transient;
           if ((transient || malformed) && attempt < GENERATION.maxTransientRetriesPerCall) {
             attempt++;
+            const rateLimited = error instanceof ProviderHttpError && error.status === 429;
             const retryAfter =
               error instanceof ProviderHttpError && error.retryAfterS
                 ? error.retryAfterS * 1000
                 : 0;
             const backoff =
               Math.max(retryAfter, 1000 * Math.pow(3, attempt - 1)) + Math.random() * 500;
+            if (rateLimited) {
+              console.warn(
+                `Muse Image rate limited ${opts.role}; retrying in ${Math.ceil(backoff)}ms (${attempt}/${GENERATION.maxTransientRetriesPerCall})`,
+              );
+            }
             emit(
               'building-assets',
-              `Retrying ${opts.label.toLowerCase()} (${attempt}/${GENERATION.maxTransientRetriesPerCall})…`,
+              rateLimited
+                ? `Muse Image rate limited ${opts.label.toLowerCase()}; retrying (${attempt}/${GENERATION.maxTransientRetriesPerCall})…`
+                : `Retrying ${opts.label.toLowerCase()} (${attempt}/${GENERATION.maxTransientRetriesPerCall})…`,
             );
             await sleep(backoff, abort.signal).catch(() => {
               throw new PipelineError(

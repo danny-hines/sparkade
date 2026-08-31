@@ -12,6 +12,10 @@ type SlotRunner = {
   withImageCallSlot<T>(signal: AbortSignal, call: () => Promise<T>): Promise<T>;
 };
 
+type InspectableSlotRunner = SlotRunner & {
+  maxConcurrentImageCalls: number;
+};
+
 function runnerWithLimit(limit: number): SlotRunner {
   process.env.SPARKADE_IMAGE_CONCURRENCY = String(limit);
   return new GenerationRunner(
@@ -29,6 +33,18 @@ async function settleMicrotasks(): Promise<void> {
 }
 
 describe('Muse Image call concurrency', () => {
+  it('defaults to the aggressive single-game stress-test ceiling', () => {
+    delete process.env.SPARKADE_IMAGE_CONCURRENCY;
+    const runner = new GenerationRunner(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    ) as unknown as InspectableSlotRunner;
+
+    expect(runner.maxConcurrentImageCalls).toBe(30);
+  });
+
   it('caps provider requests across all jobs while preserving FIFO progress', async () => {
     const runner = runnerWithLimit(2);
     const abort = new AbortController();

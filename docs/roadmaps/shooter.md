@@ -33,7 +33,7 @@ must never contain baked enemies, pickups, projectiles, UI, or collision-affecti
 
 ## H-scroll systems that adapt cleanly
 
-Status: implementation in progress.
+Status: implemented in `888434d`; focused and full validation are green.
 
 - The three-candidate player-craft pool, private presentation reference, local silhouette
   validation, Spark selection, and generated-only publication contract, using native **top-down,
@@ -65,7 +65,7 @@ Status: intentionally excluded.
 
 ## Kiosk slice: generated visual identity
 
-Status: pending.
+Status: implemented in `888434d`; mock pipeline coverage publishes the complete required set.
 
 - Require premise-specific `popcorn`, `weaver`, `tank`, `turret`, and `kamikaze` concepts in the
   shooter design pass, sharing hostile-faction materials while preserving distinct silhouettes.
@@ -78,7 +78,8 @@ Status: pending.
 
 ## Kiosk slice: vertical encounter composition
 
-Status: pending.
+Status: implemented in `888434d` for formation geometry/group clamping, dense-wave recovery,
+authored pickup lanes, pickup/dense-wave clearance, and existing active-entity/bullet-density caps.
 
 - Validate every formation's actual screen-space width, stagger, and entry shape rather than only
   its member count. Keep spawns away from HUD edges and clamp a formation as one unit before any
@@ -92,7 +93,7 @@ Status: pending.
 
 ## Kiosk slice: presentation and game feel
 
-Status: pending.
+Status: implemented in `888434d`; focused runtime-contract tests are green.
 
 - Derive the craft's exhaust and muzzle anchors from its real opaque silhouette; draw the rigid
   top-down craft at a consistent footprint with slight movement banking and speed-responsive exhaust.
@@ -109,7 +110,8 @@ Status: pending.
 
 ## Verification contract
 
-Status: pending.
+Status: complete for this kiosk slice. Typecheck, lint, all three production builds, and the full
+96-file/675-test suite pass from the vertical implementation checkpoint.
 
 - Add pure tests for vertical craft anchors, generated atlas addressing/draw-vs-hit dimensions,
   homing orientation, boss telegraph timing, background travel, and formation/pickup validation.
@@ -118,4 +120,3 @@ Status: pending.
   required asset while preserving schema compatibility for older unmarked saves.
 - Run typecheck, lint, build, focused tests, and the full suite; update the statuses above only for
   slices that are implemented and green.
-

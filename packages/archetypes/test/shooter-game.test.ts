@@ -9,6 +9,7 @@ import {
   shooterBossTelegraphProgress,
   shooterCraftAnchorsFromRgba,
   shooterEnemyTravelRotation,
+  shooterGeneratedAtmosphere,
 } from '../src/shooter/game';
 
 describe('vertical-shooter presentation contracts', () => {
@@ -63,5 +64,16 @@ describe('vertical-shooter presentation contracts', () => {
     }
     expect(shooterBackdropTravelDistance({ scroll: 45, durationS: 80 })).toBe(3600);
     expect(shooterBackdropTravelDistance({ scroll: 0, durationS: 0 })).toBe(1);
+  });
+
+  it('collapses legacy complete scenes into restrained generated-art atmospheres', () => {
+    expect(shooterGeneratedAtmosphere('asteroids')).toBe('asteroids');
+    expect(shooterGeneratedAtmosphere('deepspace')).toBe('deepspace');
+    expect(shooterGeneratedAtmosphere('nebula')).toBe('deepspace');
+    for (const legacy of ['ocean', 'metropolis', 'canyon', 'swamp', 'tundra'] as const) {
+      expect(shooterGeneratedAtmosphere(legacy)).toBe('clouds');
+    }
+    expect(shooterGeneratedAtmosphere('clouds')).toBe('clouds');
+    expect(shooterGeneratedAtmosphere(undefined)).toBe('clouds');
   });
 });

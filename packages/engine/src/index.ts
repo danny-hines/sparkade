@@ -62,6 +62,7 @@ export {
   makeScrollBackdrop,
   pickScrollVariant,
   type ScrollBackdrop,
+  type ScrollBackdropOptions,
   type ScrollBackdropVariant,
 } from './scroll-backdrop';
 export { WEATHER_KINDS, makeWeather, type Weather, type WeatherKind } from './weather';

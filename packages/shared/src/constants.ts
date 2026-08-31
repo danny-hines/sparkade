@@ -771,6 +771,7 @@ export type BackdropVariantId = (typeof BACKDROP_VARIANTS)[number];
  */
 export const SHOOTER_BACKDROP_VARIANTS = [
   'deepspace',
+  'clouds',
   'nebula',
   'asteroids',
   'ocean',

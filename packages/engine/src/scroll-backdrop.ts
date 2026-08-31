@@ -24,6 +24,11 @@ export interface ScrollBackdrop {
   draw(ctx: CanvasRenderingContext2D, scrollY: number): void;
 }
 
+export interface ScrollBackdropOptions {
+  /** Omit the opaque base and keep only atmospheric motion over generated art. */
+  transparent?: boolean;
+}
+
 function shade(hex: string, factor: number): string {
   const r = Math.max(0, Math.min(255, Math.round(parseInt(hex.slice(1, 3), 16) * factor)));
   const g = Math.max(0, Math.min(255, Math.round(parseInt(hex.slice(3, 5), 16) * factor)));
@@ -87,6 +92,27 @@ function bakeClouds(density: number, tint: string, alpha: number, rng: Rng): HTM
         const px = cx + rng.int(-cw / 2, cw / 2);
         const pw = rng.int(16, cw);
         fillV(ctx, px, cy + rng.int(-5, 5), pw, rng.int(5, 9));
+      }
+    }
+    ctx.globalAlpha = 1;
+  });
+}
+
+/** A restrained, softer cloud veil for generated flyover art. The broad
+ * translucent ellipses avoid the chunky slab clusters used by legacy scenes. */
+function bakeCloudVeil(tint: string, rng: Rng): HTMLCanvasElement {
+  return bakeLayer((ctx) => {
+    ctx.fillStyle = tint;
+    for (let i = 0; i < 9; i++) {
+      const cx = rng.int(-30, W + 30);
+      const cy = rng.int(0, H - 1);
+      const width = rng.int(64, 138);
+      const height = rng.int(9, 20);
+      ctx.globalAlpha = rng.range(0.09, 0.18);
+      for (const dy of [0, -H, H]) {
+        ctx.beginPath();
+        ctx.ellipse(cx, cy + dy, width / 2, height / 2, rng.range(-0.12, 0.12), 0, Math.PI * 2);
+        ctx.fill();
       }
     }
     ctx.globalAlpha = 1;
@@ -180,6 +206,7 @@ export function makeScrollBackdrop(
   palette: string[],
   seed: number,
   variant?: ScrollBackdropVariant,
+  options: ScrollBackdropOptions = {},
 ): ScrollBackdrop {
   const v = pickScrollVariant(palette, seed, variant);
   const rng = new Rng(seed ^ 0x5eed_a11);
@@ -200,6 +227,7 @@ export function makeScrollBackdrop(
     const ctx = bg.getContext('2d')!;
     const ramp: Record<ScrollBackdropVariant, { base: string; top: number; bot: number }> = {
       deepspace: { base: dark, top: 0.35, bot: 0.75 },
+      clouds: { base: mid, top: 0.55, bot: 0.95 },
       nebula: { base: dark, top: 0.4, bot: 0.9 },
       asteroids: { base: dark, top: 0.4, bot: 0.7 },
       ocean: { base: mid, top: 0.6, bot: 1.05 },
@@ -235,32 +263,38 @@ export function makeScrollBackdrop(
     case 'deepspace': {
       layers.push({ canvas: bakeLayer((c) => stars(c, 130, false, 0.55)), p: 0.12 });
       // 1-3 planets of varied size/colour; some banded-gradient spheres, some flat.
-      layers.push({
-        canvas: bakeLayer((c) => {
-          const tints = [mid, light, warm, hazard, leaf, gold];
-          for (let i = 0; i < rng.int(1, 3); i++) {
-            const hue = tints[rng.int(0, tints.length - 1)]!;
-            const px = rng.int(30, W - 30);
-            const py = rng.int(0, H - 1);
-            const pr = rng.int(12, 36);
-            if (rng.chance(0.5)) {
-              // lit sphere: concentric rings, dark→light, offset toward top-left
-              const steps = 6;
-              for (let s = 0; s < steps; s++) {
-                c.fillStyle = shade(hue, 0.6 + (s / steps) * 0.75);
-                discV(c, px - (s / steps) * pr * 0.35, py - (s / steps) * pr * 0.35, pr * (1 - s / steps));
+      if (!options.transparent) {
+        layers.push({
+          canvas: bakeLayer((c) => {
+            const tints = [mid, light, warm, hazard, leaf, gold];
+            for (let i = 0; i < rng.int(1, 3); i++) {
+              const hue = tints[rng.int(0, tints.length - 1)]!;
+              const px = rng.int(30, W - 30);
+              const py = rng.int(0, H - 1);
+              const pr = rng.int(12, 36);
+              if (rng.chance(0.5)) {
+                // lit sphere: concentric rings, dark→light, offset toward top-left
+                const steps = 6;
+                for (let s = 0; s < steps; s++) {
+                  c.fillStyle = shade(hue, 0.6 + (s / steps) * 0.75);
+                  discV(c, px - (s / steps) * pr * 0.35, py - (s / steps) * pr * 0.35, pr * (1 - s / steps));
+                }
+              } else {
+                c.fillStyle = hue; // flat disc with a terminator crescent
+                discV(c, px, py, pr);
+                c.fillStyle = shade(hue, 0.62);
+                discV(c, px + pr * 0.32, py + pr * 0.34, pr * 0.82);
               }
-            } else {
-              c.fillStyle = hue; // flat disc with a terminator crescent
-              discV(c, px, py, pr);
-              c.fillStyle = shade(hue, 0.62);
-              discV(c, px + pr * 0.32, py + pr * 0.34, pr * 0.82);
             }
-          }
-        }),
-        p: 0.22,
-      });
+          }),
+          p: 0.22,
+        });
+      }
       layers.push({ canvas: bakeLayer((c) => stars(c, 42, true, 1)), p: 0.42 });
+      break;
+    }
+    case 'clouds': {
+      layers.push({ canvas: bakeCloudVeil(shade(light, 1.25), rng), p: 0.68 });
       break;
     }
     case 'nebula': {
@@ -461,7 +495,7 @@ export function makeScrollBackdrop(
 
   return {
     draw(ctx: CanvasRenderingContext2D, scrollY: number) {
-      ctx.drawImage(bg, 0, 0);
+      if (!options.transparent) ctx.drawImage(bg, 0, 0);
       for (const { canvas, p } of layers) drawScroll(ctx, canvas, scrollY * p);
       if (asteroids) {
         ctx.imageSmoothingEnabled = false;

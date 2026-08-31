@@ -66,8 +66,8 @@ const ST_HOLD = 1;
 const ST_LEAVE = 2;
 const ST_HOMING = 3;
 
-export const SHOOTER_GENERATED_BACKDROP_ALPHA = 0.78;
-export const SHOOTER_PROCEDURAL_BACKDROP_ALPHA = 0.45;
+export const SHOOTER_GENERATED_BACKDROP_ALPHA = 1;
+export const SHOOTER_PROCEDURAL_BACKDROP_ALPHA = 0.34;
 export const GENERATED_SHOOTER_PLAYER_DRAW_SIZE = { w: 26, h: 36 } as const;
 export const GENERATED_SHOOTER_BOSS_DRAW_SIZE = { w: 64, h: 92 } as const;
 export const GENERATED_SHOOTER_BOSS_HIT_SIZE = { w: 46, h: 66 } as const;
@@ -79,6 +79,17 @@ export const GENERATED_SHOOTER_ENEMY_ROLES = [
   'turret',
   'kamikaze',
 ] as const satisfies readonly ShooterEnemyType[];
+export type ShooterGeneratedAtmosphere = 'clouds' | 'asteroids' | 'deepspace';
+
+/** Generated plates own terrain and world identity. Collapse legacy complete
+ * scenes into one of three transparent motion layers. */
+export function shooterGeneratedAtmosphere(
+  backdrop: ShooterSpec['backdrop'],
+): ShooterGeneratedAtmosphere {
+  if (backdrop === 'asteroids') return 'asteroids';
+  if (backdrop === 'deepspace' || backdrop === 'nebula') return 'deepspace';
+  return 'clouds';
+}
 export const GENERATED_SHOOTER_ENEMY_DRAW_SIZE: Record<ShooterEnemyType, { w: number; h: number }> =
   {
     popcorn: { w: 20, h: 28 },
@@ -559,12 +570,14 @@ class ShooterGame implements GameInstance {
   private loadLevel(ix: number): void {
     const level = this.spec.levels[ix]!;
     this.level = level;
+    const generatedBackdrop = this.generatedBackdrops?.[`level${ix + 1}`];
+    const usesGeneratedPresentation = this.spec.shooterGameplayArtVersion === 1;
     this.backdrop = makeScrollBackdrop(
       this.spec.palette,
       this.spec.seed + ix * 101,
-      this.bgVariant,
+      usesGeneratedPresentation ? shooterGeneratedAtmosphere(this.spec.backdrop) : this.bgVariant,
+      { transparent: Boolean(generatedBackdrop) },
     );
-    const generatedBackdrop = this.generatedBackdrops?.[`level${ix + 1}`];
     this.generatedBackdrop = generatedBackdrop
       ? makeGeneratedBackdrop(generatedBackdrop, W, H, {
           panAcrossDistance: shooterBackdropTravelDistance(level),
@@ -607,7 +620,14 @@ class ShooterGame implements GameInstance {
   }
 
   private buildBoss(): void {
-    this.backdrop = makeScrollBackdrop(this.spec.palette, this.spec.seed + 777, this.bgVariant);
+    const generatedBackdrop = this.generatedBackdrops?.boss;
+    const usesGeneratedPresentation = this.spec.shooterGameplayArtVersion === 1;
+    this.backdrop = makeScrollBackdrop(
+      this.spec.palette,
+      this.spec.seed + 777,
+      usesGeneratedPresentation ? shooterGeneratedAtmosphere(this.spec.backdrop) : this.bgVariant,
+      { transparent: Boolean(generatedBackdrop) },
+    );
     this.clearPools();
     this.spawnPlayer();
     const b = this.spec.boss;
@@ -632,7 +652,6 @@ class ShooterGame implements GameInstance {
       telegraphTargetY: this.py,
       telegraphGapX: W / 2 - 24,
     };
-    const generatedBackdrop = this.generatedBackdrops?.boss;
     this.generatedBackdrop = generatedBackdrop
       ? makeGeneratedBackdrop(generatedBackdrop, W, H, {
           panAcrossDistance: 1200,
@@ -2011,14 +2030,14 @@ class ShooterGame implements GameInstance {
     r.clear(this.spec.palette[2]);
     if (!this.backdrop) return; // pre-first-level intro cards
 
-    // A finite generated flyover supplies game identity while the wrapping
-    // procedural layers keep motion and depth alive through cleanup time.
+    // Generated art owns the world. Only a restrained transparent atmosphere
+    // remains procedural; complete legacy terrain scenes never cover the plate.
     if (this.generatedBackdrop) {
       r.ctx.save();
       r.ctx.globalAlpha = SHOOTER_GENERATED_BACKDROP_ALPHA;
       this.generatedBackdrop.draw(r.ctx, 0, this.scrollY);
       r.ctx.restore();
-      r.rect(0, 0, W, H, 'rgba(0, 0, 0, 0.22)');
+      r.rect(0, 0, W, H, 'rgba(0, 0, 0, 0.12)');
       r.ctx.save();
       r.ctx.globalAlpha = SHOOTER_PROCEDURAL_BACKDROP_ALPHA;
       this.backdrop.draw(r.ctx, this.scrollY);

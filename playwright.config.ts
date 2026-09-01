@@ -30,6 +30,7 @@ export default defineConfig({
       SPARKADE_DATA: join(root, '.e2e-data'),
       SPARKADE_PORT: '8098',
       SPARKADE_PROVIDER: 'mock',
+      SPARKADE_FORCE_PI: '1',
       // Speed up mock stage delays so the suite stays fast.
       SPARKADE_MOCK_FAST: '1',
     },

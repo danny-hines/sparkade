@@ -25,6 +25,7 @@ import type { Screen } from '../app';
 
 type Tab = 'controls' | 'audio' | 'devices' | 'wifi' | 'system' | 'model';
 type DeviceSel = { cameraId?: string; cameraLabel?: string; micId?: string; micLabel?: string };
+type WifiNotice = { tone: 'info' | 'error'; message: string };
 
 /** Human-readable dump of what Chromium sees, shown when no inputs enumerate. */
 function describeProbe(p: MediaProbe): string {
@@ -60,9 +61,9 @@ export function SettingsScreen(props: {
     props.settings?.audio ?? { musicVol: 0.7, sfxVol: 0.8, uiVol: 0.4 },
   );
   const [networks, setNetworks] = useState<WifiNetwork[] | null>(null);
-  const [wifiMsg, setWifiMsg] = useState('');
+  const [wifiNotice, setWifiNotice] = useState<WifiNotice | null>(null);
   const [osk, setOsk] = useState<OskState | null>(null);
-  const [connecting, setConnecting] = useState(false);
+  const [connectingTo, setConnectingTo] = useState<string | null>(null);
   const [inputs, setInputs] = useState<{ cameras: DeviceInfo[]; mics: DeviceInfo[] } | null>(null);
   const [probe, setProbe] = useState<MediaProbe | null>(null);
   const [devSel, setDevSel] = useState<DeviceSel>(props.settings?.devices ?? {});
@@ -72,10 +73,34 @@ export function SettingsScreen(props: {
   const [upLatest, setUpLatest] = useState<string | null>(null);
   const [upMsg, setUpMsg] = useState('');
   const oskTarget = useRef<string>('');
+  const wifiConnectSeq = useRef(0);
+  const wifiListRef = useRef<HTMLDivElement>(null);
   const deviceListRef = useRef<HTMLDivElement>(null);
   const systemRef = useRef<HTMLDivElement>(null);
-  const stateRef = useRef({ tab, zone, panelCursor, tabs, osk, networks, inputs, info, upState });
-  stateRef.current = { tab, zone, panelCursor, tabs, osk, networks, inputs, info, upState };
+  const stateRef = useRef({
+    tab,
+    zone,
+    panelCursor,
+    tabs,
+    osk,
+    networks,
+    connectingTo,
+    inputs,
+    info,
+    upState,
+  });
+  stateRef.current = {
+    tab,
+    zone,
+    panelCursor,
+    tabs,
+    osk,
+    networks,
+    connectingTo,
+    inputs,
+    info,
+    upState,
+  };
 
   useEffect(() => {
     void api
@@ -88,12 +113,26 @@ export function SettingsScreen(props: {
     if (props.settings) setDevSel(props.settings.devices ?? {});
   }, [props.settings]);
   useEffect(() => {
-    if (tab === 'wifi' && networks === null) {
-      void api
-        .wifiNetworks()
-        .then(setNetworks)
-        .catch((e: Error) => setWifiMsg(e.message));
-    }
+    if (tab !== 'wifi' || networks !== null) return;
+    let canceled = false;
+    void api
+      .wifiNetworks()
+      .then((next) => {
+        if (!canceled) setNetworks(next);
+      })
+      .catch((e: Error) => {
+        if (canceled) return;
+        // An empty list keeps the Rescan action reachable instead of leaving
+        // the cabinet on a permanent loading spinner.
+        setNetworks([]);
+        setWifiNotice({ tone: 'error', message: `Scan failed: ${e.message}` });
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [tab, networks]);
+
+  useEffect(() => {
     if (tab === 'devices' && inputs === null) {
       void enumerateInputs()
         .then((r) => {
@@ -106,7 +145,15 @@ export function SettingsScreen(props: {
         })
         .catch(() => setInputs({ cameras: [], mics: [] }));
     }
-  }, [tab, networks, inputs]);
+  }, [tab, inputs]);
+
+  useEffect(
+    () => () => {
+      // Ignore a late network response after leaving Settings.
+      wifiConnectSeq.current += 1;
+    },
+    [],
+  );
 
   // The Camera & Mic list can outgrow its column (no-device messages,
   // diagnostics and privacy disclosure); keep the focused row scrolled into view.
@@ -116,6 +163,16 @@ export function SettingsScreen(props: {
       ?.querySelector('.focusable.focused')
       ?.scrollIntoView({ block: 'nearest' });
   }, [tab, zone, panelCursor, inputs]);
+
+  useEffect(() => {
+    if (tab !== 'wifi' || zone !== 'panel') return;
+    wifiListRef.current?.querySelector('.focusable.focused')?.scrollIntoView({ block: 'nearest' });
+  }, [tab, zone, panelCursor, networks]);
+
+  useEffect(() => {
+    if (tab !== 'wifi' || networks === null || panelCursor <= networks.length) return;
+    setPanelCursor(networks.length);
+  }, [tab, networks, panelCursor]);
 
   // The System-info tab can overflow (long data dir + update section); keep the
   // update button in view once it's focused.
@@ -186,151 +243,208 @@ export function SettingsScreen(props: {
     else runUpdateCheck();
   };
 
-  useEffect(
-    () =>
-      shellInput.pushHandler((btn) => {
-        const s = stateRef.current;
-
-        // On-screen keyboard modal owns input while open.
-        if (s.osk) {
-          setOsk((cur) =>
-            cur
-              ? oskHandle(
-                  cur,
-                  btn,
-                  (psk) => {
-                    setOsk(null);
-                    setConnecting(true);
-                    setWifiMsg('');
-                    void api.wifiConnect(oskTarget.current, psk).then((res) => {
-                      setConnecting(false);
-                      if (res.ok) {
-                        setWifiMsg(`Connected to ${oskTarget.current}`);
-                        shellInput.blip('success');
-                        setNetworks(null); // refresh
-                      } else {
-                        setWifiMsg(
-                          res.reason === 'bad-password'
-                            ? 'Wrong password — try again.'
-                            : res.reason === 'timeout'
-                              ? 'The network did not respond in time.'
-                              : (res.error ?? 'Connection failed.'),
-                        );
-                        shellInput.blip('error');
-                      }
-                    });
-                  },
-                  () => setOsk(null),
-                )
-              : cur,
-          );
-          return;
-        }
-
-        if (s.zone === 'tabs') {
-          const ix = s.tabs.findIndex((t) => t.id === s.tab);
-          if (btn === 'UP' || btn === 'DOWN') {
-            const next = s.tabs[(ix + (btn === 'DOWN' ? 1 : s.tabs.length - 1)) % s.tabs.length]!;
-            setTab(next.id);
+  useEffect(() => {
+    const beginWifiConnection = (ssid: string, psk: string, retryPassword: boolean) => {
+      const seq = ++wifiConnectSeq.current;
+      setOsk(null);
+      setConnectingTo(ssid);
+      setWifiNotice({ tone: 'info', message: `Connecting to ${ssid}…` });
+      void api
+        .wifiConnect(ssid, psk)
+        .then((res) => {
+          if (seq !== wifiConnectSeq.current) return;
+          if (res.ok) {
+            setWifiNotice({ tone: 'info', message: `Connected to ${ssid}` });
+            shellInput.blip('success');
             setPanelCursor(0);
-            shellInput.blip('move');
-          } else if (btn === 'A' || btn === 'RIGHT') {
-            setZone('panel');
-            setPanelCursor(0);
-            shellInput.blip('select');
-          } else if (btn === 'B') {
-            shellInput.blip('back');
-            props.go({ name: 'home' });
+            setNetworks(null); // refresh current-network marker and signal levels
+            return;
           }
-          return;
-        }
 
-        // panel zone
-        if (btn === 'B') {
-          setZone('tabs');
+          const message =
+            res.reason === 'bad-password'
+              ? 'Wrong password — edit it or cancel.'
+              : res.reason === 'timeout'
+                ? 'The network did not respond in time. Your previous network is still saved.'
+                : (res.error ?? 'Connection failed.');
+          setWifiNotice({ tone: 'error', message });
+          shellInput.blip('error');
+          const current = stateRef.current;
+          if (retryPassword && current.tab === 'wifi' && current.zone === 'panel') {
+            oskTarget.current = ssid;
+            setOsk(newOskState({ value: psk }));
+          }
+        })
+        .catch((e: Error) => {
+          if (seq !== wifiConnectSeq.current) return;
+          setWifiNotice({ tone: 'error', message: `Connection failed: ${e.message}` });
+          shellInput.blip('error');
+          const current = stateRef.current;
+          if (retryPassword && current.tab === 'wifi' && current.zone === 'panel') {
+            oskTarget.current = ssid;
+            setOsk(newOskState({ value: psk }));
+          }
+        })
+        .finally(() => {
+          if (seq === wifiConnectSeq.current) setConnectingTo(null);
+        });
+    };
+
+    return shellInput.pushHandler((btn) => {
+      const s = stateRef.current;
+
+      // On-screen keyboard modal owns input while open.
+      if (s.osk) {
+        const outcome: { submitted?: string; canceled: boolean } = { canceled: false };
+        const next = oskHandle(
+          s.osk,
+          btn,
+          (value) => {
+            outcome.submitted = value;
+          },
+          () => {
+            outcome.canceled = true;
+          },
+        );
+        if (outcome.canceled) {
+          setOsk(null);
+          setWifiNotice({ tone: 'info', message: 'Connection canceled.' });
+        } else if (outcome.submitted !== undefined) {
+          if (outcome.submitted.length === 0) {
+            setOsk(next);
+            setWifiNotice({
+              tone: 'error',
+              message: 'Enter the WiFi password, or press X to cancel.',
+            });
+            shellInput.blip('error');
+          } else {
+            beginWifiConnection(oskTarget.current, outcome.submitted, true);
+          }
+        } else {
+          setOsk(next);
+        }
+        return;
+      }
+
+      if (s.zone === 'tabs') {
+        const ix = s.tabs.findIndex((t) => t.id === s.tab);
+        if (btn === 'UP' || btn === 'DOWN') {
+          const next = s.tabs[(ix + (btn === 'DOWN' ? 1 : s.tabs.length - 1)) % s.tabs.length]!;
+          setTab(next.id);
+          setPanelCursor(0);
+          shellInput.blip('move');
+        } else if (btn === 'A' || btn === 'RIGHT') {
+          setZone('panel');
+          setPanelCursor(0);
+          shellInput.blip('select');
+        } else if (btn === 'B') {
           shellInput.blip('back');
-          return;
+          props.go({ name: 'home' });
         }
-        if (s.tab === 'audio') {
-          const keys = ['musicVol', 'sfxVol', 'uiVol'] as const;
-          if (btn === 'UP' || btn === 'DOWN') {
-            setPanelCursor((c) => (c + (btn === 'DOWN' ? 1 : 2)) % 3);
-            shellInput.blip('move');
-          } else if (btn === 'LEFT' || btn === 'RIGHT') {
-            const key = keys[s.panelCursor]!;
-            const next = { ...audio };
-            next[key] = Math.max(
-              0,
-              Math.min(1, Math.round((next[key] + (btn === 'RIGHT' ? 0.1 : -0.1)) * 10) / 10),
-            );
-            saveAudio(next);
-            shellInput.blip('move');
-          }
-        } else if (s.tab === 'controls') {
-          if (btn === 'A') {
+        return;
+      }
+
+      // panel zone
+      if (btn === 'B') {
+        setZone('tabs');
+        shellInput.blip('back');
+        return;
+      }
+      if (s.tab === 'audio') {
+        const keys = ['musicVol', 'sfxVol', 'uiVol'] as const;
+        if (btn === 'UP' || btn === 'DOWN') {
+          setPanelCursor((c) => (c + (btn === 'DOWN' ? 1 : 2)) % 3);
+          shellInput.blip('move');
+        } else if (btn === 'LEFT' || btn === 'RIGHT') {
+          const key = keys[s.panelCursor]!;
+          const next = { ...audio };
+          next[key] = Math.max(
+            0,
+            Math.min(1, Math.round((next[key] + (btn === 'RIGHT' ? 0.1 : -0.1)) * 10) / 10),
+          );
+          saveAudio(next);
+          shellInput.blip('move');
+        }
+      } else if (s.tab === 'controls') {
+        if (btn === 'A') {
+          shellInput.blip('select');
+          props.go({
+            name: 'remap',
+            firstBoot: false,
+            returnTo: { name: 'settings', tab: 'controls' },
+          });
+        }
+      } else if (s.tab === 'devices') {
+        const cams = s.inputs?.cameras ?? [];
+        const mics = s.inputs?.mics ?? [];
+        const rows = cams.length + mics.length + 1; // + rescan
+        if (btn === 'UP' || btn === 'DOWN') {
+          setPanelCursor((c) => (c + (btn === 'DOWN' ? 1 : rows - 1)) % rows);
+          shellInput.blip('move');
+        } else if (btn === 'A' || btn === 'LEFT' || btn === 'RIGHT') {
+          if (btn === 'A' && s.panelCursor < cams.length)
+            chooseDevice('camera', cams[s.panelCursor]!);
+          else if (btn === 'A' && s.panelCursor < cams.length + mics.length)
+            chooseDevice('mic', mics[s.panelCursor - cams.length]!);
+          else if (btn === 'A' && s.panelCursor === cams.length + mics.length) {
+            setInputs(null); // rescan
+            setProbe(null);
+            setPanelCursor(0);
             shellInput.blip('select');
-            props.go({
-              name: 'remap',
-              firstBoot: false,
-              returnTo: { name: 'settings', tab: 'controls' },
-            });
           }
-        } else if (s.tab === 'devices') {
-          const cams = s.inputs?.cameras ?? [];
-          const mics = s.inputs?.mics ?? [];
-          const rows = cams.length + mics.length + 1; // + rescan
-          if (btn === 'UP' || btn === 'DOWN') {
-            setPanelCursor((c) => (c + (btn === 'DOWN' ? 1 : rows - 1)) % rows);
-            shellInput.blip('move');
-          } else if (btn === 'A' || btn === 'LEFT' || btn === 'RIGHT') {
-            if (btn === 'A' && s.panelCursor < cams.length)
-              chooseDevice('camera', cams[s.panelCursor]!);
-            else if (btn === 'A' && s.panelCursor < cams.length + mics.length)
-              chooseDevice('mic', mics[s.panelCursor - cams.length]!);
-            else if (btn === 'A' && s.panelCursor === cams.length + mics.length) {
-              setInputs(null); // rescan
-              setProbe(null);
-              setPanelCursor(0);
-              shellInput.blip('select');
-            }
-          }
-        } else if (s.tab === 'wifi') {
-          const list = s.networks ?? [];
-          if (btn === 'UP' || btn === 'DOWN') {
-            setPanelCursor((c) => {
-              const n = list.length + 1; // + rescan row
-              return (c + (btn === 'DOWN' ? 1 : n - 1)) % Math.max(1, n);
+        }
+      } else if (s.tab === 'wifi') {
+        const list = s.networks ?? [];
+        if (btn === 'UP' || btn === 'DOWN') {
+          if (s.networks === null) return;
+          setPanelCursor((c) => {
+            const n = list.length + 1; // + rescan row
+            return (c + (btn === 'DOWN' ? 1 : n - 1)) % Math.max(1, n);
+          });
+          shellInput.blip('move');
+        } else if (btn === 'A') {
+          if (s.connectingTo) {
+            setWifiNotice({
+              tone: 'info',
+              message: `Still connecting to ${s.connectingTo}. You can leave Settings while it finishes.`,
             });
-            shellInput.blip('move');
-          } else if (btn === 'A') {
-            shellInput.blip('select');
-            if (s.panelCursor >= list.length) {
-              setNetworks(null); // rescan
-              setWifiMsg('Scanning…');
+            shellInput.blip('error');
+            return;
+          }
+          if (s.networks === null) {
+            shellInput.blip('error');
+            return;
+          }
+          shellInput.blip('select');
+          if (s.panelCursor >= list.length) {
+            setNetworks(null); // rescan
+            setWifiNotice(null);
+          } else {
+            const net = list[s.panelCursor]!;
+            if (net.current) {
+              setWifiNotice({ tone: 'info', message: `Already connected to ${net.ssid}` });
+            } else if (!net.supported) {
+              setWifiNotice({
+                tone: 'error',
+                message:
+                  'Enterprise WiFi needs a username or certificate and cannot be configured here. Use a personal/hotspot network.',
+              });
+              shellInput.blip('error');
+            } else if (net.requiresPassword) {
+              oskTarget.current = net.ssid;
+              setWifiNotice(null);
+              setOsk(newOskState());
             } else {
-              const net = list[s.panelCursor]!;
-              if (net.current) {
-                setWifiMsg(`Already connected to ${net.ssid}`);
-              } else if (!net.secured) {
-                setConnecting(true);
-                void api.wifiConnect(net.ssid, '').then((res) => {
-                  setConnecting(false);
-                  setWifiMsg(res.ok ? `Connected to ${net.ssid}` : (res.error ?? 'Failed'));
-                  if (res.ok) setNetworks(null);
-                });
-              } else {
-                oskTarget.current = net.ssid;
-                setOsk(newOskState());
-              }
+              beginWifiConnection(net.ssid, '', false);
             }
           }
-        } else if (s.tab === 'system') {
-          // Only the update button is focusable, and only on the cabinet.
-          if (btn === 'A' && s.info?.isPi) updateAction(s.upState);
         }
-      }),
-    [audio, props.go],
-  );
+      } else if (s.tab === 'system') {
+        // Only the update button is focusable, and only on the cabinet.
+        if (btn === 'A' && s.info?.isPi) updateAction(s.upState);
+      }
+    });
+  }, [audio, props.go]);
 
   return (
     <div class="screen">
@@ -501,12 +615,18 @@ export function SettingsScreen(props: {
           )}
           {tab === 'wifi' && (
             <div>
-              {wifiMsg && (
-                <div style="color:var(--cyan);font-size:18px;margin-bottom:10px">{wifiMsg}</div>
+              {wifiNotice && (
+                <div
+                  class={`wifi-notice ${wifiNotice.tone === 'error' ? 'error' : ''}`}
+                  role={wifiNotice.tone === 'error' ? 'alert' : 'status'}
+                >
+                  {wifiNotice.message}
+                </div>
               )}
-              {connecting && (
+              {connectingTo && (
                 <div style="color:var(--gold);font-size:18px;margin-bottom:10px">
-                  <Icon name="sparkle" class="spin" /> Connecting…
+                  <Icon name="sparkle" class="spin" /> Connecting to {connectingTo}… This can take
+                  up to 50 seconds.
                 </div>
               )}
               {networks === null ? (
@@ -514,8 +634,8 @@ export function SettingsScreen(props: {
                   <Icon name="sparkle" class="spin" /> Scanning networks…
                 </div>
               ) : (
-                <div style="display:flex;flex-direction:column;gap:8px;max-height:360px;overflow:hidden">
-                  {networks.slice(0, 7).map((n, i) => (
+                <div class="wifi-list" ref={wifiListRef}>
+                  {networks.map((n, i) => (
                     <div
                       key={n.ssid}
                       class={`focusable wifi-row ${zone === 'panel' && panelCursor === i ? 'focused' : ''}`}
@@ -524,13 +644,16 @@ export function SettingsScreen(props: {
                         {n.current ? <Icon name="check" /> : n.secured ? <Icon name="lock" /> : '·'}
                       </span>
                       <span>{n.ssid}</span>
+                      <span class={`wifi-security ${n.supported ? '' : 'unsupported'}`}>
+                        {n.supported ? (n.security ?? 'OPEN') : 'ENTERPRISE'}
+                      </span>
                       <span class="signal">
                         <SignalBars level={barsFor(n.signal)} />
                       </span>
                     </div>
                   ))}
                   <div
-                    class={`focusable wifi-row ${zone === 'panel' && panelCursor === (networks?.length ?? 0) ? 'focused' : ''}`}
+                    class={`focusable wifi-row ${zone === 'panel' && panelCursor === networks.length ? 'focused' : ''}`}
                   >
                     <span>
                       <Icon name="refresh" />
@@ -677,11 +800,16 @@ export function SettingsScreen(props: {
       />
       {osk && (
         <div class="modal-backdrop">
-          <div class="modal" style="min-width:700px">
+          <div class="modal" style="min-width:700px" role="dialog" aria-modal="true">
             <h3>Password for {oskTarget.current}</h3>
+            {wifiNotice?.tone === 'error' && (
+              <div class="wifi-notice error" role="alert">
+                {wifiNotice.message}
+              </div>
+            )}
             <OnScreenKeyboard state={osk} label="enter password" />
             <p style="font-size:15px;margin-top:12px;color:var(--text-dim)">
-              <Btn>A</Btn> Type · <Btn>B</Btn> Backspace/Cancel · <Btn>Y</Btn> Shift · START Done
+              <Btn>A</Btn> Type · <Btn>B</Btn> Delete · <Btn>X</Btn> Cancel · START Connect
             </p>
           </div>
         </div>

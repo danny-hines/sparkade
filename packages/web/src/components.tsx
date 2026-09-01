@@ -272,12 +272,18 @@ export interface OskState {
   masked: boolean;
 }
 
-export function newOskState(): OskState {
-  return { value: '', row: 1, col: 0, shift: false, masked: true };
+export function newOskState(options: { value?: string; masked?: boolean } = {}): OskState {
+  return {
+    value: options.value ?? '',
+    row: 1,
+    col: 0,
+    shift: false,
+    masked: options.masked ?? true,
+  };
 }
 
-/** Bottom action row: Shift, Space, Show/Hide, Done. */
-const ACTION_ROW = ['SHIFT', 'SPACE', 'SHOW', 'DONE'] as const;
+/** Bottom action row: every modal action is reachable with only d-pad + A. */
+const ACTION_ROW = ['SHIFT', 'SPACE', 'SHOW', 'CANCEL', 'DONE'] as const;
 
 export function oskHandle(
   state: OskState,
@@ -312,10 +318,11 @@ export function oskHandle(
       if (s.row === 4) {
         const action = ACTION_ROW[s.col]!;
         if (action === 'SHIFT') s.shift = !s.shift;
-        else if (action === 'SPACE') s.value += ' ';
+        else if (action === 'SPACE' && s.value.length < 64) s.value += ' ';
         else if (action === 'SHOW') s.masked = !s.masked;
+        else if (action === 'CANCEL') onCancel();
         else if (action === 'DONE') onDone(s.value);
-      } else if (s.value.length < 63) {
+      } else if (s.value.length < 64) {
         s.value += rows[s.row]![s.col]!;
       }
       break;
@@ -331,6 +338,10 @@ export function oskHandle(
       break;
     case 'START':
       onDone(s.value);
+      break;
+    case 'X':
+      shellInput.blip('back');
+      onCancel();
       break;
     case 'Y':
       s.shift = !s.shift;

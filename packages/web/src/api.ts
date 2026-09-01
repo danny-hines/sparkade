@@ -541,15 +541,25 @@ export const api = {
   wifiConnect: async (
     ssid: string,
     psk: string,
-  ): Promise<{ ok: boolean; reason?: string; error?: string }> => {
+  ): Promise<
+    | { ok: true; ssid: string }
+    | { ok: false; reason: 'bad-password' | 'timeout' | 'error'; error: string }
+  > => {
     const res = await fetch('/api/system/wifi/connect', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ ssid, psk }),
     });
-    if (res.ok) return { ok: true };
     try {
-      return (await res.json()) as { ok: false; reason: string; error: string };
+      const body = (await res.json()) as
+        | { ok: true; ssid: string }
+        | { ok: false; reason?: 'bad-password' | 'timeout' | 'error'; error?: string };
+      if (res.ok && body.ok) return body;
+      return {
+        ok: false,
+        reason: body.ok ? 'error' : (body.reason ?? 'error'),
+        error: body.ok ? `HTTP ${res.status}` : (body.error ?? `HTTP ${res.status}`),
+      };
     } catch {
       return { ok: false, reason: 'error', error: `HTTP ${res.status}` };
     }

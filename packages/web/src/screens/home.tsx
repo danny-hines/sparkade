@@ -11,6 +11,7 @@ import {
   type GameListItem,
   type ScoreRow,
   type SystemInfo,
+  type WifiStatus,
 } from '@sparkade/shared';
 import { api, type GameDetail } from '../api';
 import { FooterLegend, GameCover, HoldRing, Modal, usd } from '../components';
@@ -59,6 +60,7 @@ export function actionsFor(game: GameListItem | null): Action[] {
 export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string }): ComponentChildren {
   const [games, setGames] = useState<GameListItem[]>([]);
   const [info, setInfo] = useState<SystemInfo | null>(null);
+  const [wifi, setWifi] = useState<WifiStatus | 'error' | null>(null);
   const [sel, setSel] = useState(0);
   const [zone, setZone] = useState<'list' | 'detail'>('list');
   const [actionCursor, setActionCursor] = useState(0);
@@ -94,6 +96,27 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
     const t = setInterval(load, 4000);
     return () => clearInterval(t);
   }, [props.initialId]);
+
+  useEffect(() => {
+    if (!info?.isPi) return;
+    let canceled = false;
+    const load = () => {
+      void api
+        .wifiStatus()
+        .then((status) => {
+          if (!canceled) setWifi(status);
+        })
+        .catch(() => {
+          if (!canceled) setWifi('error');
+        });
+    };
+    load();
+    const timer = setInterval(load, 10_000);
+    return () => {
+      canceled = true;
+      clearInterval(timer);
+    };
+  }, [info?.isPi]);
 
   useEffect(() => {
     if (sel >= total) setSel(total - 1);
@@ -202,7 +225,14 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
         <span class="status-chips">
           {info?.isPi && (
             <span class="chip">
-              <span class="dot" /> WiFi
+              <span class={`dot ${wifi === 'error' || (wifi && !wifi.connected) ? 'off' : ''}`} />{' '}
+              {wifi === null
+                ? 'WiFi…'
+                : wifi === 'error'
+                  ? 'WiFi ?'
+                  : wifi.connected
+                    ? (wifi.ssid ?? 'WiFi')
+                    : 'WiFi off'}
             </span>
           )}
           <span class="chip">

@@ -584,7 +584,10 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       if (!ssid) return reply.code(400).send({ error: 'ssid required' });
       const res = await connectWifi(ssid, psk);
       if (res.ok) return { ok: true, ssid: res.ssid };
-      return reply.code(502).send({ ok: false, reason: res.reason, error: res.message });
+      // A rejected password or AP timeout is an expected operation result, not
+      // a broken HTTP endpoint. Keeping it 200 also avoids Chromium logging a
+      // scary console error for a failure the settings UI handles explicitly.
+      return { ok: false, reason: res.reason, error: res.message };
     });
 
     // ---- self-update (cabinet only) --------------------------------------------

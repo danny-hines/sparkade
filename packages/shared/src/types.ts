@@ -977,7 +977,12 @@ export interface SystemInfo {
 export interface WifiNetwork {
   ssid: string;
   signal: number;
+  /** NetworkManager's human-readable security flags, or null for an open network. */
+  security: string | null;
   secured: boolean;
+  requiresPassword: boolean;
+  /** False for enterprise/EAP networks that need credentials beyond one PSK. */
+  supported: boolean;
   current: boolean;
 }
 

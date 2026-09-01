@@ -26,6 +26,78 @@ test('boots to attract; key screens produce no uncaught console errors', async (
   expect(errors).toEqual([]);
 });
 
+test('WiFi flow can always cancel, retry a wrong password, and connect', async ({ page }) => {
+  const errors = trackErrors(page);
+  await toMenu(page);
+
+  // Settings is last in the launcher. WiFi is the fourth settings tab.
+  await tap(page, 'ArrowUp');
+  await tap(page, 'KeyX');
+  await expect(page.locator('.settings-tabs')).toBeVisible();
+  await tap(page, 'ArrowDown', 3);
+  await tap(page, 'KeyX');
+  await expect(page.locator('.wifi-row')).toHaveCount(6); // five mock networks + Rescan
+
+  // Current network is safe to select and reports its state.
+  await tap(page, 'KeyX');
+  await expect(page.getByText('Already connected to MOCK-HomeNet')).toBeVisible();
+
+  // Select the secured workshop network. B cancels an empty field.
+  await tap(page, 'ArrowDown');
+  await tap(page, 'KeyX');
+  await expect(page.locator('.modal')).toContainText('Password for MOCK-Workshop');
+  const modalBox = await page.locator('.modal').boundingBox();
+  expect(modalBox).not.toBeNull();
+  expect(modalBox!.x).toBeGreaterThanOrEqual(0);
+  expect(modalBox!.y).toBeGreaterThanOrEqual(0);
+  expect(modalBox!.x + modalBox!.width).toBeLessThanOrEqual(1024);
+  expect(modalBox!.y + modalBox!.height).toBeLessThanOrEqual(600);
+  await tap(page, 'KeyZ');
+  await expect(page.locator('.modal')).toHaveCount(0);
+
+  // Once text exists, X remains an immediate, explicit escape hatch.
+  await tap(page, 'KeyX');
+  await tap(page, 'KeyX'); // type the initially focused "q"
+  await tap(page, 'KeyA'); // logical X = Cancel
+  await expect(page.locator('.modal')).toHaveCount(0);
+
+  // Enter the mock's known bad password using only cabinet controls.
+  await tap(page, 'KeyX');
+  await tap(page, 'ArrowRight');
+  await tap(page, 'KeyX'); // w
+  await tap(page, 'ArrowRight', 2);
+  await tap(page, 'KeyX'); // r
+  await tap(page, 'ArrowRight', 5);
+  await tap(page, 'KeyX'); // o
+  await tap(page, 'ArrowDown', 2);
+  await tap(page, 'ArrowLeft', 3);
+  await tap(page, 'KeyX'); // n
+  await tap(page, 'ArrowUp');
+  await tap(page, 'ArrowLeft');
+  await tap(page, 'KeyX'); // g
+  await tap(page, 'Enter'); // START = Connect
+
+  // Failure is visible and returns to the editable password instead of trapping
+  // the player or silently discarding their input.
+  await expect(page.locator('.modal')).toContainText('Wrong password');
+  await expect(page.locator('.osk-display')).toHaveText('•••••');
+  await tap(page, 'KeyA'); // cancel retry
+  await expect(page.locator('.modal')).toHaveCount(0);
+
+  // Passwordless networks use the same connection result path.
+  await tap(page, 'ArrowDown');
+  await tap(page, 'KeyX');
+  await expect(page.getByText('Connected to MOCK-CoffeeShop')).toBeVisible();
+
+  // Returning home reflects the actual active SSID instead of an always-green
+  // generic WiFi badge.
+  await tap(page, 'KeyZ');
+  await tap(page, 'KeyZ');
+  await expect(page.locator('.status-chips')).toContainText('MOCK-CoffeeShop');
+
+  expect(errors).toEqual([]);
+});
+
 test('keyboard-only: create via preset → honest progress → ready → play boots and responds', async ({
   page,
 }) => {

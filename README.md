@@ -322,7 +322,8 @@ the canonical **racing** control map (B accelerate, Y brake, A item/boost, L/R h
       particle budget degrades before stutter.
 - [ ] **Leaderboard persists across reboot** (enter initials, pull the plug, verify).
 - [ ] **WiFi switch and recovery** via Settings → WiFi (on-screen keyboard, wrong-password vs
-      timeout errors distinguished) — mutates NetworkManager, so hardware-only.
+      timeout errors distinguished, B/X cancel paths, retry preserves the entered key, long AP
+      lists scroll, and Home reports the new SSID) — mutates NetworkManager, so hardware-only.
 - [ ] **Power-loss safety**: yank power mid-generation; on reboot the job shows failed-retryable,
       library intact.
 - [ ] `sparkade update` completes and the kiosk **hard-reloads itself** via the version poll.

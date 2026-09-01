@@ -1696,8 +1696,51 @@ h2.pixel {
   font-size: 21px;
 }
 
-.wifi-row .signal {
+.wifi-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 5px;
+  scrollbar-width: none;
+}
+
+.wifi-list::-webkit-scrollbar {
+  display: none;
+}
+
+.wifi-notice {
+  margin-bottom: 10px;
+  color: var(--cyan);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.wifi-notice.error {
+  color: var(--danger);
+}
+
+.wifi-row > span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wifi-security {
   margin-left: auto;
+  color: var(--text-dim);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.wifi-security.unsupported {
+  color: var(--danger);
+}
+
+.wifi-row .signal {
+  margin-left: 0;
   color: var(--text-dim);
   font-size: 17px;
 }

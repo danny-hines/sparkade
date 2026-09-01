@@ -10,6 +10,7 @@ import { getUserMediaForDevice } from '../media';
 import { shellInput } from '../shell-input';
 import { buildCreationPrompt } from '../creation-brief';
 import { pickSurpriseArchetype } from '../surprise';
+import { normalizeTranscribedHeroName } from '../transcription';
 import type { Screen } from '../app';
 
 type PhotoMode = 'choice' | 'camera' | 'preview' | 'error';
@@ -297,7 +298,8 @@ export function WizardScreen(props: {
           .transcribe(blob)
           .then((text) => {
             const heard = text.trim();
-            if (!heard) {
+            const accepted = target === 'name' ? normalizeTranscribedHeroName(heard) : heard;
+            if (!accepted) {
               setSttError(
                 target === 'name'
                   ? "Spark didn't catch a name. Try speaking it again."
@@ -307,8 +309,8 @@ export function WizardScreen(props: {
               shellInput.blip('error');
               return;
             }
-            if (target === 'name') setHeroName(heard.slice(0, 48));
-            else setDetails(heard.slice(0, 1200));
+            if (target === 'name') setHeroName(accepted.slice(0, 48));
+            else setDetails(accepted.slice(0, 1200));
             goToDetails(target === 'name' ? 0 : 2);
             shellInput.blip('success');
           })

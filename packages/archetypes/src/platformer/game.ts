@@ -43,6 +43,8 @@ import {
 import { surfaceDecorations } from './decor';
 import {
   isSolidInnerLibraryId,
+  platformNeighborMask,
+  PlatformerPlatformAutotiles,
   PlatformerSolidAutotiles,
   resolveSolidInnerRef,
   solidNeighborMask,
@@ -52,6 +54,7 @@ import {
   MOVING_PLATFORM_BODY,
   platformerDoorRect,
   platformerHeroPresentation,
+  platformerMovingPlatformOutlineRect,
   platformerPlayerBody,
   platformerWorldScale,
 } from './geometry';
@@ -195,6 +198,12 @@ interface Proj {
   grav: boolean;
   t: number;
   trailT: number;
+}
+
+interface OutlinedMovingPlatformFrame {
+  image: HTMLCanvasElement;
+  padX: number;
+  padY: number;
 }
 
 interface BossAttackState {
@@ -468,6 +477,8 @@ class PlatformerGame implements GameInstance {
   private grid!: { cols: number; rows: number; kind(x: number, y: number): TileKind };
   private tileCanvases = new Map<string, CanvasImageSource[]>();
   private objectiveAuras = new Map<'checkpoint' | 'exit', SilhouetteAura[]>();
+  private outlinedMovingPlatforms = new Map<CanvasImageSource, OutlinedMovingPlatformFrame>();
+  private platformAutotiles: PlatformerPlatformAutotiles | null = null;
   private solidAutotiles: PlatformerSolidAutotiles | null = null;
   private highDensitySolidTerrain = false;
   private decorations: Coord[] = [];
@@ -876,12 +887,47 @@ class PlatformerGame implements GameInstance {
       cap.frames,
       inner.frames,
       this.spec.palette[1] ?? '#111111',
+      true,
+    );
+    this.platformAutotiles = new PlatformerPlatformAutotiles(
+      this.tileCanvases.get('platform') ?? [],
+      this.spec.palette[1] ?? '#111111',
     );
     const movingPlatformRef = platformerHdMovingPlatformRef(capRef);
     if (movingPlatformRef) {
       this.sprites['obj_platform'] = this.engine.sprites.byRef(movingPlatformRef, false, {
         bob: false,
         anchorOpaqueTop: true,
+      });
+    }
+    this.outlinedMovingPlatforms.clear();
+    const movingPlatformSprite = this.sprites['obj_platform'];
+    const terrainOutlineColor = this.spec.palette[1] ?? '#111111';
+    for (const frame of [
+      ...(movingPlatformSprite?.frames ?? []),
+      ...(movingPlatformSprite?.flipped ?? []),
+    ]) {
+      const densityX = frame.width / MOVING_PLATFORM_BODY.w;
+      const densityY = frame.height / MOVING_PLATFORM_BODY.h;
+      const radius = Math.max(1, Math.round(Math.min(densityX, densityY) / 2));
+      const outline = createSilhouetteAura(
+        frame,
+        frame.width,
+        frame.height,
+        terrainOutlineColor,
+        radius,
+      );
+      const image = document.createElement('canvas');
+      image.width = frame.width + radius * 2;
+      image.height = frame.height + radius * 2;
+      const context = image.getContext('2d')!;
+      context.imageSmoothingEnabled = false;
+      for (const ring of outline.rings) context.drawImage(ring, 0, 0);
+      context.drawImage(frame, radius, radius);
+      this.outlinedMovingPlatforms.set(frame, {
+        image,
+        padX: radius / densityX,
+        padY: radius / densityY,
       });
     }
     const springRef = platformerHdSpringRef(capRef);
@@ -902,6 +948,10 @@ class PlatformerGame implements GameInstance {
           this.highDensitySolidTerrain ? terrainAtlasFrame(tx, ty) : frameIx,
         ) ?? null
       );
+    }
+    if (kind === 'platform') {
+      const mask = platformNeighborMask((x, y) => this.grid.kind(x, y) === 'platform', tx, ty);
+      return this.platformAutotiles?.frame(mask, frameIx) ?? null;
     }
     const frames = this.tileCanvases.get(kind);
     if (!frames?.length) return null;
@@ -1915,7 +1965,25 @@ class PlatformerGame implements GameInstance {
       const anim = e.type === 'spring' ? (e.t > 0 && e.t < 0.25 ? 'bounce' : 'idle') : 'walk';
       const img = this.engine.sprites.frame(sprite, anim, e.t + this.animT, e.dir > 0);
       if (e.type === 'movingPlatform') {
-        r.drawScaled(img, e.x - cam.x, e.y - cam.y, MOVING_PLATFORM_BODY.w, MOVING_PLATFORM_BODY.h);
+        const outlined = this.outlinedMovingPlatforms.get(img);
+        if (outlined) {
+          const rect = platformerMovingPlatformOutlineRect(
+            e.x - cam.x,
+            e.y - cam.y,
+            outlined.padX,
+            outlined.padY,
+            this.worldScale,
+          );
+          r.ctx.drawImage(outlined.image, rect.x, rect.y, rect.w, rect.h);
+        } else {
+          r.drawScaled(
+            img,
+            e.x - cam.x,
+            e.y - cam.y,
+            MOVING_PLATFORM_BODY.w,
+            MOVING_PLATFORM_BODY.h,
+          );
+        }
         continue;
       }
       if (e.type === 'spring') {

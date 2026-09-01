@@ -1,5 +1,5 @@
 import type { SpritePresentation } from '@sparkade/engine';
-import { TILE_SIZE, type Coord, type PlatformerScale } from '@sparkade/shared';
+import { DISPLAY_SCALE, TILE_SIZE, type Coord, type PlatformerScale } from '@sparkade/shared';
 
 export interface PlatformerPlayerBody {
   w: number;
@@ -32,6 +32,27 @@ export const MOVING_PLATFORM_BODY: Readonly<PlatformerPlayerBody> = {
   w: 24,
   h: 8,
 };
+
+/** Place a padded moving-platform raster on the physical display grid. The
+ * authored sprite begins at the snapped entity position inside this rectangle,
+ * so its precomposited contour can never round independently or jitter. */
+export function platformerMovingPlatformOutlineRect(
+  x: number,
+  y: number,
+  padX: number,
+  padY: number,
+  worldScale: 1 | 2,
+): PlatformerRect {
+  const renderScale = DISPLAY_SCALE * worldScale;
+  const snappedX = Math.round(x * renderScale) / renderScale;
+  const snappedY = Math.round(y * renderScale) / renderScale;
+  return {
+    x: snappedX - padX,
+    y: snappedY - padY,
+    w: MOVING_PLATFORM_BODY.w + padX * 2,
+    h: MOVING_PLATFORM_BODY.h + padY * 2,
+  };
+}
 
 /**
  * The explicit marker keeps existing saved games with one-tile passages on

@@ -4,10 +4,13 @@ import {
   SOLID_NORTH,
   SOLID_SOUTH,
   SOLID_WEST,
+  PlatformerPlatformAutotiles,
   PlatformerSolidAutotiles,
   exposedSolidEdges,
   inferSolidInnerRef,
   isSolidInnerLibraryId,
+  platformNeighborMask,
+  renderPlatformVariant,
   renderSolidVariant,
   resolveSolidInnerRef,
   roundedSolidCorners,
@@ -28,6 +31,16 @@ describe('platformer solid autotiling', () => {
     expect(solidNeighborMask((x, y) => solids.has(`${x},${y}`), 2, 2)).toBe(
       SOLID_EAST | SOLID_SOUTH | SOLID_WEST,
     );
+  });
+
+  it('connects one-way platform runs only along their shared row', () => {
+    const platforms = new Set(['1,2', '2,2', '3,2', '2,1', '2,3']);
+
+    expect(platformNeighborMask((x, y) => platforms.has(`${x},${y}`), 2, 2)).toBe(
+      SOLID_EAST | SOLID_WEST,
+    );
+    expect(platformNeighborMask((x, y) => platforms.has(`${x},${y}`), 1, 2)).toBe(SOLID_EAST);
+    expect(platformNeighborMask((x, y) => platforms.has(`${x},${y}`), 3, 2)).toBe(SOLID_WEST);
   });
 
   it('walks a density-four material atlas in world-coordinate order', () => {
@@ -166,7 +179,7 @@ describe('platformer solid autotiling', () => {
     ]);
   });
 
-  it('scales outlines and corner cuts for density-four generated terrain', () => {
+  it('uses finer one-world-pixel corners for density-four generated terrain', () => {
     const operations: Array<{ op: string; args: number[] }> = [];
     const context = {
       imageSmoothingEnabled: true,
@@ -189,25 +202,103 @@ describe('platformer solid autotiling', () => {
       { naturalWidth: 64, naturalHeight: 64 } as HTMLImageElement,
       0,
       '#123456',
+      true,
     );
 
     expect(output.width).toBe(64);
     expect(output.height).toBe(64);
     expect(operations.filter(({ op }) => op === 'clearRect').map(({ args }) => args)).toEqual([
-      [0, 0, 8, 8],
-      [56, 0, 8, 8],
-      [56, 56, 8, 8],
-      [0, 56, 8, 8],
+      [0, 0, 2, 2],
+      [62, 0, 2, 2],
+      [62, 62, 2, 2],
+      [0, 62, 2, 2],
+    ]);
+    expect(
+      operations
+        .filter(({ op, args }) => op === 'fillRect' && (args[2] === 2 || args[3] === 2))
+        .map(({ args }) => args),
+    ).toEqual([
+      [0, 0, 64, 2],
+      [62, 0, 2, 64],
+      [0, 62, 64, 2],
+      [0, 0, 2, 64],
     ]);
     expect(
       operations
         .filter(({ op, args }) => op === 'fillRect' && args[2] === 4 && args[3] === 4)
         .map(({ args }) => args),
-    ).toEqual([
-      [4, 4, 4, 4],
-      [56, 4, 4, 4],
-      [56, 56, 4, 4],
-      [4, 56, 4, 4],
+    ).toEqual([]);
+  });
+
+  it('outlines the opaque slab and rounds only exposed ends of a platform run', () => {
+    const operations: Array<{ op: string; args: number[]; color?: string }> = [];
+    const pixels = new Uint8ClampedArray(64 * 64 * 4);
+    for (let y = 0; y < 20; y++) {
+      for (let x = 0; x < 64; x++) pixels[(y * 64 + x) * 4 + 3] = 255;
+    }
+    const context = {
+      imageSmoothingEnabled: true,
+      fillStyle: '',
+      drawImage: () => operations.push({ op: 'drawImage', args: [] }),
+      getImageData: () => ({ data: pixels }),
+      fillRect(x: number, y: number, w: number, h: number) {
+        operations.push({ op: 'fillRect', args: [x, y, w, h], color: this.fillStyle });
+      },
+      clearRect: (x: number, y: number, w: number, h: number) =>
+        operations.push({ op: 'clearRect', args: [x, y, w, h] }),
+    };
+    vi.stubGlobal('document', {
+      createElement: () => ({
+        width: 0,
+        height: 0,
+        getContext: () => context,
+      }),
+    });
+
+    renderPlatformVariant(
+      { naturalWidth: 64, naturalHeight: 64 } as HTMLImageElement,
+      SOLID_EAST,
+      '#102030',
+    );
+
+    expect(operations.filter(({ op }) => op === 'fillRect')).toEqual([
+      { op: 'fillRect', args: [0, 0, 64, 2], color: '#102030' },
+      { op: 'fillRect', args: [0, 18, 64, 2], color: '#102030' },
+      { op: 'fillRect', args: [0, 0, 2, 20], color: '#102030' },
     ]);
+    expect(operations.filter(({ op }) => op === 'clearRect').map(({ args }) => args)).toEqual([
+      [0, 0, 2, 2],
+      [0, 18, 2, 2],
+    ]);
+  });
+
+  it('caches each connected platform end treatment and wraps frames', () => {
+    type TaggedCanvas = HTMLCanvasElement & { source?: HTMLCanvasElement };
+    vi.stubGlobal('document', {
+      createElement: () => {
+        const output = {
+          width: 0,
+          height: 0,
+          getContext: () => ({
+            imageSmoothingEnabled: true,
+            fillStyle: '',
+            drawImage: (source: HTMLCanvasElement) => {
+              output.source = source;
+            },
+            getImageData: () => ({ data: new Uint8ClampedArray(16 * 16 * 4) }),
+            fillRect: () => undefined,
+            clearRect: () => undefined,
+          }),
+        } as unknown as TaggedCanvas;
+        return output;
+      },
+    });
+    const source = (name: string) =>
+      ({ width: 16, height: 16, name }) as unknown as HTMLCanvasElement;
+    const frames = [source('platform-0'), source('platform-1')];
+    const autotiles = new PlatformerPlatformAutotiles(frames, '#123456');
+
+    expect((autotiles.frame(SOLID_EAST, 3) as TaggedCanvas).source).toBe(frames[1]);
+    expect((autotiles.frame(SOLID_WEST, -1) as TaggedCanvas).source).toBe(frames[1]);
   });
 });

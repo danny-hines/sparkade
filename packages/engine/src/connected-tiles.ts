@@ -14,6 +14,18 @@ export type SolidEdge = 'north' | 'east' | 'south' | 'west';
 export type SolidCorner = 'northWest' | 'northEast' | 'southEast' | 'southWest';
 export type SolidTileVariant = 'cap' | 'inner';
 
+/** Build the horizontal connectivity mask used by one-way platform runs. */
+export function platformNeighborMask(
+  platformAt: (tx: number, ty: number) => boolean,
+  tx: number,
+  ty: number,
+): number {
+  let mask = 0;
+  if (platformAt(tx + 1, ty)) mask |= SOLID_EAST;
+  if (platformAt(tx - 1, ty)) mask |= SOLID_WEST;
+  return mask;
+}
+
 /** Select a spatial variant from a continuous density-four atlas. */
 export function terrainAtlasFrame(tx: number, ty: number, columns = 4, rows = 4): number {
   const safeColumns = Math.max(1, Math.trunc(columns));
@@ -122,24 +134,63 @@ function drawRoundedCorner(
   h: number,
   color: string,
   density: number,
+  fineHighDensityEdges: boolean,
 ): void {
-  const cut = density * 2;
+  // Density-four art can describe a clean one-world-pixel chamfer directly.
+  // Keeping the old two-pixel stair at that density makes the silhouette feel
+  // much coarser than the generated texture inside it. Compact 16px assets
+  // retain the classic two-pixel step because they have no extra resolution.
+  const fine = fineHighDensityEdges && density > 1;
+  const cut = fine ? Math.max(1, Math.round(density / 2)) : density * 2;
   if (w < cut + density || h < cut + density) return;
   let x = 0;
   let y = 0;
-  let diagonalX = density;
-  let diagonalY = density;
   if (corner === 'northEast' || corner === 'southEast') {
     x = w - cut;
-    diagonalX = w - cut;
   }
   if (corner === 'southEast' || corner === 'southWest') {
     y = h - cut;
-    diagonalY = h - cut;
   }
   ctx.clearRect(x, y, cut, cut);
+  if (fine) return;
+  let diagonalX = density;
+  let diagonalY = density;
+  if (corner === 'northEast' || corner === 'southEast') diagonalX = w - cut;
+  if (corner === 'southEast' || corner === 'southWest') diagonalY = h - cut;
   ctx.fillStyle = color;
   ctx.fillRect(diagonalX, diagonalY, density, density);
+}
+
+function opaqueBottom(ctx: CanvasRenderingContext2D, w: number, h: number): number {
+  try {
+    const data = ctx.getImageData(0, 0, w, h).data;
+    for (let y = h - 1; y >= 0; y--) {
+      for (let x = 0; x < w; x++) {
+        if ((data[(y * w + x) * 4 + 3] ?? 0) > 0) return y + 1;
+      }
+    }
+  } catch {
+    // Canvas sources are normally local, but retain a useful fallback if an
+    // externally supplied image ever taints the canvas.
+  }
+  return Math.max(1, Math.round((h * 5) / 16));
+}
+
+function drawPlatformEdges(
+  ctx: CanvasRenderingContext2D,
+  mask: number,
+  w: number,
+  visibleHeight: number,
+  color: string,
+  thickness: number,
+): void {
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, w, thickness);
+  ctx.fillRect(0, visibleHeight - thickness, w, thickness);
+  if ((mask & SOLID_WEST) === 0) ctx.fillRect(0, 0, thickness, visibleHeight);
+  if ((mask & SOLID_EAST) === 0) {
+    ctx.fillRect(w - thickness, 0, thickness, visibleHeight);
+  }
 }
 
 function sourceSize(source: CanvasImageSource): { width: number; height: number } {
@@ -161,6 +212,7 @@ export function renderSolidVariant(
   source: CanvasImageSource,
   mask: number,
   borderColor: string,
+  fineHighDensityEdges = false,
 ): HTMLCanvasElement {
   const out = document.createElement('canvas');
   const dimensions = sourceSize(source);
@@ -170,9 +222,48 @@ export function renderSolidVariant(
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(source, 0, 0);
   const density = Math.max(1, Math.round(out.width / 16));
-  drawExposedEdges(ctx, mask, out.width, out.height, borderColor, density);
+  const thickness =
+    fineHighDensityEdges && density > 1 ? Math.max(1, Math.round(density / 2)) : density;
+  drawExposedEdges(ctx, mask, out.width, out.height, borderColor, thickness);
   for (const corner of roundedSolidCorners(mask)) {
-    drawRoundedCorner(ctx, corner, out.width, out.height, borderColor, density);
+    drawRoundedCorner(
+      ctx,
+      corner,
+      out.width,
+      out.height,
+      borderColor,
+      density,
+      fineHighDensityEdges,
+    );
+  }
+  return out;
+}
+
+/** Add a connected silhouette to the opaque slab of a one-way platform.
+ * Only the exposed ends are rounded; neighbouring cells remain seamless. */
+export function renderPlatformVariant(
+  source: CanvasImageSource,
+  mask: number,
+  borderColor: string,
+): HTMLCanvasElement {
+  const out = document.createElement('canvas');
+  const dimensions = sourceSize(source);
+  out.width = dimensions.width;
+  out.height = dimensions.height;
+  const ctx = out.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(source, 0, 0);
+  const density = Math.max(1, Math.round(out.width / 16));
+  const thickness = density > 1 ? Math.max(1, Math.round(density / 2)) : density;
+  const visibleHeight = Math.max(density, opaqueBottom(ctx, out.width, out.height));
+  drawPlatformEdges(ctx, mask, out.width, visibleHeight, borderColor, thickness);
+  if ((mask & SOLID_WEST) === 0) {
+    drawRoundedCorner(ctx, 'northWest', out.width, visibleHeight, borderColor, density, true);
+    drawRoundedCorner(ctx, 'southWest', out.width, visibleHeight, borderColor, density, true);
+  }
+  if ((mask & SOLID_EAST) === 0) {
+    drawRoundedCorner(ctx, 'northEast', out.width, visibleHeight, borderColor, density, true);
+    drawRoundedCorner(ctx, 'southEast', out.width, visibleHeight, borderColor, density, true);
   }
   return out;
 }
@@ -185,16 +276,40 @@ export class ConnectedSolidAutotiles {
     capFrames: readonly CanvasImageSource[],
     innerFrames: readonly CanvasImageSource[],
     borderColor: string,
+    fineHighDensityEdges = false,
   ) {
     for (let mask = 0; mask <= SOLID_NEIGHBOR_MASK; mask++) {
       const requested = solidTileVariant(mask) === 'inner' ? innerFrames : capFrames;
       const sources = requested.length > 0 ? requested : capFrames;
-      this.variants[mask] = sources.map((source) => renderSolidVariant(source, mask, borderColor));
+      this.variants[mask] = sources.map((source) =>
+        renderSolidVariant(source, mask, borderColor, fineHighDensityEdges),
+      );
     }
   }
 
   frame(mask: number, frameIx: number): HTMLCanvasElement | null {
     const frames = this.variants[mask & SOLID_NEIGHBOR_MASK] ?? [];
+    if (frames.length === 0) return null;
+    const normalized = ((Math.trunc(frameIx) % frames.length) + frames.length) % frames.length;
+    return frames[normalized] ?? frames[0] ?? null;
+  }
+}
+
+/** Eagerly compose the four possible horizontal platform connections. */
+export class ConnectedPlatformAutotiles {
+  private variants = new Map<number, HTMLCanvasElement[]>();
+
+  constructor(frames: readonly CanvasImageSource[], borderColor: string) {
+    for (const mask of [0, SOLID_EAST, SOLID_WEST, SOLID_EAST | SOLID_WEST]) {
+      this.variants.set(
+        mask,
+        frames.map((source) => renderPlatformVariant(source, mask, borderColor)),
+      );
+    }
+  }
+
+  frame(mask: number, frameIx: number): HTMLCanvasElement | null {
+    const frames = this.variants.get(mask & (SOLID_EAST | SOLID_WEST)) ?? [];
     if (frames.length === 0) return null;
     const normalized = ((Math.trunc(frameIx) % frames.length) + frames.length) % frames.length;
     return frames[normalized] ?? frames[0] ?? null;

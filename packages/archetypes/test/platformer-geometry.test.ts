@@ -7,6 +7,7 @@ import {
   TALL_PLATFORMER_PLAYER_BODY,
   platformerDoorRect,
   platformerHeroPresentation,
+  platformerMovingPlatformOutlineRect,
   platformerPlayerBody,
   platformerWorldScale,
 } from '../src/platformer/geometry';
@@ -33,6 +34,21 @@ describe('platformer player geometry', () => {
 
   it('uses the stock platform art footprint as the moving ride surface', () => {
     expect(MOVING_PLATFORM_BODY).toEqual({ w: 24, h: 8 });
+  });
+
+  it('keeps a padded moving-platform outline locked to its display-snapped artwork', () => {
+    const normal = platformerMovingPlatformOutlineRect(10.24, 20.24, 0.5, 0.5, 1);
+    expect(normal).toEqual({ x: 9.5, y: 19.5, w: 25, h: 9 });
+    expect(normal.x + 0.5).toBe(10);
+    expect(normal.y + 0.5).toBe(20);
+
+    const nextDisplayPixel = platformerMovingPlatformOutlineRect(10.26, 20.26, 0.5, 0.5, 1);
+    expect(nextDisplayPixel.x + 0.5).toBe(10.5);
+    expect(nextDisplayPixel.y + 0.5).toBe(20.5);
+
+    const heroic = platformerMovingPlatformOutlineRect(10.13, 20.13, 0.5, 0.5, 2);
+    expect(heroic.x + 0.5).toBe(10.25);
+    expect(heroic.y + 0.5).toBe(20.25);
   });
 
   it('makes a low ceiling collide with the tall visual body while legacy saves still pass', () => {

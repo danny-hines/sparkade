@@ -5,6 +5,7 @@ import {
   type LintError,
   type PlatformerLevel,
   type PlatformerSpec,
+  type PlatformerTileType,
 } from '@sparkade/shared';
 import {
   err,
@@ -24,7 +25,23 @@ const JUMP_DY_UP = 3;
 const SPRING_DY_UP = 7;
 const FALL_DX = 5;
 
-type CellKind = 'empty' | 'solid' | 'platform' | 'hazard' | 'checkpoint' | 'exit' | 'decoration';
+type CellKind = PlatformerTileType;
+
+function fullSolid(kind: CellKind): boolean {
+  return kind === 'solid' || kind === 'ice' || kind === 'conveyorLeft' || kind === 'conveyorRight';
+}
+
+function solidLike(kind: CellKind): boolean {
+  return fullSolid(kind) || kind === 'platform';
+}
+
+function bodyOpen(kind: CellKind): boolean {
+  return !fullSolid(kind) && kind !== 'platform' && kind !== 'hazard';
+}
+
+function conveyorDirection(kind: CellKind): -1 | 0 | 1 {
+  return kind === 'conveyorLeft' ? -1 : kind === 'conveyorRight' ? 1 : 0;
+}
 
 export interface PlatformerReachabilityOptions {
   /** Used by deterministic relocation so a moving platform cannot make its
@@ -65,8 +82,6 @@ export function parseLevelGrid(
     if (ch === '.') return 'empty';
     return (level.legend[ch] as CellKind | undefined) ?? 'empty';
   };
-  const solidLike = (k: CellKind) => k === 'solid' || k === 'platform';
-  const bodyOpen = (k: CellKind) => k !== 'solid' && k !== 'platform' && k !== 'hazard';
   const standable = (x: number, y: number): boolean => {
     if (x < 0 || x >= w || y < playerHeightTiles - 1 || y + 1 >= h) return false;
     const here = kind(x, y);
@@ -110,13 +125,13 @@ function movingPlatformSurfaceCells(
   const dx = entity.props?.dx ?? 0;
   const dy = entity.props?.dy ?? 0;
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))));
-  const bodyOpen = (x: number, y: number): boolean => {
+  const riderCellOpen = (x: number, y: number): boolean => {
     if (x < 0 || x >= grid.w || y < playerHeightTiles - 1 || y >= grid.h) return false;
     const platformBody = grid.kind(x, y + 1);
-    if (platformBody === 'solid' || platformBody === 'platform') return false;
+    if (solidLike(platformBody)) return false;
     for (let row = 0; row < playerHeightTiles; row++) {
       const kind = grid.kind(x, y - row);
-      if (kind === 'solid' || kind === 'platform' || kind === 'hazard') return false;
+      if (!bodyOpen(kind)) return false;
     }
     return true;
   };
@@ -128,7 +143,7 @@ function movingPlatformSurfaceCells(
     // cell while riding it is the open tile immediately above that surface.
     const footY = platformY - 1;
     for (const x of [platformX, platformX + 1]) {
-      if (bodyOpen(x, footY)) cells.add(`${x},${footY}`);
+      if (riderCellOpen(x, footY)) cells.add(`${x},${footY}`);
     }
   }
   return cells;
@@ -161,7 +176,7 @@ function traversalContext(
   });
   const transitOpen = (x: number, y: number): boolean => {
     const kind = grid.kind(x, y);
-    return kind !== 'solid' && kind !== 'hazard';
+    return !fullSolid(kind) && kind !== 'hazard';
   };
   const sweptBodyClear = (
     from: { x: number; y: number },
@@ -263,11 +278,7 @@ export function analyzePlatformerTraversal(
   playerHeightTiles: 1 | 2 = 2,
   options: PlatformerReachabilityOptions = {},
 ): PlatformerTraversalAnalysis {
-  const { reachable, reverseEdges } = reachableTraversalGraph(
-    level,
-    playerHeightTiles,
-    options,
-  );
+  const { reachable, reverseEdges } = reachableTraversalGraph(level, playerHeightTiles, options);
   const exit = `${level.exit.x},${level.exit.y}`;
   const escapableToExit = new Set<string>();
   const queue: string[] = [];
@@ -343,7 +354,7 @@ export function platformerEntityReachabilityIssue(
   const y = Math.round(entity.y);
   if (x < 0 || x >= grid.w || y < 0 || y >= grid.h) return null;
   const kind = grid.kind(x, y);
-  if (kind === 'solid' || kind === 'platform') return null;
+  if (solidLike(kind)) return null;
 
   if (entity.type === 'coin' || entity.type === 'heart' || entity.type === 'powerup') {
     return reachableInteractionPosition(context, x, y, reachable)
@@ -373,8 +384,7 @@ export function platformerEntityReachabilityIssue(
       const sampleY = Math.round(y + Math.sin(angle) * amplitude);
       const sampleKind = grid.kind(sampleX, sampleY);
       if (
-        sampleKind !== 'solid' &&
-        sampleKind !== 'platform' &&
+        !solidLike(sampleKind) &&
         sampleKind !== 'hazard' &&
         reachableInteractionPosition(context, sampleX, sampleY, reachable)
       ) {
@@ -503,7 +513,6 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
   let pickupCount = 0;
   let powerupCount = 0;
   let checkpointTotal = 0;
-
   spec.levels.forEach((level, li) => {
     const path = `/levels/${li}`;
     out.push(...lintRowLengths(level.tiles, path, 'PLAT_ROWS_UNEQUAL'));
@@ -515,9 +524,6 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
     const playerHeightTiles = spec.playerHeightTiles === 2 ? 2 : 1;
     const grid = parseLevelGrid(level, playerHeightTiles);
     const inBounds = (x: number, y: number) => x >= 0 && x < grid.w && y >= 0 && y < grid.h;
-    const solidLike = (kind: CellKind) => kind === 'solid' || kind === 'platform';
-    const bodyOpen = (kind: CellKind) =>
-      kind !== 'solid' && kind !== 'platform' && kind !== 'hazard';
     const movingPlatformClearance =
       playerHeightTiles === 2 ? 'two clear player rows' : 'a clear player row';
     if (grid.w > BUDGET.maxLevelWidthTiles) {
@@ -528,6 +534,68 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
           `level is ${grid.w} tiles wide; max ${BUDGET.maxLevelWidthTiles}`,
         ),
       );
+    }
+
+    for (let y = 0; y < grid.h; y++) {
+      for (let x = 0; x < grid.w; x++) {
+        const kind = grid.kind(x, y);
+        if (kind !== 'ice' && conveyorDirection(kind) === 0) continue;
+        if (grid.kind(x - 1, y) === kind) continue;
+        let runLength = 1;
+        while (grid.kind(x + runLength, y) === kind) runLength++;
+        if (runLength < 4 || runLength > 10) {
+          out.push(
+            err(
+              'PLAT_SURFACE_RUN_BOUNDS',
+              `${path}/tiles/${y}`,
+              `${kind} run at (${x},${y}) is ${runLength} cells long; use one coherent 4–10 cell surface run`,
+            ),
+          );
+        }
+        const buriedOffset = Array.from({ length: runLength }, (_, offset) => offset).find(
+          (offset) => fullSolid(grid.kind(x + offset, y - 1)),
+        );
+        if (buriedOffset !== undefined) {
+          out.push(
+            err(
+              'PLAT_SURFACE_BURIED',
+              `${path}/tiles/${y}`,
+              `${kind} at (${x + buriedOffset},${y}) is buried beneath full terrain; material cells belong only on exposed top surfaces`,
+            ),
+          );
+        }
+        if (kind === 'ice') {
+          continue;
+        }
+        const direction = conveyorDirection(kind);
+        const terminalX = direction > 0 ? x + runLength - 1 : x;
+        const destinationX = terminalX + direction;
+        const destination = grid.kind(destinationX, y);
+        const destinationDirection = conveyorDirection(destination);
+        if (destinationDirection === -direction) {
+          out.push(
+            err(
+              'PLAT_CONVEYOR_DIRECTION_CONFLICT',
+              `${path}/tiles/${y}`,
+              `conveyor run at (${x},${y}) points directly into an opposing conveyor at (${destinationX},${y}); make the run use one direction`,
+            ),
+          );
+        } else {
+          const ordinaryLanding = destination === 'solid' || destination === 'platform';
+          const landingHeadroom = Array.from(
+            { length: playerHeightTiles },
+            (_, row) => row + 1,
+          ).every((row) => bodyOpen(grid.kind(destinationX, y - row)));
+          if (ordinaryLanding && landingHeadroom) continue;
+          out.push(
+            err(
+              'PLAT_CONVEYOR_UNSAFE_EDGE',
+              `${path}/tiles/${y}`,
+              `conveyor run at (${x},${y}) ends at (${terminalX},${y}) without a clear ordinary solid/platform stopping buffer at (${destinationX},${y}); do not point it into a gap, hazard, ice, or wall`,
+            ),
+          );
+        }
+      }
     }
 
     // Spawn / exit in-bounds, grounded, and never embedded in a solid tile.
@@ -561,6 +629,16 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
         ),
       );
     }
+    const spawnSupport = grid.kind(spawn.x, spawn.y + 1);
+    if (spawnSupport === 'ice' || conveyorDirection(spawnSupport) !== 0) {
+      out.push(
+        err(
+          'PLAT_SURFACE_UNSAFE_ANCHOR',
+          `${path}/playerSpawn`,
+          `playerSpawn must stand on ordinary solid/platform terrain, not ${spawnSupport}`,
+        ),
+      );
+    }
     const exit = level.exit;
     const exitCell = grid.standable(exit.x, exit.y) ? `${exit.x},${exit.y}` : null;
     if (inBounds(exit.x, exit.y) && solidLike(grid.kind(exit.x, exit.y))) {
@@ -588,6 +666,16 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
         ),
       );
     }
+    const exitSupport = grid.kind(exit.x, exit.y + 1);
+    if (exitSupport === 'ice' || conveyorDirection(exitSupport) !== 0) {
+      out.push(
+        err(
+          'PLAT_SURFACE_UNSAFE_ANCHOR',
+          `${path}/exit`,
+          `exit must stand on ordinary solid/platform terrain, not ${exitSupport}`,
+        ),
+      );
+    }
 
     // Checkpoints: exist mid-level, grounded.
     let checkpoints = 0;
@@ -597,12 +685,20 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
           checkpoints++;
           checkpointTotal++;
           const below = grid.kind(x, y + 1);
-          if (below !== 'solid' && below !== 'platform') {
+          if (!solidLike(below)) {
             out.push(
               err(
                 'PLAT_CHECKPOINT_FLOATING',
                 `${path}/tiles/${y}`,
                 `checkpoint at (${x},${y}) is not on solid ground`,
+              ),
+            );
+          } else if (below !== 'solid' && below !== 'platform') {
+            out.push(
+              err(
+                'PLAT_SURFACE_UNSAFE_ANCHOR',
+                `${path}/tiles/${y}`,
+                `checkpoint at (${x},${y}) must stand on ordinary solid/platform terrain, not ${below}`,
               ),
             );
           } else if (playerHeightTiles === 2 && !bodyOpen(grid.kind(x, y - 1))) {
@@ -741,7 +837,7 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
           err(
             'PLAT_ENTITY_IN_SOLID',
             `${path}/entities`,
-            `${e.type} at (${e.x},${e.y}) is embedded in authored solid/platform terrain and can't be reached — move it to the open cell above the surface`,
+            `${e.type} at (${e.x},${e.y}) is embedded in authored full-solid/platform terrain and can't be reached — move it to the open cell above the surface`,
           ),
         );
       } else {
@@ -805,7 +901,7 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
         for (let x = 1; x < w - 1; x++) {
           for (const y of [h - 4, h - 3]) {
             const kind = kindAt(x, y);
-            if (kind === 'solid' || kind === 'platform' || kind === 'hazard') headroomOk = false;
+            if (!bodyOpen(kind as CellKind)) headroomOk = false;
           }
         }
         if (!headroomOk) {
@@ -820,8 +916,7 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
       }
       let filled = 0;
       for (let y = 0; y < h; y++)
-        for (let x = 0; x < w; x++)
-          if (kindAt(x, y) === 'solid' || kindAt(x, y) === 'platform') filled++;
+        for (let x = 0; x < w; x++) if (solidLike(kindAt(x, y) as CellKind)) filled++;
       if (w * h > 0 && filled / (w * h) > 0.7)
         out.push(
           err('PLAT_ARENA_TOO_DENSE', ap, 'boss arena is too filled-in; leave open space to fight'),

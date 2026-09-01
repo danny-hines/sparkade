@@ -1005,9 +1005,11 @@ function normalizePlatformerContent(out: GameSpec, fixes: NormalizationFix[]): v
       const ch = level.tiles[y]?.[x];
       return ch === undefined || ch === '.' ? 'empty' : (level.legend[ch] ?? 'empty');
     };
-    const solidLike = (value: string) => value === 'solid' || value === 'platform';
+    const fullSolid = (value: string) =>
+      value === 'solid' || value === 'ice' || value === 'conveyorLeft' || value === 'conveyorRight';
+    const solidLike = (value: string) => fullSolid(value) || value === 'platform';
     const bodyOpen = (value: string) =>
-      value !== 'solid' && value !== 'platform' && value !== 'hazard';
+      !fullSolid(value) && value !== 'platform' && value !== 'hazard';
     const standable = (x: number, y: number) =>
       x >= 0 &&
       x < w &&
@@ -1016,6 +1018,8 @@ function normalizePlatformerContent(out: GameSpec, fixes: NormalizationFix[]): v
       bodyOpen(kind(x, y)) &&
       (playerHeight === 1 || bodyOpen(kind(x, y - 1))) &&
       solidLike(kind(x, y + 1));
+    const safeAnchor = (x: number, y: number) =>
+      standable(x, y) && (kind(x, y + 1) === 'solid' || kind(x, y + 1) === 'platform');
     const setCell = (x: number, y: number, value: string): void => {
       const row = level.tiles[y];
       if (row === undefined || x < 0 || x >= row.length) return;
@@ -1026,8 +1030,8 @@ function normalizePlatformerContent(out: GameSpec, fixes: NormalizationFix[]): v
       ['playerSpawn', level.playerSpawn],
       ['exit', level.exit],
     ] as const) {
-      if (standable(coord.x, coord.y)) continue;
-      const replacement = nearestCell(coord, w, h, standable);
+      if (safeAnchor(coord.x, coord.y)) continue;
+      const replacement = nearestCell(coord, w, h, safeAnchor);
       if (!replacement) continue;
       const before = `(${coord.x},${coord.y})`;
       coord.x = replacement.x;
@@ -1056,10 +1060,10 @@ function normalizePlatformerContent(out: GameSpec, fixes: NormalizationFix[]): v
       `${level.exit.x},${level.exit.y}`,
     ]);
     for (const checkpoint of checkpoints) {
-      if (standable(checkpoint.x, checkpoint.y)) continue;
+      if (safeAnchor(checkpoint.x, checkpoint.y)) continue;
       setCell(checkpoint.x, checkpoint.y, '.');
       const replacement = nearestCell(checkpoint, w, h, (x, y) => {
-        return !reserved.has(`${x},${y}`) && kind(x, y) === 'empty' && standable(x, y);
+        return !reserved.has(`${x},${y}`) && kind(x, y) === 'empty' && safeAnchor(x, y);
       });
       if (!replacement) {
         setCell(checkpoint.x, checkpoint.y, checkpoint.ch);
@@ -1249,7 +1253,15 @@ function normalizePlatformerContent(out: GameSpec, fixes: NormalizationFix[]): v
         const chars = [...row];
         for (let x = 1; x < w - 1; x++) {
           const tileKind = arena.legend[chars[x]!] ?? 'empty';
-          if (tileKind !== 'solid' && tileKind !== 'platform' && tileKind !== 'hazard') continue;
+          if (
+            tileKind !== 'solid' &&
+            tileKind !== 'ice' &&
+            tileKind !== 'conveyorLeft' &&
+            tileKind !== 'conveyorRight' &&
+            tileKind !== 'platform' &&
+            tileKind !== 'hazard'
+          )
+            continue;
           chars[x] = '.';
           cleared++;
         }

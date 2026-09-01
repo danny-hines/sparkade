@@ -170,7 +170,16 @@ export type SfxBlock = Partial<Record<SfxEvent, SfxParams>>;
 // ---------------------------------------------------------------------------
 
 export type PlatformerTileType =
-  'empty' | 'solid' | 'platform' | 'hazard' | 'checkpoint' | 'exit' | 'decoration';
+  | 'empty'
+  | 'solid'
+  | 'ice'
+  | 'conveyorLeft'
+  | 'conveyorRight'
+  | 'platform'
+  | 'hazard'
+  | 'checkpoint'
+  | 'exit'
+  | 'decoration';
 
 export type PlatformerEntityType =
   | 'walker'

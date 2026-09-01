@@ -4,6 +4,7 @@ import {
   completeGeneratedPlatformerPoses,
   generatedPlatformerGaitFrame,
   generatedPlatformerGaitRate,
+  generatedPlatformerGroundAnimation,
   generatedPlatformerBossDrawRect,
   generatedPlatformerEnemyDrawRect,
   generatedPlatformerPlayerDrawRect,
@@ -13,6 +14,8 @@ import {
   platformerShooterFacingDirection,
   platformerShooterMuzzlePoint,
   platformerSpringDrawRect,
+  platformerSurfaceMaterial,
+  shouldMaskLegacyPlatformerForeground,
   stepPlatformerHorizontalVelocity,
 } from '../src/platformer/game';
 
@@ -39,9 +42,65 @@ describe('platformer movement profiles', () => {
       stepPlatformerHorizontalVelocity(80, -1, 142 * movement.speed, 0.1, false, movement);
     expect(correct(precision)).toBeLessThan(correct(momentum));
   });
+
+  it('preserves momentum on ice while keeping ordinary ground unchanged', () => {
+    const balanced = resolvePlatformerMovement('balanced');
+    const normalStop = stepPlatformerHorizontalVelocity(100, 0, 142, 0.1, true, balanced);
+    const iceStop = stepPlatformerHorizontalVelocity(100, 0, 142, 0.1, true, balanced, 'ice');
+    const normalStart = stepPlatformerHorizontalVelocity(0, 1, 142, 0.1, true, balanced);
+    const iceStart = stepPlatformerHorizontalVelocity(0, 1, 142, 0.1, true, balanced, 'ice');
+
+    expect(normalStop).toBe(5);
+    expect(iceStop).toBeGreaterThan(normalStop);
+    expect(iceStart).toBeGreaterThan(0);
+    expect(iceStart).toBeLessThan(normalStart);
+  });
+
+  it('adds bounded directional conveyor speed that the player can oppose', () => {
+    const balanced = resolvePlatformerMovement('balanced');
+    expect(stepPlatformerHorizontalVelocity(0, 0, 142, 0.1, true, balanced, 'conveyorRight')).toBe(
+      42,
+    );
+    expect(stepPlatformerHorizontalVelocity(0, 0, 142, 0.1, true, balanced, 'conveyorLeft')).toBe(
+      -42,
+    );
+    expect(
+      stepPlatformerHorizontalVelocity(0, -1, 142, 0.1, true, balanced, 'conveyorRight'),
+    ).toBeLessThan(0);
+    expect(stepPlatformerHorizontalVelocity(0, 0, 142, 0.1, false, balanced, 'conveyorRight')).toBe(
+      0,
+    );
+  });
+
+  it('resolves seams without opposing-conveyor jitter', () => {
+    expect(platformerSurfaceMaterial(['solid', 'ice'])).toBe('ice');
+    expect(platformerSurfaceMaterial(['ice', 'conveyorRight'])).toBe('conveyorRight');
+    expect(platformerSurfaceMaterial(['conveyorLeft', 'conveyorRight'])).toBe('normal');
+    expect(platformerSurfaceMaterial(['platform', 'solid'])).toBe('normal');
+  });
 });
 
 describe('generated platformer player poses', () => {
+  it('uses intent for walking and keeps a coasting player side-on', () => {
+    expect(generatedPlatformerGroundAnimation(1, 60, 0)).toBe('walk');
+    expect(generatedPlatformerGroundAnimation(0, 60, 0.2)).toBe('sideIdle');
+    expect(generatedPlatformerGroundAnimation(0, 60, 2)).toBe('sideIdle');
+    expect(generatedPlatformerGroundAnimation(1, 0, 0)).toBe('sideIdle');
+  });
+
+  it('turns from side idle to front idle after one stationary second', () => {
+    expect(generatedPlatformerGroundAnimation(0, 0, 0)).toBe('sideIdle');
+    expect(generatedPlatformerGroundAnimation(0, 0, 0.99)).toBe('sideIdle');
+    expect(generatedPlatformerGroundAnimation(0, 0, 1)).toBe('idle');
+  });
+
+  it('keeps foreground masking exclusive to compact legacy saves', () => {
+    expect(shouldMaskLegacyPlatformerForeground(undefined, 'tall-humanoid', 14, 32)).toBe(true);
+    expect(shouldMaskLegacyPlatformerForeground(2, 'tall-humanoid', 28, 32)).toBe(false);
+    expect(shouldMaskLegacyPlatformerForeground(undefined, 'standard', 14, 32)).toBe(false);
+    expect(shouldMaskLegacyPlatformerForeground(undefined, 'tall-humanoid', 32, 32)).toBe(false);
+  });
+
   it('activates only one complete five-frame identity set', () => {
     const image = {} as CanvasImageSource;
     expect(

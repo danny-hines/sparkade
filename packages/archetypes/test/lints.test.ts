@@ -249,6 +249,50 @@ describe('platformer lints', () => {
     );
   });
 
+  it('treats ice and conveyors as full-solid support in traversal', () => {
+    const spec = golden<PlatformerSpec>('platformer');
+    const level = spec.levels[0]!;
+    level.legend['I'] = 'ice';
+    level.legend['>'] = 'conveyorRight';
+    const spawn = level.playerSpawn;
+    setLevelCell(level, spawn.x, spawn.y + 1, 'I');
+    setLevelCell(level, spawn.x + 1, spawn.y + 1, '>');
+
+    const grid = parseLevelGrid(level);
+    expect(grid.standable(spawn.x, spawn.y)).toBe(true);
+    expect(grid.standable(spawn.x + 1, spawn.y)).toBe(true);
+  });
+
+  it('rejects material anchors, unsafe conveyor edges, and opposing runs', () => {
+    const anchorSpec = golden<PlatformerSpec>('platformer');
+    const anchorLevel = anchorSpec.levels[0]!;
+    anchorLevel.legend['I'] = 'ice';
+    const spawn = anchorLevel.playerSpawn;
+    setLevelCell(anchorLevel, spawn.x, spawn.y + 1, 'I');
+    expect(codes(archetypes.platformer.lint(anchorSpec))).toContain('PLAT_SURFACE_UNSAFE_ANCHOR');
+
+    const edgeSpec = golden<PlatformerSpec>('platformer');
+    const edgeLevel = edgeSpec.levels[0]!;
+    edgeLevel.legend['>'] = 'conveyorRight';
+    const edgeY = edgeLevel.playerSpawn.y + 1;
+    const edgeX = edgeLevel.playerSpawn.x + 3;
+    setLevelCell(edgeLevel, edgeX, edgeY, '>');
+    setLevelCell(edgeLevel, edgeX + 1, edgeY, '.');
+    expect(codes(archetypes.platformer.lint(edgeSpec))).toContain('PLAT_CONVEYOR_UNSAFE_EDGE');
+
+    const conflictSpec = golden<PlatformerSpec>('platformer');
+    const conflictLevel = conflictSpec.levels[0]!;
+    conflictLevel.legend['>'] = 'conveyorRight';
+    conflictLevel.legend['<'] = 'conveyorLeft';
+    const conflictY = conflictLevel.playerSpawn.y + 1;
+    const conflictX = conflictLevel.playerSpawn.x + 3;
+    setLevelCell(conflictLevel, conflictX, conflictY, '>');
+    setLevelCell(conflictLevel, conflictX + 1, conflictY, '<');
+    expect(codes(archetypes.platformer.lint(conflictSpec))).toContain(
+      'PLAT_CONVEYOR_DIRECTION_CONFLICT',
+    );
+  });
+
   it('collectible embedded in a solid tile → PLAT_ENTITY_IN_SOLID', () => {
     const spec = golden<PlatformerSpec>('platformer');
     const { x, y } = firstSolid(spec.levels[0]!);

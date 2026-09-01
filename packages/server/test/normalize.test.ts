@@ -180,6 +180,35 @@ describe('deterministic generated-spec normalization', () => {
     expect(geometryErrors).toEqual([]);
   });
 
+  it('treats material tiles as blocking terrain while keeping anchors on ordinary ground', () => {
+    const input = golden<PlatformerSpec>('platformer');
+    const level = input.levels[0]!;
+    level.legend['I'] = 'ice';
+    const spawn = { ...level.playerSpawn };
+    const supportY = spawn.y + 1;
+    const supportRow = level.tiles[supportY]!;
+    level.tiles[supportY] = supportRow.slice(0, spawn.x) + 'I' + supportRow.slice(spawn.x + 1);
+    level.entities[0] = { type: 'coin', x: spawn.x, y: supportY };
+
+    const result = normalizeGeneratedSpec(input);
+    const fixed = result.spec as PlatformerSpec;
+    const fixedLevel = fixed.levels[0]!;
+    const supportKind = (x: number, y: number) => {
+      const char = fixedLevel.tiles[y]?.[x];
+      return char === undefined || char === '.' ? 'empty' : fixedLevel.legend[char];
+    };
+
+    expect(supportKind(fixedLevel.playerSpawn.x, fixedLevel.playerSpawn.y + 1)).toMatch(
+      /solid|platform/,
+    );
+    expect(fixedLevel.entities[0]).not.toMatchObject({ x: spawn.x, y: supportY });
+    expect(
+      lintPlatformer(fixed).filter((error) =>
+        ['PLAT_SURFACE_UNSAFE_ANCHOR', 'PLAT_ENTITY_IN_SOLID'].includes(error.code),
+      ),
+    ).toEqual([]);
+  });
+
   it('lifts entities above one-way tiles and keeps moving-platform paths out of terrain', () => {
     const input = golden<PlatformerSpec>('platformer');
     const level = input.levels[0]!;

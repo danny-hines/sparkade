@@ -37,6 +37,7 @@ import {
   type PlatformerEntity,
   type PlatformerLevel,
   type PlatformerSpec,
+  type PlatformerTileType,
   type ResolvedPlatformerMovement,
 } from '@sparkade/shared';
 import { surfaceDecorations } from './decor';
@@ -66,6 +67,60 @@ const JUMP_RELEASE_V = -80;
 const SPRING_V = -488;
 const STOMP_BOUNCE = -230;
 const SPIN_BOUNCE = -280;
+const CONVEYOR_SPEED = 42;
+const PLAYER_FRONT_IDLE_DELAY_S = 1;
+
+export type PlatformerSurfaceMaterial = 'normal' | 'ice' | 'conveyorLeft' | 'conveyorRight';
+
+function isPlatformerFullSolid(kind: PlatformerTileType): boolean {
+  return kind === 'solid' || kind === 'ice' || kind === 'conveyorLeft' || kind === 'conveyorRight';
+}
+
+/** Resolve a stable material when the player's feet overlap two support cells.
+ * A directional conveyor wins over ice; opposing conveyors cancel rather than
+ * making the player jitter at their seam. */
+export function platformerSurfaceMaterial(
+  supports: readonly PlatformerTileType[],
+): PlatformerSurfaceMaterial {
+  const left = supports.includes('conveyorLeft');
+  const right = supports.includes('conveyorRight');
+  if (left !== right) return left ? 'conveyorLeft' : 'conveyorRight';
+  return supports.includes('ice') ? 'ice' : 'normal';
+}
+
+/** Only compact legacy saves need terrain repainted in front of oversized
+ * generated hero art. Current two-tile players use their full visual body for
+ * collision, so repainting terrain would incorrectly cover both the hero and
+ * any semantic surface cues drawn on top of the tile. */
+export function shouldMaskLegacyPlatformerForeground(
+  playerHeightTiles: PlatformerSpec['playerHeightTiles'],
+  appliedPresentation: string,
+  playerHeight: number,
+  spriteHeight: number,
+): boolean {
+  return (
+    playerHeightTiles !== 2 &&
+    appliedPresentation === 'tall-humanoid' &&
+    playerHeight !== spriteHeight
+  );
+}
+
+export type GeneratedPlatformerGroundAnimation = 'idle' | 'sideIdle' | 'walk';
+
+/** Ground animation follows player intent rather than residual velocity. A
+ * coasting hero keeps the side silhouette, then turns toward the camera only
+ * after both stopping and spending a beat without directional input. */
+export function generatedPlatformerGroundAnimation(
+  horizontalIntent: number,
+  horizontalVelocity: number,
+  noHorizontalInputTime: number,
+): GeneratedPlatformerGroundAnimation {
+  if (horizontalIntent !== 0 && Math.abs(horizontalVelocity) > 8) return 'walk';
+  if (Math.abs(horizontalVelocity) > 8 || noHorizontalInputTime < PLAYER_FRONT_IDLE_DELAY_S) {
+    return 'sideIdle';
+  }
+  return 'idle';
+}
 
 /** One horizontal-control step, exported so profile behavior stays testable
  * without needing to boot the canvas runtime. Balanced reproduces the original
@@ -77,6 +132,7 @@ export function stepPlatformerHorizontalVelocity(
   dt: number,
   onGround: boolean,
   movement: ResolvedPlatformerMovement,
+  surface: PlatformerSurfaceMaterial = 'normal',
 ): number {
   const normalizedDirection = Math.max(-1, Math.min(1, direction));
   const reversing =
@@ -88,13 +144,27 @@ export function stepPlatformerHorizontalVelocity(
     : normalizedDirection === 0
       ? movement.airBraking
       : movement.airControl;
-  const target = normalizedDirection * maxSpeed;
+  const surfaceControl =
+    onGround && surface === 'ice'
+      ? normalizedDirection === 0
+        ? 0.12
+        : reversing
+          ? 0.18
+          : 0.32
+      : 1;
+  const conveyorSpeed =
+    onGround && surface === 'conveyorLeft'
+      ? -CONVEYOR_SPEED
+      : onGround && surface === 'conveyorRight'
+        ? CONVEYOR_SPEED
+        : 0;
+  const target = normalizedDirection * maxSpeed + conveyorSpeed;
   const delta = target - velocity;
-  const step = ACCEL * control * dt;
+  const step = ACCEL * control * surfaceControl * dt;
   return velocity + (Math.abs(delta) <= step ? delta : Math.sign(delta) * step);
 }
 
-type TileKind = 'empty' | 'solid' | 'platform' | 'hazard' | 'checkpoint' | 'exit' | 'decoration';
+type TileKind = PlatformerTileType;
 
 interface Ent {
   active: boolean;
@@ -437,6 +507,8 @@ class PlatformerGame implements GameInstance {
   private checkpoint: { x: number; y: number } | null = null;
   private animT = 0;
   private generatedGaitT = 0;
+  private horizontalIntent = 0;
+  private noHorizontalInputT = 0;
   private playT = 0;
 
   // boss
@@ -822,8 +894,8 @@ class PlatformerGame implements GameInstance {
   private tileCanvasAt(tx: number, ty: number, frameIx: number): CanvasImageSource | null {
     const kind = this.grid.kind(tx, ty);
     if (kind === 'empty') return null;
-    if (kind === 'solid') {
-      const mask = solidNeighborMask((x, y) => this.grid.kind(x, y) === 'solid', tx, ty);
+    if (isPlatformerFullSolid(kind)) {
+      const mask = solidNeighborMask((x, y) => isPlatformerFullSolid(this.grid.kind(x, y)), tx, ty);
       return (
         this.solidAutotiles?.frame(
           mask,
@@ -847,13 +919,13 @@ class PlatformerGame implements GameInstance {
    */
   private liftOutOfSolid(tx: number, ty: number): number {
     let y = ty;
-    while (y > 0 && this.grid.kind(tx, y) === 'solid') y--;
+    while (y > 0 && isPlatformerFullSolid(this.grid.kind(tx, y))) y--;
     return y;
   }
 
   private playerCellOpen(tx: number, ty: number): boolean {
     const kind = this.grid.kind(tx, ty);
-    return kind !== 'solid' && kind !== 'platform' && kind !== 'hazard';
+    return !isPlatformerFullSolid(kind) && kind !== 'platform' && kind !== 'hazard';
   }
 
   /** Lift a marked 16x32 player until both occupied tile rows are clear. */
@@ -922,6 +994,8 @@ class PlatformerGame implements GameInstance {
     this.onGround = false;
     this.spinning = false;
     this.generatedGaitT = 0;
+    this.horizontalIntent = 0;
+    this.noHorizontalInputT = 0;
     this.invulnT = 0;
   }
 
@@ -946,14 +1020,27 @@ class PlatformerGame implements GameInstance {
 
   private solidity(tx: number, ty: number): Solidity {
     const k = this.grid.kind(tx, ty);
-    return k === 'solid' ? 'solid' : k === 'platform' ? 'platform' : 'empty';
+    return isPlatformerFullSolid(k) ? 'solid' : k === 'platform' ? 'platform' : 'empty';
+  }
+
+  private playerSurfaceMaterial(): PlatformerSurfaceMaterial {
+    if (!this.onGround) return 'normal';
+    const supportY = Math.floor((this.playerBottom() + 1) / TILE_SIZE);
+    const minX = Math.floor((this.px + 1) / TILE_SIZE);
+    const maxX = Math.floor((this.px + this.playerW - 1) / TILE_SIZE);
+    const supports: TileKind[] = [];
+    for (let x = minX; x <= maxX; x++) supports.push(this.grid.kind(x, supportY));
+    return platformerSurfaceMaterial(supports);
   }
 
   private updatePlayer(dt: number, input: InputSnapshot): void {
     const run = input.X.held || input.Y.held;
     const target = (input.LEFT.held ? -1 : 0) + (input.RIGHT.held ? 1 : 0);
+    this.horizontalIntent = target;
+    this.noHorizontalInputT = target === 0 ? this.noHorizontalInputT + dt : 0;
     if (target !== 0) this.facing = target;
     const maxSpeed = run ? this.run : this.walk;
+    const surface = this.playerSurfaceMaterial();
     this.pvx = stepPlatformerHorizontalVelocity(
       this.pvx,
       target,
@@ -961,6 +1048,7 @@ class PlatformerGame implements GameInstance {
       dt,
       this.onGround,
       this.movement,
+      surface,
     );
 
     // jump buffering + coyote time
@@ -1011,7 +1099,7 @@ class PlatformerGame implements GameInstance {
     if (!this.onGround && moved.onGround) this.spinning = false;
     this.onGround = moved.onGround;
     if (this.onGround) this.airJumpUsed = false;
-    if (this.generatedPlayerPoses && this.onGround && Math.abs(this.pvx) > 8) {
+    if (this.onGround && target !== 0 && Math.abs(this.pvx) > 8) {
       this.generatedGaitT += dt * generatedPlatformerGaitRate(this.pvx);
     } else {
       this.generatedGaitT = 0;
@@ -1655,6 +1743,56 @@ class PlatformerGame implements GameInstance {
 
   // ------------------------------------------------------------------ render
 
+  private drawSurfaceMaterialCues(camX: number, camY: number): void {
+    const ctx = this.engine.renderer.ctx;
+    const minX = Math.max(0, Math.floor(camX / TILE_SIZE) - 1);
+    const maxX = Math.min(this.grid.cols - 1, Math.ceil((camX + this.viewW) / TILE_SIZE) + 1);
+    const minY = Math.max(0, Math.floor(camY / TILE_SIZE) - 1);
+    const maxY = Math.min(this.grid.rows - 1, Math.ceil((camY + this.viewH) / TILE_SIZE) + 1);
+    const iceColor = this.spec.palette[14] ?? '#b8f3ff';
+    const conveyorColor = this.spec.palette[13] ?? '#ffd75e';
+    const conveyorPhase = Math.floor(this.animT * 8) % 4;
+    const sparklePhase = Math.floor(this.animT * 5);
+
+    ctx.save();
+    for (let ty = minY; ty <= maxY; ty++) {
+      for (let tx = minX; tx <= maxX; tx++) {
+        const kind = this.grid.kind(tx, ty);
+        if (kind !== 'ice' && kind !== 'conveyorLeft' && kind !== 'conveyorRight') continue;
+        // Material semantics only live on exposed tops. If malformed authored
+        // data buries a material tile, keep collision correct without drawing
+        // a cue through the full-solid cell above it.
+        if (isPlatformerFullSolid(this.grid.kind(tx, ty - 1))) continue;
+        const x = tx * TILE_SIZE - camX;
+        const y = ty * TILE_SIZE - camY;
+        if (kind === 'ice') {
+          ctx.globalAlpha = 0.78;
+          ctx.fillStyle = iceColor;
+          ctx.fillRect(Math.round(x), Math.round(y), TILE_SIZE, 2);
+          ctx.globalAlpha = 0.42;
+          const glintX = 2 + ((tx * 5 + ty * 3 + sparklePhase) % 11);
+          ctx.fillRect(Math.round(x + glintX), Math.round(y + 3), 3, 1);
+          ctx.fillRect(Math.round(x + glintX + 1), Math.round(y + 2), 1, 3);
+          continue;
+        }
+
+        const dir = kind === 'conveyorRight' ? 1 : -1;
+        ctx.globalAlpha = 0.56;
+        ctx.fillStyle = '#111111';
+        ctx.fillRect(Math.round(x), Math.round(y + 1), TILE_SIZE, 5);
+        ctx.globalAlpha = 0.9;
+        ctx.fillStyle = conveyorColor;
+        for (let slot = 0; slot < 2; slot++) {
+          const forward = 3 + slot * 8 + conveyorPhase;
+          const center = dir > 0 ? forward : TILE_SIZE - 1 - forward;
+          ctx.fillRect(Math.round(x + center - dir * 2), Math.round(y + 3), 3, 1);
+          ctx.fillRect(Math.round(x + center), Math.round(y + 2), 1, 3);
+        }
+      }
+    }
+    ctx.restore();
+  }
+
   render(): void {
     const r = this.engine.renderer;
     const cam = this.engine.camera;
@@ -1676,6 +1814,7 @@ class PlatformerGame implements GameInstance {
     drawTileLayer(r, cam, this.grid.cols, this.grid.rows, TILE_SIZE, (tx, ty) => {
       return this.tileCanvasAt(tx, ty, frameIx);
     });
+    this.drawSurfaceMaterialCues(cam.x, cam.y);
 
     if (this.checkpoint) {
       const x = this.checkpoint.x * TILE_SIZE - cam.x;
@@ -1877,10 +2016,17 @@ class PlatformerGame implements GameInstance {
     // player (invulnerability flicker)
     if (this.invulnT <= 0 || Math.floor(this.animT * 12) % 2 === 0) {
       const hero = this.sprites['hero']!;
-      const anim = !this.onGround ? 'jump' : Math.abs(this.pvx) > 8 ? 'walk' : 'idle';
-      const gait = anim === 'walk' ? generatedPlatformerGaitFrame(this.generatedGaitT) : null;
-      const generatedPose: PlatformerPlayerPose =
-        anim === 'jump' ? 'jump' : anim === 'walk' ? gait!.pose : 'idle';
+      const groundAnim = generatedPlatformerGroundAnimation(
+        this.horizontalIntent,
+        this.pvx,
+        this.noHorizontalInputT,
+      );
+      const gait = groundAnim === 'walk' ? generatedPlatformerGaitFrame(this.generatedGaitT) : null;
+      const generatedPose: PlatformerPlayerPose = !this.onGround
+        ? 'jump'
+        : groundAnim === 'walk'
+          ? gait!.pose
+          : groundAnim;
       const generatedImage = this.generatedPlayerPoses[generatedPose];
       let flip = generatedPose !== 'idle' && this.facing < 0;
       const img: CanvasImageSource = generatedImage;
@@ -1926,7 +2072,14 @@ class PlatformerGame implements GameInstance {
       // Saved games without the two-tile layout marker retain their compact
       // collider. Keep their old foreground masking for one-tile passages;
       // marked games use the actual 16x32 visual as the collision body.
-      if (hero.appliedPresentation === 'tall-humanoid' && this.playerH !== hero.h) {
+      if (
+        shouldMaskLegacyPlatformerForeground(
+          this.spec.playerHeightTiles,
+          hero.appliedPresentation,
+          this.playerH,
+          hero.h,
+        )
+      ) {
         const minTx = Math.floor(heroWorldX / TILE_SIZE);
         const maxTx = Math.ceil((heroWorldX + drawW) / TILE_SIZE) - 1;
         const minTy = Math.floor(heroWorldY / TILE_SIZE);

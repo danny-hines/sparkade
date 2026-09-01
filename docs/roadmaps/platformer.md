@@ -36,6 +36,14 @@ precision or Castlevania-like committed jumps without requiring separate physics
 Treat ground friction as one property of a reusable surface-material system. A material could
 control:
 
+The first bounded slice is implemented: authored `ice`,
+`conveyorLeft`, and `conveyorRight` terrain cells share the normal connected tileset while the
+runtime adds readable animated surface cues. Ice modifies traction and braking; conveyors add a
+bounded directional ground speed that can still be opposed. Validation requires coherent exposed
+runs, ordinary ground at spawns/checkpoints/exits, and a clear stopping buffer at every conveyor
+edge whenever those materials are present. They are premise-dependent generation choices: a game
+may use neither, one, or both rather than satisfying a surface-material content floor.
+
 - Traction, acceleration, braking, and slope behavior.
 - Bounce or launch impulse.
 - Conveyor direction and force.

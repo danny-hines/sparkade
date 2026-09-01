@@ -156,6 +156,15 @@ describe('archetype schemas', () => {
     expect(schema.required).not.toContain('movementProfile');
   });
 
+  it('bounds the optional platformer surface-material vocabulary', () => {
+    const schema = ARCHETYPE_SCHEMAS.platformer as {
+      $defs: { legendTile: { enum: string[] } };
+    };
+    expect(schema.$defs.legendTile.enum).toEqual(
+      expect.arrayContaining(['solid', 'ice', 'conveyorLeft', 'conveyorRight', 'platform']),
+    );
+  });
+
   it('keeps H-scroll art density bounded and optional for saved-game compatibility', () => {
     const schema = ARCHETYPE_SCHEMAS.hshooter as {
       properties: Record<string, { enum?: string[] }>;

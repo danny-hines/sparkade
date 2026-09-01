@@ -430,7 +430,18 @@
       "additionalProperties": false
     },
     "legendTile": {
-      "enum": ["empty", "solid", "platform", "hazard", "checkpoint", "exit", "decoration"]
+      "enum": [
+        "empty",
+        "solid",
+        "ice",
+        "conveyorLeft",
+        "conveyorRight",
+        "platform",
+        "hazard",
+        "checkpoint",
+        "exit",
+        "decoration"
+      ]
     },
     "entityType": {
       "enum": [
@@ -512,7 +523,7 @@
           "items": { "type": "string", "minLength": 32, "maxLength": 256, "pattern": "^[ -~]+$" }
         },
         "legend": {
-          "description": "Single character -> tile type. '.' is always empty and may be omitted. New levels should author terrain, hazards, and checkpoints only; decoration and exit values remain accepted for legacy specs but are engine-positioned at runtime.",
+          "description": "Single character -> tile type. '.' is always empty and may be omitted. solid, ice, conveyorLeft, and conveyorRight are full collision blocks; the material kinds should appear only along exposed playable surfaces. New levels should author terrain, hazards, and checkpoints only; decoration and exit values remain accepted for legacy specs but are engine-positioned at runtime.",
           "type": "object",
           "minProperties": 1,
           "maxProperties": 16,

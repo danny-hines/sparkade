@@ -35,6 +35,7 @@ import {
   type DifficultyScale,
   type Coord,
   type PlatformerEntity,
+  type PlatformerAbilityKind,
   type PlatformerLevel,
   type PlatformerSpec,
   type PlatformerTileType,
@@ -455,6 +456,17 @@ const ROLE_FALLBACK: Record<string, string> = {
   obj_spring: 'lib:obj_spring',
 };
 
+function generatedAbilityPropRole(kind: PlatformerAbilityKind): string {
+  switch (kind) {
+    case 'doubleJump':
+      return 'powerupDoubleJump';
+    case 'projectile':
+      return 'powerupProjectile';
+    case 'shield':
+      return 'powerupShield';
+  }
+}
+
 export function createPlatformerGame(engine: EngineContext, spec: PlatformerSpec): GameInstance {
   return new PlatformerGame(engine, spec);
 }
@@ -620,6 +632,13 @@ class PlatformerGame implements GameInstance {
     this.generatedEnemies = this.engine.platformerEnemies;
     this.generatedProps = this.engine.platformerProps;
     this.generatedBackdrops = this.engine.platformerBackdrops;
+    if (this.spec.abilityLoadout?.length) {
+      this.hud.abilities = this.spec.abilityLoadout.map(({ kind, name }) => ({
+        kind,
+        name,
+        active: false,
+      }));
+    }
   }
 
   get worldZoom() {
@@ -1215,7 +1234,7 @@ class PlatformerGame implements GameInstance {
   private hurtPlayer(): void {
     if (this.invulnT > 0) return;
     if (this.power.shield) {
-      this.power.shield = false;
+      this.setAbilityActive('shield', false);
       this.invulnT = 1;
       this.engine.sfx.play('hit');
       this.engine.particles.burst(this.playerCenterX(), this.playerCenterY(), 10, {
@@ -1233,6 +1252,12 @@ class PlatformerGame implements GameInstance {
     this.engine.shake(FEEL.screenShakeMs, 3);
     this.engine.hitStop(FEEL.hitStopMs);
     if (this.hud.health <= 0) this.killPlayer();
+  }
+
+  private setAbilityActive(kind: PlatformerAbilityKind, active: boolean): void {
+    this.power[kind] = active;
+    const ability = this.hud.abilities?.find((entry) => entry.kind === kind);
+    if (ability) ability.active = active;
   }
 
   private killPlayer(): void {
@@ -1426,7 +1451,7 @@ class PlatformerGame implements GameInstance {
         case 'powerup': {
           e.active = false;
           const kind = e.props.kind ?? 'doubleJump';
-          this.power[kind] = true;
+          this.setAbilityActive(kind, true);
           this.hud.score += this.spec.scoring.events.pickup;
           this.engine.sfx.play('powerup');
           this.engine.particles.burst(e.x + 6, e.y + 6, 14, {
@@ -1945,9 +1970,12 @@ class PlatformerGame implements GameInstance {
           : e.type === 'heart'
             ? 'health'
             : e.type === 'powerup'
-              ? 'powerup'
+              ? generatedAbilityPropRole(e.props.kind ?? 'doubleJump')
               : null;
-      const generatedProp = generatedPropRole ? this.generatedProps?.[generatedPropRole] : null;
+      const generatedProp = generatedPropRole
+        ? (this.generatedProps?.[generatedPropRole] ??
+          (e.type === 'powerup' ? this.generatedProps?.powerup : null))
+        : null;
       if (generatedProp) {
         const rect = generatedPlatformerPropDrawRect(
           e.type as 'coin' | 'heart' | 'powerup',

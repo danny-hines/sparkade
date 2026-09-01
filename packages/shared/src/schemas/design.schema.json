@@ -205,6 +205,28 @@
       "description": "Platformer only. Choose one bounded engine-owned movement style: balanced for general play, precision for crisp exact control, momentum for speed with retained inertia, floaty for airy/moonlike motion, or heavy for weighty armored/industrial motion. Omit for other archetypes.",
       "enum": ["balanced", "precision", "momentum", "floaty", "heavy"]
     },
+    "abilityLoadout": {
+      "description": "Always present. For platformers, choose one or two distinct engine-owned ability behaviors and give each a premise-specific display name and visual identity. For every other archetype, return an empty array.",
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": { "enum": ["doubleJump", "projectile", "shield"] },
+          "name": { "type": "string", "minLength": 1, "maxLength": 16, "pattern": "^[ -~]+$" },
+          "visualConcept": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 180,
+            "pattern": "^[ -~]+$"
+          }
+        },
+        "required": ["kind", "name", "visualConcept"],
+        "additionalProperties": false
+      }
+    },
     "feel": {
       "description": "Legacy platformer-only numeric movement overlay retained for saved checkpoints. New designs should choose movementProfile and omit feel. Omit entirely for non-platformer games.",
       "type": "object",
@@ -247,6 +269,19 @@
     {
       "if": { "properties": { "archetype": { "const": "adventure" } }, "required": ["archetype"] },
       "then": { "required": ["combatKit"] }
+    },
+    {
+      "if": { "properties": { "archetype": { "const": "platformer" } }, "required": ["archetype"] },
+      "then": {
+        "properties": {
+          "abilityLoadout": { "type": "array", "minItems": 1, "maxItems": 2 }
+        }
+      },
+      "else": {
+        "properties": {
+          "abilityLoadout": { "type": "array", "maxItems": 0 }
+        }
+      }
     }
   ],
   "required": [
@@ -260,7 +295,8 @@
     "cast",
     "musicBrief",
     "scoring",
-    "difficulty"
+    "difficulty",
+    "abilityLoadout"
   ],
   "additionalProperties": false
 }

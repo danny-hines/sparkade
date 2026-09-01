@@ -88,6 +88,15 @@ describe('golden games are golden', () => {
   }
 });
 
+describe('platformer ability presentation', () => {
+  it('uses authored ability names in per-game control help', () => {
+    const spec = golden<PlatformerSpec>('platformer');
+    const help = archetypes.platformer.controlHelpFor?.(spec) ?? [];
+    expect(help.find(({ button }) => button === 'A')?.label).toContain('Ember Vaul');
+    expect(help.find(({ button }) => button === 'Y')?.label).toBe('Run');
+  });
+});
+
 describe('horizontal-shooter encounter lints', () => {
   it('reports the first impossible temporal corridor column with actionable guidance', () => {
     const spec = golden<HShooterSpec>('hshooter');
@@ -472,6 +481,23 @@ describe('platformer lints', () => {
         (e) => e.type !== 'flyer' && e.type !== 'shooter' && e.type !== 'chaser',
       );
     expect(codes(archetypes.platformer.lint(fewEnemies))).toContain('PLAT_FLOOR_ENEMY_TYPES');
+  });
+
+  it('requires every selected ability and rejects powerups outside the loadout', () => {
+    const missing = golden<PlatformerSpec>('platformer');
+    missing.levels.forEach((level) => {
+      level.entities = level.entities.filter(
+        (entity) => entity.type !== 'powerup' || entity.props?.kind !== 'shield',
+      );
+    });
+    expect(codes(archetypes.platformer.lint(missing))).toContain('PLAT_ABILITY_NOT_PLACED');
+
+    const unselected = golden<PlatformerSpec>('platformer');
+    const powerup = unselected.levels
+      .flatMap((level) => level.entities)
+      .find((entity) => entity.type === 'powerup')!;
+    powerup.props = { ...powerup.props, kind: 'projectile' };
+    expect(codes(archetypes.platformer.lint(unselected))).toContain('PLAT_ABILITY_NOT_SELECTED');
   });
 
   it('unknown music song reference → MUSIC_UNKNOWN_SONG', () => {

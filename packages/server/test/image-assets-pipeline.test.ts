@@ -120,8 +120,8 @@ const PLATFORMER_ENEMY_ROLES = [
 const PLATFORMER_PROP_ROLES = [
   'platformerPropCollectible',
   'platformerPropHealth',
-  'platformerPropPowerup',
-  'platformerPropHeroProjectile',
+  'platformerPropPowerupDoubleJump',
+  'platformerPropPowerupShield',
   'platformerPropEnemyProjectile',
 ] as const satisfies readonly GeneratedGameAssetRole[];
 
@@ -636,7 +636,13 @@ describe.sequential('mock image asset pipeline', () => {
     expect(files.readMeta(gameId)?.platformerPropArt).toEqual({
       mode: 'generated',
       attempted: true,
-      generatedRoles: ['collectible', 'health', 'powerup', 'heroProjectile', 'enemyProjectile'],
+      generatedRoles: [
+        'collectible',
+        'health',
+        'powerupDoubleJump',
+        'powerupShield',
+        'enemyProjectile',
+      ],
     });
     expect(files.readMeta(gameId)?.platformerBackdropArt).toEqual({
       mode: 'generated',
@@ -677,8 +683,8 @@ describe.sequential('mock image asset pipeline', () => {
       platformerEnemyChaser: [96, 96],
       platformerPropCollectible: [48, 48],
       platformerPropHealth: [48, 48],
-      platformerPropPowerup: [48, 48],
-      platformerPropHeroProjectile: [32, 32],
+      platformerPropPowerupDoubleJump: [48, 48],
+      platformerPropPowerupShield: [48, 48],
       platformerPropEnemyProjectile: [32, 32],
       platformerBackdropLevel1: [1536, 600],
       platformerBackdropLevel2: [1536, 600],

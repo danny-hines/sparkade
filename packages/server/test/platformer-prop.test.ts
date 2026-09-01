@@ -23,6 +23,34 @@ describe('generated platformer props', () => {
     }
   });
 
+  it('carries the selected ability identity into its pickup and projectile art', () => {
+    const ability = {
+      kind: 'projectile' as const,
+      name: 'Acorn Arc',
+      visualConcept: 'A brass seed launcher whose glowing acorns trail tiny green sparks',
+    };
+    const pickup = buildPlatformerPropPrompt({
+      gameTitle: 'Moon Orchard',
+      tagline: 'Restore the midnight harvest',
+      premise: 'A gardener repairs a mechanical orchard.',
+      role: 'powerupProjectile',
+      colors: '#ffcc44, #334466, #f5f0dd',
+      ability,
+    });
+    const projectile = buildPlatformerPropPrompt({
+      gameTitle: 'Moon Orchard',
+      tagline: 'Restore the midnight harvest',
+      premise: 'A gardener repairs a mechanical orchard.',
+      role: 'heroProjectile',
+      colors: '#ffcc44, #334466, #f5f0dd',
+      ability,
+    });
+    for (const prompt of [pickup, projectile]) {
+      expect(prompt).toContain('Acorn Arc');
+      expect(prompt).toContain('brass seed launcher');
+    }
+  });
+
   it('keys and normalizes pickup and projectile assets at their native densities', async () => {
     const source = await sharp({
       create: { width: 256, height: 256, channels: 4, background: '#00ff00' },

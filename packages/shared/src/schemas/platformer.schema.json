@@ -27,6 +27,14 @@
       "description": "Bounded engine-owned movement style assembled from the design doc. Omitted saved games retain the original balanced movement.",
       "enum": ["balanced", "precision", "momentum", "floaty", "heavy"]
     },
+    "abilityLoadout": {
+      "description": "One or two story-specific identities layered over bounded engine-owned ability behaviors. Omitted saved games retain legacy generic powerups.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/ability" }
+    },
     "backdrop": {
       "description": "Parallax backdrop scene drawn behind gameplay in your palette's background colors. Pick the scene that matches the premise; omit for a mood-based default.",
       "enum": [
@@ -126,6 +134,21 @@
       "pattern": "^[ -~]+$"
     },
     "shortName": { "type": "string", "minLength": 1, "maxLength": 24, "pattern": "^[ -~]+$" },
+    "ability": {
+      "type": "object",
+      "properties": {
+        "kind": { "enum": ["doubleJump", "projectile", "shield"] },
+        "name": { "type": "string", "minLength": 1, "maxLength": 16, "pattern": "^[ -~]+$" },
+        "visualConcept": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 180,
+          "pattern": "^[ -~]+$"
+        }
+      },
+      "required": ["kind", "name", "visualConcept"],
+      "additionalProperties": false
+    },
     "spriteRef": {
       "description": "Either 'lib:<id>' for a built-in library sprite or 'custom:<id>' for one defined in sprites.custom.",
       "type": "string",

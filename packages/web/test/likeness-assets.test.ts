@@ -376,19 +376,25 @@ describe('loadLikenessAssets', () => {
       ...unavailableGeneratedAssets,
       platformerPropCollectible: true,
       platformerPropPowerup: true,
+      platformerPropPowerupDoubleJump: true,
       platformerPropEnemyProjectile: true,
     });
 
     expect(Object.keys(result?.platformerProps ?? {})).toEqual([
       'collectible',
       'powerup',
+      'powerupDoubleJump',
       'enemyProjectile',
     ]);
     expect(result?.platformerProps?.collectible).not.toBeNull();
     expect(result?.platformerProps?.health).toBeUndefined();
     expect(requested).toEqual(
       PLATFORMER_PROP_ASSETS.filter(
-        ([role]) => role === 'collectible' || role === 'powerup' || role === 'enemyProjectile',
+        ([role]) =>
+          role === 'collectible' ||
+          role === 'powerup' ||
+          role === 'powerupDoubleJump' ||
+          role === 'enemyProjectile',
       ).map(
         ([, assetRole]) => `/api/games/prop-game/assets/${GENERATED_GAME_ASSET_FILES[assetRole]}`,
       ),

@@ -27,6 +27,9 @@ import {
   type JobStage,
   type LintError,
   type PartialSpec,
+  type PlatformerAbility,
+  type PlatformerAbilityKind,
+  type PlatformerSpec,
   type SparkadeConfig,
   type StageName,
 } from '@sparkade/shared';
@@ -283,7 +286,6 @@ import {
   type AdventurePlayerSetJudgeDecision,
 } from '../assets/adventure-player-judge';
 import {
-  GENERATED_PLATFORMER_PROPS,
   PLATFORMER_PROP_PIPELINE_PROMPT_VERSION,
   PLATFORMER_PROP_PROMPT_VERSION,
   buildPlatformerPropPrompt,
@@ -414,6 +416,7 @@ import {
   buildLevelRegenerationPrompt,
   buildLevelsPrompt,
   buildMusicPrompt,
+  buildPlatformerAbilityLoadoutPrompt,
   buildRepairPrompt,
   parseModelJson,
   type RecentUse,
@@ -456,6 +459,64 @@ export class PipelineError extends Error {
   ) {
     super(message);
   }
+}
+
+type PipelineLlmCall = (
+  stage: StageName,
+  prompt: BuiltPrompt,
+  opts: {
+    temperature?: number;
+    repair?: boolean;
+    image?: Buffer;
+    reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
+    checkpoint?: RawStageName;
+    label: string;
+    stage: JobStage;
+  },
+) => Promise<unknown>;
+
+function abilityLoadoutIsOnlyDesignError(candidate: unknown): boolean {
+  const errors = designOutputDiagnostics(candidate);
+  return (
+    errors.length > 0 &&
+    errors.every((error) => error.code === 'SCHEMA' && error.path === '/abilityLoadout')
+  );
+}
+
+async function completeDesignAbilityContract(
+  callLlm: PipelineLlmCall,
+  candidate: unknown,
+): Promise<unknown> {
+  if (!isRecord(candidate)) return candidate;
+  if (candidate.archetype !== 'platformer') {
+    return Object.prototype.hasOwnProperty.call(candidate, 'abilityLoadout')
+      ? candidate
+      : { ...candidate, abilityLoadout: [] };
+  }
+  if (Array.isArray(candidate.abilityLoadout) && candidate.abilityLoadout.length > 0) {
+    return candidate;
+  }
+
+  try {
+    const completion = await callLlm('design', buildPlatformerAbilityLoadoutPrompt(candidate), {
+      label: 'Abilities selected',
+      stage: 'designing',
+      repair: true,
+      reasoningEffort: 'minimal',
+    });
+    if (isRecord(completion) && Array.isArray(completion.abilityLoadout)) {
+      return { ...candidate, abilityLoadout: completion.abilityLoadout };
+    }
+  } catch (error) {
+    if (
+      error instanceof PipelineError &&
+      ['auth', 'timeout', 'call-timeout', 'provider-unavailable'].includes(error.code)
+    ) {
+      throw error;
+    }
+    // Let the ordinary full-design redraft path handle a malformed focused response.
+  }
+  return candidate;
 }
 
 function isOptionalGeneratedArtProviderFailure(error: unknown): boolean {
@@ -527,9 +588,50 @@ const PLATFORMER_PROP_ASSET_ROLES = {
   collectible: 'platformerPropCollectible',
   health: 'platformerPropHealth',
   powerup: 'platformerPropPowerup',
+  powerupDoubleJump: 'platformerPropPowerupDoubleJump',
+  powerupProjectile: 'platformerPropPowerupProjectile',
+  powerupShield: 'platformerPropPowerupShield',
   heroProjectile: 'platformerPropHeroProjectile',
   enemyProjectile: 'platformerPropEnemyProjectile',
 } as const satisfies Record<GeneratedPlatformerProp, GeneratedGameAssetRole>;
+
+const PLATFORMER_ABILITY_PROP_ROLES = {
+  doubleJump: 'powerupDoubleJump',
+  projectile: 'powerupProjectile',
+  shield: 'powerupShield',
+} as const satisfies Record<PlatformerAbilityKind, GeneratedPlatformerProp>;
+
+const PLATFORMER_PROP_ABILITY_KINDS: Partial<
+  Record<GeneratedPlatformerProp, PlatformerAbilityKind>
+> = {
+  powerupDoubleJump: 'doubleJump',
+  powerupProjectile: 'projectile',
+  powerupShield: 'shield',
+  heroProjectile: 'projectile',
+};
+
+function generatedPlatformerPropRoles(spec: PlatformerSpec): GeneratedPlatformerProp[] {
+  if (!spec.abilityLoadout?.length) {
+    return ['collectible', 'health', 'powerup', 'heroProjectile', 'enemyProjectile'];
+  }
+  return [
+    'collectible',
+    'health',
+    ...spec.abilityLoadout.map(({ kind }) => PLATFORMER_ABILITY_PROP_ROLES[kind]),
+    ...(spec.abilityLoadout.some(({ kind }) => kind === 'projectile')
+      ? (['heroProjectile'] as const)
+      : []),
+    'enemyProjectile',
+  ];
+}
+
+function platformerPropAbility(
+  spec: PlatformerSpec,
+  role: GeneratedPlatformerProp,
+): PlatformerAbility | undefined {
+  const kind = PLATFORMER_PROP_ABILITY_KINDS[role];
+  return kind ? spec.abilityLoadout?.find((ability) => ability.kind === kind) : undefined;
+}
 
 const HSHOOTER_ENEMY_REPLACEMENT_ASSET_ROLES = {
   popcorn: 'hshooterEnemyReplacementPopcorn',
@@ -652,6 +754,20 @@ function tileRunsDiagnostic(error: TileRunsError, levelIndex?: number): LintErro
 export function designOutputDiagnostics(raw: unknown): LintError[] {
   const schema = validateDesignSchema(raw);
   if (schema.length || !isRecord(raw)) return schema;
+  if (raw.archetype === 'platformer' && Array.isArray(raw.abilityLoadout)) {
+    const kinds = raw.abilityLoadout.flatMap((ability) =>
+      isRecord(ability) && typeof ability.kind === 'string' ? [ability.kind] : [],
+    );
+    if (new Set(kinds).size !== kinds.length) {
+      return [
+        {
+          code: 'PLAT_ABILITY_DUPLICATE',
+          path: '/abilityLoadout',
+          message: 'choose distinct platformer ability behavior kinds',
+        },
+      ];
+    }
+  }
   // Reuse the same inert-string scan applied to the assembled game. Supplying
   // an empty sprite roster keeps design fields at their natural JSON paths.
   return securityScan({
@@ -1041,19 +1157,7 @@ export class GenerationRunner {
       });
     };
 
-    const callLlm = async (
-      stageName: StageName,
-      prompt: BuiltPrompt,
-      opts: {
-        temperature?: number;
-        repair?: boolean;
-        image?: Buffer;
-        reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
-        checkpoint?: RawStageName;
-        label: string;
-        stage: JobStage;
-      },
-    ): Promise<unknown> => {
+    const callLlm: PipelineLlmCall = async (stageName, prompt, opts): Promise<unknown> => {
       const { provider, providerName, model } = stageProvider(config, stageName);
       if (opts.image && !provider.capabilities.imageIn) {
         throw new Error(`provider "${providerName}" does not support image input`);
@@ -1503,22 +1607,40 @@ export class GenerationRunner {
       let priorDesign: unknown;
       if (priorAttempt) {
         for (let attempt = priorAttempt; attempt >= 1 && priorDesign === undefined; attempt--) {
-          // A document failure invalidates the design and everything derived
-          // from it; do not fall through to an even older copy of that design.
-          if (failedOwnersByAttempt.get(attempt)?.has('document')) break;
+          const documentFailed = failedOwnersByAttempt.get(attempt)?.has('document') ?? false;
           const candidates = this.files
             .listRawStageCheckpoints(jobId, attempt)
             .filter((checkpoint) => checkpoint.stage === 'design')
             .reverse();
-          priorDesign = candidates.find(
-            (checkpoint) => designOutputDiagnostics(checkpoint.document).length === 0,
-          )?.document;
+          priorDesign = candidates.find((checkpoint) => {
+            const diagnostics = designOutputDiagnostics(checkpoint.document);
+            const abilityOnly = abilityLoadoutIsOnlyDesignError(checkpoint.document);
+            return documentFailed ? abilityOnly : diagnostics.length === 0 || abilityOnly;
+          })?.document;
+          // A terminal document failure still blocks older design revisions;
+          // only the narrowly recoverable checkpoint from this attempt may resume.
+          if (documentFailed) break;
         }
       }
       let design: DesignDoc;
       if (priorDesign !== undefined) {
-        design = structuredClone(priorDesign) as DesignDoc;
-        emit('designing', 'Resuming the completed design…');
+        const resumed = await completeDesignAbilityContract(callLlm, structuredClone(priorDesign));
+        if (designOutputDiagnostics(resumed).length === 0) {
+          design = resumed as DesignDoc;
+          emit('designing', 'Resuming the completed design…');
+        } else {
+          design = await this.designPass(callLlm, {
+            promptText: job.promptText,
+            hasPhoto: !!photo,
+            describeInStory,
+            antiCollision: existingGames,
+            recentMoods,
+            photo: describeInStory ? photo : undefined,
+            creationBrief: job.creationBrief,
+            extraNote: requiredArchetypeNote,
+            onRepair: recordDesignRedraft,
+          });
+        }
       } else {
         design = await this.designPass(callLlm, {
           promptText: job.promptText,
@@ -5435,6 +5557,8 @@ export class GenerationRunner {
       const platformerPropTask =
         spec.archetype === 'platformer'
           ? keyArtTask.then(async (keyArt): Promise<void> => {
+              const platformerSpec = spec as PlatformerSpec;
+              const propRoles = generatedPlatformerPropRoles(platformerSpec);
               const generationStarted = Date.now();
               const colors = spec.palette
                 .filter((hex) => {
@@ -5446,7 +5570,7 @@ export class GenerationRunner {
                 .join(', ');
               const premise = [spec.meta.tagline, ...spec.story.intro].join(' ');
               const promptHashes = Object.fromEntries(
-                GENERATED_PLATFORMER_PROPS.map((role) => [
+                propRoles.map((role) => [
                   role,
                   imagePromptHash(
                     JSON.stringify({
@@ -5455,6 +5579,7 @@ export class GenerationRunner {
                       tagline: spec.meta.tagline,
                       premise,
                       role,
+                      ability: platformerPropAbility(platformerSpec, role),
                       colors,
                     }),
                     keyArt,
@@ -5463,7 +5588,7 @@ export class GenerationRunner {
               ) as Record<GeneratedPlatformerProp, string>;
               const generated = new Set<GeneratedPlatformerProp>();
 
-              for (const role of GENERATED_PLATFORMER_PROPS) {
+              for (const role of propRoles) {
                 if (
                   assetWorkspace.load(
                     PLATFORMER_PROP_ASSET_ROLES[role],
@@ -5474,12 +5599,12 @@ export class GenerationRunner {
                   generated.add(role);
                 }
               }
-              const missing = GENERATED_PLATFORMER_PROPS.filter((role) => !generated.has(role));
+              const missing = propRoles.filter((role) => !generated.has(role));
               if (missing.length === 0) {
                 platformerPropArtStatus = {
                   mode: 'generated',
                   attempted: true,
-                  generatedRoles: [...GENERATED_PLATFORMER_PROPS],
+                  generatedRoles: [...propRoles],
                 };
                 emit('building-assets', 'Restored the generated platformer gameplay props');
                 return;
@@ -5497,6 +5622,7 @@ export class GenerationRunner {
                         tagline: spec.meta.tagline,
                         premise,
                         role,
+                        ability: platformerPropAbility(platformerSpec, role),
                         colors,
                       }),
                       reference: keyArt,
@@ -5534,12 +5660,8 @@ export class GenerationRunner {
                 }),
               );
 
-              const generatedRoles = GENERATED_PLATFORMER_PROPS.filter((role) =>
-                generated.has(role),
-              );
-              const missingRoles = GENERATED_PLATFORMER_PROPS.filter(
-                (role) => !generated.has(role),
-              );
+              const generatedRoles = propRoles.filter((role) => generated.has(role));
+              const missingRoles = propRoles.filter((role) => !generated.has(role));
               if (missingRoles.length === 0) {
                 platformerPropArtStatus = {
                   mode: 'generated',
@@ -6969,19 +7091,7 @@ export class GenerationRunner {
   }
 
   private async designPass(
-    callLlm: (
-      stage: StageName,
-      prompt: BuiltPrompt,
-      opts: {
-        temperature?: number;
-        repair?: boolean;
-        image?: Buffer;
-        reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
-        checkpoint?: RawStageName;
-        label: string;
-        stage: JobStage;
-      },
-    ) => Promise<unknown>,
+    callLlm: PipelineLlmCall,
     opts: {
       promptText: string;
       hasPhoto: boolean;
@@ -6999,12 +7109,15 @@ export class GenerationRunner {
     },
   ): Promise<DesignDoc> {
     const prompt = buildDesignPrompt(opts);
-    let raw = await callLlm('design', prompt, {
-      label: 'Design drafted',
-      stage: 'designing',
-      checkpoint: 'design',
-      ...(opts.photo ? { image: opts.photo } : {}),
-    });
+    let raw = await completeDesignAbilityContract(
+      callLlm,
+      await callLlm('design', prompt, {
+        label: 'Design drafted',
+        stage: 'designing',
+        checkpoint: 'design',
+        ...(opts.photo ? { image: opts.photo } : {}),
+      }),
+    );
     let errors = designOutputDiagnostics(raw);
     if (errors.length) {
       const before = errors;
@@ -7021,12 +7134,15 @@ export class GenerationRunner {
           .filter(Boolean)
           .join(' '),
       });
-      raw = await callLlm('design', retryPrompt, {
-        label: 'Design redrafted',
-        stage: 'designing',
-        checkpoint: 'design',
-        ...(opts.photo ? { image: opts.photo } : {}),
-      });
+      raw = await completeDesignAbilityContract(
+        callLlm,
+        await callLlm('design', retryPrompt, {
+          label: 'Design redrafted',
+          stage: 'designing',
+          checkpoint: 'design',
+          ...(opts.photo ? { image: opts.photo } : {}),
+        }),
+      );
       errors = designOutputDiagnostics(raw);
       opts.onRepair?.(before, errors, repairStarted);
       if (errors.length) {
@@ -7100,6 +7216,9 @@ export class GenerationRunner {
               design.platformerArtDensity ??
               (hasPhoto ? ('detailed' as const) : ('chunky' as const)),
             movementProfile: design.movementProfile ?? ('balanced' as const),
+            ...(design.abilityLoadout
+              ? { abilityLoadout: structuredClone(design.abilityLoadout) }
+              : {}),
           }
         : {}),
       ...(archetype === 'hshooter' ? { hshooterArtDensity: 'detailed' as const } : {}),

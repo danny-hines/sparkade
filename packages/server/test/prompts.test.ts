@@ -4,6 +4,7 @@ import {
   buildEntitiesPrompt,
   buildLevelRegenerationPrompt,
   buildLevelsPrompt,
+  buildPlatformerAbilityLoadoutPrompt,
   buildRepairPrompt,
 } from '../src/pipeline/prompts';
 
@@ -11,6 +12,26 @@ const design = {
   title: 'Likeness Test',
   archetype: 'platformer',
 } as DesignDoc;
+
+describe('platformer ability recovery prompt', () => {
+  it('requests only the missing bounded loadout with a small completion budget', () => {
+    const prompt = buildPlatformerAbilityLoadoutPrompt({
+      ...design,
+      tagline: 'Repair the lighthouse before the storm arrives',
+      heroConcept: 'A brass-coated signal keeper',
+    });
+    expect(prompt.maxTokens).toBe(500);
+    expect(prompt.user).toContain('Repair the lighthouse');
+    expect(prompt.system).toContain('doubleJump, projectile, or shield');
+    expect(prompt.jsonSchema).toMatchObject({
+      required: ['abilityLoadout'],
+      additionalProperties: false,
+      properties: {
+        abilityLoadout: { type: 'array', minItems: 1, maxItems: 2 },
+      },
+    });
+  });
+});
 
 describe('entities prompt likeness casting', () => {
   it('reserves compatible built-in hero bodies for photo platformers', () => {

@@ -1,6 +1,12 @@
 // The archetype interface — layer 2 of the three-layer architecture.
 import type { EngineContext, GameInstance } from '@sparkade/engine';
-import type { ArchetypeId, ContentFloors, ControlLabel, GameSpec, LintError } from '@sparkade/shared';
+import type {
+  ArchetypeId,
+  ContentFloors,
+  ControlLabel,
+  GameSpec,
+  LintError,
+} from '@sparkade/shared';
 
 export interface Archetype {
   id: ArchetypeId;
@@ -14,6 +20,8 @@ export interface Archetype {
   create(engine: EngineContext, spec: GameSpec): GameInstance;
   /** Shown on the pre-game "how to play" card and the pause Controls screen. */
   controlHelp: ControlLabel[];
+  /** Optional per-game labels for mechanics whose fiction is authored in the spec. */
+  controlHelpFor?(spec: GameSpec): ControlLabel[];
   /** Machine-checkable minimums (also listed in prompt templates). */
   contentFloors: ContentFloors;
 }

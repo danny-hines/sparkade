@@ -156,6 +156,21 @@ describe('archetype schemas', () => {
     expect(schema.required).not.toContain('movementProfile');
   });
 
+  it('keeps themed platformer abilities bounded while old saves remain compatible', () => {
+    const schema = ARCHETYPE_SCHEMAS.platformer as {
+      properties: Record<string, { minItems?: number; maxItems?: number }>;
+      required: string[];
+      $defs: { ability: { properties: { kind: { enum: string[] } } } };
+    };
+    expect(schema.properties['abilityLoadout']).toMatchObject({ minItems: 1, maxItems: 2 });
+    expect(schema.$defs.ability.properties.kind.enum).toEqual([
+      'doubleJump',
+      'projectile',
+      'shield',
+    ]);
+    expect(schema.required).not.toContain('abilityLoadout');
+  });
+
   it('bounds the optional platformer surface-material vocabulary', () => {
     const schema = ARCHETYPE_SCHEMAS.platformer as {
       $defs: { legendTile: { enum: string[] } };
@@ -345,6 +360,7 @@ describe('archetype schemas', () => {
       'musicBrief',
       'scoring',
       'difficulty',
+      'abilityLoadout',
     ]) {
       expect(s.required).toContain(key);
     }
@@ -354,6 +370,9 @@ describe('archetype schemas', () => {
     expect(s.required).not.toContain('vehicleConcept');
     expect(
       (DESIGN_SCHEMA as { properties: Record<string, unknown> }).properties.fighterArtDirection,
+    ).toBeDefined();
+    expect(
+      (DESIGN_SCHEMA as { properties: Record<string, unknown> }).properties.abilityLoadout,
     ).toBeDefined();
   });
 });

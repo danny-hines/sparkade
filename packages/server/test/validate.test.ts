@@ -38,6 +38,36 @@ function golden(archetype: string): GameSpec {
   );
 }
 
+function validPlatformerDesign(): DesignDoc {
+  const source = golden('platformer');
+  return {
+    title: 'Safe Design',
+    tagline: 'A clean test design',
+    archetype: 'platformer',
+    palette: source.palette,
+    heroConcept: 'A careful arcade explorer',
+    story: source.story,
+    levelPlan: new Array(4).fill(null).map((_, index) => ({
+      name: `Stage ${index + 1}`,
+      summary: 'Cross a compact obstacle course.',
+    })),
+    cast: ['walker', 'flyer', 'shooter', 'chaser'].map((role) => ({
+      role,
+      concept: `A themed ${role}`,
+    })),
+    musicBrief: { key: 'C minor', bpm: 120, themeMood: 'bold', bossMood: 'tense' },
+    scoring: source.scoring,
+    difficulty: 'standard',
+    abilityLoadout: [
+      {
+        kind: 'doubleJump',
+        name: 'Sky Step',
+        visualConcept: 'A bright mechanical feather that kicks upward in midair',
+      },
+    ],
+  };
+}
+
 function compactLevelStage(levels: readonly unknown[]): { levels: unknown[] } {
   return {
     levels: levels.map((value) => {
@@ -145,33 +175,45 @@ async function validateAndRepairForTest(
 
 describe('security scan', () => {
   it('rejects unsafe display strings during design instead of after dependent stages run', () => {
-    const source = golden('platformer');
-    const design: DesignDoc = {
-      title: 'Safe Design',
-      tagline: 'A clean test design',
-      archetype: 'platformer',
-      palette: source.palette,
-      heroConcept: 'A careful arcade explorer',
-      story: source.story,
-      levelPlan: new Array(4).fill(null).map((_, index) => ({
-        name: `Stage ${index + 1}`,
-        summary: 'Cross a compact obstacle course.',
-      })),
-      cast: ['walker', 'flyer', 'shooter', 'chaser'].map((role) => ({
-        role,
-        concept: `A themed ${role}`,
-      })),
-      musicBrief: { key: 'C minor', bpm: 120, themeMood: 'bold', bossMood: 'tense' },
-      scoring: source.scoring,
-      difficulty: 'standard',
-    };
+    const design = validPlatformerDesign();
 
     expect(designOutputDiagnostics(design)).toEqual([]);
+    expect(designOutputDiagnostics({ ...design, abilityLoadout: null })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'SCHEMA', path: '/abilityLoadout' }),
+      ]),
+    );
+    const missingAbility = { ...design } as Partial<DesignDoc>;
+    delete missingAbility.abilityLoadout;
+    expect(designOutputDiagnostics(missingAbility)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'SCHEMA', path: '/abilityLoadout' }),
+      ]),
+    );
     expect(designOutputDiagnostics({ ...design, movementProfile: 'floaty' })).toEqual([]);
+    expect(
+      designOutputDiagnostics({
+        ...design,
+        abilityLoadout: [
+          ...design.abilityLoadout!,
+          {
+            kind: 'doubleJump',
+            name: 'Cloud Kick',
+            visualConcept: 'A second bright mechanical feather with a different finish',
+          },
+        ],
+      }),
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'PLAT_ABILITY_DUPLICATE' })]),
+    );
     expect(
       designOutputDiagnostics({ ...design, movementProfile: 'slippery' as 'balanced' }),
     ).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'SCHEMA' })]));
-    const missingCraft = designOutputDiagnostics({ ...design, archetype: 'hshooter' });
+    const missingCraft = designOutputDiagnostics({
+      ...design,
+      archetype: 'hshooter',
+      abilityLoadout: [],
+    });
     expect(missingCraft).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ code: 'SCHEMA', path: '/vehicleConcept' }),
@@ -182,11 +224,16 @@ describe('security scan', () => {
       designOutputDiagnostics({
         ...design,
         archetype: 'hshooter',
+        abilityLoadout: [],
         vehicleConcept:
           'A cobalt trench skiff with swept fins, a dark canopy, and twin amber drives',
       }),
     ).toEqual([]);
-    const missingCombatKit = designOutputDiagnostics({ ...design, archetype: 'adventure' });
+    const missingCombatKit = designOutputDiagnostics({
+      ...design,
+      archetype: 'adventure',
+      abilityLoadout: [],
+    });
     expect(missingCombatKit).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: 'SCHEMA', path: '/combatKit' })]),
     );
@@ -194,6 +241,7 @@ describe('security scan', () => {
       designOutputDiagnostics({
         ...design,
         archetype: 'adventure',
+        abilityLoadout: [],
         combatKit: {
           primary: {
             profile: 'close',
@@ -209,7 +257,9 @@ describe('security scan', () => {
         },
       }),
     ).toEqual([]);
-    expect(designOutputDiagnostics({ ...design, archetype: 'fighter' })).toEqual(
+    expect(
+      designOutputDiagnostics({ ...design, archetype: 'fighter', abilityLoadout: [] }),
+    ).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ code: 'SCHEMA', path: '/fighterArtDirection' }),
       ]),
@@ -218,6 +268,7 @@ describe('security scan', () => {
       designOutputDiagnostics({
         ...design,
         archetype: 'fighter',
+        abilityLoadout: [],
         fighterArtDirection: {
           aesthetic: 'stylized',
           proportions:
@@ -230,6 +281,71 @@ describe('security scan', () => {
     expect(designOutputDiagnostics({ ...design, title: 'Visit www.bad.example' })).toEqual([
       expect.objectContaining({ code: 'SCAN_REJECTED', path: '/title' }),
     ]);
+  });
+
+  it('fills a missing platformer ability without redrafting the full design', async () => {
+    const draft = validPlatformerDesign() as Partial<DesignDoc>;
+    delete draft.abilityLoadout;
+    const calls: { label: string; maxTokens: number }[] = [];
+    const responses: unknown[] = [
+      draft,
+      {
+        abilityLoadout: [
+          {
+            kind: 'shield',
+            name: 'Signal Ward',
+            visualConcept: 'A warm amber lighthouse ring that absorbs one incoming hit',
+          },
+        ],
+      },
+    ];
+    const runner = Object.create(GenerationRunner.prototype) as GenerationRunner;
+    const designPass = (
+      runner as unknown as {
+        designPass(
+          call: (
+            stage: StageName,
+            prompt: BuiltPrompt,
+            opts: {
+              temperature?: number;
+              repair?: boolean;
+              image?: Buffer;
+              reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
+              checkpoint?: 'design' | 'levels' | 'entities' | 'music';
+              label: string;
+              stage: JobStage;
+            },
+          ) => Promise<unknown>,
+          opts: {
+            promptText: string;
+            hasPhoto: boolean;
+            describeInStory: boolean;
+            antiCollision: { title: string; tagline: string }[];
+          },
+        ): Promise<DesignDoc>;
+      }
+    ).designPass.bind(runner);
+    const result = await designPass(
+      async (_stage, prompt, opts) => {
+        calls.push({ label: opts.label, maxTokens: prompt.maxTokens });
+        return responses.shift();
+      },
+      {
+        promptText: 'A lighthouse platformer',
+        hasPhoto: false,
+        describeInStory: false,
+        antiCollision: [],
+      },
+    );
+
+    expect(calls).toEqual([
+      { label: 'Design drafted', maxTokens: 4000 },
+      { label: 'Abilities selected', maxTokens: 500 },
+    ]);
+    expect(result).toMatchObject({
+      title: 'Safe Design',
+      abilityLoadout: [{ kind: 'shield', name: 'Signal Ward' }],
+    });
   });
 
   it('injection strings in display fields are rejected and stay inert', () => {
@@ -332,6 +448,28 @@ describe('platformer geometry schema migration', () => {
 
     const invalid = { ...current, movementProfile: 'slippery' };
     expect(validateGameSchema('platformer', invalid)).not.toEqual([]);
+  });
+
+  it('accepts one or two themed platformer abilities while old saves remain valid', () => {
+    const current = golden('platformer') as PlatformerSpec;
+    expect(validateGameSchema('platformer', current)).toEqual([]);
+
+    const legacy = structuredClone(current);
+    delete legacy.abilityLoadout;
+    expect(validateGameSchema('platformer', legacy)).toEqual([]);
+
+    const tooMany = {
+      ...current,
+      abilityLoadout: [
+        ...current.abilityLoadout!,
+        {
+          kind: 'projectile',
+          name: 'Beacon Bolt',
+          visualConcept: 'A bright lighthouse spark fired straight ahead',
+        },
+      ],
+    };
+    expect(validateGameSchema('platformer', tooMany)).not.toEqual([]);
   });
 });
 

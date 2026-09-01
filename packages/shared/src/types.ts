@@ -192,6 +192,17 @@ export type PlatformerEntityType =
   | 'heart'
   | 'powerup';
 
+export const PLATFORMER_ABILITY_KINDS = ['doubleJump', 'projectile', 'shield'] as const;
+
+export type PlatformerAbilityKind = (typeof PLATFORMER_ABILITY_KINDS)[number];
+
+/** Story-specific presentation layered over one bounded platformer behavior. */
+export interface PlatformerAbility {
+  kind: PlatformerAbilityKind;
+  name: string;
+  visualConcept: string;
+}
+
 export interface PlatformerEntityProps {
   dir?: -1 | 1;
   speed?: number;
@@ -202,7 +213,7 @@ export interface PlatformerEntityProps {
   aim?: 'aimed' | 'arc';
   dx?: number;
   dy?: number;
-  kind?: 'doubleJump' | 'projectile' | 'shield';
+  kind?: PlatformerAbilityKind;
 }
 
 export interface PlatformerEntity {
@@ -489,6 +500,8 @@ export interface PlatformerSpec extends GameSpecBase {
   platformerArtDensity?: PlatformerArtDensity;
   /** Bounded engine-owned movement style; omitted saved games remain balanced. */
   movementProfile?: PlatformerMovementProfile;
+  /** Story-specific identities for one or two bounded engine-owned abilities. */
+  abilityLoadout?: PlatformerAbility[];
   /** Horizontal side-scroll scene; omitted → seed-varied pick. */
   backdrop?: BackdropVariantId;
   levels: PlatformerLevel[];
@@ -564,6 +577,8 @@ export interface DesignDoc {
   platformerArtDensity?: PlatformerArtDensity;
   /** Platformer-only bounded movement style; omitted checkpoints default to balanced. */
   movementProfile?: PlatformerMovementProfile;
+  /** Platformer ability identities; empty for every other archetype. */
+  abilityLoadout: PlatformerAbility[];
   /** Legacy platformer-only movement overlay; new designs should use movementProfile. */
   feel?: HeroFeel;
 }
@@ -683,7 +698,14 @@ export interface GameMetaFile {
     attempted: boolean;
     /** Prop roles whose generated art passed local processing and was published. */
     generatedRoles?: Array<
-      'collectible' | 'health' | 'powerup' | 'heroProjectile' | 'enemyProjectile'
+      | 'collectible'
+      | 'health'
+      | 'powerup'
+      | 'powerupDoubleJump'
+      | 'powerupProjectile'
+      | 'powerupShield'
+      | 'heroProjectile'
+      | 'enemyProjectile'
     >;
     /** Present when at least one role retained its stable library fallback. */
     reason?: string;

@@ -107,6 +107,7 @@ export interface ArchetypeRuntime {
   id: string;
   version: string;
   controlHelp: ControlLabel[];
+  controlHelpFor?(spec: GameSpec): ControlLabel[];
   create(engine: EngineContext, spec: GameSpec): GameInstance;
 }
 
@@ -235,8 +236,9 @@ export class GameHost {
       },
     };
 
+    const controlHelp = opts.archetype.controlHelpFor?.(opts.spec) ?? opts.archetype.controlHelp;
     this.pause = new PauseOverlay({
-      controlHelp: opts.archetype.controlHelp,
+      controlHelp,
       getVolumes: () => this.audio.getVolumes(),
       setVolumes: (v) => {
         this.audio.setVolumes(v);
@@ -246,7 +248,7 @@ export class GameHost {
         this.sfx.play(k === 'move' ? 'uiMove' : k === 'select' ? 'uiSelect' : 'uiBack'),
     });
 
-    this.howto = new HowToPlayCard(opts.spec.meta.title, opts.archetype.controlHelp);
+    this.howto = new HowToPlayCard(opts.spec.meta.title, controlHelp);
     this.weather = makeWeather(opts.spec.weather ?? 'none', opts.spec.palette, opts.spec.seed);
     this.renderer.juice = Math.max(0, Math.min(1.5, opts.spec.juice ?? 1));
     this.lightTint = LIGHTING_TINTS[opts.spec.lighting ?? 'none'] ?? null;
@@ -469,6 +471,7 @@ export class GameHost {
           showBombs:
             this.opts.spec.archetype === 'shooter' || this.opts.spec.archetype === 'hshooter',
           showCollectibles: this.opts.spec.archetype === 'platformer',
+          showAbilities: this.opts.spec.archetype === 'platformer',
           healthIcon:
             this.opts.spec.archetype === 'platformer'
               ? this.engineCtx.platformerProps?.health
@@ -477,6 +480,20 @@ export class GameHost {
             this.opts.spec.archetype === 'platformer'
               ? this.engineCtx.platformerProps?.collectible
               : null,
+          abilityIcons:
+            this.opts.spec.archetype === 'platformer'
+              ? {
+                  doubleJump:
+                    this.engineCtx.platformerProps?.powerupDoubleJump ??
+                    this.engineCtx.platformerProps?.powerup,
+                  projectile:
+                    this.engineCtx.platformerProps?.powerupProjectile ??
+                    this.engineCtx.platformerProps?.powerup,
+                  shield:
+                    this.engineCtx.platformerProps?.powerupShield ??
+                    this.engineCtx.platformerProps?.powerup,
+                }
+              : undefined,
         });
         if (this.engineCtx.cards.active) this.engineCtx.cards.render(r);
         if (this.state === 'paused') this.pause.render(r);

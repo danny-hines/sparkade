@@ -188,7 +188,33 @@ export class MockProvider implements Provider {
           },
           scoring: structuredClone(golden.scoring),
           difficulty: 'standard',
-          ...(archetype === 'platformer' ? { movementProfile: 'precision' as const } : {}),
+          abilityLoadout:
+            archetype === 'platformer'
+              ? golden.archetype === 'platformer'
+                ? structuredClone(
+                    golden.abilityLoadout ?? [
+                      {
+                        kind: 'projectile' as const,
+                        name: 'Arc Spark',
+                        visualConcept:
+                          'A bright brass coil that launches a compact blue-white bolt from the hero',
+                      },
+                    ],
+                  )
+                : [
+                    {
+                      kind: 'projectile' as const,
+                      name: 'Arc Spark',
+                      visualConcept:
+                        'A bright brass coil that launches a compact blue-white bolt from the hero',
+                    },
+                  ]
+              : [],
+          ...(archetype === 'platformer'
+            ? {
+                movementProfile: 'precision' as const,
+              }
+            : {}),
         };
         payload = design;
         break;

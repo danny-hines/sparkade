@@ -107,6 +107,57 @@ export function buildDesignPrompt(opts: {
   return { system, user, jsonSchema: DESIGN_SCHEMA, maxTokens: 4000 };
 }
 
+const designAbilityLoadoutSchema = (
+  DESIGN_SCHEMA as {
+    properties: { abilityLoadout: Record<string, unknown> };
+  }
+).properties.abilityLoadout;
+
+const PLATFORMER_ABILITY_LOADOUT_COMPLETION_SCHEMA = {
+  type: 'object',
+  properties: {
+    abilityLoadout: {
+      ...designAbilityLoadoutSchema,
+      type: 'array',
+      minItems: 1,
+      maxItems: 2,
+    },
+  },
+  required: ['abilityLoadout'],
+  additionalProperties: false,
+};
+
+/** Focused recovery for an otherwise usable platformer design that omitted the
+ * required ability selection. Keeping this response tiny is cheaper and less
+ * destructive than asking the model to rewrite the full design document. */
+export function buildPlatformerAbilityLoadoutPrompt(design: unknown): BuiltPrompt {
+  const source =
+    design !== null && typeof design === 'object'
+      ? (design as Record<string, unknown>)
+      : ({} as Record<string, unknown>);
+  const context = {
+    title: source['title'],
+    tagline: source['tagline'],
+    heroConcept: source['heroConcept'],
+    story: source['story'],
+    levelPlan: source['levelPlan'],
+  };
+  const system = [
+    'You are completing one missing field in an already-authored Sparkade platformer design.',
+    'Choose one or two DISTINCT supported engine behaviors that best fit the premise: doubleJump, projectile, or shield.',
+    'Give each a short premise-specific name and a concrete visualConcept. Do not invent new behavior kinds or redesign any other part of the game.',
+    'Return raw JSON matching this schema, with no prose or markdown:',
+    JSON.stringify(PLATFORMER_ABILITY_LOADOUT_COMPLETION_SCHEMA, null, 1),
+  ].join('\n');
+  const user = `EXISTING DESIGN CONTEXT:\n${JSON.stringify(context)}\n\nComplete abilityLoadout now.`;
+  return {
+    system,
+    user,
+    jsonSchema: PLATFORMER_ABILITY_LOADOUT_COMPLETION_SCHEMA,
+    maxTokens: 500,
+  };
+}
+
 export function buildLevelsPrompt(
   archetype: ArchetypeId,
   design: DesignDoc,

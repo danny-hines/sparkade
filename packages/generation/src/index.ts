@@ -93,6 +93,7 @@ export function goldenExcerpt(archetype: ArchetypeId, stage: SpecStage | 'design
                 platformerScale: g.platformerScale ?? 'heroic',
                 platformerArtDensity: g.platformerArtDensity ?? 'chunky',
                 movementProfile: g.movementProfile ?? 'balanced',
+                abilityLoadout: g.abilityLoadout,
               }
             : {}),
           ...(g.archetype === 'adventure' ? { combatKit: g.combatKit } : {}),

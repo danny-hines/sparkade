@@ -52,7 +52,7 @@ describe('prompt templates', () => {
     expect(t).toContain('Plan ONLY what this runtime can deliver');
     expect(t).toContain('walker/flyer/shooter/chaser');
     expect(t).toContain('springs; moving platforms');
-    expect(t).toContain("player's run/jump/spin/throw verbs");
+    expect(t).toContain("player's run/jump/spin verbs");
     expect(t).toContain('Do NOT promise glide, collapsing tiles, pendulums');
     expect(t).toContain('invented cast roles such as `bruiser`');
     expect(t).toContain('NEVER truncate a string or cut off its final word');
@@ -60,6 +60,10 @@ describe('prompt templates', () => {
     expect(t).toContain('Choose camera framing and source-art detail independently');
     expect(t).toContain('New games MUST use `platformerArtDensity: detailed`');
     expect(t).toContain('Always choose one `movementProfile`');
+    expect(t).toContain('REQUIRED `abilityLoadout`');
+    expect(t).toContain('`doubleJump`');
+    expect(t).toContain('`projectile`');
+    expect(t).toContain('`shield`');
     expect(t).toContain('`precision` for crisp exact control');
     expect(t).toContain('`momentum` for speed with retained inertia');
     expect(t).toContain('do not emit the legacy numeric `feel` object');
@@ -88,8 +92,10 @@ describe('prompt templates', () => {
   it('shows the platformer movement profile in the design example', () => {
     const excerpt = JSON.parse(goldenExcerpt('platformer', 'design')) as {
       movementProfile?: string;
+      abilityLoadout?: Array<{ kind: string }>;
     };
     expect(excerpt.movementProfile).toBe('balanced');
+    expect(excerpt.abilityLoadout?.map(({ kind }) => kind)).toEqual(['doubleJump', 'shield']);
   });
 
   it('teaches the fighter levels stage to author the player and outfit', () => {
@@ -128,6 +134,8 @@ describe('prompt templates', () => {
     expect(prompt).toContain('one semantic value per cell');
     expect(prompt).toContain('never add separate cap/inner characters');
     expect(prompt).toContain('engine selects exposed cap art versus buried inner art');
+    expect(prompt).toContain("design document's `abilityLoadout`");
+    expect(prompt).toContain('one reachable powerup for EVERY entry');
     expect(prompt).toContain('`"heroic"` uses a close 2x camera');
     expect(prompt).toContain('≤ 8 near any heroic screen');
     expect(prompt).toContain('Choose neither, one, or both');

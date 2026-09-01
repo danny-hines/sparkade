@@ -5,6 +5,19 @@
   "playerHeightTiles": 2,
   "platformerScale": "heroic",
   "platformerArtDensity": "chunky",
+  "movementProfile": "balanced",
+  "abilityLoadout": [
+    {
+      "kind": "doubleJump",
+      "name": "Ember Vault",
+      "visualConcept": "A tiny brass lantern feather whose captured flame bursts beneath Wick for a second airborne leap"
+    },
+    {
+      "kind": "shield",
+      "name": "Beacon Ward",
+      "visualConcept": "A warm glass lighthouse lens that unfolds into a circular amber light barrier around Wick"
+    }
+  ],
   "meta": {
     "title": "Emberwick Ascent",
     "tagline": "Climb the clockwork lighthouse and relight the night."

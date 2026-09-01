@@ -59,6 +59,15 @@ floors, and other level-specific terrain without making each one a bespoke mecha
 Model special mechanics as modular abilities that can be built into a character, equipped as a
 loadout, granted temporarily by a power-up, or unlocked through progression.
 
+The first bounded loadout slice is implemented for new generations. Spark chooses one or two
+distinct behaviors from `doubleJump`, `projectile`, and `shield`, then supplies a short name and
+premise-specific visual concept for each. Level generation may place only those selected kinds and
+must place every selection on a reachable route. Muse Image uses the same identity contract for
+each ability pickup and, for projectile abilities, the fired shot. The HUD shows the authored
+loadout and its acquisition state, while control help reflects whether the game actually includes
+an airborne second jump or projectile action. Saved games without a loadout retain the legacy
+generic power-up behavior.
+
 - Projectile weapons, including charge shots, spread shots, and aimable shots.
 - Melee weapons with configurable range, arc, timing, and combo behavior.
 - Stomping or bouncing on enemies.

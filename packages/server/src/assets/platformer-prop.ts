@@ -1,3 +1,4 @@
+import type { PlatformerAbility } from '@sparkade/shared';
 import {
   FighterPoseImageError,
   processGeneratedFighterPose,
@@ -8,14 +9,17 @@ export const GENERATED_PLATFORMER_PROPS = [
   'collectible',
   'health',
   'powerup',
+  'powerupDoubleJump',
+  'powerupProjectile',
+  'powerupShield',
   'heroProjectile',
   'enemyProjectile',
 ] as const;
 
 export type GeneratedPlatformerProp = (typeof GENERATED_PLATFORMER_PROPS)[number];
 
-export const PLATFORMER_PROP_PROMPT_VERSION = 'platformer-prop-v1';
-export const PLATFORMER_PROP_PIPELINE_PROMPT_VERSION = 'platformer-prop-pipeline-v1';
+export const PLATFORMER_PROP_PROMPT_VERSION = 'platformer-prop-v2';
+export const PLATFORMER_PROP_PIPELINE_PROMPT_VERSION = 'platformer-prop-pipeline-v2';
 
 export interface PlatformerPropPromptOptions {
   gameTitle: string;
@@ -23,6 +27,7 @@ export interface PlatformerPropPromptOptions {
   premise: string;
   role: GeneratedPlatformerProp;
   colors: string;
+  ability?: PlatformerAbility;
 }
 
 const ROLE_DIRECTION: Record<GeneratedPlatformerProp, string> = {
@@ -32,6 +37,12 @@ const ROLE_DIRECTION: Record<GeneratedPlatformerProp, string> = {
     'Design one unmistakable restorative pickup native to this world: a heart, life vessel, food, medicine, repair cell, or equivalent. It must read as health at a glance.',
   powerup:
     'Design one rare, unmistakably powerful upgrade pickup native to this world: a glowing tool, talisman, module, potion, or equivalent. Keep it distinct from health and the ordinary collectible.',
+  powerupDoubleJump:
+    'Design the rare upgrade pickup that grants the hero a second airborne jump. Its silhouette should suggest lift, rebound, wings, boots, propulsion, or another premise-specific upward impulse.',
+  powerupProjectile:
+    'Design the rare upgrade pickup that grants the hero a ranged shot. Show the compact tool, charge, ammunition source, or magical focus as one pickup, never the fired projectile itself.',
+  powerupShield:
+    'Design the rare upgrade pickup that grants a one-hit protective barrier. Its silhouette should suggest a ward, shell, lens, field generator, charm, or another premise-specific defense.',
   heroProjectile:
     'Design one compact projectile fired by the hero toward the RIGHT. Use a horizontal, fast-moving silhouette and a friendly palette accent. Do not show the weapon, hand, trail, or character that fires it.',
   enemyProjectile:
@@ -49,6 +60,12 @@ export function buildPlatformerPropPrompt(options: PlatformerPropPromptOptions):
     `Game: ${clean(options.gameTitle, 80)} — ${clean(options.tagline, 120)}.`,
     `Premise: ${clean(options.premise, 240)}.`,
     `Asset role: ${options.role}. ${ROLE_DIRECTION[options.role]}`,
+    ...(options.ability
+      ? [
+          `Ability identity: ${clean(options.ability.name, 40)}.`,
+          `Ability visual contract: ${clean(options.ability.visualConcept, 220)}. Preserve this identity in the pickup${options.role === 'heroProjectile' ? ' and fired shot' : ''}.`,
+        ]
+      : []),
     'Use the attached key art only as visual direction. Match its world, materials, shapes, era, mood, and rendering style without copying a complete character or scene.',
     projectile
       ? 'The projectile must remain bold and legible when displayed at 8x8 world pixels.'

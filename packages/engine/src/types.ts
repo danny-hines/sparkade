@@ -1,5 +1,5 @@
 // Engine-side interfaces shared with archetypes and the shell.
-import type { LogicalButton, SpriteData } from '@sparkade/shared';
+import type { LogicalButton, PlatformerAbilityKind, SpriteData } from '@sparkade/shared';
 
 /** A library sprite entry: 1+ frames of palette-indexed art plus named animations. */
 export type HeadView = 'front' | 'side' | 'back';
@@ -128,6 +128,8 @@ export interface HudState {
   bombs: number;
   /** Platformer pickup count; optional so older archetypes remain unchanged. */
   collectibles?: number;
+  /** The game-specific platformer ability loadout and current acquisition state. */
+  abilities?: Array<{ kind: PlatformerAbilityKind; name: string; active: boolean }>;
   /** Optional boss health while a boss fight is active. */
   boss?: { hp: number; maxHp: number; name: string };
 }

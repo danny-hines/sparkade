@@ -513,6 +513,17 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
   let pickupCount = 0;
   let powerupCount = 0;
   let checkpointTotal = 0;
+  const selectedAbilityKinds = new Set(spec.abilityLoadout?.map(({ kind }) => kind) ?? []);
+  const placedAbilityKinds = new Set<string>();
+  if (spec.abilityLoadout && selectedAbilityKinds.size !== spec.abilityLoadout.length) {
+    out.push(
+      err(
+        'PLAT_ABILITY_DUPLICATE',
+        '/abilityLoadout',
+        'abilityLoadout must contain distinct behavior kinds',
+      ),
+    );
+  }
   spec.levels.forEach((level, li) => {
     const path = `/levels/${li}`;
     out.push(...lintRowLengths(level.tiles, path, 'PLAT_ROWS_UNEQUAL'));
@@ -782,7 +793,28 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
     for (const [entityIndex, e] of level.entities.entries()) {
       if ((ENEMY_TYPES as readonly string[]).includes(e.type)) enemyTypesUsed.add(e.type);
       if (e.type === 'coin' || e.type === 'heart' || e.type === 'powerup') pickupCount++;
-      if (e.type === 'powerup') powerupCount++;
+      if (e.type === 'powerup') {
+        powerupCount++;
+        const kind = e.props?.kind ?? 'doubleJump';
+        placedAbilityKinds.add(kind);
+        if (spec.abilityLoadout && !e.props?.kind) {
+          out.push(
+            err(
+              'PLAT_ABILITY_KIND_REQUIRED',
+              `${path}/entities/${entityIndex}/props/kind`,
+              'powerups in a themed ability game must explicitly name their selected behavior kind',
+            ),
+          );
+        } else if (spec.abilityLoadout && !selectedAbilityKinds.has(kind)) {
+          out.push(
+            err(
+              'PLAT_ABILITY_NOT_SELECTED',
+              `${path}/entities/${entityIndex}/props/kind`,
+              `${kind} is not present in this game's abilityLoadout`,
+            ),
+          );
+        }
+      }
       if (e.type === 'movingPlatform') {
         const dx = e.props?.dx ?? 0;
         const dy = e.props?.dy ?? 0;
@@ -936,6 +968,17 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
   }
   if (powerupCount < 1) {
     out.push(err('PLAT_FLOOR_POWERUP', '/levels', 'at least one powerup entity is required'));
+  }
+  for (const ability of spec.abilityLoadout ?? []) {
+    if (!placedAbilityKinds.has(ability.kind)) {
+      out.push(
+        err(
+          'PLAT_ABILITY_NOT_PLACED',
+          '/levels',
+          `${ability.name} (${ability.kind}) needs at least one reachable powerup placement`,
+        ),
+      );
+    }
   }
   if (pickupCount < 12) {
     out.push(

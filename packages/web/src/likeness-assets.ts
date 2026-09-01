@@ -36,6 +36,9 @@ export const PLATFORMER_PROP_ASSETS = [
   ['collectible', 'platformerPropCollectible'],
   ['health', 'platformerPropHealth'],
   ['powerup', 'platformerPropPowerup'],
+  ['powerupDoubleJump', 'platformerPropPowerupDoubleJump'],
+  ['powerupProjectile', 'platformerPropPowerupProjectile'],
+  ['powerupShield', 'platformerPropPowerupShield'],
   ['heroProjectile', 'platformerPropHeroProjectile'],
   ['enemyProjectile', 'platformerPropEnemyProjectile'],
 ] as const satisfies readonly (readonly [string, GeneratedGameAssetRole])[];

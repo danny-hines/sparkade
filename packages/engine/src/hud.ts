@@ -1,6 +1,6 @@
 // In-game HUD: score, lives, health, keys, bombs, boss bar. Drawn by the
 // substrate every frame from HudState. Tiny icons are engine-owned art.
-import { INTERNAL_WIDTH, type SpriteData } from '@sparkade/shared';
+import { INTERNAL_WIDTH, type PlatformerAbilityKind, type SpriteData } from '@sparkade/shared';
 import { decodeSprite } from './sprites';
 import type { Renderer } from './renderer';
 import type { HudState } from './types';
@@ -131,8 +131,10 @@ export class Hud {
       showBombs?: boolean;
       showKeys?: boolean;
       showCollectibles?: boolean;
+      showAbilities?: boolean;
       healthIcon?: CanvasImageSource | null;
       collectibleIcon?: CanvasImageSource | null;
+      abilityIcons?: Partial<Record<PlatformerAbilityKind, CanvasImageSource | null>>;
     } = {},
   ): void {
     // Top strip, translucent so gameplay stays visible beneath.
@@ -160,6 +162,23 @@ export class Hud {
       else r.draw(this.icons['collectible']!, x, 6);
       r.text(`x${hud.collectibles ?? 0}`, x + 10, 6, r.theme.heading);
       x += 36;
+    }
+    if (opts.showAbilities) {
+      for (const ability of hud.abilities ?? []) {
+        const icon = opts.abilityIcons?.[ability.kind];
+        const label = ability.name.slice(0, 9).toUpperCase();
+        r.ctx.save();
+        r.ctx.globalAlpha = ability.active ? 1 : 0.24;
+        if (icon) r.drawScaled(icon, x, 5, 10, 10);
+        else {
+          r.rect(x + 1, 6, 8, 8, ability.active ? r.theme.accent : r.theme.dim);
+          r.text(ability.name.slice(0, 1).toUpperCase(), x + 3, 6, r.theme.panelBg);
+        }
+        r.ctx.restore();
+        if (ability.active) r.rect(x + 1, 16, 8, 1, r.theme.heading);
+        r.text(label, x + 12, 6, ability.active ? r.theme.text : r.theme.dim);
+        x += 16 + label.length * 8;
+      }
     }
     if (opts.showBombs) {
       r.draw(this.icons['bomb']!, x, 6);

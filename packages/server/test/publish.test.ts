@@ -250,6 +250,30 @@ describe('jobs and the immutable cost ledger', () => {
     expect(db.lifetimeSpendUsd()).toBeCloseTo(0.014, 9);
   });
 
+  it('retains duration evidence for audio-priced usage', () => {
+    db.insertUsage({
+      jobId: 'transcribe',
+      gameId: '',
+      stage: 'stt',
+      model: 'muse-voice-transcribe-1.0',
+      provider: 'meta',
+      inputTokens: 0,
+      outputTokens: 0,
+      audioSeconds: 30,
+      costUsd: 0.0015,
+      failed: false,
+      repair: false,
+    });
+
+    expect(db.usageForJob('transcribe')).toEqual([
+      expect.objectContaining({
+        model: 'muse-voice-transcribe-1.0',
+        audioSeconds: 30,
+        costUsd: 0.0015,
+      }),
+    ]);
+  });
+
   it('unknown-price events poison job cost to null (cost unavailable, not $0)', () => {
     db.insertUsage({
       jobId: 'j3',

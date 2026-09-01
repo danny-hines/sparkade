@@ -141,6 +141,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
         inputTokens: res.usage.input,
         outputTokens: res.usage.output,
         cachedTokens: res.usage.cachedInput ?? 0,
+        audioSeconds: res.usage.audioSeconds,
         costUsd: costOf(usageModel, res.usage, config.pricing),
         failed: false,
         repair: false,

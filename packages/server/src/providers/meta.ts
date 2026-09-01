@@ -21,12 +21,11 @@
 //   (a) sends reasoning_effort (default "low"; config providers.meta.reasoningEffort)
 //   (b) adds effort-scaled reasoning headroom on top of the caller's output budget.
 //
-// AUDIO (verified live): /audio/transcriptions is not a reliable supported
-// route on the preview (it has returned both 404 and 5xx). An OpenAI-style
-// `input_audio` chat content part DOES work and transcribes accurately.
-// transcribe() probes the endpoint, treats an absent/transient response as a
-// fallback signal, then retries transient chat-audio failures with backoff.
-// If Meta changes shapes, fix it HERE only.
+// AUDIO (verified live): Muse Voice Transcribe accepts 16/24 kHz mono PCM WAV
+// at POST /asr/transcribe. Sparkade uses PUSH_TO_TALK because the cabinet UI
+// already delimits each recording. Public-preview endpoint/rate/transient
+// failures fall back to the proven `input_audio` chat path; authoritative bad
+// audio and authentication errors do not. If Meta changes shapes, fix it HERE.
 // ---------------------------------------------------------------------------
 import type {
   CompleteRequest,
@@ -37,7 +36,7 @@ import type {
   ProviderUsage,
   TranscriptionResult,
 } from '@sparkade/shared';
-import { DEFAULT_MODEL, GENERATION } from '@sparkade/shared';
+import { DEFAULT_MODEL, DEFAULT_STT_MODEL, GENERATION } from '@sparkade/shared';
 import { sleep } from '../util';
 import { needsWavTranscode, transcodeToWav } from './audio';
 import { apiKeyFor, httpJson, ProviderHttpError, ProviderNetworkError } from './base';
@@ -56,11 +55,17 @@ interface TranscriptionEndpointResponse {
   usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
 }
 
+interface VoiceTranscriptionResponse {
+  transcript?: string;
+  audioDurationMs?: number;
+}
+
 const DEFAULT_BASE_URL = 'https://api.meta.ai/v1';
 
 const DEFAULT_REASONING_EFFORT = 'low';
 const VISION_PRIMARY_MODEL = 'muse-spark-1.2-contributor';
 const VISION_FALLBACK_MODEL = 'muse-spark-1.1';
+const VOICE_TRANSCRIPTION_MODEL = DEFAULT_STT_MODEL;
 const TRANSCRIPTION_PRIMARY_MODEL = 'muse-spark-1.2-contributor';
 const TRANSCRIPTION_FALLBACK_MODEL = 'muse-spark-1.1';
 const TRANSCRIPTION_LEGACY_PROBE_TIMEOUT_MS = 3_000;
@@ -185,7 +190,7 @@ export class MetaProvider implements Provider {
     mime: string,
     opts: { model?: string; signal?: AbortSignal } = {},
   ): Promise<TranscriptionResult> {
-    const model = opts.model ?? DEFAULT_MODEL;
+    const requestedModel = opts.model ?? DEFAULT_MODEL;
     const startedAt = Date.now();
 
     // input_audio accepts only wav/mp3 (format:"webm" → 400, verified live).
@@ -196,39 +201,90 @@ export class MetaProvider implements Provider {
       mime = 'audio/wav';
     }
 
-    // Strategy 1: OpenAI-compatible /audio/transcriptions multipart endpoint.
-    try {
-      const form = new FormData();
-      const ext = mime.includes('webm') ? 'webm' : mime.includes('wav') ? 'wav' : 'ogg';
-      form.append('model', model);
-      form.append('file', new Blob([new Uint8Array(audio)], { type: mime }), `recording.${ext}`);
-      const res = await httpJson<TranscriptionEndpointResponse>(
-        `${this.baseUrl}/audio/transcriptions`,
-        {
+    const dedicatedVoiceRequested = requestedModel === VOICE_TRANSCRIPTION_MODEL;
+    if (dedicatedVoiceRequested) {
+      try {
+        const form = new FormData();
+        form.append(
+          'request',
+          new Blob(
+            [
+              JSON.stringify({
+                mode: 'PUSH_TO_TALK',
+                model: requestedModel,
+                audioEncoding: 'WAV',
+              }),
+            ],
+            { type: 'application/json' },
+          ),
+        );
+        form.append(
+          'audio',
+          new Blob([new Uint8Array(audio)], { type: 'audio/wav' }),
+          'recording.wav',
+        );
+        const res = await httpJson<VoiceTranscriptionResponse>(`${this.baseUrl}/asr/transcribe`, {
           headers: { Authorization: `Bearer ${this.key()}` },
           body: form,
-          timeoutMs: TRANSCRIPTION_LEGACY_PROBE_TIMEOUT_MS,
+          timeoutMs: TRANSCRIPTION_PRIMARY_TIMEOUT_MS,
           signal: opts.signal,
-        },
-      );
-      if (typeof res.text === 'string') {
+        });
         return {
-          text: res.text.trim(),
+          text: (res.transcript ?? '').trim(),
           usage: {
-            input: res.usage?.prompt_tokens ?? Math.ceil(audio.length / 320),
-            output: res.usage?.completion_tokens ?? Math.ceil((res.text.length + 3) / 4),
+            input: 0,
+            output: 0,
+            ...(Number.isFinite(res.audioDurationMs)
+              ? { audioSeconds: Math.floor(Math.max(0, res.audioDurationMs ?? 0) / 1_000) }
+              : {}),
           },
-          model,
+          model: requestedModel,
         };
+      } catch (e) {
+        // The voice API is a public preview. Preserve the proven chat-audio
+        // path for endpoint/rate/transient failures, while surfacing bad audio,
+        // authentication, and other authoritative request errors immediately.
+        if (!isTransientVoiceError(e)) throw e;
       }
-      // fall through to strategy 2 on an unexpected shape
-    } catch (e) {
-      // The preview has returned both 404 and 5xx for this unsupported route.
-      // A transient probe failure must not prevent the supported chat-audio
-      // route from getting its own chance.
-      const canFallBack =
-        e instanceof ProviderHttpError && (e.status === 404 || e.status === 405 || e.transient);
-      if (!canFallBack) throw e;
+    }
+
+    const model = dedicatedVoiceRequested ? TRANSCRIPTION_PRIMARY_MODEL : requestedModel;
+
+    // Strategy 1: OpenAI-compatible /audio/transcriptions multipart endpoint.
+    if (!dedicatedVoiceRequested) {
+      try {
+        const form = new FormData();
+        const ext = mime.includes('webm') ? 'webm' : mime.includes('wav') ? 'wav' : 'ogg';
+        form.append('model', model);
+        form.append('file', new Blob([new Uint8Array(audio)], { type: mime }), `recording.${ext}`);
+        const res = await httpJson<TranscriptionEndpointResponse>(
+          `${this.baseUrl}/audio/transcriptions`,
+          {
+            headers: { Authorization: `Bearer ${this.key()}` },
+            body: form,
+            timeoutMs: TRANSCRIPTION_LEGACY_PROBE_TIMEOUT_MS,
+            signal: opts.signal,
+          },
+        );
+        if (typeof res.text === 'string') {
+          return {
+            text: res.text.trim(),
+            usage: {
+              input: res.usage?.prompt_tokens ?? Math.ceil(audio.length / 320),
+              output: res.usage?.completion_tokens ?? Math.ceil((res.text.length + 3) / 4),
+            },
+            model,
+          };
+        }
+        // fall through to strategy 2 on an unexpected shape
+      } catch (e) {
+        // The preview has returned both 404 and 5xx for this unsupported route.
+        // A transient probe failure must not prevent the supported chat-audio
+        // route from getting its own chance.
+        const canFallBack =
+          e instanceof ProviderHttpError && (e.status === 404 || e.status === 405 || e.transient);
+        if (!canFallBack) throw e;
+      }
     }
 
     // Strategy 2: audio as an OpenAI-style input_audio chat content part.
@@ -312,6 +368,13 @@ export class MetaProvider implements Provider {
 function isTransientTranscriptionError(error: unknown): boolean {
   return (
     (error instanceof ProviderHttpError && error.transient) || error instanceof ProviderNetworkError
+  );
+}
+
+function isTransientVoiceError(error: unknown): boolean {
+  return (
+    isTransientTranscriptionError(error) ||
+    (error instanceof ProviderHttpError && (error.status === 404 || error.status === 405))
   );
 }
 

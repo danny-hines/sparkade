@@ -81,6 +81,83 @@ describe('MetaProvider completion', () => {
 });
 
 describe('MetaProvider transcription', () => {
+  it('uses Muse Voice file transcription and records billed audio seconds', async () => {
+    process.env.META_API_KEY = 'meta-test-key';
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse({
+        sessionId: 'session-1',
+        transcript: 'a moon rabbit collecting lanterns',
+        audioDurationMs: 3_920,
+        turns: [],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await provider().transcribe(Buffer.from('wav audio'), 'audio/wav', {
+      model: 'muse-voice-transcribe-1.0',
+    });
+
+    expect(result).toEqual({
+      text: 'a moon rabbit collecting lanterns',
+      usage: { input: 0, output: 0, audioSeconds: 3 },
+      model: 'muse-voice-transcribe-1.0',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0]).endsWith('/asr/transcribe')).toBe(true);
+    const form = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+    expect(JSON.parse(await (form.get('request') as Blob).text())).toEqual({
+      mode: 'PUSH_TO_TALK',
+      model: 'muse-voice-transcribe-1.0',
+      audioEncoding: 'WAV',
+    });
+    expect((form.get('audio') as Blob).type).toBe('audio/wav');
+  });
+
+  it('falls back directly to Muse Spark chat audio when the voice preview is transiently down', async () => {
+    process.env.META_API_KEY = 'meta-test-key';
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(errorResponse(503, 'voice backend unavailable'))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          choices: [{ message: { content: 'fallback transcript' } }],
+          usage: { prompt_tokens: 18, completion_tokens: 5 },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await provider().transcribe(Buffer.from('wav audio'), 'audio/wav', {
+      model: 'muse-voice-transcribe-1.0',
+    });
+
+    expect(result).toEqual({
+      text: 'fallback transcript',
+      usage: { input: 18, output: 5, cachedInput: 0 },
+      model: 'muse-spark-1.2-contributor',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0]).endsWith('/chat/completions')).toBe(true);
+    expect(requestModel(fetchMock, 1)).toBe('muse-spark-1.2-contributor');
+  });
+
+  it('does not hide authoritative Muse Voice request errors behind the fallback', async () => {
+    process.env.META_API_KEY = 'meta-test-key';
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(errorResponse(400, 'unsupported audio'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const error = await provider()
+      .transcribe(Buffer.from('wav audio'), 'audio/wav', {
+        model: 'muse-voice-transcribe-1.0',
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ProviderHttpError);
+    expect(error).toMatchObject({ status: 400, transient: false });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('falls through to chat audio when the legacy endpoint returns a transient 5xx', async () => {
     process.env.META_API_KEY = 'meta-test-key';
     const fetchMock = vi
@@ -233,7 +310,9 @@ function errorResponse(status: number, message: string): Response {
 
 function modelNotFoundResponse(): Response {
   return new Response(
-    JSON.stringify({ error: { code: 'model_not_found', message: 'The requested model was not found.' } }),
+    JSON.stringify({
+      error: { code: 'model_not_found', message: 'The requested model was not found.' },
+    }),
     { status: 404, headers: { 'content-type': 'application/json' } },
   );
 }

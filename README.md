@@ -95,7 +95,7 @@ premise-specific scenery and background props; the generated environment is opti
 atomically to the stable procedural stage if it cannot be normalized.
 
 To hit the real models, copy `.env.example` to `.env`, set `META_API_KEY`, and use `npm run dev`.
-The same key is used for Muse Spark 1.2 Contributor and Muse Image 1.0.
+The same key is used for Muse Spark 1.2 Contributor, Muse Voice Transcribe 1.0, and Muse Image 1.0.
 
 ## Pi install (production)
 
@@ -114,8 +114,8 @@ the chosen provider into `config.json`, configures console-autologin → `startx
 Chromium kiosk (with a relaunch loop that waits for the server, so a crash or slow boot never
 strands the cabinet), and scopes a sudoers rule to the exact `nmcli` invocations the WiFi settings
 screen uses. Set `SPARKADE_REPO=owner/repo` to install a fork; `--force` allows other Debian ARM
-boxes. Muse Image always runs through Meta, and only Meta can transcribe voice, so a non-Meta text
-provider still needs `META_API_KEY` for generated art (and voice). Without it, the five preinstalled
+boxes. Muse Image and Muse Voice Transcribe always run through Meta, so a non-Meta text provider
+still needs `META_API_KEY` for generated art and voice. Without it, the five preinstalled
 games and mock demo remain playable, but new real-model games cannot publish.
 
 After reboot the cabinet boots straight to the attract screen. Useful commands:
@@ -287,7 +287,9 @@ stages.music.model <id>`): stages are `design · levels · entities · music · 
 with `{provider, model}`. Providers: `meta` (Meta Model API, default `muse-spark-1.2-contributor`),
 `compat` (any OpenAI-compatible server — set `baseUrl`), `anthropic`, `mock`. Capability flags
 (`structuredOutput`, `audioIn`, `imageIn`) control what the pipeline sends. Add pricing rows under
-`pricing` or the UI shows "cost unavailable" (never $0.00). Muse Image is configured separately at
+`pricing` or the UI shows "cost unavailable" (never $0.00). The Meta `stt` stage defaults to
+`muse-voice-transcribe-1.0` at $0.18 per processed audio hour; transient preview failures fall back
+to Muse Spark audio input. Muse Image is configured separately at
 `imageGeneration` and defaults to `muse-image-1.0` at $0.01 per returned image. Meta wire formats
 live in `packages/server/src/providers/meta.ts` (text/audio) and
 `packages/server/src/providers/meta-image.ts` (generation/edits), both with configurable base URLs.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_MODEL, DEFAULT_PRICING } from '@sparkade/shared';
+import { DEFAULT_MODEL, DEFAULT_PRICING, DEFAULT_STT_MODEL } from '@sparkade/shared';
 import {
   costOf,
   estimateGenerationCost,
@@ -33,6 +33,14 @@ describe('cost calculator', () => {
       (4000 / 1e6) * 1.25 + (2000 / 1e6) * 4.25,
       9,
     );
+  });
+
+  it('prices Muse Voice by provider-billed audio time without inventing a zero cost', () => {
+    expect(
+      costOf(DEFAULT_STT_MODEL, { input: 0, output: 0, audioSeconds: 30 }, DEFAULT_PRICING),
+    ).toBeCloseTo(0.0015, 9);
+    expect(costOf(DEFAULT_STT_MODEL, { input: 0, output: 0 }, DEFAULT_PRICING)).toBeNull();
+    expect(estimateGenerationCost(DEFAULT_STT_MODEL, DEFAULT_PRICING)).toBeNull();
   });
 
   it('bills cache-served input at the cached rate (Meta: $0.15/M vs $1.25/M)', () => {

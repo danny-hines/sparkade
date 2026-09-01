@@ -1,9 +1,20 @@
-// Cost math. Prices are USD per million tokens; every job snapshots the rows
-// it uses, so later price edits never rewrite history. Unknown model → null
-// (displayed as "cost unavailable", never $0.00).
+// Cost math. Text prices are per million tokens and speech prices are per
+// processed audio hour. Every job snapshots the rows it uses, so later edits
+// never rewrite history. Unknown model → null (never a dishonest $0.00).
 import type { ArchetypeId, PriceRow, ProviderUsage } from '@sparkade/shared';
 
 export type PriceSnapshot = Record<string, PriceRow>;
+
+type AudioPriceRow = Extract<PriceRow, { audioPerHour: number }>;
+type TokenPriceRow = Extract<PriceRow, { inputPerM: number }>;
+
+function isAudioPrice(price: PriceRow): price is AudioPriceRow {
+  return typeof price.audioPerHour === 'number';
+}
+
+function isTokenPrice(price: PriceRow): price is TokenPriceRow {
+  return typeof price.inputPerM === 'number' && typeof price.outputPerM === 'number';
+}
 
 export function costOf(
   model: string,
@@ -12,6 +23,10 @@ export function costOf(
 ): number | null {
   const price = snapshot[model];
   if (!price) return null;
+  if (isAudioPrice(price)) {
+    if (usage.audioSeconds === undefined || !Number.isFinite(usage.audioSeconds)) return null;
+    return (Math.max(0, usage.audioSeconds) / 3600) * price.audioPerHour;
+  }
   // Cache-served input bills at the cached rate; missing cachedInputPerM means
   // "no discount known" — bill conservatively at the full input rate.
   const cached = Math.min(usage.cachedInput ?? 0, usage.input);
@@ -58,7 +73,7 @@ export function estimateGenerationCost(
   } = {},
 ): number | null {
   const price = snapshot[model];
-  if (!price) return null;
+  if (!price || !isTokenPrice(price)) return null;
   const typical: ProviderUsage[] = [
     { input: 5200, output: 1800 }, // design
     { input: 7400, output: 4200 }, // levels

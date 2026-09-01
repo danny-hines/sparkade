@@ -13,6 +13,7 @@ import {
   type JobRecord,
   type LogicalButton,
   type PartialSpec,
+  type PriceRow,
   type ScoreRow,
   type SystemInfo,
   type WifiNetwork,
@@ -57,6 +58,7 @@ export interface GameDetail {
     inputTokens: number;
     outputTokens: number;
     cachedTokens: number;
+    audioSeconds?: number;
     costUsd: number | null;
     failed: boolean;
     repair: boolean;
@@ -73,7 +75,7 @@ export interface SettingsPayload {
   devices: { cameraId?: string; cameraLabel?: string; micId?: string; micLabel?: string };
   presets: { id: string; title: string; archetype: string; premise: string; tone: string }[];
   stages: Record<string, { provider: string; model: string }>;
-  pricing: Record<string, { inputPerM: number; outputPerM: number }>;
+  pricing: Record<string, PriceRow>;
   imageGeneration: { model: string; baseUrl: string; pricePerImageUsd: number };
 }
 

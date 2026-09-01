@@ -1,5 +1,6 @@
 // Sparkade shared constants — the numbers and names that form contracts between
 // engine, archetypes, generation prompts, server validators and the shell.
+import type { PriceRow } from './types';
 
 /** Version of the hand-written engine substrate. Recorded in every game's meta.json. */
 export const ENGINE_VERSION = '1.0.0';
@@ -384,17 +385,16 @@ export const JOB_STAGES = [
 ] as const;
 export type JobStage = (typeof JOB_STAGES)[number];
 
-/** Published Meta Model API pricing (USD per million tokens).
+/** Published Meta Model API pricing (token rates are USD per million tokens).
  *  Keep historical rows so existing game ledgers remain interpretable. */
-export const DEFAULT_PRICING: Record<
-  string,
-  { inputPerM: number; outputPerM: number; cachedInputPerM?: number }
-> = {
+export const DEFAULT_PRICING: Record<string, PriceRow> = {
   'muse-spark-1.1': { inputPerM: 1.25, outputPerM: 4.25, cachedInputPerM: 0.15 },
   'muse-spark-1.2-contributor': { inputPerM: 0.1, outputPerM: 0.2, cachedInputPerM: 0.002 },
+  'muse-voice-transcribe-1.0': { audioPerHour: 0.18 },
 };
 
 export const DEFAULT_MODEL = 'muse-spark-1.2-contributor';
+export const DEFAULT_STT_MODEL = 'muse-voice-transcribe-1.0';
 
 // ---------------------------------------------------------------------------
 // Server

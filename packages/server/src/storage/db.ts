@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS usage_events (
   provider TEXT NOT NULL,
   input_tokens INTEGER NOT NULL,
   output_tokens INTEGER NOT NULL,
+  audio_seconds REAL,
   cost_usd REAL,
   failed INTEGER NOT NULL DEFAULT 0,
   repair INTEGER NOT NULL DEFAULT 0,
@@ -176,6 +177,9 @@ export class Db {
     }[];
     if (!usageCols.some((c) => c.name === 'cached_tokens')) {
       this.db.exec(`ALTER TABLE usage_events ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!usageCols.some((c) => c.name === 'audio_seconds')) {
+      this.db.exec(`ALTER TABLE usage_events ADD COLUMN audio_seconds REAL`);
     }
     // Migrations: explicit engine and guided-creation inputs are structured
     // instead of living only in prompt prose. Nullable keeps legacy jobs valid.
@@ -449,18 +453,20 @@ export class Db {
     inputTokens: number;
     outputTokens: number;
     cachedTokens?: number;
+    audioSeconds?: number;
     costUsd: number | null;
     failed: boolean;
     repair: boolean;
   }): void {
     this.db
       .prepare(
-        `INSERT INTO usage_events (job_id, game_id, stage, model, provider, input_tokens, output_tokens, cached_tokens, cost_usd, failed, repair, at)
-         VALUES (@jobId, @gameId, @stage, @model, @provider, @inputTokens, @outputTokens, @cachedTokens, @costUsd, @failed, @repair, @at)`,
+        `INSERT INTO usage_events (job_id, game_id, stage, model, provider, input_tokens, output_tokens, cached_tokens, audio_seconds, cost_usd, failed, repair, at)
+         VALUES (@jobId, @gameId, @stage, @model, @provider, @inputTokens, @outputTokens, @cachedTokens, @audioSeconds, @costUsd, @failed, @repair, @at)`,
       )
       .run({
         ...ev,
         cachedTokens: ev.cachedTokens ?? 0,
+        audioSeconds: ev.audioSeconds ?? null,
         failed: ev.failed ? 1 : 0,
         repair: ev.repair ? 1 : 0,
         at: nowIso(),
@@ -501,6 +507,7 @@ export class Db {
     inputTokens: number;
     outputTokens: number;
     cachedTokens: number;
+    audioSeconds?: number;
     costUsd: number | null;
     failed: boolean;
     repair: boolean;
@@ -515,6 +522,9 @@ export class Db {
       inputTokens: Number(r.input_tokens),
       outputTokens: Number(r.output_tokens),
       cachedTokens: Number(r.cached_tokens ?? 0),
+      ...(r.audio_seconds === null || r.audio_seconds === undefined
+        ? {}
+        : { audioSeconds: Number(r.audio_seconds) }),
       costUsd: r.cost_usd === null ? null : Number(r.cost_usd),
       failed: Number(r.failed) === 1,
       repair: Number(r.repair) === 1,
@@ -532,6 +542,9 @@ export class Db {
       inputTokens: Number(r.input_tokens),
       outputTokens: Number(r.output_tokens),
       cachedTokens: Number(r.cached_tokens ?? 0),
+      ...(r.audio_seconds === null || r.audio_seconds === undefined
+        ? {}
+        : { audioSeconds: Number(r.audio_seconds) }),
       costUsd: r.cost_usd === null ? null : Number(r.cost_usd),
       failed: Number(r.failed) === 1,
       repair: Number(r.repair) === 1,

@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DEFAULT_MODEL, STAGE_NAMES } from '@sparkade/shared';
+import { DEFAULT_MODEL, DEFAULT_STT_MODEL, STAGE_NAMES } from '@sparkade/shared';
 import { ConfigStore, defaultConfig } from '../src/storage/config';
 
 const dirs: string[] = [];
@@ -18,14 +18,15 @@ function tempDir(): string {
 }
 
 describe('config defaults and migrations', () => {
-  it('uses Muse Spark 1.2 Contributor for every stage on a fresh install', () => {
+  it('uses Muse Voice for STT and Muse Spark 1.2 Contributor for text on a fresh install', () => {
     const config = new ConfigStore(tempDir()).get();
     for (const stage of STAGE_NAMES) {
       expect(config.stages[stage].provider).toBe('meta');
-      expect(config.stages[stage].model).toBe(DEFAULT_MODEL);
+      expect(config.stages[stage].model).toBe(stage === 'stt' ? DEFAULT_STT_MODEL : DEFAULT_MODEL);
     }
     expect(config.pricing['muse-spark-1.1']).toBeDefined();
     expect(config.pricing[DEFAULT_MODEL]).toBeDefined();
+    expect(config.pricing[DEFAULT_STT_MODEL]).toEqual({ audioPerHour: 0.18 });
   });
 
   it('migrates only legacy Meta stage defaults and persists only those changes', () => {
@@ -55,7 +56,7 @@ describe('config defaults and migrations', () => {
     expect(config.stages.entities).toEqual({ provider: 'compat', model: 'muse-spark-1.1' });
     expect(config.stages.music).toEqual({ provider: 'meta', model: 'muse-spark-1.2' });
     expect(config.stages.repair).toEqual({ provider: 'meta', model: 'custom-meta-model' });
-    expect(config.stages.stt.model).toBe(DEFAULT_MODEL);
+    expect(config.stages.stt.model).toBe(DEFAULT_STT_MODEL);
     expect(config.audio.musicVol).toBe(0.123);
 
     const persisted = JSON.parse(readFileSync(path, 'utf8')) as typeof legacy;

@@ -7,6 +7,7 @@ import {
   DEFAULT_KEYBOARD_MAP,
   DEFAULT_MODEL,
   DEFAULT_PRICING,
+  DEFAULT_STT_MODEL,
   IDEA_CARDS,
   STAGE_NAMES,
   type SparkadeConfig,
@@ -20,6 +21,7 @@ export function defaultConfig(): SparkadeConfig {
     { provider: string; model: string; reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' }
   >;
   for (const s of STAGE_NAMES) stages[s] = { provider: 'meta', model: DEFAULT_MODEL };
+  stages.stt = { provider: 'meta', model: DEFAULT_STT_MODEL };
   // Levels are the slowest call; validators guard their quality, so spend the
   // model's time writing tiles instead of deliberating about them.
   stages.levels.reasoningEffort = 'minimal';
@@ -74,9 +76,11 @@ Edit with \`sparkade config edit\` (or any editor; restart the service after).
   reasoningEffort (meta only): Muse Spark is a reasoning model; "low" is fast and cheap,
   "medium"/"high" think longer per call (better designs, more output-priced tokens).
 - stages: which provider+model runs each pipeline stage (design/levels/entities/music/repair/stt).
-  The default is muse-spark-1.2-contributor. Contributor-tier inputs and responses may be used by
-  Meta for model training; choose another configured model/provider if that is unsuitable.
-- pricing: USD per million tokens, per model. Jobs snapshot these rows; editing prices never rewrites history.
+  Text stages default to muse-spark-1.2-contributor; stt defaults to muse-voice-transcribe-1.0.
+  Contributor-tier inputs and responses may be used by Meta for model training; choose another
+  configured model/provider if that is unsuitable.
+- pricing: token models use USD per million tokens; speech models use USD per processed audio hour.
+  Jobs snapshot these rows; editing prices never rewrites history.
   A model missing from this table shows "cost unavailable" (never $0.00).
 - imageGeneration: Muse Image configuration used by every generated game. The default is
   muse-image-1.0 through Meta's Model API at $0.01 per returned image. It authors library key art,
@@ -95,9 +99,9 @@ Edit with \`sparkade config edit\` (or any editor; restart the service after).
 
 const LEGACY_DEFAULT_MODEL = 'muse-spark-1.1';
 
-/** Upgrade only untouched Meta stage defaults. A 1.1 model on any other
- * provider, or any other model on Meta, is an intentional customization. */
-function migrateLegacyDefaultStages(onDisk: Partial<SparkadeConfig>): boolean {
+/** Upgrade only known historical Meta defaults. Models on another provider
+ * and unrecognized Meta model ids are intentional customizations. */
+function migrateDefaultStages(onDisk: Partial<SparkadeConfig>): boolean {
   let changed = false;
   for (const stage of STAGE_NAMES) {
     const row = onDisk.stages?.[stage];
@@ -105,6 +109,14 @@ function migrateLegacyDefaultStages(onDisk: Partial<SparkadeConfig>): boolean {
       row.model = DEFAULT_MODEL;
       changed = true;
     }
+  }
+  // Sparkade used the general reasoning model for STT before Meta shipped its
+  // dedicated voice model. Upgrade only the untouched Meta default; custom
+  // providers and model ids remain authoritative.
+  const stt = onDisk.stages?.stt;
+  if (stt?.provider === 'meta' && stt.model === DEFAULT_MODEL) {
+    stt.model = DEFAULT_STT_MODEL;
+    changed = true;
   }
   return changed;
 }
@@ -122,7 +134,7 @@ export class ConfigStore {
       writeFileSync(join(dir, 'config.explained.md'), CONFIG_EXPLAINER);
     } else {
       const onDisk = JSON.parse(readFileSync(this.path, 'utf8')) as Partial<SparkadeConfig>;
-      if (migrateLegacyDefaultStages(onDisk)) {
+      if (migrateDefaultStages(onDisk)) {
         // Persist the narrowly migrated source config, not the merged defaults,
         // so an upgrade does not rewrite any unrelated user-owned settings.
         atomicWriteFile(this.path, JSON.stringify(onDisk, null, 2));

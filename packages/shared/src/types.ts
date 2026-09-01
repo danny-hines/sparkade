@@ -612,12 +612,24 @@ export interface ControlLabel {
 
 export type GameStatus = 'queued' | 'generating' | 'ready' | 'failed' | 'needs-migration';
 
-/** USD per million tokens. cachedInputPerM defaults to inputPerM when absent (conservative). */
-export interface PriceRow {
-  inputPerM: number;
-  outputPerM: number;
-  cachedInputPerM?: number;
-}
+/** Provider pricing. A model is billed either by tokens or processed audio time. */
+export type PriceRow =
+  | {
+      /** USD per million tokens. */
+      inputPerM: number;
+      /** USD per million tokens. */
+      outputPerM: number;
+      /** Defaults to inputPerM when absent (conservative). */
+      cachedInputPerM?: number;
+      audioPerHour?: never;
+    }
+  | {
+      /** USD per hour of audio processed. */
+      audioPerHour: number;
+      inputPerM?: never;
+      outputPerM?: never;
+      cachedInputPerM?: never;
+    };
 
 export interface CostBreakdownEntry {
   stage: string;
@@ -626,6 +638,8 @@ export interface CostBreakdownEntry {
   outputTokens: number;
   /** Portion of inputTokens billed at the cached rate. */
   cachedTokens: number;
+  /** Provider-billed processed audio time, when this is a speech request. */
+  audioSeconds?: number;
   costUsd: number | null;
   failed: boolean;
   repair: boolean;
@@ -1070,6 +1084,8 @@ export interface ProviderUsage {
   output: number;
   /** Portion of `input` served from the provider's prompt cache (billed cheaper). */
   cachedInput?: number;
+  /** Provider-billed processed audio time, rounded according to its pricing policy. */
+  audioSeconds?: number;
 }
 
 export interface CompleteRequest {

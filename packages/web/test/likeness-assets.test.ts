@@ -24,9 +24,11 @@ import {
 } from '../src/likeness-assets';
 
 const requested: string[] = [];
+const decoded: string[] = [];
 const failing = new Set<string>();
 
 class FakeImage {
+  decoding = '';
   onload: ((event: Event) => void) | null = null;
   onerror: ((event: Event | string) => void) | null = null;
   private value = '';
@@ -42,6 +44,11 @@ class FakeImage {
       if (failing.has(value)) this.onerror?.('failed');
       else this.onload?.(new Event('load'));
     });
+  }
+
+  decode(): Promise<void> {
+    decoded.push(this.value);
+    return Promise.resolve();
   }
 }
 
@@ -66,6 +73,7 @@ const legacyAssets: GameDetail['assets'] = {
 describe('loadLikenessAssets', () => {
   beforeEach(() => {
     requested.length = 0;
+    decoded.length = 0;
     failing.clear();
     vi.stubGlobal('Image', FakeImage);
   });
@@ -83,6 +91,7 @@ describe('loadLikenessAssets', () => {
       '/api/games/old-game/assets/head16.png',
       '/api/games/old-game/assets/portrait.png',
     ]);
+    expect(decoded).toEqual(requested);
   });
 
   it('loads every available directional view under its stable filename', async () => {
@@ -269,9 +278,21 @@ describe('loadLikenessAssets', () => {
     });
 
     expect(result?.fighterArenaAtlas).not.toBeNull();
+    expect(result?.fighterArenaPresentationBaked).toBe(false);
     expect(requested).toContain(
       `/api/games/arena-fighter/assets/${GENERATED_GAME_ASSET_FILES[FIGHTER_ARENA_ASSET]}`,
     );
+  });
+
+  it('forwards the server-baked Fighter arena presentation marker', async () => {
+    const result = await loadLikenessAssets('baked-arena-fighter', {
+      ...legacyAssets,
+      [FIGHTER_ARENA_ASSET]: true,
+      fighterArenaPresentationBaked: true,
+    });
+
+    expect(result?.fighterArenaAtlas).not.toBeNull();
+    expect(result?.fighterArenaPresentationBaked).toBe(true);
   });
 
   it('does not expose a partially loaded fighter roster', async () => {

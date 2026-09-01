@@ -19,7 +19,9 @@ import {
 import {
   FEEL,
   FIGHTER_POSES,
+  GENERATED_FIGHTER_ARENA_BRIGHTNESS,
   GENERATED_FIGHTER_ARENA_HEIGHT,
+  GENERATED_FIGHTER_ARENA_SATURATION,
   GENERATED_FIGHTER_ARENA_WIDTH,
   GENERATED_FIGHTER_ATLAS_CELL_SIZE,
   GENERATED_FIGHTER_ATLAS_COLUMNS,
@@ -46,8 +48,8 @@ const WALK = 78;
 const BODY_HALF = 12; // torso half-width for body collision + range
 const ROUND_TIME = 60;
 const ROUNDS_TO_WIN = 2;
-const FIGHTER_ARENA_PRESENTATION_FILTER = 'brightness(82%) saturate(85%)';
-const FIGHTER_SILHOUETTE_FILTER = 'brightness(0) opacity(72%)';
+const FIGHTER_ARENA_PRESENTATION_FILTER = `brightness(${GENERATED_FIGHTER_ARENA_BRIGHTNESS * 100}%) saturate(${GENERATED_FIGHTER_ARENA_SATURATION * 100}%)`;
+const FIGHTER_SILHOUETTE_OPACITY = 0.72;
 const FIGHTER_SILHOUETTE_OFFSETS = [
   [-1, -1],
   [0, -1],
@@ -204,6 +206,116 @@ interface Actor {
   aiGuardingFoeMove: number;
 }
 
+interface PreparedFighterPose {
+  normal: HTMLCanvasElement;
+  flash: HTMLCanvasElement;
+}
+
+type PreparedFighterPoses = Readonly<Record<FighterPose, PreparedFighterPose>>;
+
+function canvas2d(
+  width: number,
+  height: number,
+): {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+} {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  return { canvas, ctx };
+}
+
+/** Crop one atlas pose once so gameplay never filters or re-crops the full atlas. */
+function cropFighterPose(atlas: CanvasImageSource, pose: FighterPose): HTMLCanvasElement {
+  const size = GENERATED_FIGHTER_ATLAS_CELL_SIZE;
+  const index = FIGHTER_POSES.indexOf(pose);
+  const sx = (index % GENERATED_FIGHTER_ATLAS_COLUMNS) * size;
+  const sy = Math.floor(index / GENERATED_FIGHTER_ATLAS_COLUMNS) * size;
+  const { canvas, ctx } = canvas2d(size, size);
+  ctx.drawImage(atlas, sx, sy, size, size, 0, 0, size, size);
+  return canvas;
+}
+
+/** Build the old brightness(0) + opacity silhouette without a Canvas filter. */
+function blackFighterSilhouette(source: HTMLCanvasElement): HTMLCanvasElement {
+  const { canvas, ctx } = canvas2d(source.width, source.height);
+  ctx.drawImage(source, 0, 0);
+  ctx.globalCompositeOperation = 'source-in';
+  ctx.globalAlpha = FIGHTER_SILHOUETTE_OPACITY;
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, source.width, source.height);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  return canvas;
+}
+
+/** Build the old brightness(0) + invert(1) damage flash without a Canvas filter. */
+function whiteFighterPose(source: HTMLCanvasElement): HTMLCanvasElement {
+  const { canvas, ctx } = canvas2d(source.width, source.height);
+  ctx.drawImage(source, 0, 0);
+  ctx.globalCompositeOperation = 'source-atop';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, source.width, source.height);
+  ctx.globalCompositeOperation = 'source-over';
+  return canvas;
+}
+
+function composeFighterPose(
+  source: HTMLCanvasElement,
+  silhouette: HTMLCanvasElement,
+): HTMLCanvasElement {
+  const { canvas, ctx } = canvas2d(source.width, source.height);
+  for (const [dx, dy] of FIGHTER_SILHOUETTE_OFFSETS) ctx.drawImage(silhouette, dx, dy);
+  ctx.drawImage(source, 0, 0);
+  return canvas;
+}
+
+/** Precompose every pose once. Runtime rendering becomes one ordinary drawImage. */
+function prepareFighterPoses(atlas: CanvasImageSource): PreparedFighterPoses {
+  return Object.fromEntries(
+    FIGHTER_POSES.map((pose) => {
+      const source = cropFighterPose(atlas, pose);
+      const silhouette = blackFighterSilhouette(source);
+      return [
+        pose,
+        {
+          normal: composeFighterPose(source, silhouette),
+          flash: composeFighterPose(whiteFighterPose(source), silhouette),
+        },
+      ];
+    }),
+  ) as PreparedFighterPoses;
+}
+
+/** Split and, for old saved assets, color-treat arena panels once at game load. */
+function prepareFighterArenaPanels(
+  atlas: CanvasImageSource | null,
+  presentationBaked: boolean,
+): readonly [HTMLCanvasElement, HTMLCanvasElement] | null {
+  if (!atlas) return null;
+  const preparePanel = (panel: number): HTMLCanvasElement => {
+    const { canvas, ctx } = canvas2d(GENERATED_FIGHTER_ARENA_WIDTH, GENERATED_FIGHTER_ARENA_HEIGHT);
+    if (!presentationBaked) ctx.filter = FIGHTER_ARENA_PRESENTATION_FILTER;
+    ctx.drawImage(
+      atlas,
+      0,
+      panel * GENERATED_FIGHTER_ARENA_HEIGHT,
+      GENERATED_FIGHTER_ARENA_WIDTH,
+      GENERATED_FIGHTER_ARENA_HEIGHT,
+      0,
+      0,
+      GENERATED_FIGHTER_ARENA_WIDTH,
+      GENERATED_FIGHTER_ARENA_HEIGHT,
+    );
+    ctx.filter = 'none';
+    return canvas;
+  };
+  return [preparePanel(0), preparePanel(1)];
+}
+
 function requireGeneratedFighterAtlases(
   atlases: readonly CanvasImageSource[] | null,
 ): readonly CanvasImageSource[] {
@@ -244,6 +356,8 @@ class FighterGame implements GameInstance {
   private o!: Actor;
   private generatedFighterAtlases: readonly CanvasImageSource[];
   private generatedFighterArena: CanvasImageSource | null;
+  private preparedFighterPoses: readonly PreparedFighterPoses[];
+  private preparedFighterArenas: readonly [HTMLCanvasElement, HTMLCanvasElement] | null;
   private backdrop: Backdrop;
   private bgVariant: BackdropVariant;
 
@@ -254,6 +368,11 @@ class FighterGame implements GameInstance {
     this.diff = difficultyScale(this.spec.difficulty);
     this.generatedFighterAtlases = requireGeneratedFighterAtlases(this.engine.fighterAtlases);
     this.generatedFighterArena = this.engine.fighterArenaAtlas;
+    this.preparedFighterPoses = this.generatedFighterAtlases.map(prepareFighterPoses);
+    this.preparedFighterArenas = prepareFighterArenaPanels(
+      this.generatedFighterArena,
+      this.engine.fighterArenaPresentationBaked,
+    );
     this.bgVariant = pickVariant(this.spec.palette, this.spec.seed, this.spec.backdrop);
     this.backdrop = makeBackdrop(this.spec.palette, this.spec.seed, this.bgVariant);
     // Init both actors so render() is safe during the pre-fight story cards.
@@ -933,8 +1052,6 @@ class FighterGame implements GameInstance {
   }
 
   private drawGeneratedFighter(a: Actor, pose: FighterPose, flash: boolean): void {
-    const atlas = this.generatedFighterAtlases[a.identitySlot]!;
-
     const ctx = this.engine.renderer.ctx;
     const size = GENERATED_FIGHTER_ATLAS_CELL_SIZE;
     const bottomPadding = 4;
@@ -948,45 +1065,19 @@ class FighterGame implements GameInstance {
       ctx.translate(Math.round(a.x) * 2, 0);
       ctx.scale(-1, 1);
     }
-    const index = FIGHTER_POSES.indexOf(pose);
-    const sx = (index % GENERATED_FIGHTER_ATLAS_COLUMNS) * size;
-    const sy = Math.floor(index / GENERATED_FIGHTER_ATLAS_COLUMNS) * size;
-    // A translucent one-runtime-pixel silhouette keyline gives every generated
-    // pose stable separation from detailed scenery without softening the art.
-    ctx.filter = FIGHTER_SILHOUETTE_FILTER;
-    for (const [dx, dy] of FIGHTER_SILHOUETTE_OFFSETS) {
-      ctx.drawImage(atlas, sx, sy, size, size, x + dx, y + dy, size, size);
-    }
-    ctx.filter = flash ? 'brightness(0) invert(1)' : 'none';
-    ctx.drawImage(atlas, sx, sy, size, size, x, y, size, size);
-    ctx.filter = 'none';
+    const prepared = this.preparedFighterPoses[a.identitySlot]![pose];
+    ctx.drawImage(flash ? prepared.flash : prepared.normal, x, y, size, size);
     ctx.restore();
   }
 
   private drawArenaBackground(): void {
-    const ctx = this.engine.renderer.ctx;
-    if (this.generatedFighterArena) {
+    if (this.preparedFighterArenas) {
       const panel = this.isBoss() ? 1 : 0;
-      ctx.save();
-      ctx.imageSmoothingEnabled = false;
-      ctx.filter = FIGHTER_ARENA_PRESENTATION_FILTER;
-      ctx.drawImage(
-        this.generatedFighterArena,
-        0,
-        panel * GENERATED_FIGHTER_ARENA_HEIGHT,
-        GENERATED_FIGHTER_ARENA_WIDTH,
-        GENERATED_FIGHTER_ARENA_HEIGHT,
-        0,
-        0,
-        W,
-        H,
-      );
-      ctx.filter = 'none';
-      ctx.restore();
+      this.engine.renderer.ctx.drawImage(this.preparedFighterArenas[panel], 0, 0, W, H);
       return;
     }
     // Stable fallback for an unavailable optional generated environment.
-    this.backdrop.draw(ctx, Math.sin(this.phaseT * 0.2) * 8, 0);
+    this.backdrop.draw(this.engine.renderer.ctx, Math.sin(this.phaseT * 0.2) * 8, 0);
   }
 
   render(): void {
@@ -995,6 +1086,9 @@ class FighterGame implements GameInstance {
     r.clear(pal[2] ?? '#101020');
 
     this.drawArenaBackground();
+    // Story cards own their presentation. Keep only the cached arena behind
+    // them instead of rendering fighters, shadows, and combat UI pointlessly.
+    if (this.phase === 'cards') return;
 
     // stage: banded floor + a back wall line
     r.rect(0, FLOOR_Y, W, H - FLOOR_Y, pal[1] ?? '#10122b');

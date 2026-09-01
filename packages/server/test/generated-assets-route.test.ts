@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify from 'fastify';
@@ -6,6 +6,7 @@ import sharp from 'sharp';
 import { GENERATED_GAME_ASSET_FILES } from '@sparkade/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { registerRoutes } from '../src/api/routes';
+import { FIGHTER_ARENA_PROMPT_VERSION } from '../src/assets/fighter-arena';
 import { sha256 } from '../src/assets/manifest';
 
 describe('published generated asset routes', () => {
@@ -85,14 +86,46 @@ describe('published generated asset routes', () => {
     expect(assets.storyIntro).toBe(false);
     expect(assets.storyDefeat).toBe(false);
     expect(assets.generatedPortraitDefeat).toBe(false);
-    expect(Object.keys(assets).filter((name) => name.startsWith('fighter'))).toHaveLength(
-      Object.keys(GENERATED_GAME_ASSET_FILES).filter((name) => name.startsWith('fighter')).length,
+    const fighterAssetNames = Object.keys(GENERATED_GAME_ASSET_FILES).filter((name) =>
+      name.startsWith('fighter'),
     );
-    expect(
-      Object.entries(assets)
-        .filter(([name]) => name.startsWith('fighter'))
-        .every(([, available]) => !available),
-    ).toBe(true);
+    expect(fighterAssetNames).toHaveLength(6);
+    expect(fighterAssetNames.every((name) => !assets[name])).toBe(true);
+    expect(assets.fighterArenaPresentationBaked).toBe(false);
+  });
+
+  it('marks normalized v4 Fighter arenas so the client does not treat them twice', async () => {
+    const assetsDir = join(gameDir, 'assets');
+    const arena = await sharp({
+      create: { width: 512, height: 600, channels: 3, background: '#223344' },
+    })
+      .png()
+      .toBuffer();
+    const filename = GENERATED_GAME_ASSET_FILES.fighterArenaAtlas;
+    writeFileSync(join(assetsDir, filename), arena);
+    const manifest = JSON.parse(readFileSync(join(assetsDir, 'manifest.json'), 'utf8')) as {
+      version: 1;
+      assets: Record<string, unknown>[];
+    };
+    manifest.assets.push({
+      role: 'fighterArenaAtlas',
+      filename,
+      mimeType: 'image/png',
+      width: 512,
+      height: 600,
+      model: 'muse-image-1.0',
+      promptVersion: FIGHTER_ARENA_PROMPT_VERSION,
+      promptSha256: sha256('fighter arena prompt'),
+      sha256: sha256(arena),
+    });
+    writeFileSync(join(assetsDir, 'manifest.json'), JSON.stringify(manifest));
+
+    const response = await app.inject({ method: 'GET', url: '/api/games/game-1' });
+
+    expect(response.statusCode).toBe(200);
+    const assets = response.json().assets as Record<string, boolean>;
+    expect(assets.fighterArenaAtlas).toBe(true);
+    expect(assets.fighterArenaPresentationBaked).toBe(true);
   });
 
   it('serves manifest-declared PNGs and fails closed for undeclared legacy files', async () => {

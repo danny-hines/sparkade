@@ -6,8 +6,10 @@ import type { FighterSpec } from '@sparkade/shared';
 import {
   FIGHTER_ARENA_ATLAS_HEIGHT,
   FIGHTER_ARENA_HEIGHT,
+  FIGHTER_ARENA_PROMPT_VERSION,
   FIGHTER_ARENA_WIDTH,
   buildFighterArenaPrompt,
+  fighterArenaPresentationIsBaked,
   normalizeFighterArenaAtlas,
   validateFighterArenaAtlas,
 } from '../src/assets/fighter-arena';
@@ -19,6 +21,11 @@ function golden(): FighterSpec {
 }
 
 describe('generated Fighter arenas', () => {
+  it('marks only the server-treated arena contract as presentation-baked', () => {
+    expect(fighterArenaPresentationIsBaked(FIGHTER_ARENA_PROMPT_VERSION)).toBe(true);
+    expect(fighterArenaPresentationIsBaked('fighter-arena-sheet-v3')).toBe(false);
+  });
+
   it('locks both environments to the roster art direction and reserves edge props', () => {
     const spec = golden();
     const prompt = buildFighterArenaPrompt(spec);
@@ -77,8 +84,8 @@ describe('generated Fighter arenas', () => {
       .extract({ left: 0, top: FIGHTER_ARENA_HEIGHT, width: 1, height: 1 })
       .raw()
       .toBuffer();
-    expect([...topPixel.slice(0, 3)]).toEqual([214, 74, 69]);
-    expect([...bottomPixel.slice(0, 3)]).toEqual([49, 90, 168]);
+    expect([...topPixel.slice(0, 3)]).toEqual([175, 60, 56]);
+    expect([...bottomPixel.slice(0, 3)]).toEqual([41, 74, 138]);
   });
 
   it('rejects malformed runtime dimensions', async () => {

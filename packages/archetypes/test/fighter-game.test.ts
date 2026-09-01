@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   LOGICAL_BUTTONS,
   type FighterPose,
@@ -56,6 +56,10 @@ interface FighterHarness extends GameInstance {
   o: TestActor;
   generatedFighterAtlases: readonly CanvasImageSource[];
   generatedFighterArena: CanvasImageSource | null;
+  preparedFighterPoses: readonly Readonly<
+    Record<FighterPose, { normal: CanvasImageSource; flash: CanvasImageSource }>
+  >[];
+  preparedFighterArenas: readonly [CanvasImageSource, CanvasImageSource] | null;
   bout: number;
   startMove(actor: TestActor, move: MoveId): void;
   aiControl(actor: TestActor, foe: TestActor, dt: number): void;
@@ -69,6 +73,7 @@ interface HarnessOptions {
   chance?: boolean | ((probability: number) => boolean);
   fighterAtlases?: readonly CanvasImageSource[] | null;
   fighterArenaAtlas?: CanvasImageSource | null;
+  fighterArenaPresentationBaked?: boolean;
   rangeUnit?: number;
 }
 
@@ -81,6 +86,39 @@ interface GeneratedDrawEvent {
   filter: string;
   source?: { x: number; y: number; width: number; height: number };
 }
+
+let preparedCanvasId = 0;
+
+function fakePreparedCanvas(): HTMLCanvasElement {
+  const ctx = {
+    filter: 'none',
+    fillStyle: '#000000',
+    globalAlpha: 1,
+    globalCompositeOperation: 'source-over',
+    imageSmoothingEnabled: true,
+    drawImage: (): void => undefined,
+    fillRect: (): void => undefined,
+  };
+  return {
+    kind: 'prepared-fighter-canvas',
+    id: preparedCanvasId++,
+    width: 0,
+    height: 0,
+    getContext: () => ctx,
+  } as unknown as HTMLCanvasElement;
+}
+
+beforeEach(() => {
+  preparedCanvasId = 0;
+  vi.stubGlobal('document', {
+    createElement: (name: string) => {
+      if (name !== 'canvas') throw new Error(`unexpected element ${name}`);
+      return fakePreparedCanvas();
+    },
+  });
+});
+
+afterEach(() => vi.unstubAllGlobals());
 
 function loadSpec(): FighterSpec {
   const path = join(__dirname, '..', '..', 'generation', 'golden', 'golden-fighter.json');
@@ -121,9 +159,13 @@ function makeHarness(options: HarnessOptions = {}): {
   const noop = (): void => undefined;
   const ctx = {
     filter: 'none',
+    fillStyle: '#000000',
     imageSmoothingEnabled: true,
     save: noop,
     restore: noop,
+    beginPath: noop,
+    ellipse: noop,
+    fill: noop,
     translate: (x: number, y: number) => transforms.push(['translate', x, y]),
     scale: (x: number, y: number) => transforms.push(['scale', x, y]),
     drawImage: (image: CanvasImageSource, ...values: number[]) => {
@@ -154,7 +196,14 @@ function makeHarness(options: HarnessOptions = {}): {
     },
   };
   const engine = {
-    renderer: { ctx },
+    renderer: {
+      ctx,
+      theme: { text: '#fff', heading: '#fff' },
+      clear: noop,
+      rect: noop,
+      frame: noop,
+      text: noop,
+    },
     sprites: { likenessHead: () => null },
     rng: {
       chance: (probability: number) => {
@@ -176,6 +225,7 @@ function makeHarness(options: HarnessOptions = {}): {
     fighterAtlases:
       options.fighterAtlases === undefined ? stubFighterAtlases() : options.fighterAtlases,
     fighterArenaAtlas: options.fighterArenaAtlas ?? null,
+    fighterArenaPresentationBaked: options.fighterArenaPresentationBaked ?? false,
     attract: false,
     shake: noop,
     hitStop: noop,
@@ -324,24 +374,23 @@ describe('generated fighter art', () => {
     game.drawArenaBackground();
 
     expect(game.generatedFighterArena).toBe(arena);
+    expect(game.preparedFighterArenas).not.toBeNull();
     expect(generatedDraws).toEqual([
       {
-        image: arena,
-        source: { x: 0, y: 0, width: 512, height: 300 },
+        image: game.preparedFighterArenas![0],
         x: 0,
         y: 0,
         width: 512,
         height: 300,
-        filter: 'brightness(82%) saturate(85%)',
+        filter: 'none',
       },
       {
-        image: arena,
-        source: { x: 0, y: 300, width: 512, height: 300 },
+        image: game.preparedFighterArenas![1],
         x: 0,
         y: 0,
         width: 512,
         height: 300,
-        filter: 'brightness(82%) saturate(85%)',
+        filter: 'none',
       },
     ]);
   });
@@ -360,7 +409,7 @@ describe('generated fighter art', () => {
     );
   });
 
-  it('mirrors left-facing art and preserves the hit-flash filter', () => {
+  it('mirrors left-facing art and selects the cached hit-flash pose', () => {
     const atlases = stubFighterAtlases();
     const { game, generatedDraws, transforms } = makeHarness({ fighterAtlases: atlases });
     game.p.facing = -1;
@@ -370,56 +419,69 @@ describe('generated fighter art', () => {
       ['translate', Math.round(game.p.x) * 2, 0],
       ['scale', -1, 1],
     ]);
-    expect(generatedDraws).toHaveLength(9);
-    expect(
-      generatedDraws.slice(0, 8).every((draw) => draw.filter === 'brightness(0) opacity(72%)'),
-    ).toBe(true);
-    expect(generatedDraws[8]).toMatchObject({
-      image: atlases[0],
-      source: { x: 288, y: 192, width: 96, height: 96 },
-      width: 96,
-      height: 96,
-      filter: 'brightness(0) invert(1)',
-    });
+    expect(generatedDraws).toEqual([
+      {
+        image: game.preparedFighterPoses[0]!.hit.flash,
+        x: Math.round(game.p.x) - 48,
+        y: Math.round(game.p.y) - 92,
+        width: 96,
+        height: 96,
+        filter: 'none',
+      },
+    ]);
   });
 
-  it('crops each pose and opponent identity from the roster atlases', () => {
+  it('selects each pose and opponent identity from the prepared roster cache', () => {
     const atlases = stubFighterAtlases();
     const { game, generatedDraws } = makeHarness({ fighterAtlases: atlases });
 
     expect(game.generatedFighterAtlases).toEqual(atlases);
     expect(game.drawGeneratedFighter(game.o, 'airKick', false)).toBeUndefined();
-    expect(generatedDraws).toHaveLength(9);
     const x = Math.round(game.o.x) - 48;
     const y = Math.round(game.o.y) - 92;
-    expect(generatedDraws.slice(0, 8)).toEqual(
-      [
-        [-1, -1],
-        [0, -1],
-        [1, -1],
-        [-1, 0],
-        [1, 0],
-        [-1, 1],
-        [0, 1],
-        [1, 1],
-      ].map(([dx, dy]) => ({
-        image: atlases[game.o.identitySlot],
-        source: { x: 96, y: 192, width: 96, height: 96 },
-        x: x + dx!,
-        y: y + dy!,
+    expect(generatedDraws).toEqual([
+      {
+        image: game.preparedFighterPoses[game.o.identitySlot]!.airKick.normal,
+        x,
+        y,
         width: 96,
         height: 96,
-        filter: 'brightness(0) opacity(72%)',
-      })),
-    );
-    expect(generatedDraws[8]).toEqual({
-      image: atlases[game.o.identitySlot],
-      source: { x: 96, y: 192, width: 96, height: 96 },
-      x,
-      y,
-      width: 96,
-      height: 96,
-      filter: 'none',
-    });
+        filter: 'none',
+      },
+    ]);
+  });
+
+  it('keeps live rendering to one unfiltered arena draw and one draw per fighter', () => {
+    const arena = { kind: 'fighter-arena' } as unknown as CanvasImageSource;
+    const { game, generatedDraws } = makeHarness({ fighterArenaAtlas: arena });
+
+    game.render();
+
+    expect(generatedDraws).toHaveLength(3);
+    expect(generatedDraws.every((draw) => draw.filter === 'none')).toBe(true);
+    expect(generatedDraws.every((draw) => draw.source === undefined)).toBe(true);
+    expect(generatedDraws.slice(1).map((draw) => draw.image)).toEqual([
+      game.preparedFighterPoses[game.o.identitySlot]!.idle.normal,
+      game.preparedFighterPoses[game.p.identitySlot]!.idle.normal,
+    ]);
+  });
+
+  it('renders only the cached arena behind story cards', () => {
+    const arena = { kind: 'fighter-arena' } as unknown as CanvasImageSource;
+    const { game, generatedDraws } = makeHarness({ fighterArenaAtlas: arena });
+    game.phase = 'cards';
+
+    game.render();
+
+    expect(generatedDraws).toEqual([
+      {
+        image: game.preparedFighterArenas![0],
+        x: 0,
+        y: 0,
+        width: 512,
+        height: 300,
+        filter: 'none',
+      },
+    ]);
   });
 });

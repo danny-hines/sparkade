@@ -20,6 +20,7 @@ import {
   generatedAssetForFilename,
   generatedAssetForRole,
 } from '../assets/manifest';
+import { fighterArenaPresentationIsBaked } from '../assets/fighter-arena';
 import { costOf, estimateGenerationCost, estimateImageCount, formatUsd } from '../pipeline/cost';
 import { ProviderHttpError, ProviderNetworkError, stageProvider } from '../providers/index';
 import type { GenerationRunner } from '../pipeline/runner';
@@ -258,6 +259,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
         return [role, generatedAssetForRole(assetsDir, role)?.filename === filename];
       }),
     ) as Record<GeneratedGameAssetRole, boolean>;
+    const fighterArenaAsset = generatedAssetForRole(assetsDir, 'fighterArenaAtlas');
     const assets = {
       head12: hasGeneratedManifest ? generatedAssets.generatedHead12 : hasAsset('head12'),
       head12Side: hasGeneratedManifest
@@ -275,6 +277,9 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
         : hasAsset('head16Back'),
       portrait: hasGeneratedManifest ? generatedAssets.generatedPortrait : hasAsset('portrait'),
       ...generatedAssets,
+      fighterArenaPresentationBaked:
+        fighterArenaAsset !== null &&
+        fighterArenaPresentationIsBaked(fighterArenaAsset.promptVersion),
     };
     return {
       item: db.listItem(row),

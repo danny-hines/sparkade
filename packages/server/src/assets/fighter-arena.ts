@@ -1,18 +1,25 @@
 import sharp from 'sharp';
 import {
+  GENERATED_FIGHTER_ARENA_BRIGHTNESS,
   GENERATED_FIGHTER_ARENA_HEIGHT,
   GENERATED_FIGHTER_ARENA_PANELS,
+  GENERATED_FIGHTER_ARENA_SATURATION,
   GENERATED_FIGHTER_ARENA_WIDTH,
   type FighterSpec,
 } from '@sparkade/shared';
 import { fighterArtDirectionPrompt } from './fighter-art-direction';
 
-export const FIGHTER_ARENA_PROMPT_VERSION = 'fighter-arena-sheet-v3';
+/** v4 bakes the runtime presentation treatment into the normalized PNG. */
+export const FIGHTER_ARENA_PROMPT_VERSION = 'fighter-arena-sheet-v4';
 export const FIGHTER_ARENA_ASSET_ROLE = 'fighterArenaAtlas' as const;
 export const FIGHTER_ARENA_SOURCE_SIZE = 1024;
 export const FIGHTER_ARENA_WIDTH = GENERATED_FIGHTER_ARENA_WIDTH;
 export const FIGHTER_ARENA_HEIGHT = GENERATED_FIGHTER_ARENA_HEIGHT;
 export const FIGHTER_ARENA_ATLAS_HEIGHT = FIGHTER_ARENA_HEIGHT * GENERATED_FIGHTER_ARENA_PANELS;
+
+export function fighterArenaPresentationIsBaked(promptVersion: string): boolean {
+  return promptVersion === FIGHTER_ARENA_PROMPT_VERSION;
+}
 
 function clean(value: string, limit: number): string {
   return value.replace(/\s+/g, ' ').trim().slice(0, limit);
@@ -63,6 +70,10 @@ export async function normalizeFighterArenaAtlas(image: Buffer): Promise<Buffer>
           fit: 'cover',
           position: 'centre',
           kernel: sharp.kernel.nearest,
+        })
+        .modulate({
+          brightness: GENERATED_FIGHTER_ARENA_BRIGHTNESS,
+          saturation: GENERATED_FIGHTER_ARENA_SATURATION,
         })
         .png({ compressionLevel: 9, adaptiveFiltering: true })
         .toBuffer(),

@@ -75,6 +75,8 @@ export interface LikenessAssets {
   fighterAtlases?: readonly CanvasImageSource[] | null;
   /** Two stacked generated Fighter arena plates: reusable ladder, then boss. */
   fighterArenaAtlas?: CanvasImageSource | null;
+  /** True when the arena PNG already includes the standard brightness/saturation treatment. */
+  fighterArenaPresentationBaked?: boolean;
   /** Native generated platformer poses. Activated only as one complete set. */
   platformerPoses?: Readonly<Record<string, CanvasImageSource>> | null;
   /** High-density signature boss generated from the platformer's story art. */

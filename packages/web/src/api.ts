@@ -41,6 +41,8 @@ export type GameAssetAvailability = {
   head16Side: boolean;
   head16Back: boolean;
   portrait: boolean;
+  /** Server-normalized v4+ Fighter arenas already contain their color treatment. */
+  fighterArenaPresentationBaked?: boolean;
 } & Record<GeneratedGameAssetRole, boolean>;
 
 export interface GameDetail {

@@ -72,6 +72,8 @@ export interface EngineContext {
   fighterAtlases: readonly CanvasImageSource[] | null;
   /** Two stacked generated Fighter arena plates: reusable ladder, then boss. */
   fighterArenaAtlas: CanvasImageSource | null;
+  /** Prevents new server-treated arenas from receiving the legacy treatment twice. */
+  fighterArenaPresentationBaked: boolean;
   /** Image-generated high-density platformer poses, when complete. */
   platformerPoses: Readonly<Record<string, CanvasImageSource>> | null;
   /** Image-generated platformer finale boss, when available. */
@@ -216,6 +218,7 @@ export class GameHost {
       shooterEnemyAtlas: opts.likeness?.shooterEnemyAtlas ?? null,
       fighterAtlases: opts.likeness?.fighterAtlases ?? null,
       fighterArenaAtlas: opts.likeness?.fighterArenaAtlas ?? null,
+      fighterArenaPresentationBaked: opts.likeness?.fighterArenaPresentationBaked ?? false,
       platformerPoses: opts.likeness?.platformerPoses ?? null,
       platformerBoss: opts.likeness?.platformerBoss ?? null,
       platformerEnemies: opts.likeness?.platformerEnemies ?? null,

@@ -112,7 +112,17 @@ export const SHOOTER_ENEMY_ATLAS_ASSET =
 function loadImage(url: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image();
-    img.onload = () => resolve(img);
+    img.decoding = 'async';
+    img.onload = () => {
+      if (typeof img.decode !== 'function') {
+        resolve(img);
+        return;
+      }
+      void img.decode().then(
+        () => resolve(img),
+        () => resolve(null),
+      );
+    };
     img.onerror = () => resolve(null);
     img.src = url;
   });
@@ -391,6 +401,7 @@ export async function loadLikenessAssets(
     storyDefeat,
     fighterAtlases,
     fighterArenaAtlas,
+    fighterArenaPresentationBaked: assets.fighterArenaPresentationBaked ?? false,
     platformerPoses,
     platformerBoss,
     platformerEnemies,

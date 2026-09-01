@@ -500,6 +500,9 @@ export const GENERATED_FIGHTER_ROSTER_SIZE = 5;
 export const GENERATED_FIGHTER_ARENA_WIDTH = 512;
 export const GENERATED_FIGHTER_ARENA_HEIGHT = 300;
 export const GENERATED_FIGHTER_ARENA_PANELS = 2;
+/** Stable presentation treatment shared by server-baked and legacy runtime arenas. */
+export const GENERATED_FIGHTER_ARENA_BRIGHTNESS = 0.82;
+export const GENERATED_FIGHTER_ARENA_SATURATION = 0.85;
 export const FIGHTER_POSES = [
   'idle',
   'walk',

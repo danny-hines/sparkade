@@ -6,13 +6,18 @@ import {
   ADVENTURE_ROOM_WIDTH,
 } from '@sparkade/shared';
 import {
+  ADVENTURE_BLOCK_SLIDE_SPEED,
+  ADVENTURE_PUSH_DELAY,
   adventureBossFightHint,
   adventureBossGateHint,
   adventureDecorationFrameIndex,
   adventureFixtureVariantIndex,
+  adventureMeleeTrailSegments,
   adventurePlayerPoseName,
   adventureMeleeTuning,
   adventureRoomPlateIndex,
+  adventureShooterFacingDirection,
+  adventureShooterMuzzlePoint,
   adventureTerrainFrameIndex,
   compareAdventureDepth,
   setAdventureBossHurtbox,
@@ -131,6 +136,39 @@ describe('Adventure generated player pose selection', () => {
     expect(sweep.thickness).toBeGreaterThan(close.thickness);
     expect(close.cooldownS).toBeLessThan(reach.cooldownS);
     expect(close.knockback).toBeGreaterThan(reach.knockback);
+  });
+
+  it('draws directional, fading profile-specific trails instead of a detached weapon sprite', () => {
+    const sweep = adventureMeleeTrailSegments('sweep', 'right', 0.65);
+    const close = adventureMeleeTrailSegments('close', 'right', 0.65);
+    const reach = adventureMeleeTrailSegments('reach', 'up', 0.45);
+
+    expect(sweep).toHaveLength(5);
+    expect(close).toHaveLength(3);
+    expect(sweep[0]!.alpha).toBeGreaterThan(sweep.at(-1)!.alpha);
+    expect(Math.max(...sweep.map(({ x2 }) => x2))).toBeGreaterThan(
+      Math.max(...close.map(({ x2 }) => x2)),
+    );
+    expect(Math.min(...reach.map(({ y2 }) => y2))).toBeLessThan(-20);
+    expect(Math.max(...reach.map(({ x2 }) => Math.abs(x2)))).toBeLessThanOrEqual(2);
+  });
+
+  it('keeps block pushes responsive while preserving a brief intent gate', () => {
+    expect(16 / ADVENTURE_BLOCK_SLIDE_SPEED).toBeLessThanOrEqual(0.25);
+    expect(ADVENTURE_PUSH_DELAY).toBeLessThanOrEqual(0.1);
+  });
+
+  it('faces shooters toward the player and emits from the matching visual edge', () => {
+    expect(adventureShooterFacingDirection(80, 100, 1)).toBe(-1);
+    expect(adventureShooterFacingDirection(120, 100, -1)).toBe(1);
+    expect(adventureShooterFacingDirection(100.2, 100, -1)).toBe(-1);
+
+    const shooter = { x: 90, y: 40, w: 12, h: 12 };
+    const left = adventureShooterMuzzlePoint(shooter, -1);
+    const right = adventureShooterMuzzlePoint(shooter, 1);
+    expect(left.x).toBeLessThan(shooter.x);
+    expect(right.x).toBeGreaterThan(shooter.x + shooter.w);
+    expect(left.y).toBe(right.y);
   });
 });
 

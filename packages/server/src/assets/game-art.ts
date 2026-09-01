@@ -301,6 +301,7 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
   const shooterCraft = greenScreen && prompt.includes('vertical-shooter player craft');
   const shooterBoss = greenScreen && prompt.includes('vertical-shooter MAIN BOSS');
   const shooterEnemy = greenScreen && prompt.includes('top-down enemy gameplay sprite');
+  const adventureObject = greenScreen && prompt.includes('isolated top-down adventure-game sprite');
   const head = greenScreen && prompt.includes('HEAD sprite');
   let hash = 2166136261;
   for (const char of prompt) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
@@ -322,11 +323,13 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
                   ? mockShooterBossSubject(x * 2, y * 2)
                   : shooterEnemy
                     ? mockShooterEnemySubject(x * 2, y * 2, prompt)
-                    : fighter || platformer || adventurePlayer
-                      ? mockFighterSubject(x * 2, y * 2, prompt)
-                      : head
-                        ? mockHeadSubject(x * 2, y * 2, prompt)
-                        : x >= 90 && x < 166 && y >= 27 && y < 235);
+                    : adventureObject
+                      ? mockAdventureObjectSubject(x * 2, y * 2, prompt)
+                      : fighter || platformer || adventurePlayer
+                        ? mockFighterSubject(x * 2, y * 2, prompt)
+                        : head
+                          ? mockHeadSubject(x * 2, y * 2, prompt)
+                          : x >= 90 && x < 166 && y >= 27 && y < 235);
       if (greenScreen && !subject) {
         raw[offset] = 0;
         raw[offset + 1] = 255;
@@ -637,6 +640,21 @@ function mockShooterBossSubject(x: number, y: number): boolean {
 
 function mockShooterEnemySubject(x: number, y: number, prompt: string): boolean {
   return mockHShooterEnemySubject(512 - y, x, prompt);
+}
+
+function mockAdventureObjectSubject(x: number, y: number, prompt: string): boolean {
+  if (prompt.includes('switchRaised') || prompt.includes('switchPressed')) {
+    const pressed = prompt.includes('switchPressed');
+    const halfHeight = pressed ? 38 : 54;
+    return x >= 58 && x <= 454 && Math.abs(y - 310) <= halfHeight;
+  }
+  if (prompt.includes('block candidate')) {
+    return x >= 82 && x <= 430 && y >= 92 && y <= 430;
+  }
+  if (prompt.includes('npc candidate')) {
+    return x >= 145 && x <= 367 && y >= 54 && y <= 458;
+  }
+  return x >= 126 && x <= 386 && y >= 86 && y <= 426;
 }
 
 const MOCK_FIGHTER_POSE_HINTS: Record<FighterPose, string> = {

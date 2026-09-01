@@ -187,21 +187,25 @@ and never mix generated enemies with library fallbacks.
 
 ## Themed items, NPCs, and room fixtures
 
-Status: first generated-object slice implemented. New Adventure games make one Muse Image call for
-a fixed 3×3 board containing two candidates each for the signature key, collectible secondary item,
-friendly NPC, and active secondary projectile/returning object/placed charge. Spark selects one
-coherent, gameplay-readable candidate per role over mixed-floor previews, then the server publishes
-one required 384×112 atomic atlas. A private board checkpoint lets retries resume review without
-repainting; a board missing both candidates for any required role is discarded before a fresh job
-retry. The runtime uses the generated set for pickups, interaction, shots, returning equipment, and
-placed explosives while keeping all collection, collision, timing, and damage mechanics unchanged.
+Status: generated-object and puzzle-fixture slice implemented. New Adventure games make one Muse
+Image call for a fixed 4×4 board containing two candidates each for the signature key, collectible
+secondary item, friendly NPC, active secondary projectile/returning object/placed charge, pushable
+block, and the raised/pressed states of one pressure plate. Spark selects one coherent,
+gameplay-readable candidate per role over mixed-floor previews and forces the two switch states to
+use the same numbered design pair, then the server publishes one required 672×112 atomic atlas. A
+private board checkpoint lets retries resume review without repainting; a board missing both
+candidates for any required role is discarded before a fresh job retry. The runtime uses the
+generated set for pickups, interaction, shots, returning equipment, placed explosives, blocks, and
+switches while keeping all collision and puzzle mechanics engine-owned.
 
 - Expand each checked-in terrain family with multiple deterministic floor details, wall fixtures,
   low decorations, and tall decorations. Decoration selection must remain cosmetic and must not
   obscure doors, switches, pickups, hazards, or combat telegraphs.
 - Use generated key art as style direction for per-game props while retaining strict isolated-asset
   processing. The universal heart remains library art; the four themed roles no longer use legacy
-  visual fallbacks in newly generated games.
+  visual fallbacks in newly generated games. Blocks fill their collision footprint in the same
+  overhead three-quarter camera as actors, while switches change only mechanical depression—not
+  palette or lighting—between raised and pressed states.
 
 ## Rooms, progression, and environment variety
 
@@ -250,6 +254,13 @@ reserves a connected two-cell-wide outer dodge loop and central cross, then adds
 four separated teleport pads, or two summon pads when its authored phases require them. The
 normalizer deterministically clears these terrain reserves and relocates conflicting entities before
 the lint/repair loop spends another model call.
+
+Melee contact frames now pair with profile-specific directional motion trails instead of a detached
+generic impact sprite: close attacks use compact swipes, sweep weapons use broad fading arcs, and
+reach weapons use long thrust streaks whose visible distance matches their hitbox class. Pushable
+blocks have a brief intent gate and cross one tile in 250ms rather than two seconds. Generated
+shooters are authored right-facing, mirrored toward the player's horizontal position at runtime,
+and emit projectiles from the corresponding silhouette edge.
 
 - Add explicit line-of-sight and projectile-clearance checks for shooter placement.
 - Validate free space for boss charge lanes, teleport destinations, summon points, and the player's

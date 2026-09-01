@@ -6,20 +6,28 @@ import {
   type ProcessedFighterPose,
 } from './fighter-pose';
 
-export const GENERATED_ADVENTURE_OBJECTS = ['key', 'item', 'npc', 'secondaryEffect'] as const;
+export const GENERATED_ADVENTURE_OBJECTS = [
+  'key',
+  'item',
+  'npc',
+  'secondaryEffect',
+  'block',
+  'switchRaised',
+  'switchPressed',
+] as const;
 export type GeneratedAdventureObject = (typeof GENERATED_ADVENTURE_OBJECTS)[number];
 
 export const ADVENTURE_OBJECT_ATLAS_ROLE = 'adventureObjectAtlas' as const;
 export const ADVENTURE_OBJECT_BOARD_SIZE = 1024;
-export const ADVENTURE_OBJECT_BOARD_COLUMNS = 3;
-export const ADVENTURE_OBJECT_BOARD_ROWS = 3;
+export const ADVENTURE_OBJECT_BOARD_COLUMNS = 4;
+export const ADVENTURE_OBJECT_BOARD_ROWS = 4;
 export const GENERATED_ADVENTURE_OBJECT_WIDTH = 96;
 export const GENERATED_ADVENTURE_OBJECT_HEIGHT = 112;
 export const GENERATED_ADVENTURE_OBJECT_ATLAS_WIDTH =
   GENERATED_ADVENTURE_OBJECT_WIDTH * GENERATED_ADVENTURE_OBJECTS.length;
-export const ADVENTURE_OBJECT_BOARD_PROMPT_VERSION = 'adventure-object-board-v1';
-export const ADVENTURE_OBJECT_JUDGE_PROMPT_VERSION = 'adventure-object-judge-v1';
-export const ADVENTURE_OBJECT_PIPELINE_PROMPT_VERSION = 'adventure-object-pipeline-v1';
+export const ADVENTURE_OBJECT_BOARD_PROMPT_VERSION = 'adventure-object-board-v2';
+export const ADVENTURE_OBJECT_JUDGE_PROMPT_VERSION = 'adventure-object-judge-v2';
+export const ADVENTURE_OBJECT_PIPELINE_PROMPT_VERSION = 'adventure-object-pipeline-v2';
 
 export interface AdventureObjectPromptOptions {
   gameTitle: string;
@@ -110,12 +118,18 @@ function roleConcept(
       return `NPC: ${options.npcConcept}. One complete friendly adult world inhabitant in a neutral grounded front/down-facing top-down three-quarter idle, clearly non-hostile and distinct from the player and enemies.`;
     case 'secondaryEffect':
       return `ACTIVE SECONDARY: ${effectConcept(options)}.`;
+    case 'block':
+      return 'PUSHABLE BLOCK: one substantial waist-high movable crate, boulder, machine, container, or premise-specific obstacle. It fills most of one square gameplay cell, uses the same overhead three-quarter camera as the hero, and has no surrounding floor tile, pedestal, plinth, recess, glow, or alternate state.';
+    case 'switchRaised':
+      return 'RAISED PRESSURE PLATE: one unpressed floor switch viewed in the same overhead three-quarter camera, broad enough to fill most of one square gameplay cell and visibly raised only a few pixels above the floor. No surrounding floor tile, block, hand, foot, glow, beam, or activated lighting.';
+    case 'switchPressed':
+      return 'PRESSED PRESSURE PLATE: the exact same pressure plate, materials, outline, scale, camera, and orientation as switchRaised, now mechanically depressed nearly flush with the floor. State changes only through height/mechanical compression—never by changing color, emitting light, glowing, or becoming a different design.';
   }
 }
 
 export function adventureObjectCellRect(index: number): AdventureObjectCellRect {
-  if (!Number.isInteger(index) || index < 0 || index >= 9) {
-    throw new RangeError('Adventure object board cell index must be between 0 and 8');
+  if (!Number.isInteger(index) || index < 0 || index >= 16) {
+    throw new RangeError('Adventure object board cell index must be between 0 and 15');
   }
   const column = index % ADVENTURE_OBJECT_BOARD_COLUMNS;
   const row = Math.floor(index / ADVENTURE_OBJECT_BOARD_COLUMNS);
@@ -146,10 +160,11 @@ export function buildAdventureObjectBoardPrompt(options: AdventureObjectPromptOp
     }),
   ).join(' ');
   return [
-    'ADVENTURE THEMED OBJECT BOARD CONTRACT: create exactly one square 3-column by 3-row board. The first EIGHT cells contain two candidates for each of four gameplay roles in the exact order below. Cell 9 must remain completely empty solid green. Do not draw grid lines, gutters, labels, or borders.',
+    'ADVENTURE THEMED OBJECT BOARD CONTRACT: create exactly one square 4-column by 4-row board. The first FOURTEEN cells contain two candidates for each of seven gameplay roles in the exact order below. Cells 15 and 16 must remain completely empty solid green. Do not draw grid lines, gutters, labels, or borders.',
     `These objects belong to ${clean(options.gameTitle, 100)} — ${clean(options.tagline, 180)}. Use the attached key art only as immutable world-style, material, era, atmosphere, palette-logic, and pixel-technique direction. Never copy its player, boss, enemies, composition, scenery, or text.`,
     cells,
-    'Keep each role mechanically honest and instantly distinguishable at small gameplay size. The key opens gates, the item is collected and operated by the player, the NPC is friendly and talkable, and the active secondary is the moving or placed gameplay object described above.',
+    'Keep each role mechanically honest and instantly distinguishable at small gameplay size. The key opens gates, the item is collected and operated by the player, the NPC is friendly and talkable, the active secondary is the moving or placed gameplay object described above, the block is pushed, and the two pressure-plate states are walked or pushed onto.',
+    'FIXTURE PAIR CONTRACT: switchRaised-1 and switchPressed-1 are two states of one exact plate; switchRaised-2 and switchPressed-2 are two states of the other exact plate. Within each numbered pair preserve identical silhouette, construction, materials, palette, camera, orientation, scale, and outline. Only the vertical depression changes. The pushable block and both plate states use the same top-down three-quarter perspective as the actors, never a straight-on front elevation or a detached isometric tile.',
     'The two candidates for one role preserve the same authored identity while offering useful silhouette variation. Across all roles, share material language, contour treatment, rendering density, and palette logic without making unrelated objects look identical.',
     `Limited color direction: ${clean(options.colors)}. Preserve a clean darkest outer contour and strong foreground contrast over light, dark, saturated, and noisy room floors.`,
     `Polished high-density modern retro pixel art authored to become ${GENERATED_ADVENTURE_OBJECT_WIDTH}x${GENERATED_ADVENTURE_OBJECT_HEIGHT} transparent gameplay sources: crisp deliberate square pixel clusters, hard edges, controlled limited flat colors, rich readable detail, and no huge chunky blocks. No antialiasing, blur, gradients, smooth vector art, photorealism, or 3D rendering.`,
@@ -165,8 +180,8 @@ async function processAdventureObject(
   const processed = await processGeneratedFighterPose(image, {
     width: GENERATED_ADVENTURE_OBJECT_WIDTH,
     height: GENERATED_ADVENTURE_OBJECT_HEIGHT,
-    padding: role === 'npc' ? 5 : 9,
-    bottomPadding: role === 'npc' ? 1 : 8,
+    padding: role === 'npc' ? 5 : role === 'block' ? 5 : role.startsWith('switch') ? 4 : 9,
+    bottomPadding: role === 'npc' || role === 'block' ? 1 : role.startsWith('switch') ? 6 : 8,
     removeGreenSpill: true,
     isolatePrimarySubject: true,
     colors: 48,
@@ -179,6 +194,9 @@ async function processAdventureObject(
     item: { width: 22, height: 20 },
     npc: { width: 30, height: 54 },
     secondaryEffect: { width: 20, height: 16 },
+    block: { width: 42, height: 42 },
+    switchRaised: { width: 46, height: 24 },
+    switchPressed: { width: 46, height: 16 },
   };
   const minimum = minimums[role];
   if (width < minimum.width || height < minimum.height) {
@@ -319,13 +337,14 @@ export function buildAdventureObjectJudgePrompt(
 ): { system: string; user: string } {
   return {
     system: [
-      'You are the art director selecting four small but important gameplay visuals for a premium top-down retro Adventure game.',
+      'You are the art director selecting seven small but important gameplay visuals for a premium top-down retro Adventure game.',
       'The top of the attached review board is immutable world-style key art. Labeled processed candidates below appear over varied room floors to test real gameplay contrast.',
       'Score exact authored-concept match, world-style cohesion, complete readable silhouette, immediate gameplay-role readability, and crisp residue-free technical execution.',
-      'The key must read as a portable gate-opening object; item as the collectible secondary equipment; NPC as one friendly grounded world inhabitant; active secondary as the correct in-flight or placed gameplay object. Penalize candidates that resemble enemies, floor decoration, the player, the boss, or another role.',
+      'The key must read as a portable gate-opening object; item as the collectible secondary equipment; NPC as one friendly grounded world inhabitant; active secondary as the correct in-flight or placed gameplay object; block as one full-scale movable obstacle; raised and pressed switches as the exact same broad floor plate in two mechanical height states. Penalize candidates that resemble enemies, floor decoration, the player, the boss, or another role.',
+      'The block and switches must share the actors’ overhead three-quarter camera and fill their gameplay footprint without a baked floor square, pedestal, plinth, or tiny object inside a larger tile. The two selected switch states must use the same candidate suffix and preserve identical construction, materials, palette, outline, orientation, and scale. Only mechanical depression may differ; lighting, glow, and color-state swaps are invalid.',
       'Choose exactly one locally valid candidate per role. Optimize the set for coherent materials and rendering density while keeping every role unmistakably distinct. Select the best available candidate for every role even when none is perfect. Return only the requested JSON.',
     ].join(' '),
-    user: `Select key, item, npc, and secondaryEffect from ${candidates.map(({ id }) => id).join(', ')}. Contracts: ${GENERATED_ADVENTURE_OBJECTS.map((role) => roleConcept(role, options)).join(' ')}`,
+    user: `Select key, item, npc, secondaryEffect, block, switchRaised, and switchPressed from ${candidates.map(({ id }) => id).join(', ')}. Contracts: ${GENERATED_ADVENTURE_OBJECTS.map((role) => roleConcept(role, options)).join(' ')}`,
   };
 }
 
@@ -353,16 +372,21 @@ export function bestAdventureObjectCandidateId(
   let best: { id: string; score: number } | null = null;
   for (const review of decision.candidateReviews) {
     if (review.role !== role) continue;
-    const score =
-      review.scores.gameplayReadability * 5 +
-      review.scores.conceptMatch * 4 +
-      review.scores.worldStyle * 3 +
-      review.scores.silhouette * 3 +
-      review.scores.technical * 2 -
-      review.issues.length * 3;
+    const score = adventureObjectReviewScore(review);
     if (!best || score > best.score) best = { id: review.id, score };
   }
   return best?.id ?? null;
+}
+
+function adventureObjectReviewScore(review: AdventureObjectCandidateReview): number {
+  return (
+    review.scores.gameplayReadability * 5 +
+    review.scores.conceptMatch * 4 +
+    review.scores.worldStyle * 3 +
+    review.scores.silhouette * 3 +
+    review.scores.technical * 2 -
+    review.issues.length * 3
+  );
 }
 
 export function normalizeAdventureObjectJudgeDecision(
@@ -444,6 +468,39 @@ export function normalizeAdventureObjectJudgeDecision(
       rationale: text(selection?.rationale),
     };
   });
+  const raised = provisional.selections.find((selection) => selection.role === 'switchRaised');
+  const pressed = provisional.selections.find((selection) => selection.role === 'switchPressed');
+  const selectedPairMatches =
+    raised?.candidateId.match(/-(\d+)$/)?.[1] === pressed?.candidateId.match(/-(\d+)$/)?.[1];
+  if (raised && pressed && !selectedPairMatches) {
+    const pairedCandidates = [0, 1]
+      .map((candidateIndex) => {
+        const raisedId = adventureObjectCandidateId('switchRaised', candidateIndex);
+        const pressedId = adventureObjectCandidateId('switchPressed', candidateIndex);
+        const raisedReview = candidateReviews.find((review) => review.id === raisedId);
+        const pressedReview = candidateReviews.find((review) => review.id === pressedId);
+        return raisedReview && pressedReview
+          ? {
+              raisedId,
+              pressedId,
+              score:
+                adventureObjectReviewScore(raisedReview) +
+                adventureObjectReviewScore(pressedReview),
+            }
+          : null;
+      })
+      .filter((pair): pair is NonNullable<typeof pair> => pair !== null)
+      .sort((a, b) => b.score - a.score);
+    const pair = pairedCandidates[0];
+    if (pair) {
+      raised.candidateId = pair.raisedId;
+      raised.rationale =
+        `${raised.rationale} Matched to the strongest mechanically consistent pressure-plate pair.`.trim();
+      pressed.candidateId = pair.pressedId;
+      pressed.rationale =
+        `${pressed.rationale} Matched to the strongest mechanically consistent pressure-plate pair.`.trim();
+    }
+  }
   return provisional;
 }
 
@@ -483,7 +540,8 @@ export async function buildAdventureObjectJudgeBoard(options: {
   const groupWidth = 560;
   const groupHeight = 245;
   const startY = 455;
-  const height = startY + groupHeight * 2 + 20;
+  const rows = Math.ceil(GENERATED_ADVENTURE_OBJECTS.length / 2);
+  const height = startY + groupHeight * rows + 20;
   const keyArt = await sharp(options.keyArt)
     .resize(keyArtWidth, keyArtHeight, { fit: 'contain', background: '#0f1528' })
     .png()

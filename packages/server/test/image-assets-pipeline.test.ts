@@ -425,7 +425,7 @@ describe.sequential('mock image asset pipeline', () => {
     expect(files.readMeta(gameId)?.adventureObjectArt).toEqual({
       mode: 'generated',
       attempted: true,
-      roles: ['key', 'item', 'npc', 'secondaryEffect'],
+      roles: ['key', 'item', 'npc', 'secondaryEffect', 'block', 'switchRaised', 'switchPressed'],
     });
     await expectPublishedPngs(files, gameId, [
       ...PRESENTATION_ROLES,
@@ -462,7 +462,7 @@ describe.sequential('mock image asset pipeline', () => {
     expect(
       generatedAssetForRole(join(files.gameDir(gameId), 'assets'), 'adventureObjectAtlas'),
     ).toMatchObject({
-      width: 384,
+      width: 672,
       height: 112,
     });
     const successfulImageStages = db

@@ -82,13 +82,24 @@ const GENERATED_ENEMY_DRAW_SIZE: Record<GeneratedEnemyRole, { width: number; hei
 const GENERATED_OBJECT_ATLAS_CELL_WIDTH = 96;
 const GENERATED_OBJECT_ATLAS_CELL_HEIGHT = 112;
 const GENERATED_OBJECT_OUTLINE = '#090c18';
-const GENERATED_OBJECT_ROLES = ['key', 'item', 'npc', 'secondaryEffect'] as const;
+const GENERATED_OBJECT_ROLES = [
+  'key',
+  'item',
+  'npc',
+  'secondaryEffect',
+  'block',
+  'switchRaised',
+  'switchPressed',
+] as const;
 type GeneratedObjectRole = (typeof GENERATED_OBJECT_ROLES)[number];
 const GENERATED_OBJECT_DRAW_SIZE: Record<GeneratedObjectRole, { width: number; height: number }> = {
   key: { width: 18, height: 21 },
   item: { width: 20, height: 23 },
   npc: { width: 24, height: 28 },
   secondaryEffect: { width: 16, height: 19 },
+  block: { width: 18, height: 20 },
+  switchRaised: { width: 16, height: 16 },
+  switchPressed: { width: 16, height: 16 },
 };
 const BOSS_HURTBOX_X_PAD = 8;
 const BOSS_HURTBOX_TOP_PAD = 8;
@@ -105,8 +116,8 @@ const BOOM_RETURN_SPEED = 220;
 const BOOM_RANGE = 4 * TILE_SIZE;
 const ENEMY_SHOT_SPEED = 90;
 const BOSS_SHOT_SPEED = 70;
-const BLOCK_SLIDE_SPEED = 8; // px/s (spec'd: deliberate, weighty pushes)
-const PUSH_DELAY = 0.15; // sustained push before a block budges
+export const ADVENTURE_BLOCK_SLIDE_SPEED = 64; // px/s: one tile in 250ms
+export const ADVENTURE_PUSH_DELAY = 0.08; // brief intent gate without a sluggish hold
 
 type TileKind =
   | 'floor'
@@ -132,6 +143,15 @@ export interface AdventureMeleeTuning {
   knockback: number;
 }
 
+export interface AdventureMeleeTrailSegment {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  width: number;
+  alpha: number;
+}
+
 /** Engine-owned combat shapes. Generated fiction can rename and redraw these,
  * but cannot invent arbitrary balance or hitbox behavior. */
 export function adventureMeleeTuning(profile: AdventureMeleeProfile): AdventureMeleeTuning {
@@ -143,6 +163,84 @@ export function adventureMeleeTuning(profile: AdventureMeleeProfile): AdventureM
     case 'reach':
       return { activeS: 0.34, cooldownS: 0.42, reach: 26, thickness: 10, knockback: 54 };
   }
+}
+
+function facingAngle(facing: Facing): number {
+  if (facing === 'right') return 0;
+  if (facing === 'down') return Math.PI / 2;
+  if (facing === 'left') return Math.PI;
+  return -Math.PI / 2;
+}
+
+/** A fiction-neutral motion trail driven by the engine-owned melee profile.
+ * The generated contact pose supplies the actual weapon; this only communicates
+ * direction, timing, and range, so no detached generic weapon can appear. */
+export function adventureMeleeTrailSegments(
+  profile: AdventureMeleeProfile,
+  facing: Facing,
+  progress: number,
+): AdventureMeleeTrailSegment[] {
+  const tuning = adventureMeleeTuning(profile);
+  const attackProgress = Math.max(0, Math.min(1, progress));
+  const baseAngle = facingAngle(facing);
+  const fade = 1 - attackProgress * 0.55;
+
+  if (profile === 'reach') {
+    const extension = Math.sin(Math.PI * Math.min(1, attackProgress * 0.9 + 0.08));
+    const near = PLAYER_W / 2 + 2;
+    const far = near + tuning.reach * Math.max(0.3, extension);
+    const perpendicular = baseAngle + Math.PI / 2;
+    return [0, 1, 2].map((trailIndex) => {
+      const lag = trailIndex * 2;
+      const offset = (trailIndex - 1) * 1.5;
+      const ox = Math.cos(perpendicular) * offset;
+      const oy = Math.sin(perpendicular) * offset;
+      return {
+        x1: Math.round(Math.cos(baseAngle) * near + ox),
+        y1: Math.round(Math.sin(baseAngle) * near + oy),
+        x2: Math.round(Math.cos(baseAngle) * Math.max(near, far - lag) + ox),
+        y2: Math.round(Math.sin(baseAngle) * Math.max(near, far - lag) + oy),
+        width: trailIndex === 0 ? 3 : 2,
+        alpha: fade * (0.78 - trailIndex * 0.2),
+      };
+    });
+  }
+
+  const sweepRadians = profile === 'sweep' ? Math.PI * 0.9 : Math.PI * 0.48;
+  const trailCount = profile === 'sweep' ? 5 : 3;
+  const outerRadius = PLAYER_W / 2 + tuning.reach;
+  const innerRadius = Math.max(PLAYER_W / 2 + 2, outerRadius - tuning.thickness * 0.48);
+  return Array.from({ length: trailCount }, (_, trailIndex) => {
+    const delayedProgress = Math.max(0, attackProgress - trailIndex * 0.09);
+    const angle = baseAngle - sweepRadians / 2 + sweepRadians * delayedProgress;
+    return {
+      x1: Math.round(Math.cos(angle) * innerRadius),
+      y1: Math.round(Math.sin(angle) * innerRadius),
+      x2: Math.round(Math.cos(angle) * outerRadius),
+      y2: Math.round(Math.sin(angle) * outerRadius),
+      width: trailIndex === 0 ? 3 : 2,
+      alpha: fade * (0.86 - (trailIndex / trailCount) * 0.62),
+    };
+  });
+}
+
+export function adventureShooterFacingDirection(
+  playerCenterX: number,
+  shooterCenterX: number,
+  previousDirection: number,
+): -1 | 1 {
+  if (Math.abs(playerCenterX - shooterCenterX) < 0.5) return previousDirection < 0 ? -1 : 1;
+  return playerCenterX < shooterCenterX ? -1 : 1;
+}
+
+export function adventureShooterMuzzlePoint(
+  shooter: Pick<AABB, 'x' | 'y' | 'w' | 'h'>,
+  direction: number,
+): { x: number; y: number } {
+  return {
+    x: direction < 0 ? shooter.x - 2 : shooter.x + shooter.w + 2,
+    y: shooter.y + shooter.h * 0.48,
+  };
 }
 
 export function adventurePlayerPoseName(
@@ -572,7 +670,6 @@ class AdventureGame implements GameInstance {
   private depthItems: AdventureDepthItem[] = [];
   private wallAutotiles: TopDownConnectedAutotiles;
   private pitAutotiles: TopDownConnectedAutotiles;
-  private blockAutotiles: TopDownConnectedAutotiles;
   private doorArt = {} as Record<DoorVisualKind, Record<Dir, HTMLCanvasElement>>;
   private roomPlate: CanvasImageSource | null;
   private roomPlateSize: { width: number; height: number } | null;
@@ -676,7 +773,6 @@ class AdventureGame implements GameInstance {
   private entGrid: TileGrid;
 
   private sprites: Record<string, ResolvedSprite> = {};
-  private waveSprite: ResolvedSprite;
   private generatedPlayerPoses: Readonly<Record<string, CanvasImageSource>>;
   private generatedBoss: CanvasImageSource | null;
   private generatedEnemyCast: Record<GeneratedEnemyRole, HTMLCanvasElement>;
@@ -694,7 +790,6 @@ class AdventureGame implements GameInstance {
     for (const role of Object.keys(ROLE_FALLBACK)) {
       this.sprites[role] = engine.sprites.byRole(role, ROLE_FALLBACK[role]!);
     }
-    this.waveSprite = engine.sprites.byRole('proj_wave', 'lib:proj_wave');
     if (!engine.adventurePlayerPoses) {
       throw new Error('Adventure games require a complete generated player pose set');
     }
@@ -737,7 +832,6 @@ class AdventureGame implements GameInstance {
     }
     this.wallAutotiles = new TopDownConnectedAutotiles(this.tileFrames['wall']!, 'raised');
     this.pitAutotiles = new TopDownConnectedAutotiles(this.tileFrames['pit']!, 'recessed');
-    this.blockAutotiles = new TopDownConnectedAutotiles(this.tileFrames['block']!, 'raised');
     for (const kind of ['doorOpen', 'doorLocked', 'doorBoss'] as const) {
       const source = this.tileFrames[kind]![0]!;
       this.doorArt[kind] = {
@@ -1318,7 +1412,7 @@ class AdventureGame implements GameInstance {
               this.pushDX = dx;
               this.pushDY = dy;
             }
-            if (this.pushT >= PUSH_DELAY) {
+            if (this.pushT >= ADVENTURE_PUSH_DELAY) {
               this.tryPushBlock(blk, dx, dy);
               this.pushT = 0;
             }
@@ -1453,7 +1547,7 @@ class AdventureGame implements GameInstance {
       if (!b.active || !b.sliding) continue;
       const gx = b.toTx * TILE_SIZE;
       const gy = b.toTy * TILE_SIZE;
-      const step = BLOCK_SLIDE_SPEED * dt;
+      const step = ADVENTURE_BLOCK_SLIDE_SPEED * dt;
       const dx = gx - b.x;
       const dy = gy - b.y;
       if (Math.abs(dx) <= step && Math.abs(dy) <= step) {
@@ -1763,15 +1857,16 @@ class AdventureGame implements GameInstance {
       }
       case 'shooter': {
         e.fireT += dt;
-        e.dirX = pcx >= ecx ? 1 : -1;
+        e.dirX = adventureShooterFacingDirection(pcx, ecx, e.dirX);
         if (e.fireT >= 2.2 / this.diff.fire) {
           e.fireT = 0;
-          const dx = pcx - ecx;
-          const dy = pcy - ecy;
+          const muzzle = adventureShooterMuzzlePoint(e, e.dirX);
+          const dx = pcx - muzzle.x;
+          const dy = pcy - muzzle.y;
           const len = Math.max(1, Math.hypot(dx, dy));
           this.fireProj(
-            ecx,
-            ecy,
+            muzzle.x,
+            muzzle.y,
             (dx / len) * ENEMY_SHOT_SPEED,
             (dy / len) * ENEMY_SHOT_SPEED,
             false,
@@ -2384,22 +2479,6 @@ class AdventureGame implements GameInstance {
     ctx.restore();
   }
 
-  private fixtureFrameIndex(
-    frames: readonly HTMLCanvasElement[],
-    tx: number,
-    ty: number,
-    salt = 0,
-  ): number {
-    return adventureFixtureVariantIndex(
-      tx,
-      ty,
-      frames.length,
-      this.room.gridPos.x,
-      this.room.gridPos.y,
-      salt,
-    );
-  }
-
   private drawGroundShadow(centerX: number, groundY: number, width: number, alpha = 0.2): void {
     const ctx = this.engine.renderer.ctx;
     const cam = this.engine.camera;
@@ -2416,6 +2495,39 @@ class AdventureGame implements GameInstance {
       Math.PI * 2,
     );
     ctx.fill();
+    ctx.restore();
+  }
+
+  private drawMeleeTrail(): void {
+    const profile = this.spec.combatKit.primary.profile;
+    const progress = 1 - this.meleeT / this.meleeTuning.activeS;
+    const segments = adventureMeleeTrailSegments(profile, this.facing, progress);
+    const cam = this.engine.camera;
+    const centerX = Math.round(this.px + PLAYER_W / 2 - cam.x);
+    const centerY = Math.round(this.py + PLAYER_H / 2 - cam.y);
+    const trailColor = this.spec.palette[13] ?? '#ffd75e';
+    const edgeColor = this.spec.palette[15] ?? '#fff4d2';
+    const ctx = this.engine.renderer.ctx;
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.lineCap = 'butt';
+    for (const segment of [...segments].reverse()) {
+      ctx.globalAlpha = Math.max(0, Math.min(1, segment.alpha * 0.58));
+      ctx.strokeStyle = GENERATED_PLAYER_OUTLINE;
+      ctx.lineWidth = segment.width + 2;
+      ctx.beginPath();
+      ctx.moveTo(centerX + segment.x1, centerY + segment.y1);
+      ctx.lineTo(centerX + segment.x2, centerY + segment.y2);
+      ctx.stroke();
+
+      ctx.globalAlpha = Math.max(0, Math.min(1, segment.alpha));
+      ctx.strokeStyle = segment.width >= 3 ? edgeColor : trailColor;
+      ctx.lineWidth = segment.width;
+      ctx.beginPath();
+      ctx.moveTo(centerX + segment.x1, centerY + segment.y1);
+      ctx.lineTo(centerX + segment.x2, centerY + segment.y2);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -2464,14 +2576,17 @@ class AdventureGame implements GameInstance {
     }
 
     if (item.kind === 'block') {
-      const frames = this.tileFrames['block']!;
-      const tx = Math.round(item.block.x / TILE_SIZE);
-      const ty = Math.round(item.block.y / TILE_SIZE);
-      const sourceFrame = this.fixtureFrameIndex(frames, tx, ty, 31);
-      const image = this.blockAutotiles.frame(0, sourceFrame);
-      if (image) {
-        r.drawScaled(image, item.block.x - cam.x, item.block.y - cam.y, TILE_SIZE, TILE_SIZE);
-      }
+      const image = this.generatedObjects.block;
+      const size = GENERATED_OBJECT_DRAW_SIZE.block;
+      const centerX = item.block.x + TILE_SIZE / 2;
+      this.drawGroundShadow(centerX, item.groundY, 15, 0.24);
+      r.drawScaled(
+        image,
+        Math.round(centerX - size.width / 2 - cam.x),
+        Math.round(item.groundY - size.height - cam.y),
+        size.width,
+        size.height,
+      );
       return;
     }
 
@@ -2491,6 +2606,8 @@ class AdventureGame implements GameInstance {
         const image = this.generatedEnemyCast[e.type];
         const size = GENERATED_ENEMY_DRAW_SIZE[e.type];
         const hover = e.type === 'flyer' ? Math.sin(e.t * 5) * 1.5 - 2 : 0;
+        const x = Math.round(e.x + e.w / 2 - size.width / 2 - cam.x);
+        const y = Math.round(e.y + e.h - size.height - cam.y + hover);
         this.drawGroundShadow(
           e.x + e.w / 2,
           item.groundY,
@@ -2498,13 +2615,17 @@ class AdventureGame implements GameInstance {
           e.type === 'flyer' ? 0.13 : 0.22,
         );
         if (flicker) return;
-        r.drawScaled(
-          image,
-          Math.round(e.x + e.w / 2 - size.width / 2 - cam.x),
-          Math.round(e.y + e.h - size.height - cam.y + hover),
-          size.width,
-          size.height,
-        );
+        if (e.type === 'shooter' && e.dirX < 0) {
+          const ctx = r.ctx;
+          ctx.save();
+          ctx.imageSmoothingEnabled = false;
+          ctx.translate(x + size.width, y);
+          ctx.scale(-1, 1);
+          ctx.drawImage(image, 0, 0, size.width, size.height);
+          ctx.restore();
+        } else {
+          r.drawScaled(image, x, y, size.width, size.height);
+        }
         return;
       }
       if (isGeneratedObjectEntity(e.type)) {
@@ -2598,18 +2719,7 @@ class AdventureGame implements GameInstance {
       }
     }
     if (this.meleeT > 0) {
-      this.setMeleeBox();
-      const image = this.engine.sprites.frame(
-        this.waveSprite,
-        'idle',
-        this.animT,
-        this.facing === 'left',
-      );
-      r.draw(
-        image,
-        this.meleeBox.x - cam.x + (this.meleeBox.w - this.waveSprite.w) / 2,
-        this.meleeBox.y - cam.y + (this.meleeBox.h - this.waveSprite.h) / 2,
-      );
+      this.drawMeleeTrail();
     }
   }
 
@@ -2630,20 +2740,17 @@ class AdventureGame implements GameInstance {
     });
 
     // Floor-bound switches and hazards sit below the Y-sorted object layer.
-    const switchFrames = this.tileFrames['switch']!;
     for (const s of this.switchCells) {
-      const variantCount = Math.max(1, Math.floor(switchFrames.length / 2));
-      const variant = adventureFixtureVariantIndex(
-        s.tx,
-        s.ty,
-        variantCount,
-        this.room.gridPos.x,
-        this.room.gridPos.y,
-        43,
+      const role = s.pressed ? 'switchPressed' : 'switchRaised';
+      const image = this.generatedObjects[role];
+      const size = GENERATED_OBJECT_DRAW_SIZE[role];
+      r.drawScaled(
+        image,
+        s.tx * TILE_SIZE + (TILE_SIZE - size.width) / 2 - cam.x,
+        s.ty * TILE_SIZE + TILE_SIZE - size.height - cam.y,
+        size.width,
+        size.height,
       );
-      const frame = variant * 2 + (s.pressed ? 1 : 0);
-      const img = switchFrames[frame] ?? switchFrames[s.pressed ? 1 : 0] ?? switchFrames[0]!;
-      r.drawScaled(img, s.tx * TILE_SIZE - cam.x, s.ty * TILE_SIZE - cam.y, TILE_SIZE, TILE_SIZE);
     }
     const hazardFrames = this.tileFrames['hazard']!;
     for (const c of this.hazardCells) {

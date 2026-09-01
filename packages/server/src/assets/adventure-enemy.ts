@@ -27,9 +27,9 @@ export const ADVENTURE_ENEMY_CANDIDATES_PER_ROLE = 2;
 export const GENERATED_ADVENTURE_ENEMY_SIZE = 96;
 export const GENERATED_ADVENTURE_ENEMY_ATLAS_WIDTH =
   GENERATED_ADVENTURE_ENEMY_SIZE * GENERATED_ADVENTURE_ENEMIES.length;
-export const ADVENTURE_ENEMY_BOARD_PROMPT_VERSION = 'adventure-enemy-board-v1';
-export const ADVENTURE_ENEMY_JUDGE_PROMPT_VERSION = 'adventure-enemy-judge-v1';
-export const ADVENTURE_ENEMY_PIPELINE_PROMPT_VERSION = 'adventure-enemy-pipeline-v1';
+export const ADVENTURE_ENEMY_BOARD_PROMPT_VERSION = 'adventure-enemy-board-v2';
+export const ADVENTURE_ENEMY_JUDGE_PROMPT_VERSION = 'adventure-enemy-judge-v2';
+export const ADVENTURE_ENEMY_PIPELINE_PROMPT_VERSION = 'adventure-enemy-pipeline-v2';
 
 const ROLE_DIRECTION: Record<GeneratedAdventureEnemy, string> = {
   walker:
@@ -37,7 +37,7 @@ const ROLE_DIRECTION: Record<GeneratedAdventureEnemy, string> = {
   flyer:
     'FLYER: an airborne creature, drone, or levitating construct with no walking legs planted on the ground; the silhouette must unmistakably communicate hovering or flight',
   shooter:
-    'SHOOTER: a ranged attacker with one clearly integrated muzzle, launcher, bow-like organ, casting focus, or other premise-specific firing feature, held in a calm ready state',
+    'SHOOTER: a RIGHT-facing ranged attacker in clear side profile, with one clearly integrated muzzle, launcher, bow-like organ, casting focus, or other premise-specific firing feature visibly leading from the RIGHT edge of its silhouette in a calm ready state',
   chaser:
     'CHASER: a compact, fast pursuit creature or machine with an aggressive forward lean, swept-back forms, and a clearly speed-oriented silhouette',
   bruiser:
@@ -139,7 +139,7 @@ export function buildAdventureEnemyBoardPrompt(options: AdventureEnemyPromptOpti
     'ADVENTURE ENEMY CAST BOARD CONTRACT: create exactly one square 4-column by 3-row board. The first TEN cells contain two candidates for each of five enemy roles in the exact order below. Cells 11 and 12 must remain completely empty solid green. Do not draw grid lines, gutters, labels, or borders.',
     `This is the coherent enemy cast for ${clean(options.gameTitle, 100)} — ${clean(options.tagline, 180)}. Use the attached key art only as immutable world-style, era, material, atmosphere, and rendering-technique direction. Do not copy the player hero, boss, scenery, text, or props from it.`,
     cells,
-    'Every populated cell contains exactly ONE complete isolated enemy in a grounded or hovering neutral locomotion-ready pose. Use the same classic overhead-adventure top-down three-quarter camera in all ten cells, generally facing toward the bottom edge. Nothing may cross a cell boundary or be cropped.',
+    'Every populated cell contains exactly ONE complete isolated enemy in a grounded or hovering neutral locomotion-ready pose. Use the same classic overhead-adventure top-down three-quarter camera in all ten cells. Walker, flyer, chaser, and bruiser generally face toward the bottom edge. SHOOTER ALONE must face RIGHT in unmistakable side profile so runtime mirroring can aim it left or right; its firing feature must terminate at the rightmost leading edge. Nothing may cross a cell boundary or be cropped.',
     'The two candidates for a role must preserve the same authored concept while offering useful silhouette variation. Across roles, create one visibly related faction through shared material language, contour treatment, pixel density, and palette logic, but never make two roles easy to confuse.',
     'Behavior must read from silhouette at gameplay size: walker is stable, flyer unmistakably airborne, shooter has a readable ranged feature, chaser looks fast, and bruiser is the largest and heaviest. No role may look like a pickup, floor decoration, player character, or final boss.',
     `Limited cast color direction: ${clean(options.colors)}. Keep hostile accents distinct from likely player colors and preserve a clean darkest outer contour around every complete silhouette.`,
@@ -282,7 +282,7 @@ export function buildAdventureEnemyJudgePrompt(
       'You are the art director selecting one complete five-role enemy cast for a premium top-down retro Adventure game.',
       'The top of the attached board is immutable world-style key art. The labeled processed candidates below appear over varied calm floors that test real gameplay contrast.',
       'Score each candidate for its authored concept, cohesion with the whole faction and key art, complete readable silhouette, immediate behavioral-role readability, and crisp residue-free technical execution.',
-      'Walker must read as a stable ground patrol; flyer as airborne; shooter as ranged; chaser as fast pursuit; bruiser as the largest heavy threat. Penalize any candidate that resembles floor decoration, a pickup, the hero, the final boss, or another selected role.',
+      'Walker must read as a stable ground patrol; flyer as airborne; shooter as ranged; chaser as fast pursuit; bruiser as the largest heavy threat. The shooter must visibly face RIGHT in side profile with its firing feature on the rightmost leading edge; a front-facing, left-facing, ambiguous, rear-mounted, or disconnected launcher is mechanically invalid because gameplay mirrors this source toward the player. Penalize any candidate that resembles floor decoration, a pickup, the hero, the final boss, or another selected role.',
       'Choose exactly one locally valid candidate for each role. Optimize the five selections as a combination: coherent materials and pixel density, deliberately distinct silhouettes, sensible relative scale, and strong visibility over every preview floor. Select the best available candidate for every role even when none is perfect. Return only the requested JSON.',
     ].join(' '),
     user: `Select walker, flyer, shooter, chaser, and bruiser from ${candidates.map(({ id }) => id).join(', ')}. Concepts: ${GENERATED_ADVENTURE_ENEMIES.map((role) => `${role}: ${clean(concepts[role])}`).join('; ')}.`,

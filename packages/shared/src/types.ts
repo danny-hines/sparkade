@@ -764,7 +764,9 @@ export interface GameMetaFile {
   adventureObjectArt?: {
     mode: 'generated';
     attempted: true;
-    roles: Array<'key' | 'item' | 'npc' | 'secondaryEffect'>;
+    roles: Array<
+      'key' | 'item' | 'npc' | 'secondaryEffect' | 'block' | 'switchRaised' | 'switchPressed'
+    >;
   };
   /** QA/readiness signal for the likeness-independent H-scroll player craft. */
   hshooterPlayerCraftArt?: {

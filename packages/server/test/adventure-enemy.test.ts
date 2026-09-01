@@ -40,6 +40,8 @@ describe('generated Adventure enemy cast', () => {
     expect(prompt).toContain('bruiser-2');
     expect(prompt).toContain('Cells 11 and 12 must remain completely empty');
     expect(prompt).toContain('top-down three-quarter camera');
+    expect(prompt).toContain('SHOOTER ALONE must face RIGHT');
+    expect(prompt).toContain('rightmost leading edge');
     expect(prompt).toContain('perfectly flat solid #00ff00');
   });
 
@@ -83,6 +85,9 @@ describe('generated Adventure enemy cast', () => {
     });
     expect(buildAdventureEnemyJudgePrompt(descriptors, CONCEPTS).system).toContain(
       'Optimize the five selections as a combination',
+    );
+    expect(buildAdventureEnemyJudgePrompt(descriptors, CONCEPTS).system).toContain(
+      'shooter must visibly face RIGHT',
     );
     expect(buildAdventureEnemyJudgeSchema(descriptors)).toMatchObject({
       properties: { selections: { minItems: 5, maxItems: 5 } },

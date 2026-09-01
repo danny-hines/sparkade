@@ -3682,7 +3682,7 @@ export class GenerationRunner {
                 } else {
                   emit(
                     'building-assets',
-                    'Painting themed keys, equipment, NPCs, and active-item candidates in one board…',
+                    'Painting themed keys, equipment, NPCs, fixtures, and active-item candidates in one board…',
                   );
                   rawBoard = await callImage({
                     role: 'adventure-object-board',
@@ -3749,7 +3749,7 @@ export class GenerationRunner {
                     {
                       ...buildAdventureObjectJudgePrompt(descriptors, promptOptions),
                       jsonSchema: buildAdventureObjectJudgeSchema(descriptors),
-                      maxTokens: 2400,
+                      maxTokens: 3200,
                       timeoutMs: 120_000,
                     },
                     {

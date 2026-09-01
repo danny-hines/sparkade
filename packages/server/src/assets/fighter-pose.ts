@@ -11,7 +11,7 @@ export type GeneratedFighterPose = FighterPose;
 
 export const GENERATED_FIGHTER_POSE_SIZE = GENERATED_FIGHTER_ATLAS_CELL_SIZE;
 export const GENERATED_FIGHTER_POSE_PADDING = 4;
-export const GENERATED_FIGHTER_POSE_PROMPT_VERSION = 'fighter-pose-v4';
+export const GENERATED_FIGHTER_POSE_PROMPT_VERSION = 'fighter-pose-v5';
 export const GENERATED_FIGHTER_ATLAS_PROMPT_VERSION = 'fighter-roster-atlas-v1';
 
 const GENERATED_FIGHTER_POSE_SET = new Set<string>(GENERATED_FIGHTER_POSES);
@@ -123,7 +123,7 @@ export function buildFighterIdentityCandidatePrompt(
   const artDirection = cleanPromptFragment(options.artDirection);
   const sourceDirection =
     options.source === 'photo'
-      ? 'The attached photo is the only identity truth. Preserve the exact recognizable adult person: apparent age, face and head shape, skin tone, hairline, hair texture/style, facial hair, eyewear, headwear, and body proportions. The game concept may change clothing, never physical identity.'
+      ? 'The attached photo is the only identity truth. Preserve the exact recognizable adult person: apparent age, face and head shape, jaw, cheek structure, eye size and spacing, nose, mouth, skin tone, hairline, hair texture/style, facial hair, eyewear, headwear, and body proportions. Stylize the pixels, never their age or anatomy; no oversized anime eyes, rounded childlike face, de-aged appearance, chibi proportions, or generic mascot features. The game concept may change clothing, never physical identity.'
       : options.source === 'boss-art'
         ? `The attached story illustration is visual truth for the named final opponent ${name}. Isolate that primary villain while preserving their face or mask, hair or headwear, proportions, costume construction, palette, and signature motifs. Do not isolate the hero or a background figure.`
         : `Use the attached key art as the game's pixel-art and world-style reference. Create the specifically described fighter ${name}; do not copy the key-art hero into this roster slot unless the concept explicitly describes that hero.`;

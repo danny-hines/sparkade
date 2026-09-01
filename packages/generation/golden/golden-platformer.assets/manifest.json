@@ -1,0 +1,291 @@
+{
+  "version": 1,
+  "assets": [
+    {
+      "role": "generatedPortrait",
+      "filename": "portrait.png",
+      "mimeType": "image/png",
+      "width": 64,
+      "height": 64,
+      "model": "muse-image-1.0",
+      "promptVersion": "generated-portrait-v4",
+      "promptSha256": "6408f1a4c550b4fd8697b93b61501d2fb886ddf843ad0620f7a46106f755442e",
+      "sha256": "d9577d023649359a1e56819d6da3f3cb8511676c8d9e637a36f8dbf9360734ab"
+    },
+    {
+      "role": "generatedPortraitDefeat",
+      "filename": "portrait-defeat.png",
+      "mimeType": "image/png",
+      "width": 64,
+      "height": 64,
+      "model": "muse-image-1.0",
+      "promptVersion": "generated-defeat-portrait-v4",
+      "promptSha256": "9af1986b503db3613532199d0588717bae7a9adaab5efbd800283281a05f17d9",
+      "sha256": "ffd0a87142d424e0b309429fa676475e2868f25dfc1515e16517441dac50441d"
+    },
+    {
+      "role": "keyArt",
+      "filename": "key-art.png",
+      "mimeType": "image/png",
+      "width": 480,
+      "height": 270,
+      "model": "muse-image-1.0",
+      "promptVersion": "key-art-v5",
+      "promptSha256": "c5370ece75243f3fcd70e346672b86e42ef916cc1f57df4425c9fed0544b93ae",
+      "sha256": "af33239811b4b91188be308f90fbe021b5d596849344e9e9686456dc5e0a4fcd"
+    },
+    {
+      "role": "platformerBackdropBoss",
+      "filename": "platformer-backdrop-boss.png",
+      "mimeType": "image/png",
+      "width": 1536,
+      "height": 600,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-backdrop-v2",
+      "promptSha256": "fc091b0be5282a98ceeb612a3ea84bb9d1f2a10b87819d02bf5e0020d78ece7b",
+      "sha256": "a0fd3a3a3d8924ee1242d914faef4ed10809d1f59f1e87a68522b69462068ea9"
+    },
+    {
+      "role": "platformerBackdropLevel1",
+      "filename": "platformer-backdrop-level-1.png",
+      "mimeType": "image/png",
+      "width": 1536,
+      "height": 600,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-backdrop-v2",
+      "promptSha256": "cd1dd077936134f92bff2dda6907a39e100312e5b0a2ce9b8fd954ec0a74adf2",
+      "sha256": "f2080da35480ce00407af0ba9fff9e52a52627f322bdbe4e630c60269fa6778c"
+    },
+    {
+      "role": "platformerBackdropLevel2",
+      "filename": "platformer-backdrop-level-2.png",
+      "mimeType": "image/png",
+      "width": 1536,
+      "height": 600,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-backdrop-v2",
+      "promptSha256": "6636a85102ef887edd792e6191b5853e3de71bb9971901c6fb67c5d7670aa335",
+      "sha256": "16e390952234c0affe1ae32e8bf306003a6a1d5e32de912bb70259bb68cfb6af"
+    },
+    {
+      "role": "platformerBackdropLevel3",
+      "filename": "platformer-backdrop-level-3.png",
+      "mimeType": "image/png",
+      "width": 1536,
+      "height": 600,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-backdrop-v2",
+      "promptSha256": "89406311b2e7fad48805b4a65d75c06e1fceb25342d768cff7fd957cd43fe19e",
+      "sha256": "4b4a548f51a7e830ca33db7ed7f484b937098a89cb21f2e6967e46d4e1ce4382"
+    },
+    {
+      "role": "platformerBoss",
+      "filename": "platformer-boss.png",
+      "mimeType": "image/png",
+      "width": 192,
+      "height": 192,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-boss-pipeline-v1",
+      "promptSha256": "f40515bd18901741005773b4a23209ca700db745f744ea7d18c1367d1738f987",
+      "sha256": "34af63178ba0c0788fdf31c22589234de7515c62dfd3cd39aa0060ef2d852156"
+    },
+    {
+      "role": "platformerEnemyChaser",
+      "filename": "platformer-enemy-chaser.png",
+      "mimeType": "image/png",
+      "width": 96,
+      "height": 96,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-enemy-pipeline-v1",
+      "promptSha256": "1cfd38e1c045210703459645cda8343e8813269db6d67880dbc106760e69f942",
+      "sha256": "d4a721cb75546f25fda5ebf9ea5e1ad23b7540d4b1209083ed04bd61b2229385"
+    },
+    {
+      "role": "platformerEnemyFlyer",
+      "filename": "platformer-enemy-flyer.png",
+      "mimeType": "image/png",
+      "width": 96,
+      "height": 96,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-enemy-pipeline-v1",
+      "promptSha256": "d23ef5166d4ca91f7d81d5e92d9aeed8e68e632ac85bb2f3f4aa7acf33dd9167",
+      "sha256": "8ad49c156295cec7baa79ba83ad4e2f4c493dc21e0ceeeaaf7e3be4fba33a22e"
+    },
+    {
+      "role": "platformerEnemyShooter",
+      "filename": "platformer-enemy-shooter.png",
+      "mimeType": "image/png",
+      "width": 96,
+      "height": 96,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-enemy-pipeline-v1",
+      "promptSha256": "1985a262db0ab233149d36f17c59f36ffa0cfc608b9bf787b29c944b442739f9",
+      "sha256": "0d92004be2fd3c74b3517a15617478226ea86b1032f81b831a8ea38a50677b30"
+    },
+    {
+      "role": "platformerEnemyWalker",
+      "filename": "platformer-enemy-walker.png",
+      "mimeType": "image/png",
+      "width": 96,
+      "height": 96,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-enemy-pipeline-v1",
+      "promptSha256": "62562bf9ff91f3d4fe48eb54a2ed05e8fa9b544ae47eecf8ea900eea15d4127e",
+      "sha256": "6be2b378824e3cb3b3e7f969461114c7a40f15183cf20215378d34c14b17b202"
+    },
+    {
+      "role": "platformerIdle",
+      "filename": "platformer-player-idle.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-player-pipeline-v2",
+      "promptSha256": "ccbd5e557d7d495608ba9c2115c74dda7fc6949ae3ecea39f8992224d948e4a1",
+      "sha256": "aeff110ffa6dd2ace53ff0eb8e942bc39730997b77ab14623034a871f60269df"
+    },
+    {
+      "role": "platformerJump",
+      "filename": "platformer-player-jump.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-player-pipeline-v2",
+      "promptSha256": "ccbd5e557d7d495608ba9c2115c74dda7fc6949ae3ecea39f8992224d948e4a1",
+      "sha256": "b31b91e007db6fba7f2b45c50a3fe6e5889d40d3b0e8bdb7b2713c2a6e1d3c3d"
+    },
+    {
+      "role": "platformerPropCollectible",
+      "filename": "platformer-prop-collectible.png",
+      "mimeType": "image/png",
+      "width": 48,
+      "height": 48,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-prop-pipeline-v2",
+      "promptSha256": "3373c602fb170e0a1364edce4f9267f64f0211c8956f87a709f8a327f33d6a24",
+      "sha256": "0951d7a24e0c4ced9eb91ddb30520c0ab65f034d1046687e5024a94d391a8ee0"
+    },
+    {
+      "role": "platformerPropEnemyProjectile",
+      "filename": "platformer-prop-enemy-projectile.png",
+      "mimeType": "image/png",
+      "width": 32,
+      "height": 32,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-prop-pipeline-v2",
+      "promptSha256": "add0cf4b410b33f901994788d6853d919f07c9be6a1304c5fb41813b98becec3",
+      "sha256": "2a52d423bb3e2ed8595a434f5c8c49defbc7dd4785edfb85092259d1ee88651c"
+    },
+    {
+      "role": "platformerPropHealth",
+      "filename": "platformer-prop-health.png",
+      "mimeType": "image/png",
+      "width": 48,
+      "height": 48,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-prop-pipeline-v2",
+      "promptSha256": "84c13b49cae65af336ad4d9281e4e5a2cd446982a5bb54a25b2e153129c6c2c0",
+      "sha256": "cef30fe5b1df5109e5ad98ece99279392709814ec863abf46de618ee02b69d29"
+    },
+    {
+      "role": "platformerPropPowerupDoubleJump",
+      "filename": "platformer-prop-powerup-double-jump.png",
+      "mimeType": "image/png",
+      "width": 48,
+      "height": 48,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-prop-pipeline-v2",
+      "promptSha256": "4b084116a2fc2579648bab7a04e71c6c9fd006211f8ad45441634badba8dd43c",
+      "sha256": "d6a9adf82d024a8d1b307031b7883534e76c0777192b4d75d905f1824720047d"
+    },
+    {
+      "role": "platformerPropPowerupShield",
+      "filename": "platformer-prop-powerup-shield.png",
+      "mimeType": "image/png",
+      "width": 48,
+      "height": 48,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-prop-pipeline-v2",
+      "promptSha256": "53b8bd8fc3f2da9ec9440b723a43826bbce15b0e00c698e7a57503769115fc7f",
+      "sha256": "e071c79237055a0ab2f95651ad3c349eeead920782dda700ffa343da0a781001"
+    },
+    {
+      "role": "platformerSideIdle",
+      "filename": "platformer-player-side-idle.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-player-pipeline-v2",
+      "promptSha256": "ccbd5e557d7d495608ba9c2115c74dda7fc6949ae3ecea39f8992224d948e4a1",
+      "sha256": "a20c368de579ea60f8f5ad6c46724b73f2892c94902cd647b4619cd5159e6dcc"
+    },
+    {
+      "role": "platformerWalk1",
+      "filename": "platformer-player-walk-1.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-player-pipeline-v2",
+      "promptSha256": "ccbd5e557d7d495608ba9c2115c74dda7fc6949ae3ecea39f8992224d948e4a1",
+      "sha256": "334709d904f59acf6577d97b69b79ed3e8681a071e697038ac7ae94edf891204"
+    },
+    {
+      "role": "platformerWalk2",
+      "filename": "platformer-player-walk-2.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-player-pipeline-v2",
+      "promptSha256": "ccbd5e557d7d495608ba9c2115c74dda7fc6949ae3ecea39f8992224d948e4a1",
+      "sha256": "30ea2c9818595dca573d4d0ca2998ec1e2cc7fb7dc00527bce402dee413d9419"
+    },
+    {
+      "role": "storyBoss",
+      "filename": "story-boss.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v3",
+      "promptSha256": "abbfd0375226fe0693b6f103dbc6a6caa60f0c9a2f4d8e1eca0b95e04dfa46a9",
+      "sha256": "c006e3ba00e698d9166d5d5f48551938d6cb4c83964295d00bbcb9055aede9c0"
+    },
+    {
+      "role": "storyDefeat",
+      "filename": "story-defeat.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v3",
+      "promptSha256": "7ae41554e6314de0b926f3e944a7dff8f7a250a8770b015054c466e464357b8a",
+      "sha256": "e7bf0e0a72501a4f25d52a542bfffbbc620eef773b9dc0fc86fda30b97eae11b"
+    },
+    {
+      "role": "storyIntro",
+      "filename": "story-intro.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v3",
+      "promptSha256": "d979643ae787e9cd320d6e34f429f766ae883576186a2944aab0c02c2575c524",
+      "sha256": "62b239b9de38df3863334c67f831b85ca38473f94a8f57fe7b01b0cb5aaecf37"
+    },
+    {
+      "role": "storyVictory",
+      "filename": "story-victory.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v3",
+      "promptSha256": "a0fddfc4d309ffe0a5824ee65b79ebb7538df20ffe7106aa882d2b50ef3603b1",
+      "sha256": "f2d366546219b5315ac0672f31acb575b5b909a7d11a5b8b8b5670e1af90856f"
+    }
+  ]
+}

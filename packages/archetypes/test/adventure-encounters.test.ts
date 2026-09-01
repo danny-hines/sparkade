@@ -10,10 +10,12 @@ import {
   analyzeAdventureBossArena,
 } from '../src/adventure/encounters';
 
-function goldenRoom(id: string): AdventureRoom {
+function goldenRoom(kind: 'entrance' | 'boss'): AdventureRoom {
   const path = join(__dirname, '..', '..', 'generation', 'golden', 'golden-adventure.json');
   const spec = JSON.parse(readFileSync(path, 'utf8')) as AdventureSpec;
-  return structuredClone(spec.levels[0]!.rooms.find((room) => room.id === id)!);
+  const dungeon = spec.levels[0]!;
+  const id = kind === 'entrance' ? dungeon.startRoom : dungeon.bossRoom;
+  return structuredClone(dungeon.rooms.find((room) => room.id === id)!);
 }
 
 function setCell(room: AdventureRoom, x: number, y: number, value: string): void {
@@ -23,16 +25,22 @@ function setCell(room: AdventureRoom, x: number, y: number, value: string): void
 
 describe('Adventure encounter-space geometry', () => {
   it('reserves a three-cell-deep, four-cell-wide reaction area for each door', () => {
-    const room = goldenRoom('belfry');
+    const room = goldenRoom('boss');
+    room.doors = { n: 'open', e: 'none', s: 'none', w: 'none' };
     const cells = adventureDoorReactionCells(room);
 
     expect(cells).toHaveLength(12);
-    expect(cells).toContainEqual({ x: 14, y: 12 });
-    expect(cells).toContainEqual({ x: 17, y: 14 });
+    expect(cells).toContainEqual({ x: 14, y: 1 });
+    expect(cells).toContainEqual({ x: 17, y: 3 });
   });
 
   it('matches runtime projectile blocking and proves a lateral player dodge cell', () => {
-    const room = goldenRoom('belfry');
+    const room = goldenRoom('entrance');
+    room.tiles = room.tiles.map((row, y) =>
+      y === 0 || y === room.tiles.length - 1
+        ? '#'.repeat(row.length)
+        : `#${'.'.repeat(row.length - 2)}#`,
+    );
     const shooter = { x: 4, y: 7 };
     const target = { x: 12, y: 7 };
     const reachable = new Set(['12,7', '12,6']);
@@ -50,7 +58,7 @@ describe('Adventure encounter-space geometry', () => {
   });
 
   it('proves the boss dodge loop, charge cross, and separated arrival pads', () => {
-    const room = goldenRoom('echochamber');
+    const room = goldenRoom('boss');
     room.tiles = room.tiles.map((row, y) =>
       y === 0 || y === room.tiles.length - 1
         ? '#'.repeat(row.length)

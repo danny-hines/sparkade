@@ -9,6 +9,7 @@ import {
   buildShooterEnemyJudgeBoard,
   buildShooterEnemyJudgePrompt,
   buildShooterEnemyReplacementPrompt,
+  processGeneratedShooterEnemy,
   splitGeneratedShooterEnemyBoard,
   type GeneratedShooterEnemy,
 } from '../src/assets/shooter-enemy';
@@ -80,5 +81,26 @@ describe('generated vertical-shooter enemy cast', () => {
     expect(prompt).toContain('ROLE REPLACEMENT');
     expect(prompt).toContain('CORRECTION FROM LOCAL VALIDATION');
     expect(prompt).toContain('never a surface-mounted emplacement');
+  });
+
+  it('accepts a readable laterally expressive weaver silhouette', async () => {
+    const image = await sharp({
+      create: { width: 96, height: 96, channels: 3, background: '#00ff00' },
+    })
+      .composite([
+        {
+          input: Buffer.from(
+            '<svg width="72" height="60" xmlns="http://www.w3.org/2000/svg"><path d="M0 30 L24 0 L36 14 L48 0 L72 30 L48 60 L36 46 L24 60 Z" fill="#302b46"/></svg>',
+          ),
+          left: 12,
+          top: 18,
+        },
+      ])
+      .png()
+      .toBuffer();
+
+    await expect(processGeneratedShooterEnemy(image, 'weaver')).resolves.toMatchObject({
+      metrics: { outputBounds: { width: 84 } },
+    });
   });
 });

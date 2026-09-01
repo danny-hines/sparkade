@@ -19,6 +19,7 @@ import {
 import {
   generatedAssetForRole,
   PRIVATE_GENERATED_ASSET_FILENAMES,
+  readGameAssetManifest,
 } from '../assets/manifest';
 import { atomicWriteFile, ensureDir, nowIso, readJson, repoRoot } from '../util';
 import type { Db, GameRow } from './db';
@@ -323,6 +324,20 @@ const REQUIRED_FIGHTER_GOLDEN_ASSETS = [
   'fighterBossAtlas',
 ] as const satisfies readonly GeneratedGameAssetRole[];
 
+function goldenAssetsMatch(sourceAssets: string, storedAssets: string): boolean {
+  const sourceManifest = readGameAssetManifest(sourceAssets);
+  const storedManifest = readGameAssetManifest(storedAssets);
+  if (!sourceManifest) return storedManifest === null;
+  if (!storedManifest || JSON.stringify(storedManifest) !== JSON.stringify(sourceManifest)) {
+    return false;
+  }
+  return sourceManifest.assets.every((asset) => {
+    const source = generatedAssetForRole(sourceAssets, asset.role);
+    const stored = generatedAssetForRole(storedAssets, asset.role);
+    return source?.sha256 === asset.sha256 && stored?.sha256 === asset.sha256;
+  });
+}
+
 /** Seed only complete playable goldens from packages/generation/golden. Generated
  * art lives beside its JSON as `<id>.assets/` and must pass manifest integrity. */
 export function seedGoldenGames(
@@ -342,12 +357,10 @@ export function seedGoldenGames(
     const sourceAssets = join(goldenDir, `${id}.assets`);
     if (
       spec.archetype === 'fighter' &&
-      !REQUIRED_FIGHTER_GOLDEN_ASSETS.every((role) =>
-        generatedAssetForRole(sourceAssets, role),
-      )
+      !REQUIRED_FIGHTER_GOLDEN_ASSETS.every((role) => generatedAssetForRole(sourceAssets, role))
     ) {
-      // The checked-in Fighter JSON remains useful as a validation and prompt
-      // fixture, but it is not a playable golden until its atlas pack lands.
+      // A Fighter spec without its complete integrity-checked roster is useful
+      // as a fixture, but must never be published as a playable golden.
       if (existing?.golden) {
         files.deleteGame(id);
         db.deleteGame(id);
@@ -363,7 +376,8 @@ export function seedGoldenGames(
       try {
         if (
           existsSync(storedPath) &&
-          readFileSync(storedPath, 'utf8') === readFileSync(srcPath, 'utf8')
+          readFileSync(storedPath, 'utf8') === readFileSync(srcPath, 'utf8') &&
+          goldenAssetsMatch(sourceAssets, join(files.gameDir(id), 'assets'))
         )
           continue;
       } catch {

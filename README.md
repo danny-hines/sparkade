@@ -5,11 +5,9 @@ the player (their likeness becomes the hero) and a voice prompt. Runs on a dev P
 production target: a Raspberry Pi 3B+ inside a 3D-printed mini cabinet with a 1024×600 display,
 USB webcam + mic, and arcade controls on a Zero Delay USB encoder.
 
-Four hand-crafted **golden games** currently ship preinstalled, so the cabinet is playable out of
-the box with no API key. Everything except the AI API calls works fully offline.
-`golden-fighter.json` remains a generation/test fixture until a curated
-`golden-fighter.assets/` pack with a valid manifest and all five atlases is committed; the golden
-seeder deliberately excludes it until then.
+Five **golden games** currently ship preinstalled with curated Muse-generated art packs, so the
+cabinet is playable out of the box with no API key. Everything except the AI API calls works fully
+offline.
 
 ---
 

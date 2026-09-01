@@ -416,7 +416,7 @@ describe('platformer geometry schema migration', () => {
 
   it('accepts bounded art-density modes while old saves remain valid', () => {
     const current = golden('platformer') as PlatformerSpec;
-    expect(current.platformerArtDensity).toBe('chunky');
+    expect(current.platformerArtDensity).toBe('detailed');
     expect(validateGameSchema('platformer', current)).toEqual([]);
 
     const detailed = { ...current, platformerArtDensity: 'detailed' };
@@ -478,7 +478,7 @@ describe('H-scroll presentation schema migration', () => {
     const current = golden('hshooter') as HShooterSpec;
     expect(current.hshooterArtDensity).toBe('detailed');
     expect(validateGameSchema('hshooter', current)).toEqual([]);
-    expect(current.playerCraft?.visualConcept).toMatch(/Rift Skiff/);
+    expect(current.playerCraft?.visualConcept).toMatch(/diagnostic skiff/i);
 
     const chunky = { ...current, hshooterArtDensity: 'chunky' };
     expect(validateGameSchema('hshooter', chunky)).toEqual([]);
@@ -891,9 +891,9 @@ describe('platformer route recovery', () => {
     const valid = golden('platformer') as PlatformerSpec;
     const twoGaps = structuredClone(valid.levels[0]!);
     carveChasm(twoGaps, 40);
-    carveChasm(twoGaps, 100);
+    carveChasm(twoGaps, 72);
     const oneGap = structuredClone(valid.levels[0]!);
-    carveChasm(oneGap, 100);
+    carveChasm(oneGap, 72);
     const broken = structuredClone(valid);
     broken.levels[0] = twoGaps;
     const stages: StageName[] = [];

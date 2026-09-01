@@ -278,6 +278,7 @@ import {
   ADVENTURE_PLAYER_SET_JUDGE_PROMPT_VERSION,
   adventurePlayerPosesNeedingRetry,
   bestAdventurePlayerCandidateIds,
+  bestScaleConsistentAdventurePlayerCandidateIds,
   buildAdventurePlayerSetJudgeBoard,
   buildAdventurePlayerSetJudgePrompt,
   buildAdventurePlayerSetJudgeSchema,
@@ -3045,7 +3046,13 @@ export class GenerationRunner {
                     'Spark selected the best locally valid Adventure pose combination below the ideal quality bar',
                   );
                 }
-                const selectedIds = bestAdventurePlayerCandidateIds(setDecision);
+                const selectedIds = await bestScaleConsistentAdventurePlayerCandidateIds(
+                  setDecision,
+                  poseCandidates.map(({ id, pose, png }) => ({ id, pose, processed: png })),
+                );
+                if (!selectedIds) {
+                  throw new Error('no scale-consistent Adventure player combination was available');
+                }
                 const generated = Object.fromEntries(
                   GENERATED_ADVENTURE_PLAYER_POSES.map((pose) => {
                     const selected = poseCandidates.find(

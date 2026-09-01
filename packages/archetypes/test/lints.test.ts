@@ -71,6 +71,30 @@ function setAdventureCell(
   room.tiles[y] = row.slice(0, x) + ch + row.slice(x + 1);
 }
 
+function adventureRoomWithEntity(spec: AdventureSpec, type: string) {
+  const room = spec.levels[0]!.rooms.find((candidate) =>
+    candidate.entities.some((entity) => entity.type === type),
+  );
+  if (!room) throw new Error(`golden Adventure fixture has no room with ${type}`);
+  return room;
+}
+
+function adventureRoomWithTile(spec: AdventureSpec, tile: string) {
+  const room = spec.levels[0]!.rooms.find((candidate) =>
+    candidate.tiles.some((row) => row.includes(tile)),
+  );
+  if (!room) throw new Error(`golden Adventure fixture has no room with tile ${tile}`);
+  return room;
+}
+
+function firstAdventureTile(room: AdventureSpec['levels'][number]['rooms'][number], tile: string) {
+  for (let y = 0; y < room.tiles.length; y++) {
+    const x = room.tiles[y]!.indexOf(tile);
+    if (x >= 0) return { x, y };
+  }
+  throw new Error(`Adventure room has no ${tile} tile`);
+}
+
 function golden<T extends GameSpec>(archetype: string): T {
   const path = join(__dirname, '..', '..', 'generation', 'golden', `golden-${archetype}.json`);
   return JSON.parse(readFileSync(path, 'utf8')) as T;
@@ -92,7 +116,10 @@ describe('platformer ability presentation', () => {
   it('uses authored ability names in per-game control help', () => {
     const spec = golden<PlatformerSpec>('platformer');
     const help = archetypes.platformer.controlHelpFor?.(spec) ?? [];
-    expect(help.find(({ button }) => button === 'A')?.label).toContain('Ember Vaul');
+    const jumpAbility = spec.abilityLoadout!.find(({ kind }) => kind === 'doubleJump')!;
+    expect(help.find(({ button }) => button === 'A')?.label).toContain(
+      jumpAbility.name.slice(0, 10),
+    );
     expect(help.find(({ button }) => button === 'Y')?.label).toBe('Run');
   });
 });
@@ -763,18 +790,27 @@ describe('adventure lints (key/lock topology)', () => {
 
   it('requires hazard-free access to keys and the secondary item', () => {
     const spec = golden<AdventureSpec>('adventure');
-    const room = spec.levels[0]!.rooms.find((candidate) => candidate.id === 'mosshall')!;
+    const room = adventureRoomWithEntity(spec, 'key');
     const key = room.entities.find((entity) => entity.type === 'key')!;
     key.x = 15;
     key.y = 7;
+    room.legend['^'] = 'hazard';
+    for (const [x, y] of [
+      [14, 7],
+      [16, 7],
+      [15, 6],
+      [15, 8],
+    ] as const) {
+      setAdventureCell(room, x, y, '^');
+    }
 
     expect(codes(archetypes.adventure.lint(spec))).toContain('ADV_REQUIRED_PICKUP_UNSAFE');
   });
 
   it('models the two-tile doorway landing that runtime carves into thick walls', () => {
-    const room = golden<AdventureSpec>('adventure').levels[0]!.rooms.find(
-      (candidate) => candidate.id === 'belfry',
-    )!;
+    const spec = golden<AdventureSpec>('adventure');
+    const dungeon = spec.levels[0]!;
+    const room = dungeon.rooms.find((candidate) => candidate.id === dungeon.startRoom)!;
     const height = room.tiles.length;
     const middleX = Math.floor(room.tiles[0]!.length / 2);
     setAdventureCell(room, middleX - 1, height - 3, '#');
@@ -787,16 +823,12 @@ describe('adventure lints (key/lock topology)', () => {
 
   it('rejects decorative or mechanically impossible pressure plates', () => {
     const noHazards = golden<AdventureSpec>('adventure');
-    const noHazardRoom = noHazards.levels[0]!.rooms.find(
-      (candidate) => candidate.id === 'mosshall',
-    )!;
-    noHazardRoom.tiles = noHazardRoom.tiles.map((row) => row.replaceAll('~', '.'));
+    const noHazardRoom = adventureRoomWithTile(noHazards, 'S');
+    noHazardRoom.tiles = noHazardRoom.tiles.map((row) => row.replaceAll('^', '.'));
     expect(codes(archetypes.adventure.lint(noHazards))).toContain('ADV_SWITCH_NO_HAZARDS');
 
     const tooFewBlocks = golden<AdventureSpec>('adventure');
-    const shortRoom = tooFewBlocks.levels[0]!.rooms.find(
-      (candidate) => candidate.id === 'mosshall',
-    )!;
+    const shortRoom = adventureRoomWithTile(tooFewBlocks, 'S');
     let removed = false;
     shortRoom.tiles = shortRoom.tiles.map((row) =>
       row.replace(/B/g, (cell) => {
@@ -810,14 +842,15 @@ describe('adventure lints (key/lock topology)', () => {
 
   it('proves the pressure-plate puzzle has a legal block-push solution', () => {
     const spec = golden<AdventureSpec>('adventure');
-    const room = spec.levels[0]!.rooms.find((candidate) => candidate.id === 'mosshall')!;
-    for (const [x, y] of [
-      [6, 4],
-      [8, 4],
-      [7, 3],
-      [7, 5],
+    const room = adventureRoomWithTile(spec, 'S');
+    const block = firstAdventureTile(room, 'B');
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
     ] as const) {
-      setAdventureCell(room, x, y, '#');
+      setAdventureCell(room, block.x + dx, block.y + dy, '#');
     }
 
     expect(codes(archetypes.adventure.lint(spec))).toContain('ADV_SWITCH_UNSOLVABLE');
@@ -825,8 +858,14 @@ describe('adventure lints (key/lock topology)', () => {
 
   it('protects door reaction zones and interaction spaces from immediate threats', () => {
     const spec = golden<AdventureSpec>('adventure');
-    const room = spec.levels[0]!.rooms.find((candidate) => candidate.id === 'gallery')!;
-    const key = room.entities.find((entity) => entity.type === 'key')!;
+    const room = spec.levels[0]!.rooms.find(
+      (candidate) =>
+        candidate.doors.n !== 'none' &&
+        candidate.entities.some((entity) => entity.type === 'chaser') &&
+        candidate.entities.some((entity) => entity.type === 'shooter'),
+    )!;
+    const key = { type: 'key' as const, x: 20, y: 7 };
+    room.entities.push(key);
     const walker = room.entities.find((entity) => entity.type === 'chaser')!;
     walker.x = key.x + 1;
     walker.y = key.y;
@@ -842,7 +881,7 @@ describe('adventure lints (key/lock topology)', () => {
 
   it('requires shooters to have a real firing lane and lateral dodge space', () => {
     const spec = golden<AdventureSpec>('adventure');
-    const room = spec.levels[0]!.rooms.find((candidate) => candidate.id === 'cistern')!;
+    const room = adventureRoomWithEntity(spec, 'shooter');
     const shooter = room.entities.find((entity) => entity.type === 'shooter')!;
     room.tiles = room.tiles.map((row, y) =>
       y === 0 || y === room.tiles.length - 1
@@ -856,7 +895,11 @@ describe('adventure lints (key/lock topology)', () => {
 
   it('rejects encounters clustered into a small part of the expanded room', () => {
     const spec = golden<AdventureSpec>('adventure');
-    const room = spec.levels[0]!.rooms.find((candidate) => candidate.id === 'ossuary')!;
+    const hostileTypes = new Set(['walker', 'flyer', 'shooter', 'chaser', 'bruiser']);
+    const room = spec.levels[0]!.rooms.find(
+      (candidate) =>
+        candidate.entities.filter((entity) => hostileTypes.has(entity.type)).length >= 5,
+    )!;
     room.entities.forEach((entity, index) => {
       entity.x = 14 + (index % 2);
       entity.y = 7 + Math.floor(index / 2);

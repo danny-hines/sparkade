@@ -294,7 +294,8 @@ describe('story art prompts', () => {
     expect(keyArt).toContain('middle 60% of the image height');
     expect(keyArt).toContain('outer 20% at both the top and bottom');
     expect(story).toContain(wardrobe);
-    expect(story).toContain('exact same player hero identity, costume');
+    expect(story).toContain('exact same adult player hero identity');
+    expect(story).toContain('apparent age, facial geometry');
   });
 
   it('turns the authored defeat beat into a safe, emotionally specific scene', () => {
@@ -639,8 +640,8 @@ describe.sequential('mock image asset pipeline', () => {
       generatedRoles: [
         'collectible',
         'health',
-        'powerupDoubleJump',
         'powerupShield',
+        'powerupDoubleJump',
         'enemyProjectile',
       ],
     });
@@ -748,7 +749,7 @@ describe.sequential('mock image asset pipeline', () => {
 
     expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done' });
     const spec = files.readSpec(gameId) as Extract<GameSpec, { archetype: 'hshooter' }>;
-    expect(spec.playerCraft.visualConcept).toContain('Rift Skiff');
+    expect(spec.playerCraft.visualConcept).toContain('diagnostic skiff');
     expect(files.readMeta(gameId)?.hshooterPlayerCraftArt).toEqual({
       mode: 'generated',
       attempted: true,

@@ -1,0 +1,159 @@
+{
+  "version": 1,
+  "assets": [
+    {
+      "role": "generatedPortrait",
+      "filename": "portrait.png",
+      "mimeType": "image/png",
+      "width": 64,
+      "height": 64,
+      "model": "muse-image-1.0",
+      "promptVersion": "generated-portrait-v5",
+      "promptSha256": "c7d80236ec7c72477e47ec804936b00d6c8cd193af85a37bad793902a3e7c634",
+      "sha256": "d879dc3cb83b798c14ec64441cae8656427bae349521bb766780334e51838293"
+    },
+    {
+      "role": "generatedPortraitDefeat",
+      "filename": "portrait-defeat.png",
+      "mimeType": "image/png",
+      "width": 64,
+      "height": 64,
+      "model": "muse-image-1.0",
+      "promptVersion": "generated-defeat-portrait-v5",
+      "promptSha256": "21a8b5fa394f3ab8a4cecac056e5af82987f15fa9776d473cb61842117081393",
+      "sha256": "7890c3cb7ac4cf10ef349be389104aceacc7d1353b2fae13806f3e15d481bee1"
+    },
+    {
+      "role": "keyArt",
+      "filename": "key-art.png",
+      "mimeType": "image/png",
+      "width": 480,
+      "height": 270,
+      "model": "muse-image-1.0",
+      "promptVersion": "key-art-v6",
+      "promptSha256": "92ca5c5d04765e266936f9757af5f6205e7b0dc71dc3b7a3ca9c52f20d739934",
+      "sha256": "ba7cec6838e098c9c14c4c89e0518e3ea522e7049d2ed8d1abe843524b04bf9b"
+    },
+    {
+      "role": "shooterBackdropBoss",
+      "filename": "shooter-backdrop-boss.png",
+      "mimeType": "image/png",
+      "width": 960,
+      "height": 1536,
+      "model": "muse-image-1.0",
+      "promptVersion": "shooter-backdrop-v1",
+      "promptSha256": "48fb6dc1ef4dcb23da5103b02c5ad407f4f7eb9ef82bef7a6afb8a2dc3311340",
+      "sha256": "e935c8f7702ecfe24d7caffe59cab8b3e34b31d64d1ede08c1af13b60e1704f7"
+    },
+    {
+      "role": "shooterBackdropLevel1",
+      "filename": "shooter-backdrop-level-1.png",
+      "mimeType": "image/png",
+      "width": 960,
+      "height": 1536,
+      "model": "muse-image-1.0",
+      "promptVersion": "shooter-backdrop-v1",
+      "promptSha256": "3a16e88757c102f89abc7bc3f27fc74d6f4cdda72429b0add90174ca56a10096",
+      "sha256": "339b94fb5547f2c6e4910e68b593c9f65109c37d90db08cd13943a4cc633f932"
+    },
+    {
+      "role": "shooterBackdropLevel2",
+      "filename": "shooter-backdrop-level-2.png",
+      "mimeType": "image/png",
+      "width": 960,
+      "height": 1536,
+      "model": "muse-image-1.0",
+      "promptVersion": "shooter-backdrop-v1",
+      "promptSha256": "f3f25a8878a2b7556916e7b37cab6352db30417effbc351a703545087af50083",
+      "sha256": "c78b62e57d9a71522d2a89efaee3023d9c10e34a38de3eb656b0b30d0045ccb4"
+    },
+    {
+      "role": "shooterBackdropLevel3",
+      "filename": "shooter-backdrop-level-3.png",
+      "mimeType": "image/png",
+      "width": 960,
+      "height": 1536,
+      "model": "muse-image-1.0",
+      "promptVersion": "shooter-backdrop-v1",
+      "promptSha256": "db3cd907abec410edc803752c015c03d606bada836ebf17275972ed635711aa7",
+      "sha256": "7c962d28c41e535cc8663d2fd0578b5eaa70ab1a4437d943e63f62728c867a11"
+    },
+    {
+      "role": "shooterBoss",
+      "filename": "shooter-boss.png",
+      "mimeType": "image/png",
+      "width": 128,
+      "height": 192,
+      "model": "muse-image-1.0",
+      "promptVersion": "shooter-boss-pipeline-v1",
+      "promptSha256": "f91ef94ba3e8190a67cbf054d2408200a91e3cdcb7877daec4e6a7c2c2b05a7a",
+      "sha256": "1dd44dc0e893fd89540da9f815eaf72a3c5ff335bd9966849ca666a4cf8e6391"
+    },
+    {
+      "role": "shooterEnemyAtlas",
+      "filename": "shooter-enemy-atlas.png",
+      "mimeType": "image/png",
+      "width": 480,
+      "height": 96,
+      "model": "muse-image-1.0",
+      "promptVersion": "shooter-enemy-pipeline-v1",
+      "promptSha256": "920c803e3ceae2d3580334926e5415524ea85b833c228d7cff3e77c2ef45bc15",
+      "sha256": "89a0df45009a1b075ead786871c4aa2007d34ece74a0f29d31d9220d90b7baed"
+    },
+    {
+      "role": "shooterPlayerCraft",
+      "filename": "shooter-player-craft.png",
+      "mimeType": "image/png",
+      "width": 64,
+      "height": 96,
+      "model": "muse-image-1.0",
+      "promptVersion": "player-craft-judge-v1",
+      "promptSha256": "c6e60f7be0dffc0c57abb21c0c0cf62a0ac2f7de6db2ab8aa8b97dd5a8a51e96",
+      "sha256": "e5f0fab1c7dabe126adbb8011dd3091e0ebd90a0407b2d4fe4dcd4754844af19"
+    },
+    {
+      "role": "storyBoss",
+      "filename": "story-boss.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v4",
+      "promptSha256": "b4189e9893f91f1459fb3619b0d610a48d3366e131bf85b55b82fd3d79b9c16b",
+      "sha256": "1aea7d531c31299d6a0e598a9abba89196bb145cbdc5dd607abc9eb7148952c0"
+    },
+    {
+      "role": "storyDefeat",
+      "filename": "story-defeat.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v4",
+      "promptSha256": "ff91b9a1e636c1ed8647f049cb3bb6652d5ef1fd4d4596f0d5bed9bc6b0d46a8",
+      "sha256": "91b493a668b546afb73d62ead12484a1485a36e2c30baeed116bca4e61b4c657"
+    },
+    {
+      "role": "storyIntro",
+      "filename": "story-intro.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v4",
+      "promptSha256": "91cbfc85abe06bb50e2ee9697483c90b4ca6f4990b218b470e8f6c8af4b4c7c4",
+      "sha256": "1d55f541ddbcca7308cdae5b37fbd62ae7c25f989804789ca9e4015fb75670cf"
+    },
+    {
+      "role": "storyVictory",
+      "filename": "story-victory.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v4",
+      "promptSha256": "5c940bb04d7c96b8f4c8795fb8eb6787420238868e7dab7e61bbbf1a0872be63",
+      "sha256": "d732a2fdc56d05645699ce53c11ce74835979cc31ffd4eb138fe1405d380fb9d"
+    }
+  ]
+}

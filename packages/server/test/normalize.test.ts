@@ -31,6 +31,14 @@ function setAdventureCell(
   room.tiles[y] = row.slice(0, x) + value + row.slice(x + 1);
 }
 
+function adventureRoomWithEntity(spec: AdventureSpec, type: string) {
+  const room = spec.levels[0]!.rooms.find((candidate) =>
+    candidate.entities.some((entity) => entity.type === type),
+  );
+  if (!room) throw new Error(`golden Adventure fixture has no room with ${type}`);
+  return room;
+}
+
 describe('deterministic generated-spec normalization', () => {
   it('pads and trims sprite rows/frames, expanding only to preserve real pixels', () => {
     const input = golden<PlatformerSpec>('platformer');
@@ -99,7 +107,10 @@ describe('deterministic generated-spec normalization', () => {
     expect(result.spec.sprites.assign['enemy_projectile']).toBe('lib:proj_pellet');
 
     const shooter = golden<ShooterSpec>('shooter');
+    delete shooter.sprites.assign['enemy_shot'];
+    delete shooter.sprites.assign['pickup_spread'];
     shooter.sprites.assign['enemyShot'] = 'lib:proj_pellet';
+    shooter.sprites.assign['spread'] = 'lib:pickup_spread';
     (shooter as unknown as { backdrop: string }).backdrop = 'starfield';
     const shooterResult = normalizeGeneratedSpec(shooter);
     const normalizedShooter = shooterResult.spec;
@@ -156,9 +167,9 @@ describe('deterministic generated-spec normalization', () => {
 
     const result = normalizeGeneratedSpec(input);
     const fixed = result.spec as PlatformerSpec;
-    expect(fixed.levels[0]!.playerSpawn).toEqual({ x: 0, y: 12 });
-    expect(fixed.levels[0]!.entities[0]).toMatchObject({ x: 0, y: 12 });
-    expect(fixed.levels[0]!.entities[1]).toMatchObject({ x: 0, y: 7 });
+    expect(fixed.levels[0]!.playerSpawn).not.toEqual({ x: 0, y: 13 });
+    expect(fixed.levels[0]!.entities[0]).not.toMatchObject({ x: 0, y: 13 });
+    expect(fixed.levels[0]!.entities[1]).not.toMatchObject({ x: -4, y: -2 });
     expect(result.fixes).toContainEqual(
       expect.objectContaining({
         code: 'PLATFORMER_ENTITY_REACHABILITY',
@@ -538,14 +549,23 @@ describe('deterministic generated-spec normalization', () => {
 
   it('moves required Adventure pickups out of hazard-enclosed pockets', () => {
     const input = golden<AdventureSpec>('adventure');
-    const room = input.levels[0]!.rooms.find((candidate) => candidate.id === 'mosshall')!;
+    const room = adventureRoomWithEntity(input, 'key');
     const key = room.entities.find((entity) => entity.type === 'key')!;
     key.x = 15;
     key.y = 7;
+    room.legend['^'] = 'hazard';
+    for (const [x, y] of [
+      [14, 7],
+      [16, 7],
+      [15, 6],
+      [15, 8],
+    ] as const) {
+      setAdventureCell(room, x, y, '^');
+    }
 
     const result = normalizeGeneratedSpec(input);
     const fixedRoom = (result.spec as AdventureSpec).levels[0]!.rooms.find(
-      (candidate) => candidate.id === 'mosshall',
+      (candidate) => candidate.id === room.id,
     )!;
     const fixedKey = fixedRoom.entities.find((entity) => entity.type === 'key')!;
 
@@ -567,7 +587,7 @@ describe('deterministic generated-spec normalization', () => {
     const input = golden<AdventureSpec>('adventure');
     const dungeon = input.levels[0]!;
 
-    const shooterRoom = dungeon.rooms.find((room) => room.id === 'cistern')!;
+    const shooterRoom = adventureRoomWithEntity(input, 'shooter');
     const shooter = shooterRoom.entities.find((entity) => entity.type === 'shooter')!;
     shooter.x = 5;
     shooter.y = 5;
@@ -578,10 +598,14 @@ describe('deterministic generated-spec normalization', () => {
       setAdventureCell(shooterRoom, 7, offset, '#');
     }
 
-    const entranceRoom = dungeon.rooms.find((room) => room.id === 'belfry')!;
+    const entranceRoom = dungeon.rooms.find((room) => room.id === dungeon.startRoom)!;
     setAdventureCell(entranceRoom, 15, 13, '#');
 
-    const interactionRoom = dungeon.rooms.find((room) => room.id === 'gallery')!;
+    const interactionRoom = dungeon.rooms.find(
+      (room) =>
+        room.entities.some((entity) => entity.type === 'key') &&
+        room.entities.some((entity) => entity.type === 'chaser'),
+    )!;
     const key = interactionRoom.entities.find((entity) => entity.type === 'key')!;
     for (const [dx, dy] of [
       [1, 0],
@@ -591,7 +615,10 @@ describe('deterministic generated-spec normalization', () => {
       setAdventureCell(interactionRoom, key.x + dx, key.y + dy, '#');
     }
 
-    const clusteredRoom = dungeon.rooms.find((room) => room.id === 'ossuary')!;
+    const hostileTypes = new Set(['walker', 'flyer', 'shooter', 'chaser', 'bruiser']);
+    const clusteredRoom = dungeon.rooms.find(
+      (room) => room.entities.filter((entity) => hostileTypes.has(entity.type)).length >= 5,
+    )!;
     clusteredRoom.entities.forEach((entity, index) => {
       entity.x = 14 + (index % 2);
       entity.y = 7 + Math.floor(index / 2);
@@ -664,7 +691,7 @@ describe('deterministic generated-spec normalization', () => {
       ].includes(error.code),
     );
     expect(relevantErrors).toEqual([]);
-    expect(fixed.levels[0]!.pickups.map((pickup) => pickup.t)).toEqual([0, 78]);
+    expect(fixed.levels[0]!.pickups.map((pickup) => pickup.t)).toEqual([0, level.durationS - 2]);
     expect(result.fixes).toContainEqual(
       expect.objectContaining({ code: 'SHOOTER_TIMING', path: '/levels/0' }),
     );

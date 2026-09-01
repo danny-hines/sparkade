@@ -342,20 +342,103 @@ export function bestAdventurePlayerCandidateIds(
       if (selected) return [pose, selected];
       let best: { id: string; score: number } | null = null;
       for (const review of decision.candidateReviews.filter((item) => item.pose === pose)) {
-        const total =
-          review.scores.identity * 5 +
-          review.scores.accessories * 5 +
-          review.scores.costume * 4 +
-          review.scores.orientation * 4 +
-          review.scores.motion * 3 +
-          review.scores.equipment * 5 +
-          review.scores.technical * 2 -
-          review.fatalIssues.length * 20;
+        const total = adventurePlayerCandidateQuality(review);
         if (!best || total > best.score) best = { id: review.id, score: total };
       }
       return [pose, best?.id ?? null];
     }),
   ) as Record<GeneratedAdventurePlayerPose, string | null>;
+}
+
+function adventurePlayerCandidateQuality(review: AdventurePlayerCandidateReview): number {
+  return (
+    review.scores.identity * 5 +
+    review.scores.accessories * 5 +
+    review.scores.costume * 4 +
+    review.scores.orientation * 4 +
+    review.scores.motion * 3 +
+    review.scores.equipment * 5 +
+    review.scores.technical * 2 -
+    review.fatalIssues.length * 20
+  );
+}
+
+async function footAnchoredOpaqueHeight(image: Buffer): Promise<number | null> {
+  const { data, info } = await sharp(image)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  let minY = info.height;
+  let maxY = -1;
+  for (let y = 0; y < info.height; y++) {
+    for (let x = 0; x < info.width; x++) {
+      if (data[(y * info.width + x) * 4 + 3]! <= 8) continue;
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  return maxY === info.height - 1 ? maxY - minY + 1 : null;
+}
+
+/** Preserve Spark's visual ranking while choosing a combination that satisfies
+ * the runtime's common-height contract. This prevents one individually strong
+ * pose from invalidating an otherwise complete mechanically valid candidate pool. */
+export async function bestScaleConsistentAdventurePlayerCandidateIds(
+  decision: AdventurePlayerSetJudgeDecision,
+  candidates: readonly AdventurePlayerCandidateAsset[],
+  maximumHeightDelta = 10,
+): Promise<Record<GeneratedAdventurePlayerPose, string> | null> {
+  const heights = new Map(
+    await Promise.all(
+      candidates.map(
+        async (candidate) =>
+          [candidate.id, await footAnchoredOpaqueHeight(candidate.processed)] as const,
+      ),
+    ),
+  );
+  const reviews = new Map(decision.candidateReviews.map((review) => [review.id, review]));
+  const preferred = new Map(
+    decision.selections.map(({ pose, candidateId }) => [pose, candidateId]),
+  );
+  const possibleMinimums = [
+    ...new Set([...heights.values()].filter((height): height is number => height !== null)),
+  ].sort((a, b) => a - b);
+  let best: { ids: Record<GeneratedAdventurePlayerPose, string>; score: number } | null = null;
+
+  for (const minimum of possibleMinimums) {
+    const entries: Array<readonly [GeneratedAdventurePlayerPose, string]> = [];
+    let total = 0;
+    for (const pose of GENERATED_ADVENTURE_PLAYER_POSES) {
+      let chosen: { id: string; score: number } | null = null;
+      for (const candidate of candidates) {
+        if (candidate.pose !== pose) continue;
+        const height = heights.get(candidate.id);
+        if (
+          height === null ||
+          height === undefined ||
+          height < minimum ||
+          height > minimum + maximumHeightDelta
+        )
+          continue;
+        const review = reviews.get(candidate.id);
+        const score =
+          (review ? adventurePlayerCandidateQuality(review) : -1000) +
+          (preferred.get(pose) === candidate.id ? 0.25 : 0);
+        if (!chosen || score > chosen.score) chosen = { id: candidate.id, score };
+      }
+      if (!chosen) {
+        entries.length = 0;
+        break;
+      }
+      entries.push([pose, chosen.id]);
+      total += chosen.score;
+    }
+    if (entries.length !== GENERATED_ADVENTURE_PLAYER_POSES.length) continue;
+    const ids = Object.fromEntries(entries) as Record<GeneratedAdventurePlayerPose, string>;
+    if (!best || total > best.score) best = { ids, score: total };
+  }
+
+  return best?.ids ?? null;
 }
 
 export function adventurePlayerPosesNeedingRetry(

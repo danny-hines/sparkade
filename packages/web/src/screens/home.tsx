@@ -1,7 +1,7 @@
 // Home: the combined launcher. Left panel is one navigable list — New Game, the
 // game library, then Settings; the right panel shows a live detail of the
 // selected item. Selecting a game moves focus into the detail panel, where
-// up/down scroll the full preview/details and left/right pick Play/Delete in a docked
+// up/down scroll the full preview/details and left/right pick the available actions in a docked
 // footer. Replaces the old menu + library + detail screens.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
@@ -44,14 +44,15 @@ function statusLabel(s: GameListItem['status']): string {
   }
 }
 
-function actionsFor(game: GameListItem | null): Action[] {
+export function actionsFor(game: GameListItem | null): Action[] {
   if (!game) return [];
   const a: Action[] = [];
   if (game.status === 'ready') a.push({ key: 'play', label: <><Icon name="play" /> Play</> });
   if (game.status === 'generating' || game.status === 'queued')
     a.push({ key: 'progress', label: <><Icon name="sparkle" /> Progress</> });
   if (game.status === 'failed') a.push({ key: 'retry', label: <><Icon name="refresh" /> Retry</> });
-  a.push({ key: 'delete', label: <><Icon name="close" /> Delete</>, danger: true });
+  if (!game.golden)
+    a.push({ key: 'delete', label: <><Icon name="close" /> Delete</>, danger: true });
   return a;
 }
 
@@ -293,7 +294,7 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
 
       <FooterLegend items={footer} />
 
-      {confirmDelete && selectedGame && (
+      {confirmDelete && selectedGame && !selectedGame.golden && (
         <DeleteModal
           title={selectedGame.title}
           onCancel={() => setConfirmDelete(false)}

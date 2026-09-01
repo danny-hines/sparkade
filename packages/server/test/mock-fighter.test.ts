@@ -32,11 +32,11 @@ describe('mock fighter roster stage', () => {
       levels?: { opponent?: { outfit?: string } }[];
     };
 
-    expect(payload.player).toMatchObject({ name: 'RONIN', outfit: 'gi' });
+    expect(payload.player).toMatchObject({ name: 'MARK', outfit: 'boxer' });
     expect(payload.levels?.map((level) => level.opponent?.outfit)).toEqual([
       'street',
-      'wrestler',
-      'robe',
+      'armor',
+      'gi',
     ]);
     expect(validateAgainst('test:fighter-roster', prompt.jsonSchema, payload)).toEqual([]);
   });

@@ -125,7 +125,10 @@ export async function processGeneratedShooterEnemy(
   const { width, height } = processed.metrics.outputBounds;
   const minWidth = role === 'tank' ? 30 : role === 'turret' ? 28 : 20;
   const minHeight = role === 'tank' ? 38 : role === 'turret' ? 30 : 28;
-  const minimumAspect = role === 'tank' || role === 'turret' ? 0.82 : 1.05;
+  // Weaver silhouettes intentionally use lateral fins or vanes to communicate
+  // their side-to-side movement, so they may be wider than the other light roles.
+  const minimumAspect =
+    role === 'weaver' ? 0.75 : role === 'tank' || role === 'turret' ? 0.82 : 1.05;
   if (width < minWidth || height < minHeight || height / Math.max(1, width) < minimumAspect) {
     throw new FighterPoseImageError(
       'inconsistent-scale',

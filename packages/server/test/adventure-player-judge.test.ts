@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   adventurePlayerPosesNeedingRetry,
   bestAdventurePlayerCandidateIds,
+  bestScaleConsistentAdventurePlayerCandidateIds,
   buildAdventurePlayerSetJudgeBoard,
   buildAdventurePlayerSetJudgePrompt,
   buildAdventurePlayerSetJudgeSchema,
@@ -105,6 +106,37 @@ describe('Adventure player set judge', () => {
       sideWalk: 'sideWalk-B',
     });
     expect(adventurePlayerPosesNeedingRetry(decision)).toEqual([]);
+  });
+
+  it('falls back to the strongest mechanically scale-consistent combination', async () => {
+    const decision = acceptedDecision();
+    const poseImage = async (height: number): Promise<Buffer> => {
+      const subject = await sharp({
+        create: { width: 36, height, channels: 4, background: '#31598c' },
+      })
+        .png()
+        .toBuffer();
+      return sharp({
+        create: { width: 112, height: 128, channels: 4, background: '#00000000' },
+      })
+        .composite([{ input: subject, left: 38, top: 128 - height }])
+        .png()
+        .toBuffer();
+    };
+    const assets = await Promise.all(
+      candidates.map(async (candidate) => ({
+        ...candidate,
+        processed: await poseImage(candidate.id === 'sideIdle-B' ? 96 : 120),
+      })),
+    );
+
+    await expect(
+      bestScaleConsistentAdventurePlayerCandidateIds(decision, assets),
+    ).resolves.toMatchObject({
+      downIdle: 'downIdle-anchor',
+      sideIdle: 'sideIdle-A',
+      sideWalk: 'sideWalk-B',
+    });
   });
 
   it('rejects a nominally accepted set with a missing or weak pose and targets it', () => {

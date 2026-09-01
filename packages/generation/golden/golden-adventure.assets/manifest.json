@@ -1,0 +1,258 @@
+{
+  "version": 1,
+  "assets": [
+    {
+      "role": "adventureBoss",
+      "filename": "adventure-boss.png",
+      "mimeType": "image/png",
+      "width": 192,
+      "height": 224,
+      "model": "muse-image-1.0",
+      "promptVersion": "adventure-boss-pipeline-v1",
+      "promptSha256": "269c3096343c25f1f8f33f7d0197e2185a59eb697682e81041ca3453269a18c1",
+      "sha256": "16a7fcba5cb640948a93d7054f531fef22e4eefa23e2dd9ea2b3a57465884005"
+    },
+    {
+      "role": "adventureEnemyAtlas",
+      "filename": "adventure-enemy-atlas.png",
+      "mimeType": "image/png",
+      "width": 480,
+      "height": 96,
+      "model": "muse-image-1.0",
+      "promptVersion": "adventure-enemy-pipeline-v2",
+      "promptSha256": "e510f4170d855b6c4a1cd17ec15bf108c9856365024dc293a870ce2b1722116e",
+      "sha256": "5555c9c7b02436fd690b36b6c62e94f034eafa5d029fc222532860340cc34be0"
+    },
+    {
+      "role": "adventureObjectAtlas",
+      "filename": "adventure-object-atlas.png",
+      "mimeType": "image/png",
+      "width": 672,
+      "height": 112,
+      "model": "muse-image-1.0",
+      "promptVersion": "adventure-object-pipeline-v2",
+      "promptSha256": "ff7ae9ac4c4c6819fb6184758502411a9831d29a2c3e90e772ee44fee8e622a2",
+      "sha256": "c1d8c6aa6c19fcc75b32762f2102641282bfc028ca991d6ed45debbae0ed53fc"
+    },
+    {
+      "role": "adventurePlayerDownIdle",
+      "filename": "adventure-player-down-idle.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "adventure-player-pipeline-v6",
+      "promptSha256": "5d9cc3894c7640e3719eef708d7d14481cf1903361c6f8808ef136b4b1b71497",
+      "sha256": "c1ca1164633a8fdef936c270894b1aef0e8b7c7c68040e8911827dc9ff2815b4"
+    },
+    {
+      "role": "adventurePlayerDownMelee",
+      "filename": "adventure-player-down-melee.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "adventure-player-pipeline-v6",
+      "promptSha256": "5d9cc3894c7640e3719eef708d7d14481cf1903361c6f8808ef136b4b1b71497",
+      "sha256": "87245509b321835dfb0aaeeed6af0439c5b02713bebad411a2f386832908a70c"
+    },
+    {
+      "role": "adventurePlayerDownSecondary",
+      "filename": "adventure-player-down-secondary.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "adventure-player-pipeline-v6",
+      "promptSha256": "5d9cc3894c7640e3719eef708d7d14481cf1903361c6f8808ef136b4b1b71497",
+      "sha256": "b33d360a0391e5e10b498dd9ab0ce750a0d2fcc122b7df00d7030aba123fac2a"
+    },
+    {
+      "role": "adventurePlayerDownWalk",
+      "filename": "adventure-player-down-walk.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "adventure-player-pipeline-v6",
+      "promptSha256": "5d9cc3894c7640e3719eef708d7d14481cf1903361c6f8808ef136b4b1b71497",
+      "sha256": "81a812f8c96396aae88f674f11bcaadf69ab73ec875b7fa3c51e6160d22f5772"
+    },
+    {
+      "role": "adventurePlayerSideIdle",
+      "filename": "adventure-player-side-idle.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "adventure-player-pipeline-v6",
+      "promptSha256": "5d9cc3894c7640e3719eef708d7d14481cf1903361c6f8808ef136b4b1b71497",
+      "sha256": "4f9ef9bbfc96d1e48d920f1cc42277e5423fb8826926afec91d9d571821ce8ed"
+    },
+    {
+      "role": "adventurePlayerSideMelee",
+      "filename": "adventure-player-side-melee.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "adventure-player-pipeline-v6",
+      "promptSha256": "5d9cc3894c7640e3719eef708d7d14481cf1903361c6f8808ef136b4b1b71497",
+      "sha256": "f21f83d7fbbfaac98d7fa1aeae9cd2b5f186d8ae4df149b17b864caa47d920bd"
+    },
+    {
+      "role": "adventurePlayerSideSecondary",
+      "filename": "adventure-player-side-secondary.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "adventure-player-pipeline-v6",
+      "promptSha256": "5d9cc3894c7640e3719eef708d7d14481cf1903361c6f8808ef136b4b1b71497",
+      "sha256": "0c3a9d71494ba2a96aa96fc14e4f53d6dc58dfaeb7c5f567b46b575ec0019e79"
+    },
+    {
+      "role": "adventurePlayerSideWalk",
+      "filename": "adventure-player-side-walk.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "adventure-player-pipeline-v6",
+      "promptSha256": "5d9cc3894c7640e3719eef708d7d14481cf1903361c6f8808ef136b4b1b71497",
+      "sha256": "d752b8417bc1436be6f6d74713d48b0de8fd914156aaf9dbf7ddecf4fab547e0"
+    },
+    {
+      "role": "adventurePlayerUpIdle",
+      "filename": "adventure-player-up-idle.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "adventure-player-pipeline-v6",
+      "promptSha256": "5d9cc3894c7640e3719eef708d7d14481cf1903361c6f8808ef136b4b1b71497",
+      "sha256": "1d00a061aa39ad47107b69bc26ffb5a71221e7095d32e3c524200ab7993d6718"
+    },
+    {
+      "role": "adventurePlayerUpMelee",
+      "filename": "adventure-player-up-melee.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "adventure-player-pipeline-v6",
+      "promptSha256": "5d9cc3894c7640e3719eef708d7d14481cf1903361c6f8808ef136b4b1b71497",
+      "sha256": "799800bfb2a37eb28aad4bce4588ac8e59aab49a9f364aa721b55be8f4b061bc"
+    },
+    {
+      "role": "adventurePlayerUpSecondary",
+      "filename": "adventure-player-up-secondary.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "adventure-player-pipeline-v6",
+      "promptSha256": "5d9cc3894c7640e3719eef708d7d14481cf1903361c6f8808ef136b4b1b71497",
+      "sha256": "7ff889e279650912c604381d1db90f205b4ff6bbea17aa56b68cc67a24fe104e"
+    },
+    {
+      "role": "adventurePlayerUpWalk",
+      "filename": "adventure-player-up-walk.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "adventure-player-pipeline-v6",
+      "promptSha256": "5d9cc3894c7640e3719eef708d7d14481cf1903361c6f8808ef136b4b1b71497",
+      "sha256": "7ee89d0aedcc1e7b9a554c066ab36b031ac0631818834724125dc05b7fb5bd0e"
+    },
+    {
+      "role": "adventureRoomPlates",
+      "filename": "adventure-room-plates.png",
+      "mimeType": "image/png",
+      "width": 2048,
+      "height": 1024,
+      "model": "muse-image-1.0",
+      "promptVersion": "adventure-room-plates-v6",
+      "promptSha256": "fc9aeaeac565ae3a6def0737d7f64aff36be4b69552189f634a892733a174172",
+      "sha256": "fc2f447f28214b1555d5eef1e2f4809233f4eefd055870c2dc0e5d6b8daecd98"
+    },
+    {
+      "role": "generatedPortrait",
+      "filename": "portrait.png",
+      "mimeType": "image/png",
+      "width": 64,
+      "height": 64,
+      "model": "muse-image-1.0",
+      "promptVersion": "generated-portrait-v4",
+      "promptSha256": "3fab0a9fd093612a2934ca849753ef432bd3068794f31e5b35af458a3f5a9fec",
+      "sha256": "aee5c65082f70a8a157b66db55bfa7efaef4398412279b24bc04dc493f5e5583"
+    },
+    {
+      "role": "generatedPortraitDefeat",
+      "filename": "portrait-defeat.png",
+      "mimeType": "image/png",
+      "width": 64,
+      "height": 64,
+      "model": "muse-image-1.0",
+      "promptVersion": "generated-defeat-portrait-v4",
+      "promptSha256": "96bb4b249db35945ef6097f4efb2baed8be85129f757b196b141c8eeb2f0c13c",
+      "sha256": "18bbe6c18a1d2ef6835937446c03748258efd95b3b79727f765953db9db7d9cd"
+    },
+    {
+      "role": "keyArt",
+      "filename": "key-art.png",
+      "mimeType": "image/png",
+      "width": 480,
+      "height": 270,
+      "model": "muse-image-1.0",
+      "promptVersion": "key-art-v5",
+      "promptSha256": "0c39fbb4f04765e7c51e715d091717f8dc10a53d1444cc4014b50c6662c50276",
+      "sha256": "d7a7f1ba1ff80e8a2cc7c86dc5bea2a614387c61dba10916c6f95b6316860712"
+    },
+    {
+      "role": "storyBoss",
+      "filename": "story-boss.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v3",
+      "promptSha256": "531105edd17c90134f74c7882132bd8f6557a744e95b27b1d8d4812a25745f60",
+      "sha256": "b28e43c93b253d43971e266da7c64ae8cf7828fb23ea8b6684007946dab21bd1"
+    },
+    {
+      "role": "storyDefeat",
+      "filename": "story-defeat.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v3",
+      "promptSha256": "5b72a3dc3192f31a965df53fd6a7e31a285e00982b209319938de2fac60355c8",
+      "sha256": "da950290548b81fc595820c7c3472457136940dc357af8139eed4ffdc20b1f56"
+    },
+    {
+      "role": "storyIntro",
+      "filename": "story-intro.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v3",
+      "promptSha256": "312231e9ba68599b956bdcdcc1cdbfd6bb81a4858aa1324463ab1e85f0492a2d",
+      "sha256": "598a5b3d1b61e363828379a3dcaa572e8b73bb3901a7b186e8a785d1fdb3764f"
+    },
+    {
+      "role": "storyVictory",
+      "filename": "story-victory.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v3",
+      "promptSha256": "42ab6a2c9c9e626b2e54e091eec989cdac83946a4afc05d715d3ef148535a0c2",
+      "sha256": "918ae91169fa3cb9a85e272c50b88fae40481c3f257fcd3b18196576bb512e0d"
+    }
+  ]
+}

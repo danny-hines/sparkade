@@ -94,15 +94,15 @@ describe('prompt templates', () => {
       movementProfile?: string;
       abilityLoadout?: Array<{ kind: string }>;
     };
-    expect(excerpt.movementProfile).toBe('balanced');
-    expect(excerpt.abilityLoadout?.map(({ kind }) => kind)).toEqual(['doubleJump', 'shield']);
+    expect(excerpt.movementProfile).toBe('precision');
+    expect(excerpt.abilityLoadout?.map(({ kind }) => kind)).toEqual(['shield', 'doubleJump']);
   });
 
   it('teaches the fighter levels stage to author the player and outfit', () => {
     const excerpt = JSON.parse(goldenExcerpt('fighter', 'levels')) as {
       player?: { outfit?: string };
     };
-    expect(excerpt.player?.outfit).toBe('gi');
+    expect(excerpt.player?.outfit).toBe('boxer');
     const prompt = loadTemplate('levels-fighter');
     expect(prompt).toContain('one `player`');
     expect(prompt).toContain('`wrestler`');
@@ -149,8 +149,8 @@ describe('prompt templates', () => {
       sprites: { assign: Record<string, string> };
     };
 
-    expect(excerpt.sprites.assign.tile_solid).toBe('lib:clockwork_solid');
-    expect(excerpt.sprites.assign.tile_solid_inner).toBe('lib:clockwork_solid_inner');
+    expect(excerpt.sprites.assign.tile_solid).toBe('lib:circuitry_solid');
+    expect(excerpt.sprites.assign.tile_solid_inner).toBe('lib:circuitry_solid_inner');
   });
 
   it('teaches Adventure generation that the item is required before the boss gate', () => {

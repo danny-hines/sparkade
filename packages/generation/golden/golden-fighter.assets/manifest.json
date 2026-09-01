@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "assets": [
+    {
+      "role": "fighterArenaAtlas",
+      "filename": "fighter-arena-atlas.png",
+      "mimeType": "image/png",
+      "width": 512,
+      "height": 600,
+      "model": "muse-image-1.0",
+      "promptVersion": "fighter-arena-sheet-v3",
+      "promptSha256": "cbfc1e42ce4e04a0b6ec195af0f197a7d1f4fa4fedb2eabfa3ddfdea8b6d2227",
+      "sha256": "ba13a6ac165dc2287e995c1bb8b35b0bf7366725ec6db23c6aa4d23e7fbd17e3"
+    },
+    {
+      "role": "fighterBossAtlas",
+      "filename": "fighter-boss-atlas.png",
+      "mimeType": "image/png",
+      "width": 384,
+      "height": 384,
+      "model": "muse-image-1.0",
+      "promptVersion": "fighter-roster-pipeline-v3",
+      "promptSha256": "70085854195ba0141a3e2317d77d03ae276c71a1e572d062d09896f1b4b4a8be",
+      "sha256": "7189c749f19b2519fcc83eda73fd9a5eacc6956c6b61e65278717407250c3c2b"
+    },
+    {
+      "role": "fighterOpponent1Atlas",
+      "filename": "fighter-opponent-1-atlas.png",
+      "mimeType": "image/png",
+      "width": 384,
+      "height": 384,
+      "model": "muse-image-1.0",
+      "promptVersion": "fighter-roster-pipeline-v3",
+      "promptSha256": "70085854195ba0141a3e2317d77d03ae276c71a1e572d062d09896f1b4b4a8be",
+      "sha256": "fd06b3de3b39154087021e1cf0f36e640b45649ad0660bfdcd22f006e454232d"
+    },
+    {
+      "role": "fighterOpponent2Atlas",
+      "filename": "fighter-opponent-2-atlas.png",
+      "mimeType": "image/png",
+      "width": 384,
+      "height": 384,
+      "model": "muse-image-1.0",
+      "promptVersion": "fighter-roster-pipeline-v3",
+      "promptSha256": "70085854195ba0141a3e2317d77d03ae276c71a1e572d062d09896f1b4b4a8be",
+      "sha256": "2d912796bb212e3966ecf5222d359ec9752db9862045593e459a9266ebe7da94"
+    },
+    {
+      "role": "fighterOpponent3Atlas",
+      "filename": "fighter-opponent-3-atlas.png",
+      "mimeType": "image/png",
+      "width": 384,
+      "height": 384,
+      "model": "muse-image-1.0",
+      "promptVersion": "fighter-roster-pipeline-v3",
+      "promptSha256": "70085854195ba0141a3e2317d77d03ae276c71a1e572d062d09896f1b4b4a8be",
+      "sha256": "ad71bab046e891ef214b0b0d4ed18f7b9e8281e1ee43e8e5400f651a32ecf114"
+    },
+    {
+      "role": "fighterPlayerAtlas",
+      "filename": "fighter-player-atlas.png",
+      "mimeType": "image/png",
+      "width": 384,
+      "height": 384,
+      "model": "muse-image-1.0",
+      "promptVersion": "fighter-roster-pipeline-v3",
+      "promptSha256": "cb478a4ffeea0a5b83a11f8285426badb789f21cff5edca8f01755add396e180",
+      "sha256": "3500c2264743fefa705488c5be0eff39d5a36758ffca0a59478ff50dd630a18e"
+    },
+    {
+      "role": "generatedPortrait",
+      "filename": "portrait.png",
+      "mimeType": "image/png",
+      "width": 64,
+      "height": 64,
+      "model": "muse-image-1.0",
+      "promptVersion": "generated-portrait-v5",
+      "promptSha256": "e9e242a53b909ef7e82a9111bca0b9302647c37af36a3e147b4185f8347e0cd6",
+      "sha256": "cac245f367ab95893159c5875113fb22124e677c28bc101b81c3b25bf55eaef8"
+    },
+    {
+      "role": "generatedPortraitDefeat",
+      "filename": "portrait-defeat.png",
+      "mimeType": "image/png",
+      "width": 64,
+      "height": 64,
+      "model": "muse-image-1.0",
+      "promptVersion": "generated-defeat-portrait-v5",
+      "promptSha256": "9adf546301dded4c4a9f6f1d8f067d40df57909abc325676e1525ad15989b32a",
+      "sha256": "5b60ee32f7fa3cd80b46c5e2604e28354c22282e70f8bef4065d983ffe413e5b"
+    },
+    {
+      "role": "keyArt",
+      "filename": "key-art.png",
+      "mimeType": "image/png",
+      "width": 480,
+      "height": 270,
+      "model": "muse-image-1.0",
+      "promptVersion": "key-art-v6",
+      "promptSha256": "e60a86e1b0ef139558fc32d3e41c27c88aa41ee43a40ca1f394c8b1a6b4f23a6",
+      "sha256": "ddd208d918c02d8b27409207fc718828630434db0fbcbfbb475f4b0aa412f6bd"
+    },
+    {
+      "role": "storyBoss",
+      "filename": "story-boss.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v4",
+      "promptSha256": "a5567bfcb0982c17a25d8d0c59847126e9571853e0076c578110f7a9a5888ad0",
+      "sha256": "cda1d59f7e322f11dc39c492adf3a74d30559f904654c10e67c89378d730eb48"
+    },
+    {
+      "role": "storyDefeat",
+      "filename": "story-defeat.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v4",
+      "promptSha256": "1a862ba8b2241987013c59584a107b90f0a9ab71f66f55db07af89b060ad3fc8",
+      "sha256": "b4c9c07e2d9fb693178ea3246ae188d603c17767531873faf4dffcb2c25352f9"
+    },
+    {
+      "role": "storyIntro",
+      "filename": "story-intro.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v4",
+      "promptSha256": "e5cdbc993924c030b8d7f3ffe9bcb5f3212f1a0b94577d1da8dbff906de6a62e",
+      "sha256": "5bc649ce946275ad1a46676e37f4b6b9ca0dc034353985f571bbb1b9f1190e2b"
+    },
+    {
+      "role": "storyVictory",
+      "filename": "story-victory.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v4",
+      "promptSha256": "5b75b32c8189d5e8f2a985bf043610b18d9d976514320569393160c3a6791477",
+      "sha256": "45fd1eb42aff9821fdad44f3fd33def316f3e8adb31ba452580f1c993b83cc76"
+    }
+  ]
+}

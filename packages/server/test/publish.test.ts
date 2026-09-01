@@ -129,7 +129,7 @@ describe('atomic publish', () => {
 });
 
 describe('playable golden seeding', () => {
-  it('does not publish the Fighter spec fixture without its committed atlas pack', () => {
+  it('publishes all five complete golden games, including the Fighter art pack', () => {
     seedGoldenGames(files, db, {
       platformer: '1.0.0',
       shooter: '1.0.0',
@@ -138,9 +138,31 @@ describe('playable golden seeding', () => {
       fighter: '1.0.0',
     });
 
-    expect(db.getGame('golden-fighter')).toBeNull();
-    expect(existsSync(files.gameDir('golden-fighter'))).toBe(false);
-    expect(db.getGame('golden-platformer')?.status).toBe('ready');
+    for (const archetype of ['fighter', 'platformer', 'shooter', 'adventure', 'hshooter']) {
+      expect(db.getGame(`golden-${archetype}`)?.status).toBe('ready');
+      expect(existsSync(join(files.gameDir(`golden-${archetype}`), 'game.json'))).toBe(true);
+    }
+    expect(
+      existsSync(join(files.gameDir('golden-fighter'), 'assets', 'fighter-player-atlas.png')),
+    ).toBe(true);
+  });
+
+  it('re-seeds a golden when its stored generated art no longer matches the source manifest', () => {
+    const versions = {
+      platformer: '1.0.0',
+      shooter: '1.0.0',
+      adventure: '1.0.0',
+      hshooter: '1.0.0',
+      fighter: '1.0.0',
+    };
+    seedGoldenGames(files, db, versions);
+    const atlas = join(files.gameDir('golden-fighter'), 'assets', 'fighter-player-atlas.png');
+    const original = readFileSync(atlas);
+    writeFileSync(atlas, Buffer.from('tampered'));
+
+    seedGoldenGames(files, db, versions);
+
+    expect(readFileSync(atlas)).toEqual(original);
   });
 });
 

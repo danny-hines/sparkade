@@ -19,8 +19,8 @@ import {
 import { GENERATED_SHOOTER_ENEMIES, SHOOTER_ENEMY_BOARD_SIZE } from './shooter-enemy';
 import { FIGHTER_POSE_SHEET_SIZE, fighterPoseSheetCellRect } from './fighter-pose-sheet';
 
-export const KEY_ART_PROMPT_VERSION = 'key-art-v5';
-export const STORY_ART_PROMPT_VERSION = 'story-scenes-v3';
+export const KEY_ART_PROMPT_VERSION = 'key-art-v6';
+export const STORY_ART_PROMPT_VERSION = 'story-scenes-v4';
 export const KEY_ART_SIZE = { width: 480, height: 270 } as const;
 export const STORY_ART_SIZE = { width: 420, height: 180 } as const;
 export const KEY_ART_ASPECT_HINT = '1792x1024';
@@ -90,7 +90,7 @@ export function buildKeyArtPrompt(
     hasPlayerPhoto
       ? playerCraft
         ? 'The TOP PANEL of the reference board contains the exact person who is the PLAYER PILOT. It is immutable identity truth from the neck up: preserve their recognizable face and head shape, skin tone, hair texture and style, facial hair, glasses, headwear, and visible head accessories; never replace them with a generic character. The source photo clothing below the neck is NOT identity: replace it with the canonical game-world outfit in the visual brief.'
-        : 'Transform the exact person in the reference photo into the PLAYER HERO of this game. The reference is immutable identity truth from the neck up: preserve their recognizable face and head shape, skin tone, hair texture and style, facial hair, glasses, headwear, and visible head accessories; never replace them with a generic character. The source photo clothing below the neck is NOT identity: replace it with the canonical game-world outfit in the visual brief.'
+        : 'Transform the exact adult person in the reference photo into the PLAYER HERO of this game. The reference is immutable identity truth from the neck up: preserve their recognizable apparent adult age, face and head shape, jaw, cheek structure, eye size and spacing, nose, mouth, skin tone, hairline, hair texture and style, facial hair, glasses, headwear, and visible head accessories; never replace them with a generic or younger character. The source photo clothing below the neck is NOT identity: replace it with the canonical game-world outfit in the visual brief.'
       : 'Create a distinctive original PLAYER HERO suited to this game premise.',
     visualBrief(spec, heroConcept, playerCraft),
     playerCraft
@@ -104,7 +104,7 @@ export function buildKeyArtPrompt(
         : `Make the hero's ${clean(spec.combatKit.primary.name)} clearly visible in their hand as part of the central silhouette; do not substitute a generic sword.`
       : '',
     hasPlayerPhoto
-      ? 'Keep the exact same neck-up identity while making the canonical outfit clearly readable in its silhouette, collar, torso, sleeves, legs, and footwear.'
+      ? 'Keep the exact same adult neck-up identity while making the canonical outfit clearly readable in its silhouette, collar, torso, sleeves, legs, and footwear. Stylize the rendering, not the anatomy: no oversized anime eyes, rounded childlike face, de-aged appearance, chibi proportions, or generic mascot features.'
       : '',
     playerCraft
       ? 'Compose one dramatic landscape key-art image that clearly shows the player pilot, their recognizable signature craft, the game world, and the main villain in the distance.'
@@ -170,7 +170,7 @@ export function buildStoryArtPrompt(
       : playerCraft
         ? 'The TOP PANEL of the reference board is the immutable key-art visual bible and the BOTTOM PANEL is a presentation-scale identity reference for the player craft. Create a new landscape story illustration from the same game; do not copy the panel layout or isolated craft presentation.'
         : 'Using the reference key art as the immutable visual bible, create a new landscape story illustration from the same game.',
-    `Preserve the exact same player hero identity, costume, villain design, palette, pixel-art technique, and world. ${beat}.`,
+    `Preserve the exact same adult player hero identity—including apparent age, facial geometry, eye size and spacing, nose, mouth, jaw, hairline, and hairstyle—plus costume, villain design, palette, pixel-art technique, and world. ${beat}.`,
     wardrobeBrief(canonicalHeroConcept),
     adventureCombatKitBrief(spec),
     spec.archetype === 'fighter'
@@ -191,7 +191,7 @@ export function buildStoryArtPrompt(
         : role === 'defeat'
           ? 'Show a clear but family-friendly setback. The player hero should look upset, worried, disappointed, or sad in a way that fits the defeat beat, while still recognizably themselves. No wounds, gore, death, humiliation, or cruelty.'
           : 'Establish the world and the player hero with a clear narrative focal point.',
-    'Polished 16-bit console illustration with crisp deliberate pixel clusters and readable silhouettes. Keep faces and the main action away from the extreme edges.',
+    'Polished 16-bit console illustration with crisp deliberate pixel clusters and readable silhouettes. Stylize the rendering, not the adult anatomy: no de-aging, oversized anime eyes, rounded childlike face, chibi proportions, or generic mascot features. Keep faces and the main action away from the extreme edges.',
     'No text, letters, title, logo, caption, speech bubble, UI, watermark, signature, border, photorealism, blur, or 3D render.',
   ].join(' ');
 }

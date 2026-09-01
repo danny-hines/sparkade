@@ -34,8 +34,8 @@ export interface LikenessImageGenerationOptions {
   referenceLayout?: 'photo' | 'adventure-hero-board';
 }
 
-export const GENERATED_PORTRAIT_PROMPT_VERSION = 'generated-portrait-v4';
-export const GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION = 'generated-defeat-portrait-v4';
+export const GENERATED_PORTRAIT_PROMPT_VERSION = 'generated-portrait-v5';
+export const GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION = 'generated-defeat-portrait-v5';
 
 export function describeVisibleTraits(feat: FaceFeatures | null): string {
   if (!feat) {
@@ -102,12 +102,10 @@ export async function generatePortrait(
     'a front-facing head-and-shoulders portrait bust.',
     adventureBoard
       ? `Preserve the TOP-LEFT person's recognizable likeness from the neck up: ${describeVisibleTraits(feat)}, their skin tone, face shape, facial proportions, and expression. Match the TOP-RIGHT key art's high-density pixel technique, natural heroic adult proportions, outline weight, color ramps, and level of facial detail.`
-      : `Preserve their likeness from the neck up: ${describeVisibleTraits(feat)}, their skin tone, and their expression.`,
+      : `Preserve their exact adult likeness from the neck up: ${describeVisibleTraits(feat)}, their apparent age, face and head shape, jaw, cheek structure, eye size and spacing, nose, mouth, skin tone, hairline, and expression.`,
     'Preserve visible glasses, headwear, hair, facial hair, and other head accessories exactly. Never remove or replace an accessory that is present, and never invent one that is absent.',
     wardrobeInstruction(options.heroConcept),
-    adventureBoard
-      ? 'The portrait must look like a close crop of the same adult hero shown in the key art and gameplay sprite—not a separate mascot interpretation. Use normal adult head-to-shoulder proportions. No chibi, super-deformed, oversized head, tiny shoulders, rounded baby-like face, doll proportions, childlike anatomy, or cute caricature.'
-      : '',
+    'The portrait must look like the same adult person—not a younger or generic mascot interpretation. Use normal adult head-to-shoulder proportions. No chibi, super-deformed, oversized head, oversized anime eyes, tiny shoulders, rounded baby-like face, doll proportions, childlike anatomy, de-aging, or cute caricature.',
     'Clean flat colours, a bold dark outline, a simple plain dark background.',
     'Cheerful retro SNES game art, stylised and characterful, NOT photorealistic.',
   ].join(' ');
@@ -144,11 +142,9 @@ export async function generateDefeatPortrait(
     'Give them a clearly readable, natural expression of disappointment, worry, sadness, or concern that best fits this specific setback. Keep the emotion sympathetic and resilient, not comedic or exaggerated.',
     adventureBoard
       ? `Preserve the TOP-LEFT person's recognizable likeness: ${describeVisibleTraits(feat)}, their skin tone, hair, face shape, facial proportions, and all visible identity cues. Match the TOP-RIGHT key art's high-density pixel technique, natural heroic adult proportions, outline weight, color ramps, and facial detail. ${accessoryInstruction}`
-      : `Preserve their recognizable likeness: ${describeVisibleTraits(feat)}, their skin tone, hair, facial proportions, and all visible identity cues. ${accessoryInstruction}`,
+      : `Preserve their exact adult likeness: ${describeVisibleTraits(feat)}, their apparent age, face and head shape, jaw, cheek structure, eye size and spacing, nose, mouth, skin tone, hairline, hair, facial proportions, and all visible identity cues. ${accessoryInstruction}`,
     wardrobeInstruction(options.heroConcept),
-    adventureBoard
-      ? 'The portrait must look like an alternate expression of the same adult hero shown in the key art and gameplay sprite—not a separate mascot interpretation. Use normal adult head-to-shoulder proportions. No chibi, super-deformed, oversized head, tiny shoulders, rounded baby-like face, doll proportions, childlike anatomy, or cute caricature.'
-      : '',
+    'The portrait must look like an alternate expression of the same adult person—not a younger or generic mascot interpretation. Use normal adult head-to-shoulder proportions. No chibi, super-deformed, oversized head, oversized anime eyes, tiny shoulders, rounded baby-like face, doll proportions, childlike anatomy, de-aging, or cute caricature.',
     'Change only the expression; do not add injuries, wounds, bruises, gore, tears streaming down the face, or signs of death.',
     'Clean flat colours, a bold dark outline, a simple plain dark background.',
     'Polished retro SNES game art, stylised and characterful, NOT photorealistic. No text, caption, border, or watermark.',

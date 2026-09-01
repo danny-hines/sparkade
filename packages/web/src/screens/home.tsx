@@ -232,10 +232,8 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
             >
               <GameCover
                 cover={g.cover}
-                archetype={g.archetype}
                 gameId={g.id}
-                seedText={g.title}
-                pending={g.status === 'queued' || g.status === 'generating'}
+                assetVersion={g.jobId ?? g.createdAt}
                 class="home-thumb"
               />
               <div class="home-item-text">
@@ -371,9 +369,8 @@ function DetailPanel(props: {
               ) : (
                 <GameCover
                   cover={item.cover}
-                  archetype={item.archetype}
                   gameId={item.id}
-                  seedText={item.title}
+                  assetVersion={item.jobId ?? item.createdAt}
                   class="home-detail-cover-full"
                   presentation="matted"
                 />

@@ -1,11 +1,9 @@
 // Shared shell components: footer legend, game cover canvas, hold-to-confirm
 // ring, modal frame, on-screen keyboard.
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import { decodeSprite, LIBRARY, makeTallHumanoidEntry } from '@sparkade/engine';
 import {
   GENERATED_GAME_ASSET_FILES,
-  LIB_HEROES_PLATFORMER,
   type GameListItem,
   type LogicalButton,
 } from '@sparkade/shared';
@@ -13,7 +11,47 @@ import { containedCoverRect, coveringSourceRect } from './cover-layout';
 import { shellInput } from './shell-input';
 import { Icon } from './icons';
 
-const TALL_COVER_HERO_IDS = new Set<string>(LIB_HEROES_PLATFORMER);
+const CABINET_FALLBACK_URL = '/sparkade-cabinet-fallback.png';
+const MAX_CACHED_COVER_IMAGES = 64;
+const coverImages = new Map<string, HTMLImageElement>();
+const coverImageLoads = new Map<string, Promise<HTMLImageElement>>();
+
+function cachedCoverImage(url: string): HTMLImageElement | null {
+  const image = coverImages.get(url);
+  if (!image) return null;
+  // Refresh insertion order so the cache behaves like a small LRU.
+  coverImages.delete(url);
+  coverImages.set(url, image);
+  return image;
+}
+
+function loadCoverImage(url: string): Promise<HTMLImageElement> {
+  const cached = cachedCoverImage(url);
+  if (cached) return Promise.resolve(cached);
+  const pending = coverImageLoads.get(url);
+  if (pending) return pending;
+
+  const load = new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      coverImageLoads.delete(url);
+      coverImages.set(url, image);
+      while (coverImages.size > MAX_CACHED_COVER_IMAGES) {
+        const oldest = coverImages.keys().next().value as string | undefined;
+        if (!oldest) break;
+        coverImages.delete(oldest);
+      }
+      resolve(image);
+    };
+    image.onerror = () => {
+      coverImageLoads.delete(url);
+      reject(new Error(`Unable to load cover image: ${url}`));
+    };
+    image.src = url;
+  });
+  coverImageLoads.set(url, load);
+  return load;
+}
 
 export function FooterLegend(props: {
   items: [string, string][];
@@ -43,42 +81,54 @@ export function FooterLegend(props: {
 }
 
 /**
- * Prefer a dedicated image-model-authored cover when one was published. The
- * live mini-scene remains the immediate/error fallback, so legacy games and a
- * failed image request still have a complete cover.
+ * Show published image-model-authored key art when it exists. Every other
+ * state uses one stable Sparkade cabinet illustration—never legacy sprite art.
  */
 export function GameCover(props: {
   cover: GameListItem['cover'];
-  archetype: GameListItem['archetype'];
   gameId?: string;
-  seedText: string;
+  /** Stable generation identity used to invalidate cached key art after retry. */
+  assetVersion?: string;
   class?: string;
-  pending?: boolean;
   /** Wide detail banners matte the complete cover over a dim full-bleed copy. */
   presentation?: 'standard' | 'matted';
 }): ComponentChildren {
   const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
+  const matted = props.presentation === 'matted';
+  const keyArtUrl =
+    props.cover?.hasKeyArt && props.gameId
+      ? '/api/games/' +
+        props.gameId +
+        '/assets/' +
+        GENERATED_GAME_ASSET_FILES.keyArt +
+        '?v=' +
+        encodeURIComponent(props.assetVersion ?? 'published')
+      : null;
+  const imageUrl = keyArtUrl ?? CABINET_FALLBACK_URL;
+
+  useLayoutEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
     let disposed = false;
-    const matted = props.presentation === 'matted';
 
-    const presentMatted = (
-      source: CanvasImageSource,
-      sourceWidth: number,
-      sourceHeight: number,
-      smoothing: boolean,
-    ) => {
+    const clearCanvas = () => {
+      canvas.width = matted ? 960 : 512;
+      canvas.height = matted ? 360 : 304;
+      const ctx = canvas.getContext('2d')!;
+      ctx.fillStyle = '#050814';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    };
+
+    const presentMatted = (image: HTMLImageElement, sourceWidth: number, sourceHeight: number) => {
       canvas.width = 960;
       canvas.height = 360;
       const ctx = canvas.getContext('2d')!;
-      ctx.imageSmoothingEnabled = smoothing;
-      if (smoothing) ctx.imageSmoothingQuality = 'high';
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
 
       const background = coveringSourceRect(sourceWidth, sourceHeight, canvas.width, canvas.height);
       ctx.drawImage(
-        source,
+        image,
         background.x,
         background.y,
         background.width,
@@ -96,7 +146,7 @@ export function GameCover(props: {
       ctx.shadowColor = 'rgba(0, 0, 0, 0.72)';
       ctx.shadowBlur = 22;
       ctx.drawImage(
-        source,
+        image,
         0,
         0,
         sourceWidth,
@@ -109,153 +159,13 @@ export function GameCover(props: {
       ctx.restore();
     };
 
-    // Where the baked likeness head lands on the hero: hand-authored for a
-    // library hero, or the custom hero's own headSlot. Recent games use custom
-    // heroes (signature-sprite prompt), which the cover previously ignored —
-    // dropping their head — so fall back to the custom sprite's slot.
-    const cov = props.cover;
-    const heroLibId = cov?.heroRef?.startsWith('lib:') ? cov.heroRef.slice(4) : null;
-    const nativeHeadSlot = heroLibId ? LIBRARY[heroLibId]?.headSlots?.[0] : cov?.hero?.headSlot;
-    const sourceHeroEntry = heroLibId ? LIBRARY[heroLibId] : undefined;
-    const canUseTallHero =
-      props.archetype === 'platformer' &&
-      cov?.hasLikeness &&
-      heroLibId !== null &&
-      TALL_COVER_HERO_IDS.has(heroLibId) &&
-      sourceHeroEntry;
-    const candidateTallEntry = canUseTallHero ? makeTallHumanoidEntry(sourceHeroEntry) : undefined;
-    const tallHeroEntry =
-      candidateTallEntry && candidateTallEntry !== sourceHeroEntry ? candidateTallEntry : undefined;
-    const likenessHeadSlot = tallHeroEntry?.headSlots?.[0] ?? nativeHeadSlot;
-
-    const drawProcedural = (head: HTMLImageElement | null) => {
-      if (disposed) return;
-      canvas.width = 128;
-      canvas.height = 76;
-      const ctx = canvas.getContext('2d')!;
-      ctx.imageSmoothingEnabled = false;
-      const cover = props.cover;
-      const pal = cover?.palette ?? ['#000', '#111', '#1c2242', '#2a3060', '#3b4a8c'];
-      ctx.fillStyle = pal[2] ?? '#1c2242';
-      ctx.fillRect(0, 0, 128, 76);
-      ctx.fillStyle = pal[3] ?? '#2a3060';
-      ctx.fillRect(0, 26, 128, 50);
-      ctx.fillStyle = pal[4] ?? '#3b4a8c';
-      ctx.fillRect(0, 52, 128, 24);
-      // deterministic sparkles from the title
-      let h = 0;
-      for (const c of props.seedText) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-      for (let i = 0; i < 14; i++) {
-        h = (h * 1103515245 + 12345) >>> 0;
-        const x = h % 128;
-        const y = (h >> 8) % 60;
-        ctx.fillStyle = i % 3 === 0 ? (pal[13] ?? '#ffd75e') : (pal[15] ?? '#fff');
-        ctx.globalAlpha = 0.5;
-        ctx.fillRect(x, y, 1, 1);
-      }
-      ctx.globalAlpha = 1;
-      if (!cover) {
-        if (props.pending) {
-          // Queued/generating games have no cover art yet — a centered gem
-          // outline reads as "cover incoming" rather than a broken empty box.
-          ctx.globalAlpha = 0.55;
-          ctx.strokeStyle = pal[13] ?? '#ffd75e';
-          ctx.lineWidth = 1;
-          const cx = 64;
-          const cy = 36;
-          const r = 8;
-          ctx.beginPath();
-          ctx.moveTo(cx, cy - r);
-          ctx.lineTo(cx + r, cy);
-          ctx.lineTo(cx, cy + r);
-          ctx.lineTo(cx - r, cy);
-          ctx.closePath();
-          ctx.stroke();
-          ctx.globalAlpha = 1;
-        }
-        return;
-      }
-      const baseline = 68;
-
-      // Boss: large, dim, stage-right — every game's boss differs.
-      if (cover.boss) {
-        try {
-          const boss = decodeSprite(cover.boss, cover.palette);
-          const scale = boss.width > 32 ? 1.4 : 1.8;
-          ctx.globalAlpha = 0.32;
-          ctx.drawImage(
-            boss,
-            Math.round(122 - boss.width * scale),
-            Math.round(baseline + 4 - boss.height * scale),
-            Math.round(boss.width * scale),
-            Math.round(boss.height * scale),
-          );
-          ctx.globalAlpha = 1;
-        } catch {
-          /* bad sprite data — skip layer */
-        }
-      }
-
-      // Showcase enemy: front-right, facing the hero.
-      if (cover.enemy) {
-        try {
-          const enemy = decodeSprite(cover.enemy, cover.palette);
-          ctx.drawImage(enemy, 86, baseline - enemy.height * 2, enemy.width * 2, enemy.height * 2);
-        } catch {
-          /* skip layer */
-        }
-      }
-
-      // Hero: front-left, with the baked likeness head when this game has one.
-      const heroData = head && tallHeroEntry ? tallHeroEntry.frames[0] : cover.hero;
-      if (heroData) {
-        try {
-          let heroCanvas = decodeSprite(heroData, cover.palette);
-          const slot = head && tallHeroEntry ? tallHeroEntry.headSlots?.[0] : nativeHeadSlot;
-          if (head && slot) {
-            const composed = document.createElement('canvas');
-            composed.width = heroCanvas.width;
-            composed.height = heroCanvas.height;
-            const cctx = composed.getContext('2d')!;
-            cctx.imageSmoothingEnabled = false;
-            cctx.drawImage(heroCanvas, 0, 0);
-            cctx.clearRect(slot.x, slot.y, slot.size, slot.size);
-            cctx.drawImage(head, slot.x, slot.y, slot.size, slot.size);
-            const overlay = tallHeroEntry?.likenessOverlays?.[0];
-            if (overlay) cctx.drawImage(decodeSprite(overlay, cover.palette), 0, 0);
-            heroCanvas = composed;
-          }
-          const scale = Math.max(1, Math.min(3, Math.floor((baseline - 4) / heroCanvas.height)));
-          ctx.drawImage(
-            heroCanvas,
-            Math.round(40 - (heroCanvas.width * scale) / 2),
-            Math.round(baseline - heroCanvas.height * scale),
-            heroCanvas.width * scale,
-            heroCanvas.height * scale,
-          );
-        } catch {
-          /* skip layer */
-        }
-      }
-
-      if (matted) {
-        const source = document.createElement('canvas');
-        source.width = canvas.width;
-        source.height = canvas.height;
-        source.getContext('2d')!.drawImage(canvas, 0, 0);
-        presentMatted(source, source.width, source.height, false);
-      }
-    };
-
-    const drawKeyArt = (image: HTMLImageElement) => {
+    const drawCoverImage = (image: HTMLImageElement) => {
       if (disposed) return;
       if (matted) {
-        presentMatted(image, image.naturalWidth, image.naturalHeight, true);
+        presentMatted(image, image.naturalWidth, image.naturalHeight);
         return;
       }
-      // Keep a high-resolution backing canvas for generated cover art. Display
-      // dimensions belong to each screen's CSS so the attract marquee can give
-      // Muse art more room than a list thumbnail.
+
       canvas.width = 512;
       canvas.height = 304;
       const ctx = canvas.getContext('2d')!;
@@ -280,37 +190,44 @@ export function GameCover(props: {
       );
     };
 
-    const loadProceduralLikeness = () => {
-      if (!props.cover?.hasLikeness || !props.gameId) return;
-      const img = new Image();
-      img.onload = () => drawProcedural(img);
-      img.src = `/api/games/${props.gameId}/assets/head${likenessHeadSlot?.size ?? 12}.png`;
+    const showCabinetFallback = () => {
+      const cachedFallback = cachedCoverImage(CABINET_FALLBACK_URL);
+      if (cachedFallback) {
+        drawCoverImage(cachedFallback);
+        return;
+      }
+      clearCanvas();
+      void loadCoverImage(CABINET_FALLBACK_URL)
+        .then(drawCoverImage)
+        .catch(() => {
+          if (!disposed) clearCanvas();
+        });
     };
 
-    drawProcedural(null);
-    if (props.cover?.hasKeyArt && props.gameId) {
-      const keyArt = new Image();
-      keyArt.onload = () => drawKeyArt(keyArt);
-      keyArt.onerror = loadProceduralLikeness;
-      keyArt.src = `/api/games/${props.gameId}/assets/${GENERATED_GAME_ASSET_FILES.keyArt}`;
+    const cached = cachedCoverImage(imageUrl);
+    if (cached) {
+      drawCoverImage(cached);
     } else {
-      loadProceduralLikeness();
+      clearCanvas();
+      void loadCoverImage(imageUrl)
+        .then(drawCoverImage)
+        .catch(() => {
+          if (disposed) return;
+          if (imageUrl === CABINET_FALLBACK_URL) {
+            clearCanvas();
+            return;
+          }
+          showCabinetFallback();
+        });
     }
+
     return () => {
       disposed = true;
     };
-  }, [
-    props.cover,
-    props.archetype,
-    props.gameId,
-    props.seedText,
-    props.class,
-    props.pending,
-    props.presentation,
-  ]);
+  }, [imageUrl, matted]);
+
   return <canvas ref={ref} class={props.class} />;
 }
-
 export function Modal(props: { children: ComponentChildren }): ComponentChildren {
   return (
     <div class="modal-backdrop">

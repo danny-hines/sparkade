@@ -402,9 +402,8 @@ export function AttractScreen(props: { go: (s: Screen) => void }): ComponentChil
           >
             <GameCover
               cover={featured.cover}
-              archetype={featured.archetype}
               gameId={featured.id}
-              seedText={featured.title}
+              assetVersion={featured.jobId ?? featured.createdAt}
               class="marquee"
             />
             <div style="color:var(--cyan);font-size:18px">{featured.title}</div>

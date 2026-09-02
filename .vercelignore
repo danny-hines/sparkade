@@ -12,15 +12,11 @@ docs/
 headshots/
 install/
 node_modules/
-packages/archetypes/
 packages/cli/
-packages/engine/
 packages/generation/
 packages/server/
-packages/shared/
 packages/web/dist/
 packages/web/node_modules/
-packages/web/src/
 packages/web/test/
 playwright-report/
 scratch/

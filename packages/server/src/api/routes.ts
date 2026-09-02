@@ -240,7 +240,11 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
   });
 
   app.get('/api/games', async () => {
-    return db.listGames().map((row) => db.listItem(row));
+    return db.listGames().map((row) => {
+      const item = db.listItem(row);
+      const publication = publicGames?.publicationForGame(row.id);
+      return publication ? { ...item, publication } : item;
+    });
   });
 
   app.get('/api/games/:id', async (req, reply) => {
@@ -286,15 +290,33 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
         fighterArenaPresentationIsBaked(fighterArenaAsset.promptVersion),
     };
     const publicGame = publicGames?.linkForGame(id);
+    const publication = publicGames?.publicationForGame(id);
     return {
-      item: db.listItem(row),
+      item: publication ? { ...db.listItem(row), publication } : db.listItem(row),
       spec,
       meta,
       job,
       assets,
       usage: db.usageForGame(id),
       ...(publicGame ? { publicGame } : {}),
+      ...(publication ? { publication } : {}),
     };
+  });
+
+  app.post('/api/games/:id/publish', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = db.getGame(id);
+    if (!row) return reply.code(404).send({ error: 'unknown game' });
+    if (row.golden) return reply.code(409).send({ error: 'built-in games cannot be published' });
+    if (row.status !== 'ready') return reply.code(409).send({ error: 'game is not ready' });
+    if (!publicGames) return reply.code(503).send({ error: 'cloud publishing is not configured' });
+    try {
+      const publication = await publicGames.publishExisting(id);
+      return reply.code(publication.status === 'published' ? 200 : 202).send({ publication });
+    } catch (error) {
+      req.log.warn({ err: error, gameId: id }, 'could not start cloud publish');
+      return reply.code(502).send({ error: 'could not start cloud publish — try again' });
+    }
   });
 
   // Stable pieces built so far (palette/sprites/music), surfaced live during

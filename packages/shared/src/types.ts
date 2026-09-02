@@ -947,6 +947,20 @@ export interface GameAssetManifest {
   assets: GeneratedGameAsset[];
 }
 
+/** Stable public address reserved by the cloud for a cabinet game. */
+export interface PublicGameLink {
+  id: string;
+  url: string;
+}
+
+export type PublicGamePublicationStatus = 'publishing' | 'published' | 'failed';
+
+/** Cabinet-side truth about whether the complete playable game reached the cloud. */
+export interface PublicGamePublication {
+  status: PublicGamePublicationStatus;
+  link: PublicGameLink;
+}
+
 export interface GameListItem {
   id: string;
   title: string;
@@ -960,13 +974,9 @@ export interface GameListItem {
   jobId: string | null;
   /** For rendering the card cover live (no stored images). */
   cover: CoverData | null;
+  /** Omitted until this cabinet has reserved a public copy. */
+  publication?: PublicGamePublication;
   failure?: { code: string; message: string };
-}
-
-/** Stable public address reserved by the cloud when cabinet generation begins. */
-export interface PublicGameLink {
-  id: string;
-  url: string;
 }
 
 export interface ScoreRow {

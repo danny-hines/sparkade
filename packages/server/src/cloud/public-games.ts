@@ -1,4 +1,10 @@
-import type { GameSpec, JobEvent, PublicGameLink } from '@sparkade/shared';
+import type {
+  GameSpec,
+  JobEvent,
+  PublicGameLink,
+  PublicGamePublication,
+  PublicGamePublicationStatus,
+} from '@sparkade/shared';
 import type { SseHub } from '../pipeline/sse';
 import type { Db } from '../storage/db';
 import type { PublicGameAsset } from '../storage/files';
@@ -10,6 +16,7 @@ const ASSET_UPLOAD_CONCURRENCY = 4;
 const PROGRESS_UPDATE_INTERVAL_MS = 5_000;
 const DEFAULT_KIOSK_NAME = 'Sparkade Cabinet';
 const PUBLIC_GAME_LINKS_SETTING = 'public-game-links-v1';
+const PUBLIC_GAME_PUBLICATIONS_SETTING = 'public-game-publications-v2';
 
 type GameLookup = Pick<Db, 'getGame'> & Partial<Pick<Db, 'getSetting' | 'setSetting'>>;
 type Fetch = typeof fetch;
@@ -24,7 +31,8 @@ type PublicStatusUpdate = {
 };
 
 export class PublicGamePublisher {
-  private readonly linksByGameId = new Map<string, PublicGameLink>();
+  private readonly publicationsByGameId = new Map<string, PublicGamePublication>();
+  private readonly existingPublishTasks = new Map<string, Promise<void>>();
   private readonly trackedJobs = new Set<string>();
 
   constructor(
@@ -37,46 +45,21 @@ export class PublicGamePublisher {
     private readonly specForGame: (gameId: string) => GameSpec | null = () => null,
     private readonly assetsForGame: (gameId: string) => PublicGameAsset[] = () => [],
   ) {
-    const persisted = this.db.getSetting
-      ? this.db.getSetting<unknown>(PUBLIC_GAME_LINKS_SETTING)
-      : null;
-    if (typeof persisted !== 'object' || persisted === null || Array.isArray(persisted)) return;
-    for (const [gameId, publicId] of Object.entries(persisted)) {
-      if (typeof publicId === 'string' && PUBLIC_ID_PATTERN.test(publicId)) {
-        this.linksByGameId.set(gameId, this.linkForId(publicId));
-      }
-    }
+    if (!this.restorePublications()) this.restoreLegacyLinks();
   }
 
   linkForGame(gameId: string): PublicGameLink | null {
-    return this.linksByGameId.get(gameId) ?? null;
+    return this.publicationsByGameId.get(gameId)?.link ?? null;
+  }
+
+  publicationForGame(gameId: string): PublicGamePublication | null {
+    return this.publicationsByGameId.get(gameId) ?? null;
   }
 
   async reserveAndTrack(jobId: string, gameId: string): Promise<PublicGameLink | null> {
-    const existing = this.linkForGame(gameId);
-    if (existing) {
-      this.track(jobId, gameId, existing.id);
-      return existing;
-    }
-
     try {
-      const response = await this.request('/api/kiosk/games', {
-        method: 'POST',
-        body: JSON.stringify({ sourceId: gameId, kioskName: this.kioskName }),
-      });
-      if (!response.ok) throw new Error(`reservation returned HTTP ${response.status}`);
-      const payload = (await response.json()) as { game?: { id?: unknown } };
-      const id = typeof payload.game?.id === 'string' ? payload.game.id.toLowerCase() : '';
-      if (!PUBLIC_ID_PATTERN.test(id)) throw new Error('reservation returned an invalid game ID');
-      const link = this.linkForId(id);
-      this.linksByGameId.set(gameId, link);
-      this.db.setSetting?.(
-        PUBLIC_GAME_LINKS_SETTING,
-        Object.fromEntries(
-          [...this.linksByGameId].map(([sourceId, publicGame]) => [sourceId, publicGame.id]),
-        ),
-      );
-      this.track(jobId, gameId, id);
+      const link = await this.reserveLink(gameId);
+      this.track(jobId, gameId, link.id);
       return link;
     } catch (error) {
       console.warn(
@@ -85,6 +68,127 @@ export class PublicGamePublisher {
       );
       return null;
     }
+  }
+
+  /** Begin publishing an already-finished local game and return once its short URL is reserved. */
+  async publishExisting(gameId: string): Promise<PublicGamePublication> {
+    const row = this.db.getGame(gameId);
+    if (!row || row.status !== 'ready') throw new Error('only ready games can be published');
+    const spec = this.specForGame(gameId);
+    if (!spec) throw new Error('game spec is unavailable');
+
+    const current = this.publicationForGame(gameId);
+    if (current?.status === 'published') return current;
+    if (this.existingPublishTasks.has(gameId) && current) return current;
+
+    const link = await this.reserveLink(gameId);
+    this.setPublication(gameId, link, 'publishing');
+    const update: PublicStatusUpdate = {
+      status: 'ready',
+      stage: 'done',
+      message: `${row.title} is ready to play`,
+      title: row.title,
+      spec,
+      assets: this.assetsForGame(gameId),
+    };
+    const task = this.publishUpdate(link.id, gameId, update, 3)
+      .then(() => this.setPublication(gameId, link, 'published'))
+      .catch((error) => {
+        this.setPublication(gameId, link, 'failed');
+        console.warn(
+          `could not publish existing game ${link.id}:`,
+          error instanceof Error ? error.message : error,
+        );
+      })
+      .finally(() => this.existingPublishTasks.delete(gameId));
+    this.existingPublishTasks.set(gameId, task);
+    return this.publicationForGame(gameId)!;
+  }
+
+  private restorePublications(): boolean {
+    const persisted = this.db.getSetting
+      ? this.db.getSetting<unknown>(PUBLIC_GAME_PUBLICATIONS_SETTING)
+      : null;
+    if (typeof persisted !== 'object' || persisted === null || Array.isArray(persisted))
+      return false;
+    let restored = false;
+    let interrupted = false;
+    for (const [gameId, value] of Object.entries(persisted)) {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) continue;
+      const record = value as Record<string, unknown>;
+      const id = typeof record.id === 'string' ? record.id.toLowerCase() : '';
+      const status = record.status;
+      if (PUBLIC_ID_PATTERN.test(id) && this.isPublicationStatus(status)) {
+        // Upload work lives in this process. After a restart, a persisted spinner
+        // must become retryable instead of claiming that work is still running.
+        this.publicationsByGameId.set(gameId, {
+          status: status === 'publishing' ? 'failed' : status,
+          link: this.linkForId(id),
+        });
+        if (status === 'publishing') interrupted = true;
+        restored = true;
+      }
+    }
+    if (interrupted) this.persistPublications();
+    return restored;
+  }
+
+  private restoreLegacyLinks(): void {
+    const persisted = this.db.getSetting
+      ? this.db.getSetting<unknown>(PUBLIC_GAME_LINKS_SETTING)
+      : null;
+    if (typeof persisted !== 'object' || persisted === null || Array.isArray(persisted)) return;
+    for (const [gameId, publicId] of Object.entries(persisted)) {
+      if (typeof publicId !== 'string' || !PUBLIC_ID_PATTERN.test(publicId)) continue;
+      const status: PublicGamePublicationStatus =
+        this.db.getGame(gameId)?.status === 'ready' ? 'published' : 'publishing';
+      this.publicationsByGameId.set(gameId, {
+        status,
+        link: this.linkForId(publicId),
+      });
+    }
+    if (this.publicationsByGameId.size > 0) this.persistPublications();
+  }
+
+  private isPublicationStatus(value: unknown): value is PublicGamePublicationStatus {
+    return value === 'publishing' || value === 'published' || value === 'failed';
+  }
+
+  private persistPublications(): void {
+    this.db.setSetting?.(
+      PUBLIC_GAME_PUBLICATIONS_SETTING,
+      Object.fromEntries(
+        [...this.publicationsByGameId].map(([gameId, publication]) => [
+          gameId,
+          { id: publication.link.id, status: publication.status },
+        ]),
+      ),
+    );
+  }
+
+  private setPublication(
+    gameId: string,
+    link: PublicGameLink,
+    status: PublicGamePublicationStatus,
+  ): void {
+    this.publicationsByGameId.set(gameId, { status, link });
+    this.persistPublications();
+  }
+
+  private async reserveLink(gameId: string): Promise<PublicGameLink> {
+    const existing = this.linkForGame(gameId);
+    if (existing) return existing;
+    const response = await this.request('/api/kiosk/games', {
+      method: 'POST',
+      body: JSON.stringify({ sourceId: gameId, kioskName: this.kioskName }),
+    });
+    if (!response.ok) throw new Error(`reservation returned HTTP ${response.status}`);
+    const payload = (await response.json()) as { game?: { id?: unknown } };
+    const id = typeof payload.game?.id === 'string' ? payload.game.id.toLowerCase() : '';
+    if (!PUBLIC_ID_PATTERN.test(id)) throw new Error('reservation returned an invalid game ID');
+    const link = this.linkForId(id);
+    this.setPublication(gameId, link, 'publishing');
+    return link;
   }
 
   private linkForId(id: string): PublicGameLink {
@@ -104,7 +208,13 @@ export class PublicGamePublisher {
     const enqueue = (update: PublicStatusUpdate, attempts: number, terminal: boolean) => {
       pending = pending
         .then(() => this.publishUpdate(publicId, gameId, update, attempts))
+        .then(() => {
+          if (!terminal) return;
+          const link = this.linkForId(publicId);
+          this.setPublication(gameId, link, update.status === 'ready' ? 'published' : 'failed');
+        })
         .catch((error) => {
+          if (terminal) this.setPublication(gameId, this.linkForId(publicId), 'failed');
           console.warn(
             `could not publish ${terminal ? 'terminal ' : ''}game status for ${publicId}:`,
             error instanceof Error ? error.message : error,

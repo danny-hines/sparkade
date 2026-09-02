@@ -20,7 +20,13 @@ import { Icon, Btn, type IconName } from '../icons';
 import { LibraryDemo } from './library-demo';
 import type { Screen } from '../app';
 
-type Action = { key: string; label: ComponentChildren; danger?: boolean };
+type Action = {
+  key: string;
+  label: ComponentChildren;
+  title?: string;
+  className?: string;
+  danger?: boolean;
+};
 
 const GAME_TYPE_LABELS: Record<ArchetypeId, string> = {
   platformer: 'Platformer',
@@ -45,19 +51,78 @@ function statusLabel(s: GameListItem['status']): string {
   }
 }
 
-export function actionsFor(game: GameListItem | null): Action[] {
+export function actionsFor(game: GameListItem | null, publishingLocally = false): Action[] {
   if (!game) return [];
   const a: Action[] = [];
-  if (game.status === 'ready') a.push({ key: 'play', label: <><Icon name="play" /> Play</> });
+  if (game.status === 'ready')
+    a.push({
+      key: 'play',
+      label: (
+        <>
+          <Icon name="play" /> Play
+        </>
+      ),
+    });
   if (game.status === 'generating' || game.status === 'queued')
-    a.push({ key: 'progress', label: <><Icon name="sparkle" /> Progress</> });
-  if (game.status === 'failed') a.push({ key: 'retry', label: <><Icon name="refresh" /> Retry</> });
+    a.push({
+      key: 'progress',
+      label: (
+        <>
+          <Icon name="sparkle" /> Progress
+        </>
+      ),
+    });
+  if (game.status === 'failed')
+    a.push({
+      key: 'retry',
+      label: (
+        <>
+          <Icon name="refresh" /> Retry
+        </>
+      ),
+    });
+  if (game.status === 'ready' && !game.golden) {
+    const publication = game.publication;
+    if (publishingLocally || publication?.status === 'publishing') {
+      a.push({
+        key: 'publishing',
+        label: <Icon name="cloud" class="cloud-publishing" />,
+        title: 'Publishing to cloud',
+        className: 'cloud publishing',
+      });
+    } else if (publication?.status === 'published') {
+      a.push({
+        key: 'share',
+        label: <Icon name="cloudFilled" />,
+        title: 'View sharing link',
+        className: 'cloud published',
+      });
+    } else {
+      a.push({
+        key: 'publish',
+        label: <Icon name="cloud" />,
+        title: publication?.status === 'failed' ? 'Retry cloud publish' : 'Publish to cloud',
+        className: 'cloud',
+      });
+    }
+  }
   if (!game.golden)
-    a.push({ key: 'delete', label: <><Icon name="close" /> Delete</>, danger: true });
+    a.push({
+      key: 'delete',
+      label: (
+        <>
+          <Icon name="close" /> Delete
+        </>
+      ),
+      danger: true,
+    });
   return a;
 }
 
-export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string }): ComponentChildren {
+export function HomeScreen(props: {
+  go: (s: Screen) => void;
+  initialId?: string;
+}): ComponentChildren {
   const [games, setGames] = useState<GameListItem[]>([]);
   const [info, setInfo] = useState<SystemInfo | null>(null);
   const [wifi, setWifi] = useState<WifiStatus | 'error' | null>(null);
@@ -67,6 +132,8 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
   const [detail, setDetail] = useState<GameDetail | null>(null);
   const [scores, setScores] = useState<ScoreRow[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [publishingIds, setPublishingIds] = useState<Set<string>>(() => new Set());
+  const [publishErrorIds, setPublishErrorIds] = useState<Set<string>>(() => new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
   const focusRef = useRef<HTMLDivElement>(null);
   const didInit = useRef(false);
@@ -75,7 +142,10 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
   const SETTINGS = games.length + 1;
   const total = games.length + 2;
   const selectedGame = sel >= 1 && sel <= games.length ? games[sel - 1]! : null;
-  const actions = actionsFor(selectedGame);
+  const actions = actionsFor(
+    selectedGame,
+    selectedGame ? publishingIds.has(selectedGame.id) : false,
+  );
 
   useEffect(() => {
     const load = () => {
@@ -83,6 +153,21 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
         .listGames()
         .then((g) => {
           setGames(g);
+          setPublishingIds((current) => {
+            const next = new Set(
+              [...current].filter(
+                (id) => g.find((game) => game.id === id)?.publication?.status === 'publishing',
+              ),
+            );
+            return next.size === current.size ? current : next;
+          });
+          setPublishErrorIds((current) => {
+            const next = new Set(current);
+            for (const game of g) {
+              if (game.publication?.status === 'published') next.delete(game.id);
+            }
+            return next.size === current.size ? current : next;
+          });
           if (!didInit.current && props.initialId) {
             const ix = g.findIndex((x) => x.id === props.initialId);
             if (ix >= 0) setSel(ix + 1);
@@ -90,7 +175,10 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
           didInit.current = true;
         })
         .catch(() => {});
-      void api.systemInfo().then(setInfo).catch(() => {});
+      void api
+        .systemInfo()
+        .then(setInfo)
+        .catch(() => {});
     };
     load();
     const t = setInterval(load, 4000);
@@ -133,8 +221,14 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
     }
     let live = true;
     setDetail(null);
-    void api.getGame(selectedGame.id).then((d) => live && setDetail(d)).catch(() => {});
-    void api.getScores(selectedGame.id).then((s) => live && setScores(s)).catch(() => {});
+    void api
+      .getGame(selectedGame.id)
+      .then((d) => live && setDetail(d))
+      .catch(() => {});
+    void api
+      .getScores(selectedGame.id)
+      .then((s) => live && setScores(s))
+      .catch(() => {});
     return () => {
       live = false;
     };
@@ -206,7 +300,39 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
               gameId: g.id,
               publicGame: detail.publicGame,
             });
-          else if (key === 'delete') setConfirmDelete(true);
+          else if (key === 'publish') {
+            setPublishingIds((current) => new Set(current).add(g.id));
+            setPublishErrorIds((current) => {
+              const next = new Set(current);
+              next.delete(g.id);
+              return next;
+            });
+            void api
+              .publishGame(g.id)
+              .then(({ publication }) => {
+                setGames((current) =>
+                  current.map((game) => (game.id === g.id ? { ...game, publication } : game)),
+                );
+                if (publication.status !== 'publishing') {
+                  setPublishingIds((current) => {
+                    const next = new Set(current);
+                    next.delete(g.id);
+                    return next;
+                  });
+                }
+              })
+              .catch(() => {
+                setPublishingIds((current) => {
+                  const next = new Set(current);
+                  next.delete(g.id);
+                  return next;
+                });
+                setPublishErrorIds((current) => new Set(current).add(g.id));
+                shellInput.blip('error');
+              });
+          } else if (key === 'share' && g.publication?.status === 'published') {
+            props.go({ name: 'share', id: g.id, title: g.title, link: g.publication.link });
+          } else if (key === 'delete') setConfirmDelete(true);
         } else if (btn === 'B') {
           shellInput.blip('back');
           setZone('list');
@@ -322,6 +448,10 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
               actionCursor={actionCursor}
               zone={zone}
               scrollRef={scrollRef}
+              publishFailed={
+                selectedGame.publication?.status === 'failed' ||
+                publishErrorIds.has(selectedGame.id)
+              }
             />
           ) : (
             <Cta
@@ -339,6 +469,7 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
       {confirmDelete && selectedGame && !selectedGame.golden && (
         <DeleteModal
           title={selectedGame.title}
+          published={selectedGame.publication?.status === 'published'}
           onCancel={() => setConfirmDelete(false)}
           onConfirmed={() =>
             void api.deleteGame(selectedGame.id).then(() => {
@@ -353,7 +484,12 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
   );
 }
 
-function Cta(props: { icon: IconName; title: string; sub: string; hint: string }): ComponentChildren {
+function Cta(props: {
+  icon: IconName;
+  title: string;
+  sub: string;
+  hint: string;
+}): ComponentChildren {
   return (
     <div class="home-cta">
       <span class="home-cta-ic">
@@ -376,6 +512,7 @@ function DetailPanel(props: {
   actionCursor: number;
   zone: 'list' | 'detail';
   scrollRef: { current: HTMLDivElement | null };
+  publishFailed: boolean;
 }): ComponentChildren {
   // The four-second list poll is the freshest source of status + cover data.
   // Keeping it authoritative lets a selected generating game turn ready in
@@ -392,7 +529,7 @@ function DetailPanel(props: {
       atBottom: el.scrollTop + el.clientHeight >= el.scrollHeight - 1,
     });
   };
-  useEffect(() => recompute(), [props.game.id, props.detail, props.scores]);
+  useEffect(() => recompute(), [props.game.id, props.detail, props.scores, props.publishFailed]);
   const scrollable = !(scroll.atTop && scroll.atBottom);
   return (
     <div class="home-detail-inner">
@@ -452,6 +589,11 @@ function DetailPanel(props: {
                 : ''}
             </p>
           )}
+          {props.publishFailed ? (
+            <p class="home-publish-error">
+              <Icon name="warning" /> Publish failed — press the cloud to retry.
+            </p>
+          ) : null}
           <div class="home-board-title">LEADERBOARD</div>
           <table class="score-table">
             <tbody>
@@ -477,9 +619,11 @@ function DetailPanel(props: {
         {props.actions.map((a, i) => (
           <div
             key={a.key}
-            class={`home-action ${a.danger ? 'danger' : ''} ${
+            class={`home-action ${a.className ?? ''} ${a.danger ? 'danger' : ''} ${
               props.zone === 'detail' && props.actionCursor === i ? 'focused' : ''
             }`}
+            title={a.title}
+            aria-label={a.title}
           >
             {a.label}
           </div>
@@ -523,6 +667,7 @@ function GenerationCover(props: {
 /** Cancel focused by default; deleting = focus Delete then HOLD A for 3s. */
 function DeleteModal(props: {
   title: string;
+  published: boolean;
   onCancel: () => void;
   onConfirmed: () => void;
 }): ComponentChildren {
@@ -581,6 +726,7 @@ function DeleteModal(props: {
     <Modal>
       <h3>Delete “{props.title}”?</h3>
       <p>This removes the game, its artwork, its likeness sprites and its entire leaderboard.</p>
+      {props.published ? <p>The published copy will stay online.</p> : null}
       <p style="font-size:17px">This cannot be undone.</p>
       <div class="choices">
         <div class={`focusable ${cursor === 0 ? 'focused' : ''}`}>Cancel</div>

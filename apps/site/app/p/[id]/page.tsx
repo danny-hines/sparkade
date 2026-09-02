@@ -22,6 +22,7 @@ export async function generateMetadata({ params }: PublicGamePageProps): Promise
     title,
     description: game.status === 'ready' ? 'A Sparkade game, ready to play.' : game.message,
     alternates: { canonical: `/p/${game.id}` },
+    manifest: `/p/${game.id}/manifest.webmanifest`,
     robots: { index: false, follow: false },
     openGraph: { title, description: game.message, url: `/p/${game.id}` },
   };

@@ -25,6 +25,37 @@ describe('home game actions', () => {
   });
 
   it('keeps deletion available for a player-created game', () => {
-    expect(actionsFor(game()).map((action) => action.key)).toEqual(['play', 'delete']);
+    expect(actionsFor(game()).map((action) => action.key)).toEqual(['play', 'publish', 'delete']);
+  });
+
+  it('shows publishing and published cloud states without moving the action', () => {
+    expect(actionsFor(game(), true).map((action) => action.key)).toEqual([
+      'play',
+      'publishing',
+      'delete',
+    ]);
+    expect(
+      actionsFor(
+        game({
+          publication: {
+            status: 'published',
+            link: { id: '7kmp2qx', url: 'https://sparkade.dev/p/7kmp2qx' },
+          },
+        }),
+      ).map((action) => action.key),
+    ).toEqual(['play', 'share', 'delete']);
+  });
+
+  it('returns a failed publish to the retryable outline action', () => {
+    expect(
+      actionsFor(
+        game({
+          publication: {
+            status: 'failed',
+            link: { id: '7kmp2qx', url: 'https://sparkade.dev/p/7kmp2qx' },
+          },
+        }),
+      ).map((action) => action.key),
+    ).toEqual(['play', 'publish', 'delete']);
   });
 });

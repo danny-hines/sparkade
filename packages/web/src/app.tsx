@@ -20,6 +20,7 @@ import { PlaytestScreen } from './screens/playtest';
 import { PlatformerPosesLabScreen } from './screens/platformer-poses-lab';
 import { PlatformerLevelsLabScreen } from './screens/platformer-levels-lab';
 import { FighterPosesLabScreen } from './screens/fighter-poses-lab';
+import { ShareScreen } from './screens/share';
 
 export type Screen =
   | { name: 'attract' }
@@ -27,6 +28,7 @@ export type Screen =
   | { name: 'wizard' }
   | { name: 'generation'; jobId: string; gameId: string; publicGame?: PublicGameLink }
   | { name: 'play'; id: string }
+  | { name: 'share'; id: string; title: string; link: PublicGameLink }
   | { name: 'settings'; tab?: string }
   | { name: 'remap'; firstBoot: boolean; returnTo: Screen };
 
@@ -188,6 +190,11 @@ function KioskApp(): ComponentChildren {
     case 'play':
       body = (
         <PlayScreen go={go} id={screen.id} settings={settings} onSettingsChanged={reloadSettings} />
+      );
+      break;
+    case 'share':
+      body = (
+        <ShareScreen go={go} gameId={screen.id} title={screen.title} link={screen.link} />
       );
       break;
     case 'settings':

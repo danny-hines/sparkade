@@ -32,7 +32,13 @@ const STAGE_LABELS: Record<JobStage, string> = {
   failed: 'Failed',
 };
 
-function PublicGameQrCard({ link }: { link: PublicGameLink }): ComponentChildren {
+export function PublicGameQrCard({
+  link,
+  mode = 'progress',
+}: {
+  link: PublicGameLink;
+  mode?: 'progress' | 'ready';
+}): ComponentChildren {
   const [qrSrc, setQrSrc] = useState<string | null>(null);
   const [qrFailed, setQrFailed] = useState(false);
 
@@ -70,8 +76,12 @@ function PublicGameQrCard({ link }: { link: PublicGameLink }): ComponentChildren
       </div>
       <div class="public-game-copy">
         <span class="public-game-kicker">TAKE IT WITH YOU</span>
-        <h3 class="pixel">SCAN TO FOLLOW</h3>
-        <p>Watch this build from any screen, then come back when it’s ready.</p>
+        <h3 class="pixel">{mode === 'ready' ? 'SCAN TO PLAY' : 'SCAN TO FOLLOW'}</h3>
+        <p>
+          {mode === 'ready'
+            ? 'Open this game on any screen, or send the link to someone else.'
+            : 'Watch this build from any screen, then come back when it’s ready.'}
+        </p>
         <strong>{link.url.replace(/^https?:\/\//, '')}</strong>
         <span class="public-game-id">{link.id.toUpperCase()}</span>
       </div>

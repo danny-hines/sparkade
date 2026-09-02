@@ -388,6 +388,39 @@ h2.pixel {
   border-color: var(--danger);
   box-shadow: 0 0 0 3px var(--danger);
 }
+.home-action.cloud {
+  min-width: 52px;
+  justify-content: center;
+  padding-inline: 13px;
+}
+.home-action.cloud.published {
+  color: var(--ok);
+}
+.home-action.cloud.publishing {
+  color: var(--cyan);
+}
+.cloud-publishing {
+  animation: cloud-publish-pulse 800ms ease-in-out infinite alternate;
+}
+@keyframes cloud-publish-pulse {
+  from {
+    opacity: 0.35;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+.home-publish-error {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--danger);
+}
+.home-publish-error svg {
+  flex: none;
+}
 
 /* Scroll-state indicator on the right of the detail action footer: up/down
    pixel arrows, dimmed at the top/bottom of the synopsis. */
@@ -1356,6 +1389,34 @@ h2.pixel {
   background: rgba(0, 0, 0, 0.24);
   font-size: 13px;
   letter-spacing: 1.5px;
+}
+
+.share-screen {
+  position: relative;
+}
+
+.published-chip {
+  color: var(--ok);
+  border-color: rgba(63, 229, 154, 0.45);
+}
+
+.share-game-title {
+  flex: none;
+  margin: 2px 0 10px;
+  color: var(--text-dim);
+  font-size: 15px;
+  text-align: center;
+}
+
+.share-game-card {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+}
+
+.share-game-card .public-game-card {
+  width: min(760px, calc(100% - 96px));
 }
 
 .gen-state {

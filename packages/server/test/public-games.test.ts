@@ -105,6 +105,10 @@ describe('PublicGamePublisher', () => {
         'platformer-player-jump.png': 'https://blob.example/platformer-player-jump.png',
       },
     });
+    expect(publisher.publicationForGame('g-one')).toEqual({
+      status: 'published',
+      link: { id: '7kmp2qx', url: 'https://sparkade.dev/p/7kmp2qx' },
+    });
 
     await publisher.reserveAndTrack('j-two', 'g-one');
     expect(requests.filter((request) => request.url.endsWith('/api/kiosk/games'))).toHaveLength(1);
@@ -129,7 +133,7 @@ describe('PublicGamePublisher', () => {
     warning.mockRestore();
   });
 
-  it('restores a reserved link after the publisher and UI are recreated', async () => {
+  it('restores a reserved link and makes interrupted work retryable after restart', async () => {
     let persisted: unknown = null;
     const store = {
       getGame: () => ({ title: 'Moon Moth Mayhem' }) as never,
@@ -164,7 +168,97 @@ describe('PublicGamePublisher', () => {
       id: '7kmp2qx',
       url: 'https://sparkade.dev/p/7kmp2qx',
     });
+    expect(reopened.publicationForGame('g-one')?.status).toBe('failed');
     expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('publishes an existing ready game in the background and reuses its URL', async () => {
+    let releaseFinalUpdate = () => {};
+    const finalUpdateGate = new Promise<void>((resolve) => {
+      releaseFinalUpdate = resolve;
+    });
+    const requests: string[] = [];
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.endsWith('/api/kiosk/games')) {
+        return response({ game: { id: '7kmp2qx' } }, 201);
+      }
+      if (url.includes('/assets/')) {
+        const filename = url.split('/').at(-1)!;
+        return response({ filename, url: `https://blob.example/${filename}` });
+      }
+      await finalUpdateGate;
+      return response({ game: { id: '7kmp2qx' } });
+    }) as unknown as typeof fetch;
+    const publisher = new PublicGamePublisher(
+      'https://sparkade.dev/',
+      'secret-key',
+      'Sparkade Lab',
+      { getGame: () => ({ title: 'Moon Moth Mayhem', status: 'ready' }) as never },
+      new SseHub(),
+      fetchImpl,
+      () => ({ specVersion: 1, archetype: 'platformer' }) as GameSpec,
+      () => [{ filename: 'platformer-player-idle.png', content: Buffer.from('png') }],
+    );
+
+    await expect(publisher.publishExisting('g-one')).resolves.toMatchObject({
+      status: 'publishing',
+      link: { id: '7kmp2qx' },
+    });
+    await expect(publisher.publishExisting('g-one')).resolves.toMatchObject({
+      status: 'publishing',
+    });
+    expect(requests.filter((url) => url.endsWith('/api/kiosk/games'))).toHaveLength(1);
+
+    releaseFinalUpdate();
+    await vi.waitFor(() => expect(publisher.publicationForGame('g-one')?.status).toBe('published'));
+    await expect(publisher.publishExisting('g-one')).resolves.toMatchObject({
+      status: 'published',
+      link: { id: '7kmp2qx' },
+    });
+    expect(requests.filter((url) => url.endsWith('/api/kiosk/games'))).toHaveLength(1);
+  });
+
+  it('returns a failed background publish to a retryable state', async () => {
+    let uploadFails = true;
+    const requests: string[] = [];
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.endsWith('/api/kiosk/games')) {
+        return response({ game: { id: '7kmp2qx' } }, 201);
+      }
+      if (url.includes('/assets/')) {
+        const filename = url.split('/').at(-1)!;
+        return uploadFails
+          ? response({ error: 'unavailable' }, 503)
+          : response({ filename, url: `https://blob.example/${filename}` });
+      }
+      return response({ game: { id: '7kmp2qx' } });
+    }) as unknown as typeof fetch;
+    const publisher = new PublicGamePublisher(
+      'https://sparkade.dev/',
+      'secret-key',
+      'Sparkade Lab',
+      { getGame: () => ({ title: 'Moon Moth Mayhem', status: 'ready' }) as never },
+      new SseHub(),
+      fetchImpl,
+      () => ({ specVersion: 1, archetype: 'platformer' }) as GameSpec,
+      () => [{ filename: 'platformer-player-idle.png', content: Buffer.from('png') }],
+    );
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await publisher.publishExisting('g-one');
+    await vi.waitFor(() => expect(publisher.publicationForGame('g-one')?.status).toBe('failed'), {
+      timeout: 3_000,
+    });
+
+    uploadFails = false;
+    await publisher.publishExisting('g-one');
+    await vi.waitFor(() => expect(publisher.publicationForGame('g-one')?.status).toBe('published'));
+    expect(requests.filter((url) => url.endsWith('/api/kiosk/games'))).toHaveLength(1);
+    warning.mockRestore();
   });
 
   it('maps failures to a retry-safe public message', async () => {

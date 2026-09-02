@@ -15,6 +15,7 @@ import {
   type PartialSpec,
   type PriceRow,
   type PublicGameLink,
+  type PublicGamePublication,
   type ScoreRow,
   type SystemInfo,
   type WifiNetwork,
@@ -53,6 +54,7 @@ export interface GameDetail {
   meta: GameMetaFile | null;
   job: JobRecord | null;
   publicGame?: PublicGameLink;
+  publication?: PublicGamePublication;
   assets: GameAssetAvailability;
   usage: {
     stage: string;
@@ -381,6 +383,10 @@ export const api = {
   retryGame: (id: string) =>
     fetch(`/api/games/${id}/retry`, { method: 'POST' }).then((r) =>
       json<{ jobId: string; publicGame?: PublicGameLink }>(r),
+    ),
+  publishGame: (id: string) =>
+    fetch(`/api/games/${id}/publish`, { method: 'POST' }).then((response) =>
+      json<{ publication: PublicGamePublication }>(response),
     ),
   getScores: (id: string) => fetch(`/api/games/${id}/scores`).then((r) => json<ScoreRow[]>(r)),
   submitScore: (id: string, initials: string, score: number) =>

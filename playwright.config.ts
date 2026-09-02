@@ -31,6 +31,9 @@ export default defineConfig({
       SPARKADE_PORT: '8098',
       SPARKADE_PROVIDER: 'mock',
       SPARKADE_FORCE_PI: '1',
+      // E2E is strictly local and must never publish mock games to the live site.
+      SPARKADE_PUBLIC_ORIGIN: '',
+      SPARKADE_KIOSK_API_KEY: '',
       // Speed up mock stage delays so the suite stays fast.
       SPARKADE_MOCK_FAST: '1',
     },

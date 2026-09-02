@@ -98,7 +98,7 @@ test('WiFi flow can always cancel, retry a wrong password, and connect', async (
   expect(errors).toEqual([]);
 });
 
-test('keyboard-only: create via preset → honest progress → ready → play boots and responds', async ({
+test('keyboard-only: create via guided details → honest progress → ready → play boots and responds', async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -113,27 +113,24 @@ test('keyboard-only: create via preset → honest progress → ready → play bo
   await tap(page, 'ArrowDown');
   await tap(page, 'KeyX');
 
-  // Step 2: idea cards
-  await expect(page.getByText('What should this game be?')).toBeVisible();
-  await tap(page, 'ArrowDown'); // to "Idea card"
+  // Step 2: choose a game type, then return to the compact details form.
+  await expect(page.getByText('TELL SPARK WHAT MATTERS')).toBeVisible();
+  await tap(page, 'ArrowDown'); // Type
   await tap(page, 'KeyX');
-  await expect(page.locator('.idea-card').first()).toBeVisible();
-  await tap(page, 'KeyX'); // pick the first card
-
-  // Step 3: review shows the idea text + labeled estimate BEFORE generating
-  await expect(page.locator('.transcript-box')).toContainText(
-    /Gearheart|Marshmallow|Museum|Tidepool|Static|Garden/,
-  );
-  await expect(page.getByText(/estimate|cost unavailable/)).toBeVisible();
+  await expect(page.locator('.archetype-card').first()).toBeVisible();
+  await tap(page, 'KeyX'); // Platformer
+  await expect(page.locator('.game-details-stage')).toContainText('Platformer');
+  await expect(page.getByText(/estimate|Checking cost/)).toBeVisible();
 
   // Generate
+  await tap(page, 'ArrowDown', 2); // Create Game
   await tap(page, 'KeyX');
 
   // Honest stage checklist + cost ticker
-  await expect(page.locator('.screen-title', { hasText: 'GENERATING' })).toBeVisible({
+  await expect(page.locator('.screen-title', { hasText: 'SPARK IS BUILDING' })).toBeVisible({
     timeout: 15_000,
   });
-  await expect(page.locator('.genstage.active')).toBeVisible();
+  await expect(page.locator('.gen-state')).toBeVisible();
   await expect(page.locator('.cost-ticker')).toBeVisible();
 
   // Done → play
@@ -194,13 +191,14 @@ test('generation progress survives a page reload (durable jobs)', async ({ page 
   await tap(page, 'KeyX'); // New Game
   await tap(page, 'ArrowDown');
   await tap(page, 'KeyX'); // skip photo
-  await tap(page, 'ArrowDown');
-  await tap(page, 'KeyX'); // idea cards
+  await tap(page, 'ArrowDown'); // Type
+  await tap(page, 'KeyX'); // archetype carousel
   await tap(page, 'ArrowRight');
-  await tap(page, 'KeyX'); // second card
-  await expect(page.locator('.transcript-box')).toBeVisible();
+  await tap(page, 'KeyX'); // second archetype
+  await expect(page.locator('.game-details-stage')).toContainText('Vertical Shooter');
+  await tap(page, 'ArrowDown', 2); // Create Game
   await tap(page, 'KeyX'); // generate
-  await expect(page.locator('.screen-title', { hasText: 'GENERATING' })).toBeVisible();
+  await expect(page.locator('.screen-title', { hasText: 'SPARK IS BUILDING' })).toBeVisible();
 
   // reload mid-generation: the shell restores real job state from the server
   await page.reload();
@@ -225,10 +223,10 @@ test('delete flow: Cancel is the default; hold-A deletes', async ({ page }) => {
   const countBefore = await page.locator('.home-item.game').count();
   expect(countBefore).toBeGreaterThanOrEqual(7);
   await tap(page, 'ArrowDown'); // first game (newest generated)
-  await tap(page, 'KeyX'); // focus into the detail panel (actions: Play | Delete)
+  await tap(page, 'KeyX'); // focus into the detail panel (actions: Play | Cloud | Delete)
 
   // open delete modal: move to Delete, A
-  await tap(page, 'ArrowRight'); // → Delete action
+  await tap(page, 'ArrowRight', 2); // → Delete action
   await tap(page, 'KeyX');
   await expect(page.locator('.modal')).toContainText('Delete');
 

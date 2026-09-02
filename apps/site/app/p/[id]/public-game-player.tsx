@@ -88,11 +88,29 @@ export function PublicGamePlayer({
   spec: GameSpec;
   assets: Record<string, string>;
 }) {
+  const playerRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scoresRef = useRef<Array<{ initials: string; score: number }>>([]);
   const [state, setState] = useState<PlayerState>('idle');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [fullscreenAvailable, setFullscreenAvailable] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showInstallHint, setShowInstallHint] = useState(false);
+
+  useEffect(() => {
+    const standalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+    setFullscreenAvailable(
+      Boolean(document.fullscreenEnabled && playerRef.current?.requestFullscreen),
+    );
+    setShowInstallHint(/iPhone/i.test(navigator.userAgent) && !standalone);
+
+    const syncFullscreenState = () => setIsFullscreen(document.fullscreenElement !== null);
+    document.addEventListener('fullscreenchange', syncFullscreenState);
+    return () => document.removeEventListener('fullscreenchange', syncFullscreenState);
+  }, []);
 
   useEffect(() => {
     if (state !== 'playing' || !canvasRef.current) return;
@@ -161,8 +179,28 @@ export function PublicGamePlayer({
 
   const inactive = state !== 'playing' || loading;
 
+  const enterFullscreen = () => {
+    if (!document.fullscreenEnabled || !playerRef.current?.requestFullscreen) return;
+    void playerRef.current.requestFullscreen().catch(() => {
+      // Fullscreen is an enhancement; playback should still begin if the browser refuses it.
+    });
+  };
+
+  const startPlaying = () => {
+    enterFullscreen();
+    setState('playing');
+  };
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {});
+      return;
+    }
+    enterFullscreen();
+  };
+
   return (
-    <section className="public-player" aria-label={`Play ${spec.meta.title}`}>
+    <section ref={playerRef} className="public-player" aria-label={`Play ${spec.meta.title}`}>
       <div className="public-player-stage">
         <div className="public-control-rail" aria-label="Directional controls">
           <TouchButton control={TOUCH_CONTROLS.l} className="public-control-shoulder" />
@@ -177,6 +215,23 @@ export function PublicGamePlayer({
 
         <div className="public-game-frame">
           <canvas ref={canvasRef} width={1024} height={600} />
+          {fullscreenAvailable && (state === 'playing' || isFullscreen) ? (
+            <button
+              type="button"
+              className="public-fullscreen-toggle"
+              aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+              title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+              onClick={toggleFullscreen}
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                {isFullscreen ? (
+                  <path d="M9 4v5H4M15 4v5h5M9 20v-5H4m11 5v-5h5" />
+                ) : (
+                  <path d="M9 4H4v5m11-5h5v5M9 20H4v-5m11 5h5v-5" />
+                )}
+              </svg>
+            </button>
+          ) : null}
           {inactive ? (
             <div className="public-player-curtain">
               {loading ? (
@@ -184,16 +239,21 @@ export function PublicGamePlayer({
               ) : state === 'error' ? (
                 <>
                   <p>{error}</p>
-                  <button type="button" onClick={() => setState('playing')}>
+                  <button type="button" onClick={startPlaying}>
                     Try again
                   </button>
                 </>
               ) : (
                 <>
                   <p>{state === 'exited' ? 'Thanks for playing.' : 'Your arcade is ready.'}</p>
-                  <button type="button" onClick={() => setState('playing')}>
+                  <button type="button" onClick={startPlaying}>
                     {state === 'exited' ? 'Play again' : 'Play now'}
                   </button>
+                  {showInstallHint ? (
+                    <p className="public-install-hint">
+                      For fullscreen on iPhone, tap Share, then Add to Home Screen.
+                    </p>
+                  ) : null}
                 </>
               )}
             </div>

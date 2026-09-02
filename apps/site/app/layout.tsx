@@ -43,7 +43,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="en" className={pressStart.variable}>
+    <html lang="en" className={pressStart.variable} data-scroll-behavior="smooth">
       <body>{children}</body>
     </html>
   );

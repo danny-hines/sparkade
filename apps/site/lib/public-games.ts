@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto';
-import type { GameSpec } from '@sparkade/shared';
+import { GENERATED_GAME_ASSET_FILES, type GameSpec } from '@sparkade/shared';
 import { getSql } from './db';
 
 export const PUBLIC_GAME_ID_PATTERN = /^[2-9bcdfghjkmnpqrstvwxyz]{7}$/i;
@@ -23,6 +23,20 @@ export interface PublicGame {
   failedAt: string | null;
 }
 
+export interface PublicGameFeedItem {
+  id: string;
+  kioskName: string;
+  title: string;
+  archetype: string | null;
+  keyArtUrl: string | null;
+  readyAt: string;
+}
+
+export interface PublicGameFeedPage {
+  games: PublicGameFeedItem[];
+  nextCursor: string | null;
+}
+
 type PublicGameRow = {
   id: string;
   kiosk_name: string;
@@ -36,6 +50,20 @@ type PublicGameRow = {
   updated_at: string | Date;
   ready_at: string | Date | null;
   failed_at: string | Date | null;
+};
+
+type PublicGameFeedRow = {
+  id: string;
+  kiosk_name: string;
+  title: string | null;
+  archetype: string | null;
+  key_art_url: string | null;
+  ready_at: string | Date;
+};
+
+type PublicGameFeedCursor = {
+  readyAt: string;
+  id: string;
 };
 
 let schemaPromise: Promise<void> | null = null;
@@ -79,6 +107,49 @@ function mapRow(row: PublicGameRow): PublicGame {
     readyAt: row.ready_at ? iso(row.ready_at) : null,
     failedAt: row.failed_at ? iso(row.failed_at) : null,
   };
+}
+
+function safePublicAssetUrl(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.hostname.endsWith('.blob.vercel-storage.com')
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function mapFeedRow(row: PublicGameFeedRow): PublicGameFeedItem {
+  return {
+    id: row.id,
+    kioskName: row.kiosk_name,
+    title: row.title?.trim() || `Game ${row.id.toUpperCase()}`,
+    archetype: row.archetype,
+    keyArtUrl: safePublicAssetUrl(row.key_art_url),
+    readyAt: iso(row.ready_at),
+  };
+}
+
+export function encodePublicGameFeedCursor(cursor: PublicGameFeedCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString('base64url');
+}
+
+export function decodePublicGameFeedCursor(value: string | undefined): PublicGameFeedCursor | null {
+  if (!value || value.length > 256) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as unknown;
+    if (!parsed || typeof parsed !== 'object') return null;
+    const cursor = parsed as Record<string, unknown>;
+    if (typeof cursor.readyAt !== 'string' || typeof cursor.id !== 'string') return null;
+    const id = normalizePublicGameId(cursor.id);
+    const timestamp = Date.parse(cursor.readyAt);
+    if (!id || !Number.isFinite(timestamp)) return null;
+    return { readyAt: new Date(timestamp).toISOString(), id };
+  } catch {
+    return null;
+  }
 }
 
 function createPublicGameId(): string {
@@ -192,6 +263,58 @@ export async function getPublicGame(id: string): Promise<PublicGame | null> {
     LIMIT 1
   `;
   return rows[0] ? mapRow(rows[0] as PublicGameRow) : null;
+}
+
+export async function listRecentPublicGames(
+  options: {
+    after?: string;
+    limit?: number;
+  } = {},
+): Promise<PublicGameFeedPage> {
+  await ensureSchema();
+  const sql = getSql();
+  const limit = Math.max(1, Math.min(48, Math.floor(options.limit ?? 12)));
+  const cursor = decodePublicGameFeedCursor(options.after);
+  const keyArtFilename = GENERATED_GAME_ASSET_FILES.keyArt;
+  const rows = cursor
+    ? await sql`
+        SELECT id,
+               kiosk_name,
+               title,
+               spec_json ->> 'archetype' AS archetype,
+               assets_json ->> ${keyArtFilename} AS key_art_url,
+               ready_at
+        FROM public_games
+        WHERE status = 'ready'
+          AND spec_json IS NOT NULL
+          AND ready_at IS NOT NULL
+          AND (ready_at, id) < (${cursor.readyAt}::timestamptz, ${cursor.id})
+        ORDER BY ready_at DESC, id DESC
+        LIMIT ${limit + 1}
+      `
+    : await sql`
+        SELECT id,
+               kiosk_name,
+               title,
+               spec_json ->> 'archetype' AS archetype,
+               assets_json ->> ${keyArtFilename} AS key_art_url,
+               ready_at
+        FROM public_games
+        WHERE status = 'ready'
+          AND spec_json IS NOT NULL
+          AND ready_at IS NOT NULL
+        ORDER BY ready_at DESC, id DESC
+        LIMIT ${limit + 1}
+      `;
+  const games = rows.slice(0, limit).map((row) => mapFeedRow(row as PublicGameFeedRow));
+  const lastGame = games.at(-1);
+  return {
+    games,
+    nextCursor:
+      rows.length > limit && lastGame
+        ? encodePublicGameFeedCursor({ readyAt: lastGame.readyAt, id: lastGame.id })
+        : null,
+  };
 }
 
 export async function updatePublicGame(input: {

@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import Link from 'next/link';
 import cabinetImage from '../../../packages/web/public/sparkade-cabinet-fallback.png';
 import { WaitlistForm } from './waitlist-form';
 
@@ -34,10 +35,16 @@ export default function HomePage() {
           </span>
           <span className="brand-word">Sparkade</span>
         </a>
-        <a className="header-link" href="#updates">
-          Get updates
-          <span aria-hidden="true">↘</span>
-        </a>
+        <nav className="site-nav" aria-label="Primary navigation">
+          <Link className="header-link" href="/play">
+            Play
+            <span aria-hidden="true">→</span>
+          </Link>
+          <a className="header-link" href="#updates">
+            Updates
+            <span aria-hidden="true">↘</span>
+          </a>
+        </nav>
       </header>
 
       <section className="hero page-shell" id="top">

@@ -390,10 +390,11 @@ export type JobStage = (typeof JOB_STAGES)[number];
 export const DEFAULT_PRICING: Record<string, PriceRow> = {
   'muse-spark-1.1': { inputPerM: 1.25, outputPerM: 4.25, cachedInputPerM: 0.15 },
   'muse-spark-1.2-contributor': { inputPerM: 0.1, outputPerM: 0.2, cachedInputPerM: 0.002 },
+  'muse-spark-1.3-contributor': { inputPerM: 0.1, outputPerM: 0.2, cachedInputPerM: 0.002 },
   'muse-voice-transcribe-1.0': { audioPerHour: 0.18 },
 };
 
-export const DEFAULT_MODEL = 'muse-spark-1.2-contributor';
+export const DEFAULT_MODEL = 'muse-spark-1.3-contributor';
 export const DEFAULT_STT_MODEL = 'muse-voice-transcribe-1.0';
 
 // ---------------------------------------------------------------------------

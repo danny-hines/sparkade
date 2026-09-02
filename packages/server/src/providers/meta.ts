@@ -3,7 +3,7 @@
 // file so a human can correct request/response shapes in one place.
 //
 // Originally verified LIVE against api.meta.ai with a real key on 2026-07-10
-// using Muse Spark 1.1; Muse Spark 1.2 retains this protocol:
+// using Muse Spark 1.1; Muse Spark 1.2 and 1.3 retain this protocol:
 //   endpoint   POST {baseUrl}/chat/completions        (baseUrl default https://api.meta.ai/v1)
 //   auth       Authorization: Bearer $META_API_KEY
 //   body       { model, messages:[{role, content}], max_completion_tokens,
@@ -63,11 +63,11 @@ interface VoiceTranscriptionResponse {
 const DEFAULT_BASE_URL = 'https://api.meta.ai/v1';
 
 const DEFAULT_REASONING_EFFORT = 'low';
-const VISION_PRIMARY_MODEL = 'muse-spark-1.2-contributor';
-const VISION_FALLBACK_MODEL = 'muse-spark-1.1';
+const CONTRIBUTOR_FALLBACK_MODEL = 'muse-spark-1.2-contributor';
+const LEGACY_FALLBACK_MODEL = 'muse-spark-1.1';
+const MODEL_UNAVAILABLE_COOLDOWN_MS = 5 * 60 * 1_000;
 const VOICE_TRANSCRIPTION_MODEL = DEFAULT_STT_MODEL;
-const TRANSCRIPTION_PRIMARY_MODEL = 'muse-spark-1.2-contributor';
-const TRANSCRIPTION_FALLBACK_MODEL = 'muse-spark-1.1';
+const TRANSCRIPTION_PRIMARY_MODEL = DEFAULT_MODEL;
 const TRANSCRIPTION_LEGACY_PROBE_TIMEOUT_MS = 3_000;
 const TRANSCRIPTION_PRIMARY_TIMEOUT_MS = 12_000;
 const TRANSCRIPTION_FALLBACK_TIMEOUT_MS = 20_000;
@@ -88,10 +88,14 @@ export class MetaProvider implements Provider {
   readonly kind = 'meta' as const;
   readonly capabilities: ProviderCapabilities;
   private baseUrl: string;
-  /** Contributor currently returns model_not_found for image-bearing chat
+  /** Spark 1.2 Contributor currently returns model_not_found for image-bearing chat
    * requests even while text requests remain healthy. Remember the first
    * authoritative rejection so later art-director calls avoid a doomed probe. */
   private visionFallbackRequired = false;
+  /** A newly rolled-out default can briefly be absent in one serving region.
+   * Avoid probing it on every generation call, but retry it without requiring
+   * a cabinet restart once the short rollout cooldown expires. */
+  private primaryUnavailableUntil = 0;
 
   constructor(
     readonly name: string,
@@ -166,23 +170,36 @@ export class MetaProvider implements Provider {
       };
     };
 
-    const model =
-      req.image && requestedModel === VISION_PRIMARY_MODEL && this.visionFallbackRequired
-        ? VISION_FALLBACK_MODEL
-        : requestedModel;
-    try {
-      return await completeWithModel(model);
-    } catch (error) {
-      const missingContributorVision =
-        req.image &&
-        model === VISION_PRIMARY_MODEL &&
-        error instanceof ProviderHttpError &&
-        error.status === 404 &&
-        /model_not_found/i.test(error.body);
-      if (!missingContributorVision) throw error;
-      this.visionFallbackRequired = true;
-      return completeWithModel(VISION_FALLBACK_MODEL);
+    const primaryAvailable = Date.now() >= this.primaryUnavailableUntil;
+    const candidateModels =
+      requestedModel === DEFAULT_MODEL
+        ? primaryAvailable
+          ? [requestedModel, req.image ? LEGACY_FALLBACK_MODEL : CONTRIBUTOR_FALLBACK_MODEL]
+          : [req.image ? LEGACY_FALLBACK_MODEL : CONTRIBUTOR_FALLBACK_MODEL]
+        : req.image && requestedModel === CONTRIBUTOR_FALLBACK_MODEL
+          ? this.visionFallbackRequired
+            ? [LEGACY_FALLBACK_MODEL]
+            : [requestedModel, LEGACY_FALLBACK_MODEL]
+          : [requestedModel];
+
+    let lastError: unknown;
+    for (const [index, model] of candidateModels.entries()) {
+      try {
+        return await completeWithModel(model);
+      } catch (error) {
+        lastError = error;
+        const hasFallback = index < candidateModels.length - 1;
+        const primaryFallback = model === DEFAULT_MODEL && isModelAvailabilityError(error);
+        const missingContributorVision =
+          req.image && model === CONTRIBUTOR_FALLBACK_MODEL && isModelNotFoundError(error);
+        if (!hasFallback || (!primaryFallback && !missingContributorVision)) throw error;
+        if (model === DEFAULT_MODEL && isModelNotFoundError(error)) {
+          this.primaryUnavailableUntil = Date.now() + MODEL_UNAVAILABLE_COOLDOWN_MS;
+        }
+        if (missingContributorVision) this.visionFallbackRequired = true;
+      }
     }
+    throw lastError;
   }
 
   async transcribe(
@@ -314,8 +331,16 @@ export class MetaProvider implements Provider {
         reasoning_effort: reasoningEffort,
       });
     const candidateModels =
-      model === TRANSCRIPTION_PRIMARY_MODEL ? [model, TRANSCRIPTION_FALLBACK_MODEL] : [model];
-    let lastTransientError: unknown;
+      model === TRANSCRIPTION_PRIMARY_MODEL
+        ? [
+            ...(Date.now() >= this.primaryUnavailableUntil ? [model] : []),
+            CONTRIBUTOR_FALLBACK_MODEL,
+            LEGACY_FALLBACK_MODEL,
+          ]
+        : model === CONTRIBUTOR_FALLBACK_MODEL
+          ? [model, LEGACY_FALLBACK_MODEL]
+          : [model];
+    let lastRetryableError: unknown;
     for (const [candidateIndex, candidateModel] of candidateModels.entries()) {
       const hasNextCandidate = candidateIndex < candidateModels.length - 1;
       const perCallCapMs = hasNextCandidate
@@ -324,7 +349,7 @@ export class MetaProvider implements Provider {
 
       for (let attempt = 0; attempt <= GENERATION.maxTransientRetriesPerCall; attempt++) {
         const remainingMs = TRANSCRIPTION_TOTAL_BUDGET_MS - (Date.now() - startedAt);
-        if (remainingMs <= 0) throw lastTransientError ?? transcriptionBudgetError();
+        if (remainingMs <= 0) throw lastRetryableError ?? transcriptionBudgetError();
 
         try {
           const res = await httpJson<ChatCompletionResponse>(`${this.baseUrl}/chat/completions`, {
@@ -342,12 +367,19 @@ export class MetaProvider implements Provider {
             model: candidateModel,
           };
         } catch (e) {
-          if (!isTransientTranscriptionError(e)) throw e;
-          lastTransientError = e;
+          const retryable = isTransientTranscriptionError(e);
+          const modelUnavailable = isModelNotFoundError(e);
+          if (!retryable && !modelUnavailable) throw e;
+          lastRetryableError = e;
+
+          if (candidateModel === TRANSCRIPTION_PRIMARY_MODEL && modelUnavailable) {
+            this.primaryUnavailableUntil = Date.now() + MODEL_UNAVAILABLE_COOLDOWN_MS;
+          }
 
           // Do not spend the interactive voice budget retrying an unhealthy
           // preferred model when the known-good fallback is still available.
-          if (hasNextCandidate) break;
+          if (hasNextCandidate && isModelAvailabilityError(e)) break;
+          if (modelUnavailable) throw e;
           if (attempt >= GENERATION.maxTransientRetriesPerCall) throw e;
 
           const retryAfterMs =
@@ -361,8 +393,26 @@ export class MetaProvider implements Provider {
         }
       }
     }
-    throw lastTransientError ?? transcriptionBudgetError();
+    throw lastRetryableError ?? transcriptionBudgetError();
   }
+}
+
+function isModelNotFoundError(error: unknown): boolean {
+  return (
+    error instanceof ProviderHttpError &&
+    error.status === 404 &&
+    /model_not_found/i.test(error.body)
+  );
+}
+
+/** Switch models only when the selected model is missing, timed out, or its
+ * serving backend is unhealthy. Authentication, invalid requests, ordinary
+ * 404s, and shared rate limits must surface through their normal retry path. */
+function isModelAvailabilityError(error: unknown): boolean {
+  return (
+    isModelNotFoundError(error) ||
+    (error instanceof ProviderHttpError && (error.status === 408 || error.status >= 500))
+  );
 }
 
 function isTransientTranscriptionError(error: unknown): boolean {

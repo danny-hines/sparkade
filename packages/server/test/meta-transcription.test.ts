@@ -12,6 +12,68 @@ afterEach(() => {
 });
 
 describe('MetaProvider completion', () => {
+  it('falls back from Muse Spark 1.3 Contributor to 1.2 Contributor on a temporary text outage', async () => {
+    process.env.META_API_KEY = 'meta-test-key';
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(errorResponse(503, 'new model backend unavailable'))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          choices: [{ message: { content: '{"ok":true}' } }],
+          usage: { prompt_tokens: 12, completion_tokens: 4 },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await provider().complete(textRequest());
+
+    expect(result).toMatchObject({ text: '{"ok":true}', model: 'muse-spark-1.2-contributor' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(requestModel(fetchMock, 0)).toBe('muse-spark-1.3-contributor');
+    expect(requestModel(fetchMock, 1)).toBe('muse-spark-1.2-contributor');
+  });
+
+  it('temporarily remembers a missing 1.3 rollout and selects modality-safe fallbacks', async () => {
+    process.env.META_API_KEY = 'meta-test-key';
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(modelNotFoundResponse())
+      .mockImplementation(() =>
+        Promise.resolve(jsonResponse({ choices: [{ message: { content: '{"ok":true}' } }] })),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const meta = provider();
+
+    const first = await meta.complete(textRequest());
+    const second = await meta.complete(textRequest());
+    const vision = await meta.complete(visionRequest());
+
+    expect(first.model).toBe('muse-spark-1.2-contributor');
+    expect(second.model).toBe('muse-spark-1.2-contributor');
+    expect(vision.model).toBe('muse-spark-1.1');
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect([0, 1, 2, 3].map((index) => requestModel(fetchMock, index))).toEqual([
+      'muse-spark-1.3-contributor',
+      'muse-spark-1.2-contributor',
+      'muse-spark-1.2-contributor',
+      'muse-spark-1.1',
+    ]);
+  });
+
+  it('does not switch models for a shared rate limit', async () => {
+    process.env.META_API_KEY = 'meta-test-key';
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(errorResponse(429, 'slow down'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const error = await provider()
+      .complete(textRequest())
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ProviderHttpError);
+    expect(error).toMatchObject({ status: 429, transient: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('falls back to Muse Spark 1.1 when Contributor rejects an image-bearing request', async () => {
     process.env.META_API_KEY = 'meta-test-key';
     const fetchMock = vi
@@ -133,11 +195,11 @@ describe('MetaProvider transcription', () => {
     expect(result).toEqual({
       text: 'fallback transcript',
       usage: { input: 18, output: 5, cachedInput: 0 },
-      model: 'muse-spark-1.2-contributor',
+      model: 'muse-spark-1.3-contributor',
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[1]?.[0]).endsWith('/chat/completions')).toBe(true);
-    expect(requestModel(fetchMock, 1)).toBe('muse-spark-1.2-contributor');
+    expect(requestModel(fetchMock, 1)).toBe('muse-spark-1.3-contributor');
   });
 
   it('does not hide authoritative Muse Voice request errors behind the fallback', async () => {
@@ -176,14 +238,14 @@ describe('MetaProvider transcription', () => {
     expect(result).toEqual({
       text: 'a castle in space',
       usage: { input: 12, output: 4, cachedInput: 0 },
-      model: 'muse-spark-1.2-contributor',
+      model: 'muse-spark-1.3-contributor',
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[0]?.[0]).endsWith('/audio/transcriptions')).toBe(true);
     expect(String(fetchMock.mock.calls[1]?.[0]).endsWith('/chat/completions')).toBe(true);
   });
 
-  it('falls back from 1.2 Contributor to 1.1 after a transient audio failure', async () => {
+  it('falls back from 1.3 Contributor to 1.2 Contributor after a transient audio failure', async () => {
     process.env.META_API_KEY = 'meta-test-key';
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -198,14 +260,40 @@ describe('MetaProvider transcription', () => {
 
     expect(result).toMatchObject({
       text: 'underwater detective',
-      model: 'muse-spark-1.1',
+      model: 'muse-spark-1.2-contributor',
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(requestModel(fetchMock, 1)).toBe('muse-spark-1.2-contributor');
-    expect(requestModel(fetchMock, 2)).toBe('muse-spark-1.1');
+    expect(requestModel(fetchMock, 1)).toBe('muse-spark-1.3-contributor');
+    expect(requestModel(fetchMock, 2)).toBe('muse-spark-1.2-contributor');
   });
 
-  it('falls back to 1.1 when the preferred audio request reaches its 12 second timeout', async () => {
+  it('uses 1.1 only after both Contributor models have transient audio failures', async () => {
+    process.env.META_API_KEY = 'meta-test-key';
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(errorResponse(404, 'not found'))
+      .mockResolvedValueOnce(errorResponse(503, '1.3 backend unavailable'))
+      .mockResolvedValueOnce(errorResponse(503, '1.2 backend unavailable'))
+      .mockResolvedValueOnce(
+        jsonResponse({ choices: [{ message: { content: 'underwater detective' } }] }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await provider().transcribe(Buffer.from('wav audio'), 'audio/wav');
+
+    expect(result).toMatchObject({
+      text: 'underwater detective',
+      model: 'muse-spark-1.1',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect([1, 2, 3].map((index) => requestModel(fetchMock, index))).toEqual([
+      'muse-spark-1.3-contributor',
+      'muse-spark-1.2-contributor',
+      'muse-spark-1.1',
+    ]);
+  });
+
+  it('falls back to 1.2 when the preferred audio request reaches its 12 second timeout', async () => {
     vi.useFakeTimers();
     process.env.META_API_KEY = 'meta-test-key';
     const fetchMock = vi
@@ -222,7 +310,7 @@ describe('MetaProvider transcription', () => {
 
     await expect(pending).resolves.toMatchObject({
       text: 'fallback transcript',
-      model: 'muse-spark-1.1',
+      model: 'muse-spark-1.2-contributor',
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
@@ -234,6 +322,7 @@ describe('MetaProvider transcription', () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(errorResponse(404, 'not found'))
       .mockResolvedValueOnce(errorResponse(503, 'preferred backend unavailable'))
+      .mockResolvedValueOnce(errorResponse(503, 'fallback backend unavailable'))
       .mockResolvedValueOnce(errorResponse(503, 'fallback backend unavailable'))
       .mockResolvedValueOnce(errorResponse(503, 'fallback backend unavailable'))
       .mockResolvedValueOnce(
@@ -248,10 +337,10 @@ describe('MetaProvider transcription', () => {
       text: 'eventual transcript',
       model: 'muse-spark-1.1',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
-  it('stops after the bounded fallback retry budget when both models are unavailable', async () => {
+  it('stops after the bounded fallback retry budget when all three models are unavailable', async () => {
     vi.useFakeTimers();
     process.env.META_API_KEY = 'meta-test-key';
     const fetchMock = vi
@@ -265,7 +354,7 @@ describe('MetaProvider transcription', () => {
     await vi.runAllTimersAsync();
 
     await rejection;
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   it('does not fall back for non-transient chat-audio errors', async () => {
@@ -323,6 +412,19 @@ function visionRequest() {
     user: 'Inspect the image.',
     maxTokens: 20,
     image: Buffer.from('png'),
+    jsonSchema: {
+      type: 'object',
+      required: ['ok'],
+      properties: { ok: { type: 'boolean' } },
+    },
+  };
+}
+
+function textRequest() {
+  return {
+    system: 'Return JSON.',
+    user: 'Return ok.',
+    maxTokens: 20,
     jsonSchema: {
       type: 'object',
       required: ['ok'],

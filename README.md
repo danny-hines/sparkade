@@ -310,12 +310,16 @@ incident `candidate-fixed` until a regression test or fresh generation is record
 
 Per-stage config in `config.json` (`sparkade config edit`, or `sparkade config set
 stages.music.model <id>`): stages are `design · levels · entities · music · repair · stt`, each
-with `{provider, model}`. Providers: `meta` (Meta Model API, default `muse-spark-1.2-contributor`),
+with `{provider, model}`. Providers: `meta` (Meta Model API, default `muse-spark-1.3-contributor`),
 `compat` (any OpenAI-compatible server — set `baseUrl`), `anthropic`, `mock`. Capability flags
 (`structuredOutput`, `audioIn`, `imageIn`) control what the pipeline sends. Add pricing rows under
 `pricing` or the UI shows "cost unavailable" (never $0.00). The Meta `stt` stage defaults to
 `muse-voice-transcribe-1.0` at $0.18 per processed audio hour; transient preview failures fall back
-to Muse Spark audio input. Muse Image is configured separately at
+to Muse Spark audio input. Default 1.3 Contributor calls fail over to 1.2 Contributor when the
+selected model is temporarily missing, times out, or returns a 5xx serving error. Image-bearing
+calls use 1.1 as their compatibility fallback because 1.2 Contributor rejects that modality;
+chat-audio can use it as a final fallback. Authentication failures, invalid requests, ordinary
+404s, and shared rate limits never switch models. Muse Image is configured separately at
 `imageGeneration` and defaults to `muse-image-1.0` at $0.01 per returned image. Meta wire formats
 live in `packages/server/src/providers/meta.ts` (text/audio) and
 `packages/server/src/providers/meta-image.ts` (generation/edits), both with configurable base URLs.

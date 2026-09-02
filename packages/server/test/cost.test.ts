@@ -120,7 +120,7 @@ describe('cost calculator', () => {
   });
 
   it('uses the published Contributor pricing for the new default', () => {
-    expect(DEFAULT_MODEL).toBe('muse-spark-1.2-contributor');
+    expect(DEFAULT_MODEL).toBe('muse-spark-1.3-contributor');
     expect(DEFAULT_PRICING[DEFAULT_MODEL]).toEqual({
       inputPerM: 0.1,
       outputPerM: 0.2,

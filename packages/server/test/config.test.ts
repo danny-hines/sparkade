@@ -18,7 +18,7 @@ function tempDir(): string {
 }
 
 describe('config defaults and migrations', () => {
-  it('uses Muse Voice for STT and Muse Spark 1.2 Contributor for text on a fresh install', () => {
+  it('uses Muse Voice for STT and Muse Spark 1.3 Contributor for text on a fresh install', () => {
     const config = new ConfigStore(tempDir()).get();
     for (const stage of STAGE_NAMES) {
       expect(config.stages[stage].provider).toBe('meta');
@@ -36,13 +36,13 @@ describe('config defaults and migrations', () => {
     legacy.stages.design = { provider: 'meta', model: 'muse-spark-1.1' };
     legacy.stages.levels = {
       provider: 'meta',
-      model: 'muse-spark-1.1',
+      model: 'muse-spark-1.2-contributor',
       reasoningEffort: 'high',
     };
     legacy.stages.entities = { provider: 'compat', model: 'muse-spark-1.1' };
     legacy.stages.music = { provider: 'meta', model: 'muse-spark-1.2' };
     legacy.stages.repair = { provider: 'meta', model: 'custom-meta-model' };
-    legacy.stages.stt = { provider: 'meta', model: 'muse-spark-1.1' };
+    legacy.stages.stt = { provider: 'meta', model: 'muse-spark-1.2-contributor' };
     legacy.audio.musicVol = 0.123;
     writeFileSync(path, JSON.stringify(legacy, null, 2));
 

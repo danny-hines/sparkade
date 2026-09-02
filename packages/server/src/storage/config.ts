@@ -76,7 +76,7 @@ Edit with \`sparkade config edit\` (or any editor; restart the service after).
   reasoningEffort (meta only): Muse Spark is a reasoning model; "low" is fast and cheap,
   "medium"/"high" think longer per call (better designs, more output-priced tokens).
 - stages: which provider+model runs each pipeline stage (design/levels/entities/music/repair/stt).
-  Text stages default to muse-spark-1.2-contributor; stt defaults to muse-voice-transcribe-1.0.
+  Text stages default to muse-spark-1.3-contributor; stt defaults to muse-voice-transcribe-1.0.
   Contributor-tier inputs and responses may be used by Meta for model training; choose another
   configured model/provider if that is unsuitable.
 - pricing: token models use USD per million tokens; speech models use USD per processed audio hour.
@@ -97,15 +97,16 @@ Edit with \`sparkade config edit\` (or any editor; restart the service after).
 - input: saved control mappings (managed by the remap wizard; keys are KeyboardEvent codes or b<n>/a<n>+/-).
 `;
 
-const LEGACY_DEFAULT_MODEL = 'muse-spark-1.1';
+const HISTORICAL_DEFAULT_TEXT_MODELS = new Set(['muse-spark-1.1', 'muse-spark-1.2-contributor']);
 
 /** Upgrade only known historical Meta defaults. Models on another provider
  * and unrecognized Meta model ids are intentional customizations. */
 function migrateDefaultStages(onDisk: Partial<SparkadeConfig>): boolean {
   let changed = false;
   for (const stage of STAGE_NAMES) {
+    if (stage === 'stt') continue;
     const row = onDisk.stages?.[stage];
-    if (row?.provider === 'meta' && row.model === LEGACY_DEFAULT_MODEL) {
+    if (row?.provider === 'meta' && HISTORICAL_DEFAULT_TEXT_MODELS.has(row.model)) {
       row.model = DEFAULT_MODEL;
       changed = true;
     }
@@ -114,7 +115,10 @@ function migrateDefaultStages(onDisk: Partial<SparkadeConfig>): boolean {
   // dedicated voice model. Upgrade only the untouched Meta default; custom
   // providers and model ids remain authoritative.
   const stt = onDisk.stages?.stt;
-  if (stt?.provider === 'meta' && stt.model === DEFAULT_MODEL) {
+  if (
+    stt?.provider === 'meta' &&
+    (stt.model === DEFAULT_MODEL || HISTORICAL_DEFAULT_TEXT_MODELS.has(stt.model))
+  ) {
     stt.model = DEFAULT_STT_MODEL;
     changed = true;
   }

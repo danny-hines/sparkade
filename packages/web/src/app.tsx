@@ -3,7 +3,7 @@
 // the 5s hold-to-remap trigger, and first-boot mapping.
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import { ATTRACT_IDLE_MS, REMAP_HOLD_MS } from '@sparkade/shared';
+import { ATTRACT_IDLE_MS, REMAP_HOLD_MS, type PublicGameLink } from '@sparkade/shared';
 import { api, type SettingsPayload } from './api';
 import { shellInput } from './shell-input';
 import { AttractScreen } from './screens/attract';
@@ -25,7 +25,7 @@ export type Screen =
   | { name: 'attract' }
   | { name: 'home'; id?: string }
   | { name: 'wizard' }
-  | { name: 'generation'; jobId: string; gameId: string }
+  | { name: 'generation'; jobId: string; gameId: string; publicGame?: PublicGameLink }
   | { name: 'play'; id: string }
   | { name: 'settings'; tab?: string }
   | { name: 'remap'; firstBoot: boolean; returnTo: Screen };
@@ -176,14 +176,28 @@ function KioskApp(): ComponentChildren {
       body = <WizardScreen go={go} settings={settings} />;
       break;
     case 'generation':
-      body = <GenerationScreen go={go} jobId={screen.jobId} gameId={screen.gameId} />;
+      body = (
+        <GenerationScreen
+          go={go}
+          jobId={screen.jobId}
+          gameId={screen.gameId}
+          publicGame={screen.publicGame}
+        />
+      );
       break;
     case 'play':
-      body = <PlayScreen go={go} id={screen.id} settings={settings} onSettingsChanged={reloadSettings} />;
+      body = (
+        <PlayScreen go={go} id={screen.id} settings={settings} onSettingsChanged={reloadSettings} />
+      );
       break;
     case 'settings':
       body = (
-        <SettingsScreen go={go} tab={screen.tab} settings={settings} onSettingsChanged={reloadSettings} />
+        <SettingsScreen
+          go={go}
+          tab={screen.tab}
+          settings={settings}
+          onSettingsChanged={reloadSettings}
+        />
       );
       break;
     case 'remap':

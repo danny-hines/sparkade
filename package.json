@@ -14,6 +14,7 @@
     "node": ">=22.13.0"
   },
   "workspaces": [
+    "apps/*",
     "packages/*"
   ],
   "scripts": {
@@ -24,6 +25,9 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
+    "site:dev": "npm run dev -w @sparkade/site",
+    "site:build": "npm run build -w @sparkade/site",
+    "site:typecheck": "npm run typecheck -w @sparkade/site",
     "analyze:repairs": "tsx scripts/analyze-repairs.mts",
     "incidents": "tsx scripts/incidents.mts",
     "tilesets:generate": "tsx scripts/generate-platformer-tileset.mts",

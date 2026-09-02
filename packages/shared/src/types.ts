@@ -963,6 +963,12 @@ export interface GameListItem {
   failure?: { code: string; message: string };
 }
 
+/** Stable public address reserved by the cloud when cabinet generation begins. */
+export interface PublicGameLink {
+  id: string;
+  url: string;
+}
+
 export interface ScoreRow {
   initials: string;
   score: number;

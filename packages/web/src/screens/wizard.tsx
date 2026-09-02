@@ -383,7 +383,12 @@ export function WizardScreen(props: {
       })
       .then((result) => {
         shellInput.blip('success');
-        props.go({ name: 'generation', jobId: result.jobId, gameId: result.gameId });
+        props.go({
+          name: 'generation',
+          jobId: result.jobId,
+          gameId: result.gameId,
+          publicGame: result.publicGame,
+        });
       })
       .catch(() => {
         setSubmitting(false);

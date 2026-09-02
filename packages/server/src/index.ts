@@ -14,6 +14,7 @@ import { ConfigStore } from './storage/config';
 import { Db } from './storage/db';
 import { GameFiles, reconcileGames, seedGoldenGames } from './storage/files';
 import { dataDir, ensureDir, repoRoot } from './util';
+import { createPublicGamePublisher } from './cloud/public-games';
 
 // Load .env in dev (tiny parser; no dotenv dependency). Pi uses systemd EnvironmentFile.
 function loadDotEnv(): void {
@@ -39,6 +40,7 @@ async function main(): Promise<void> {
   const files = new GameFiles(dir);
   const hub = new SseHub();
   const runner = new GenerationRunner(db, files, configStore, hub);
+  const publicGames = createPublicGamePublisher(db, hub);
 
   // Boot-time recovery: seed goldens, reconcile DB<->filesystem, fail interrupted jobs.
   seedGoldenGames(
@@ -62,7 +64,17 @@ async function main(): Promise<void> {
   // Fresh per boot → the kiosk's version poll hard-reloads after any restart
   // (e.g. `sparkade update`), which the static version string never triggered.
   const instanceId = randomUUID();
-  registerRoutes(app, { db, files, configStore, runner, hub, version, instanceId, port });
+  registerRoutes(app, {
+    db,
+    files,
+    configStore,
+    runner,
+    hub,
+    publicGames,
+    version,
+    instanceId,
+    port,
+  });
 
   // Serve the built shell (production / demo). Vite serves it in dev.
   const webDist = join(repoRoot(), 'packages', 'web', 'dist');

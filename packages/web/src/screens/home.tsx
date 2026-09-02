@@ -190,10 +190,22 @@ export function HomeScreen(props: { go: (s: Screen) => void; initialId?: string 
           else if (key === 'retry')
             void api
               .retryGame(g.id)
-              .then((r) => props.go({ name: 'generation', jobId: r.jobId, gameId: g.id }))
+              .then((r) =>
+                props.go({
+                  name: 'generation',
+                  jobId: r.jobId,
+                  gameId: g.id,
+                  publicGame: r.publicGame ?? detail?.publicGame,
+                }),
+              )
               .catch(() => shellInput.blip('error'));
           else if (key === 'progress' && detail?.job)
-            props.go({ name: 'generation', jobId: detail.job.id, gameId: g.id });
+            props.go({
+              name: 'generation',
+              jobId: detail.job.id,
+              gameId: g.id,
+              publicGame: detail.publicGame,
+            });
           else if (key === 'delete') setConfirmDelete(true);
         } else if (btn === 'B') {
           shellInput.blip('back');

@@ -11,6 +11,10 @@
     "@sparkade/archetypes": "*",
     "@sparkade/engine": "*",
     "@sparkade/shared": "*",
-    "preact": "^10.25.4"
+    "preact": "^10.25.4",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.6"
   }
 }

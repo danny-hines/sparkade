@@ -3,7 +3,13 @@
 // back to the bottom.
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import { type GenerationFeedEvent, type JobEvent, type JobStage } from '@sparkade/shared';
+import QRCode from 'qrcode';
+import {
+  type GenerationFeedEvent,
+  type JobEvent,
+  type JobStage,
+  type PublicGameLink,
+} from '@sparkade/shared';
 import { api, subscribeJob } from '../api';
 import { FooterLegend, fmtElapsed, usd, useNow } from '../components';
 import {
@@ -25,6 +31,53 @@ const STAGE_LABELS: Record<JobStage, string> = {
   done: 'Ready',
   failed: 'Failed',
 };
+
+function PublicGameQrCard({ link }: { link: PublicGameLink }): ComponentChildren {
+  const [qrSrc, setQrSrc] = useState<string | null>(null);
+  const [qrFailed, setQrFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setQrSrc(null);
+    setQrFailed(false);
+    void QRCode.toDataURL(link.url, {
+      width: 260,
+      margin: 2,
+      errorCorrectionLevel: 'M',
+      color: { dark: '#07101fff', light: '#ffffffff' },
+    })
+      .then((src) => {
+        if (alive) setQrSrc(src);
+      })
+      .catch(() => {
+        if (alive) setQrFailed(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [link.url]);
+
+  return (
+    <article class="gen-feed-card public-game-card">
+      <div class={`public-game-qr-frame ${qrFailed ? 'failed' : ''}`}>
+        {qrSrc ? (
+          <img src={qrSrc} width="260" height="260" alt={`QR code for ${link.url}`} />
+        ) : qrFailed ? (
+          <Icon name="warning" />
+        ) : (
+          <Icon name="sparkle" class="spin" />
+        )}
+      </div>
+      <div class="public-game-copy">
+        <span class="public-game-kicker">TAKE IT WITH YOU</span>
+        <h3 class="pixel">SCAN TO FOLLOW</h3>
+        <p>Watch this build from any screen, then come back when it’s ready.</p>
+        <strong>{link.url.replace(/^https?:\/\//, '')}</strong>
+        <span class="public-game-id">{link.id.toUpperCase()}</span>
+      </div>
+    </article>
+  );
+}
 
 function textPayload(event: GenerationFeedEvent, key: string): string | null {
   const value = event.payload?.[key];
@@ -211,6 +264,7 @@ export function GenerationScreen(props: {
   go: (s: Screen) => void;
   jobId: string;
   gameId: string;
+  publicGame?: PublicGameLink;
 }): ComponentChildren {
   const [jobEvent, setJobEvent] = useState<JobEvent | null>(null);
   const [events, setEvents] = useState<GenerationFeedEvent[]>([]);
@@ -221,12 +275,28 @@ export function GenerationScreen(props: {
   const feedRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
   const autoScrollingRef = useRef(false);
+  const scrollIntentRef = useRef(0);
   const eventRef = useRef<JobEvent | null>(null);
   const retryingRef = useRef(false);
+  const newCountRef = useRef(0);
   const priorCountRef = useRef(0);
   const baseElapsed = useRef(0);
   const now = useNow(1000);
   eventRef.current = jobEvent;
+  newCountRef.current = newCount;
+
+  const jumpToBottom = useCallback(() => {
+    const element = feedRef.current;
+    if (!element) return;
+    scrollIntentRef.current += 1;
+    autoScrollingRef.current = true;
+    element.scrollTop = element.scrollHeight;
+    followRef.current = true;
+    setNewCount(0);
+    requestAnimationFrame(() => {
+      autoScrollingRef.current = false;
+    });
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -262,7 +332,12 @@ export function GenerationScreen(props: {
     try {
       const result = await api.retryGame(props.gameId);
       if (result.jobId !== props.jobId) {
-        props.go({ name: 'generation', jobId: result.jobId, gameId: props.gameId });
+        props.go({
+          name: 'generation',
+          jobId: result.jobId,
+          gameId: props.gameId,
+          publicGame: props.publicGame,
+        });
         return;
       }
       const current = eventRef.current;
@@ -295,7 +370,7 @@ export function GenerationScreen(props: {
       retryingRef.current = false;
       setRetrying(false);
     }
-  }, [props.gameId, props.go, props.jobId]);
+  }, [props.gameId, props.go, props.jobId, props.publicGame]);
 
   useEffect(() => {
     const added = Math.max(0, events.length - priorCountRef.current);
@@ -303,10 +378,16 @@ export function GenerationScreen(props: {
     const element = feedRef.current;
     if (!element || added === 0) return;
     if (followRef.current) {
+      const scrollIntent = scrollIntentRef.current;
       requestAnimationFrame(() => {
+        if (scrollIntent !== scrollIntentRef.current || !followRef.current) return;
         autoScrollingRef.current = true;
         element.scrollTop = element.scrollHeight;
         requestAnimationFrame(() => {
+          if (scrollIntent !== scrollIntentRef.current) {
+            autoScrollingRef.current = false;
+            return;
+          }
           followRef.current = true;
           autoScrollingRef.current = false;
           setNewCount(0);
@@ -322,8 +403,35 @@ export function GenerationScreen(props: {
       shellInput.pushHandler((button) => {
         const current = eventRef.current;
         if (button === 'UP' || button === 'DOWN') {
-          if (button === 'UP') followRef.current = false;
-          feedRef.current?.scrollBy({ top: button === 'UP' ? -190 : 190, behavior: 'smooth' });
+          const element = feedRef.current;
+          if (element) {
+            scrollIntentRef.current += 1;
+            autoScrollingRef.current = false;
+            followRef.current =
+              button === 'DOWN' &&
+              isNearFeedBottom(element.scrollTop, element.clientHeight, element.scrollHeight);
+            element.scrollBy({ top: button === 'UP' ? -190 : 190, behavior: 'smooth' });
+            shellInput.blip('move');
+          }
+          return;
+        }
+        if (button === 'L' || button === 'R') {
+          const element = feedRef.current;
+          if (element) {
+            scrollIntentRef.current += 1;
+            autoScrollingRef.current = false;
+            followRef.current =
+              button === 'R' &&
+              isNearFeedBottom(element.scrollTop, element.clientHeight, element.scrollHeight);
+            const jump = Math.max(720, Math.round(element.clientHeight * 1.75));
+            element.scrollBy({ top: button === 'L' ? -jump : jump, behavior: 'smooth' });
+            shellInput.blip('move');
+          }
+          return;
+        }
+        const activeGeneration = current === null || current.type === 'progress';
+        if (button === 'A' && (activeGeneration || !followRef.current || newCountRef.current > 0)) {
+          jumpToBottom();
           shellInput.blip('move');
           return;
         }
@@ -351,7 +459,7 @@ export function GenerationScreen(props: {
           props.go({ name: 'home' });
         }
       }),
-    [props.gameId, props.go, startRetry],
+    [jumpToBottom, props.gameId, props.go, startRetry],
   );
 
   const elapsed =
@@ -426,6 +534,11 @@ export function GenerationScreen(props: {
           if (followRef.current) setNewCount(0);
         }}
       >
+        {props.publicGame ? (
+          <div class="gen-feed-entry public-game-entry">
+            <PublicGameQrCard link={props.publicGame} />
+          </div>
+        ) : null}
         {shownEvents.map((feedEvent, index) => {
           const previousAttempt = index > 0 ? shownEvents[index - 1]!.attempt : feedEvent.attempt;
           return (
@@ -454,18 +567,10 @@ export function GenerationScreen(props: {
           type="button"
           class="gen-new-updates"
           onClick={() => {
-            const element = feedRef.current;
-            if (element) {
-              autoScrollingRef.current = true;
-              element.scrollTop = element.scrollHeight;
-              requestAnimationFrame(() => {
-                autoScrollingRef.current = false;
-              });
-            }
-            followRef.current = true;
-            setNewCount(0);
+            jumpToBottom();
           }}
         >
+          <span class="gen-new-updates-key">A</span>
           {newCount} new {newCount === 1 ? 'update' : 'updates'} ↓
         </button>
       ) : null}

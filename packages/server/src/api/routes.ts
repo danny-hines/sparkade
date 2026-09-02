@@ -39,6 +39,7 @@ import { registerDevFighterPoseRoutes } from './dev-fighter-poses';
 import { registerDevPlatformerPoseRoutes } from './dev-platformer-poses';
 import { registerDevPlatformerLevelRoutes } from './dev-platformer-levels';
 import { isSameHttpOrigin } from './origin';
+import type { PublicGamePublisher } from '../cloud/public-games';
 
 export interface ApiContext {
   db: Db;
@@ -46,6 +47,7 @@ export interface ApiContext {
   configStore: ConfigStore;
   runner: GenerationRunner;
   hub: SseHub;
+  publicGames?: PublicGamePublisher | null;
   version: string;
   instanceId: string;
   port: number;
@@ -58,7 +60,7 @@ const isArchetypeId = (value: string): value is ArchetypeId =>
   (ARCHETYPE_IDS as readonly string[]).includes(value);
 
 export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
-  const { db, files, configStore, runner, hub } = ctx;
+  const { db, files, configStore, runner, hub, publicGames } = ctx;
 
   // Dev-only asset review gallery + likeness lab (never registered in kiosk/production).
   if (process.env.SPARKADE_DEV === '1') {
@@ -233,7 +235,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       ...(photo ? { photo } : {}),
       idempotencyKey,
     });
-    return reply.code(202).send(res);
+    const publicGame = await publicGames?.reserveAndTrack(res.jobId, res.gameId);
+    return reply.code(202).send({ ...res, ...(publicGame ? { publicGame } : {}) });
   });
 
   app.get('/api/games', async () => {
@@ -282,6 +285,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
         fighterArenaAsset !== null &&
         fighterArenaPresentationIsBaked(fighterArenaAsset.promptVersion),
     };
+    const publicGame = publicGames?.linkForGame(id);
     return {
       item: db.listItem(row),
       spec,
@@ -289,6 +293,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       job,
       assets,
       usage: db.usageForGame(id),
+      ...(publicGame ? { publicGame } : {}),
     };
   });
 
@@ -333,7 +338,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     if (!row) return reply.code(404).send({ error: 'unknown game' });
     const res = runner.retryJob(id);
     if (!res) return reply.code(409).send({ error: 'this game has no failed job to retry' });
-    return reply.code(202).send(res);
+    const publicGame = await publicGames?.reserveAndTrack(res.jobId, id);
+    return reply.code(202).send({ ...res, ...(publicGame ? { publicGame } : {}) });
   });
 
   // ---- job progress (SSE) ---------------------------------------------------

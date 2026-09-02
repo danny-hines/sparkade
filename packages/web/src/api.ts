@@ -14,6 +14,7 @@ import {
   type LogicalButton,
   type PartialSpec,
   type PriceRow,
+  type PublicGameLink,
   type ScoreRow,
   type SystemInfo,
   type WifiNetwork,
@@ -51,6 +52,7 @@ export interface GameDetail {
   spec: GameSpec | null;
   meta: GameMetaFile | null;
   job: JobRecord | null;
+  publicGame?: PublicGameLink;
   assets: GameAssetAvailability;
   usage: {
     stage: string;
@@ -377,7 +379,9 @@ export const api = {
   deleteGame: (id: string) =>
     fetch(`/api/games/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
   retryGame: (id: string) =>
-    fetch(`/api/games/${id}/retry`, { method: 'POST' }).then((r) => json<{ jobId: string }>(r)),
+    fetch(`/api/games/${id}/retry`, { method: 'POST' }).then((r) =>
+      json<{ jobId: string; publicGame?: PublicGameLink }>(r),
+    ),
   getScores: (id: string) => fetch(`/api/games/${id}/scores`).then((r) => json<ScoreRow[]>(r)),
   submitScore: (id: string, initials: string, score: number) =>
     fetch(`/api/games/${id}/scores`, {
@@ -400,7 +404,7 @@ export const api = {
     presetId?: string;
     photo?: Blob;
     idempotencyKey: string;
-  }): Promise<{ jobId: string; gameId: string }> => {
+  }): Promise<{ jobId: string; gameId: string; publicGame?: PublicGameLink }> => {
     const form = new FormData();
     form.append('promptText', opts.promptText);
     form.append('sourceKind', opts.sourceKind);

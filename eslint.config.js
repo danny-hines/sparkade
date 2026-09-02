@@ -6,6 +6,8 @@ export default tseslint.config(
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
+      '**/.next/**',
+      '**/.vercel/**',
       'data/**',
       '.e2e-data/**',
       'playwright-report/**',

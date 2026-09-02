@@ -1273,6 +1273,91 @@ h2.pixel {
   font-size: 12px;
 }
 
+.public-game-entry {
+  margin-bottom: 16px;
+}
+
+.public-game-card {
+  padding: 18px;
+  display: grid;
+  grid-template-columns: 276px minmax(0, 1fr);
+  align-items: center;
+  gap: 22px;
+  border: 1px solid rgba(58, 230, 255, 0.42);
+  background: linear-gradient(100deg, rgba(27, 72, 96, 0.55), rgba(17, 23, 48, 0.92));
+  box-shadow: 0 0 28px rgba(58, 230, 255, 0.08);
+}
+
+.public-game-qr-frame {
+  width: 276px;
+  height: 276px;
+  padding: 8px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--danger);
+  background: #fff;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.34);
+}
+
+.public-game-qr-frame img {
+  width: 260px;
+  height: 260px;
+  display: block;
+  image-rendering: pixelated;
+}
+
+.public-game-qr-frame:not(.failed) > svg {
+  color: var(--bg-panel-2);
+}
+
+.public-game-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.public-game-kicker {
+  color: var(--cyan);
+  font-size: 9px;
+  letter-spacing: 1.5px;
+}
+
+.public-game-copy h3 {
+  margin: 14px 0 0;
+  color: var(--text);
+  font-size: 20px;
+  line-height: 1.35;
+}
+
+.public-game-copy p {
+  margin: 12px 0 20px;
+  color: var(--text-dim);
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.public-game-copy strong {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--cyan);
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.public-game-id {
+  margin-top: 11px;
+  padding: 7px 9px;
+  border-radius: 5px;
+  color: var(--gold);
+  background: rgba(0, 0, 0, 0.24);
+  font-size: 13px;
+  letter-spacing: 1.5px;
+}
+
 .gen-state {
   color: var(--cyan);
 }
@@ -1550,6 +1635,17 @@ h2.pixel {
     11px 'Press Start 2P',
     monospace;
   cursor: pointer;
+}
+
+.gen-new-updates-key {
+  min-width: 20px;
+  height: 20px;
+  margin-right: 7px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 9px;
 }
 
 /* ----------------------------------------------------------------- play */

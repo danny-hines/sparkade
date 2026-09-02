@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { PublicGame } from '@/lib/public-games';
+import { PublicGamePlayer } from './public-game-player';
 
 const STATUS_LABELS = {
   queued: 'Reserved',
@@ -57,12 +58,15 @@ export function GameStatus({ initialGame }: { initialGame: PublicGame }) {
         Created from <strong>{game.kioskName}</strong>
       </p>
       <h1>
-        {game.title ?? (game.status === 'queued' ? 'Your game has a home.' : 'Sparkade is building.')}
+        {game.title ??
+          (game.status === 'queued' ? 'Your game has a home.' : 'Sparkade is building.')}
       </h1>
       <p className="portal-message">{game.message}</p>
-      {game.status === 'ready' ? (
+      {game.status === 'ready' && game.spec ? (
+        <PublicGamePlayer id={game.id} spec={game.spec} assets={game.assets} />
+      ) : game.status === 'ready' ? (
         <p className="portal-note">
-          The cabinet build is complete. Web play is the next piece coming online.
+          The cabinet build is complete, but its browser-play data has not synced yet.
         </p>
       ) : game.status === 'failed' ? (
         <p className="portal-note">

@@ -1,6 +1,19 @@
 import type { LikenessAssets } from '@sparkade/engine';
 import { GENERATED_GAME_ASSET_FILES, type GeneratedGameAssetRole } from '@sparkade/shared';
-import { api, type GameDetail } from './api';
+import { api as defaultApi } from './api';
+
+export type RuntimeGameAssetFilename = Parameters<typeof defaultApi.assetUrl>[1];
+
+export type RuntimeGameAssetAvailability = {
+  head12: boolean;
+  head12Side: boolean;
+  head12Back: boolean;
+  head16: boolean;
+  head16Side: boolean;
+  head16Back: boolean;
+  portrait: boolean;
+  fighterArenaPresentationBaked?: boolean;
+} & Record<GeneratedGameAssetRole, boolean>;
 
 /** Published in the same stable order used by Fighter identity slots. */
 export const FIGHTER_ROSTER_ATLAS_ASSETS = [
@@ -113,6 +126,7 @@ function loadImage(url: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image();
     img.decoding = 'async';
+    img.crossOrigin = 'anonymous';
     img.onload = () => {
       if (typeof img.decode !== 'function') {
         resolve(img);
@@ -132,8 +146,13 @@ function loadImage(url: string): Promise<HTMLImageElement | null> {
  * complete five-character roster; the Fighter runtime rejects anything less. */
 export async function loadLikenessAssets(
   gameId: string,
-  assets: GameDetail['assets'],
+  assets: RuntimeGameAssetAvailability,
+  assetUrlFor: (filename: RuntimeGameAssetFilename) => string = (filename) =>
+    defaultApi.assetUrl(gameId, filename),
 ): Promise<LikenessAssets | null> {
+  const api = {
+    assetUrl: (_gameId: string, filename: RuntimeGameAssetFilename) => assetUrlFor(filename),
+  };
   const hasCompleteFighterRoster = FIGHTER_ROSTER_ATLAS_ASSETS.every((role) => assets[role]);
   const hasCompletePlatformerSet = PLATFORMER_POSE_ASSETS.every(([, role]) => assets[role]);
   const hasCompleteAdventurePlayerSet = ADVENTURE_PLAYER_POSE_ASSETS.every(

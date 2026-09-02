@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { JobEvent } from '@sparkade/shared';
+import type { GameSpec, JobEvent } from '@sparkade/shared';
 import { PublicGamePublisher } from '../src/cloud/public-games';
 import { SseHub } from '../src/pipeline/sse';
 
@@ -19,9 +19,18 @@ describe('PublicGamePublisher', () => {
       if (url.endsWith('/api/kiosk/games')) {
         return response({ game: { id: '7kmp2qx' } }, 201);
       }
+      if (url.includes('/assets/')) {
+        const filename = url.split('/').at(-1)!;
+        return response({ filename, url: `https://blob.example/${filename}` });
+      }
       return response({ game: { id: '7kmp2qx' } });
     }) as unknown as typeof fetch;
     const hub = new SseHub();
+    const spec = {
+      specVersion: 1,
+      archetype: 'platformer',
+      meta: { title: 'Moon Moth Mayhem' },
+    } as GameSpec;
     const publisher = new PublicGamePublisher(
       'https://sparkade.dev/',
       'secret-key',
@@ -31,6 +40,11 @@ describe('PublicGamePublisher', () => {
       },
       hub,
       fetchImpl,
+      () => spec,
+      () => [
+        { filename: 'platformer-player-idle.png', content: Buffer.from('png-one') },
+        { filename: 'platformer-player-jump.png', content: Buffer.from('png-two') },
+      ],
     );
 
     await expect(publisher.reserveAndTrack('j-one', 'g-one')).resolves.toEqual({
@@ -62,7 +76,7 @@ describe('PublicGamePublisher', () => {
       costUsd: 0.1,
     });
 
-    await vi.waitFor(() => expect(requests).toHaveLength(3));
+    await vi.waitFor(() => expect(requests).toHaveLength(5));
     expect(requests[0]?.init?.headers).toEqual({
       authorization: 'Bearer secret-key',
       'content-type': 'application/json',
@@ -77,10 +91,19 @@ describe('PublicGamePublisher', () => {
       stage: 'designing',
       message: 'Inventing the world',
     });
-    expect(JSON.parse(String(requests[2]?.init?.body))).toMatchObject({
+    expect(requests.slice(2, 4).map((request) => request.url)).toEqual([
+      'https://sparkade.dev/api/kiosk/games/7kmp2qx/assets/platformer-player-idle.png',
+      'https://sparkade.dev/api/kiosk/games/7kmp2qx/assets/platformer-player-jump.png',
+    ]);
+    expect(JSON.parse(String(requests[4]?.init?.body))).toMatchObject({
       status: 'ready',
       stage: 'done',
       title: 'Moon Moth Mayhem',
+      spec,
+      assets: {
+        'platformer-player-idle.png': 'https://blob.example/platformer-player-idle.png',
+        'platformer-player-jump.png': 'https://blob.example/platformer-player-jump.png',
+      },
     });
 
     await publisher.reserveAndTrack('j-two', 'g-one');

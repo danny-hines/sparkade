@@ -1,9 +1,12 @@
-import type { JobEvent, PublicGameLink } from '@sparkade/shared';
+import type { GameSpec, JobEvent, PublicGameLink } from '@sparkade/shared';
 import type { SseHub } from '../pipeline/sse';
 import type { Db } from '../storage/db';
+import type { PublicGameAsset } from '../storage/files';
 
 const PUBLIC_ID_PATTERN = /^[2-9bcdfghjkmnpqrstvwxyz]{7}$/;
 const REQUEST_TIMEOUT_MS = 4_000;
+const ASSET_UPLOAD_TIMEOUT_MS = 60_000;
+const ASSET_UPLOAD_CONCURRENCY = 4;
 const PROGRESS_UPDATE_INTERVAL_MS = 5_000;
 const DEFAULT_KIOSK_NAME = 'Sparkade Cabinet';
 const PUBLIC_GAME_LINKS_SETTING = 'public-game-links-v1';
@@ -16,6 +19,8 @@ type PublicStatusUpdate = {
   stage: string;
   message: string;
   title?: string;
+  spec?: GameSpec;
+  assets?: PublicGameAsset[];
 };
 
 export class PublicGamePublisher {
@@ -29,6 +34,8 @@ export class PublicGamePublisher {
     private readonly db: GameLookup,
     private readonly hub: SseHub,
     private readonly fetchImpl: Fetch = fetch,
+    private readonly specForGame: (gameId: string) => GameSpec | null = () => null,
+    private readonly assetsForGame: (gameId: string) => PublicGameAsset[] = () => [],
   ) {
     const persisted = this.db.getSetting
       ? this.db.getSetting<unknown>(PUBLIC_GAME_LINKS_SETTING)
@@ -146,11 +153,15 @@ export class PublicGamePublisher {
     if (event.type === 'feed') return null;
     if (event.type === 'done') {
       const title = this.db.getGame(gameId)?.title;
+      const spec = this.specForGame(gameId);
+      const assets = this.assetsForGame(gameId);
       return {
         status: 'ready',
         stage: 'done',
         message: title ? `${title} is ready to play` : 'Your game is ready to play',
         ...(title ? { title } : {}),
+        ...(spec ? { spec } : {}),
+        ...(assets.length ? { assets } : {}),
       };
     }
     if (event.type === 'failed') {
@@ -176,6 +187,16 @@ export class PublicGamePublisher {
     let lastError: unknown;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       try {
+        const assets: Record<string, string> = {};
+        if (update.assets) {
+          for (let index = 0; index < update.assets.length; index += ASSET_UPLOAD_CONCURRENCY) {
+            const batch = update.assets.slice(index, index + ASSET_UPLOAD_CONCURRENCY);
+            const uploaded = await Promise.all(
+              batch.map((asset) => this.uploadAsset(publicId, asset)),
+            );
+            for (const result of uploaded) assets[result.filename] = result.url;
+          }
+        }
         const response = await this.request(`/api/kiosk/games/${publicId}`, {
           method: 'PATCH',
           body: JSON.stringify({
@@ -184,6 +205,8 @@ export class PublicGamePublisher {
             stage: update.stage.slice(0, 80),
             message: update.message.slice(0, 500),
             ...(update.title ? { title: update.title.slice(0, 120) } : {}),
+            ...(update.spec ? { spec: update.spec } : {}),
+            ...(Object.keys(assets).length ? { assets } : {}),
           }),
         });
         if (!response.ok) throw new Error(`status update returned HTTP ${response.status}`);
@@ -208,9 +231,42 @@ export class PublicGamePublisher {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   }
+
+  private async uploadAsset(
+    publicId: string,
+    asset: PublicGameAsset,
+  ): Promise<{ filename: string; url: string }> {
+    const response = await this.fetchImpl(
+      new URL(
+        `/api/kiosk/games/${publicId}/assets/${encodeURIComponent(asset.filename)}`,
+        this.origin,
+      ),
+      {
+        method: 'PUT',
+        headers: {
+          authorization: `Bearer ${this.apiKey}`,
+          'content-type': 'image/png',
+          'content-length': String(asset.content.byteLength),
+        },
+        body: Uint8Array.from(asset.content),
+        signal: AbortSignal.timeout(ASSET_UPLOAD_TIMEOUT_MS),
+      },
+    );
+    if (!response.ok) throw new Error(`asset upload returned HTTP ${response.status}`);
+    const payload = (await response.json()) as { filename?: unknown; url?: unknown };
+    if (payload.filename !== asset.filename || typeof payload.url !== 'string') {
+      throw new Error('asset upload returned an invalid response');
+    }
+    return { filename: asset.filename, url: payload.url };
+  }
 }
 
-export function createPublicGamePublisher(db: Db, hub: SseHub): PublicGamePublisher | null {
+export function createPublicGamePublisher(
+  db: Db,
+  hub: SseHub,
+  specForGame: (gameId: string) => GameSpec | null,
+  assetsForGame: (gameId: string) => PublicGameAsset[],
+): PublicGamePublisher | null {
   const configuredOrigin = process.env.SPARKADE_PUBLIC_ORIGIN?.trim();
   const apiKey = process.env.SPARKADE_KIOSK_API_KEY?.trim();
   const kioskName =
@@ -222,7 +278,16 @@ export function createPublicGamePublisher(db: Db, hub: SseHub): PublicGamePublis
     origin.pathname = '/';
     origin.search = '';
     origin.hash = '';
-    return new PublicGamePublisher(origin.toString(), apiKey, kioskName, db, hub);
+    return new PublicGamePublisher(
+      origin.toString(),
+      apiKey,
+      kioskName,
+      db,
+      hub,
+      fetch,
+      specForGame,
+      assetsForGame,
+    );
   } catch {
     console.warn('SPARKADE_PUBLIC_ORIGIN is invalid; public game links are disabled');
     return null;

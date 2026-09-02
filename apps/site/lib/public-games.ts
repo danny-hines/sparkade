@@ -1,4 +1,5 @@
 import { randomInt } from 'node:crypto';
+import type { GameSpec } from '@sparkade/shared';
 import { getSql } from './db';
 
 export const PUBLIC_GAME_ID_PATTERN = /^[2-9bcdfghjkmnpqrstvwxyz]{7}$/i;
@@ -14,6 +15,8 @@ export interface PublicGame {
   stage: string;
   message: string;
   title: string | null;
+  spec: GameSpec | null;
+  assets: Record<string, string>;
   createdAt: string;
   updatedAt: string;
   readyAt: string | null;
@@ -27,6 +30,8 @@ type PublicGameRow = {
   stage: string;
   message: string;
   title: string | null;
+  spec_json: GameSpec | string | null;
+  assets_json: Record<string, string> | string | null;
   created_at: string | Date;
   updated_at: string | Date;
   ready_at: string | Date | null;
@@ -40,6 +45,26 @@ function iso(value: string | Date): string {
 }
 
 function mapRow(row: PublicGameRow): PublicGame {
+  let spec: GameSpec | null = null;
+  if (typeof row.spec_json === 'string') {
+    try {
+      spec = JSON.parse(row.spec_json) as GameSpec;
+    } catch {
+      spec = null;
+    }
+  } else if (row.spec_json && typeof row.spec_json === 'object') {
+    spec = row.spec_json;
+  }
+  let assets: Record<string, string> = {};
+  if (typeof row.assets_json === 'string') {
+    try {
+      assets = JSON.parse(row.assets_json) as Record<string, string>;
+    } catch {
+      assets = {};
+    }
+  } else if (row.assets_json && typeof row.assets_json === 'object') {
+    assets = row.assets_json;
+  }
   return {
     id: row.id,
     kioskName: row.kiosk_name,
@@ -47,6 +72,8 @@ function mapRow(row: PublicGameRow): PublicGame {
     stage: row.stage,
     message: row.message,
     title: row.title,
+    spec,
+    assets,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
     readyAt: row.ready_at ? iso(row.ready_at) : null,
@@ -76,6 +103,8 @@ async function ensureSchema(): Promise<void> {
           stage TEXT NOT NULL DEFAULT 'queued',
           message TEXT NOT NULL DEFAULT 'Waiting for the cabinet to begin',
           title TEXT,
+          spec_json JSONB,
+          assets_json JSONB NOT NULL DEFAULT '{}'::jsonb,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           ready_at TIMESTAMPTZ,
@@ -85,6 +114,14 @@ async function ensureSchema(): Promise<void> {
       await sql`
         ALTER TABLE public_games
         ADD COLUMN IF NOT EXISTS kiosk_name TEXT NOT NULL DEFAULT 'Sparkade Cabinet'
+      `;
+      await sql`
+        ALTER TABLE public_games
+        ADD COLUMN IF NOT EXISTS spec_json JSONB
+      `;
+      await sql`
+        ALTER TABLE public_games
+        ADD COLUMN IF NOT EXISTS assets_json JSONB NOT NULL DEFAULT '{}'::jsonb
       `;
       await sql`
         CREATE INDEX IF NOT EXISTS public_games_status_updated
@@ -117,7 +154,7 @@ export async function reservePublicGame(sourceId: string, kioskName: string): Pr
     UPDATE public_games
     SET kiosk_name = ${kioskName}
     WHERE source_id = ${sourceId}
-    RETURNING id, kiosk_name, status, stage, message, title, created_at, updated_at, ready_at, failed_at
+    RETURNING id, kiosk_name, status, stage, message, title, spec_json, assets_json, created_at, updated_at, ready_at, failed_at
   `;
   if (existing[0]) return mapRow(existing[0] as PublicGameRow);
 
@@ -127,12 +164,12 @@ export async function reservePublicGame(sourceId: string, kioskName: string): Pr
       INSERT INTO public_games (id, source_id, kiosk_name)
       VALUES (${id}, ${sourceId}, ${kioskName})
       ON CONFLICT DO NOTHING
-      RETURNING id, kiosk_name, status, stage, message, title, created_at, updated_at, ready_at, failed_at
+      RETURNING id, kiosk_name, status, stage, message, title, spec_json, assets_json, created_at, updated_at, ready_at, failed_at
     `;
     if (inserted[0]) return mapRow(inserted[0] as PublicGameRow);
 
     const raced = await sql`
-      SELECT id, kiosk_name, status, stage, message, title, created_at, updated_at, ready_at, failed_at
+      SELECT id, kiosk_name, status, stage, message, title, spec_json, assets_json, created_at, updated_at, ready_at, failed_at
       FROM public_games
       WHERE source_id = ${sourceId}
       LIMIT 1
@@ -149,7 +186,7 @@ export async function getPublicGame(id: string): Promise<PublicGame | null> {
   await ensureSchema();
   const sql = getSql();
   const rows = await sql`
-    SELECT id, kiosk_name, status, stage, message, title, created_at, updated_at, ready_at, failed_at
+    SELECT id, kiosk_name, status, stage, message, title, spec_json, assets_json, created_at, updated_at, ready_at, failed_at
     FROM public_games
     WHERE id = ${normalized}
     LIMIT 1
@@ -164,22 +201,28 @@ export async function updatePublicGame(input: {
   stage: string;
   message: string;
   title?: string | null;
+  spec?: GameSpec;
+  assets?: Record<string, string>;
 }): Promise<PublicGame | null> {
   const id = normalizePublicGameId(input.id);
   if (!id) return null;
   await ensureSchema();
   const sql = getSql();
+  const serializedSpec = input.spec ? JSON.stringify(input.spec) : null;
+  const serializedAssets = input.assets ? JSON.stringify(input.assets) : null;
   const rows = await sql`
     UPDATE public_games
     SET status = ${input.status},
         stage = ${input.stage},
         message = ${input.message},
         title = COALESCE(${input.title ?? null}, title),
+        spec_json = COALESCE(${serializedSpec}::jsonb, spec_json),
+        assets_json = COALESCE(${serializedAssets}::jsonb, assets_json),
         updated_at = NOW(),
         ready_at = CASE WHEN ${input.status} = 'ready' THEN COALESCE(ready_at, NOW()) ELSE ready_at END,
         failed_at = CASE WHEN ${input.status} = 'failed' THEN NOW() ELSE NULL END
     WHERE id = ${id} AND source_id = ${input.sourceId}
-    RETURNING id, kiosk_name, status, stage, message, title, created_at, updated_at, ready_at, failed_at
+    RETURNING id, kiosk_name, status, stage, message, title, spec_json, assets_json, created_at, updated_at, ready_at, failed_at
   `;
   return rows[0] ? mapRow(rows[0] as PublicGameRow) : null;
 }

@@ -24,6 +24,11 @@ import {
 import { atomicWriteFile, ensureDir, nowIso, readJson, repoRoot } from '../util';
 import type { Db, GameRow } from './db';
 
+export interface PublicGameAsset {
+  filename: string;
+  content: Buffer;
+}
+
 export class GameFiles {
   readonly gamesDir: string;
   readonly stagingDir: string;
@@ -50,6 +55,22 @@ export class GameFiles {
 
   readSpec(gameId: string): GameSpec | null {
     return readJson<GameSpec>(join(this.gameDir(gameId), 'game.json'));
+  }
+
+  /** Integrity-checked generated assets that are safe to publish outside the cabinet. */
+  readPublicAssets(gameId: string): PublicGameAsset[] {
+    const assetsDir = join(this.gameDir(gameId), 'assets');
+    const manifest = readGameAssetManifest(assetsDir);
+    if (!manifest) return [];
+    return manifest.assets.flatMap((asset) => {
+      if (!generatedAssetForRole(assetsDir, asset.role)) return [];
+      return [
+        {
+          filename: asset.filename,
+          content: readFileSync(join(assetsDir, asset.filename)),
+        },
+      ];
+    });
   }
 
   /** Replace a published game spec without exposing a partially-written JSON file. */

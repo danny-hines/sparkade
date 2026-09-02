@@ -40,7 +40,12 @@ async function main(): Promise<void> {
   const files = new GameFiles(dir);
   const hub = new SseHub();
   const runner = new GenerationRunner(db, files, configStore, hub);
-  const publicGames = createPublicGamePublisher(db, hub);
+  const publicGames = createPublicGamePublisher(
+    db,
+    hub,
+    (gameId) => files.readSpec(gameId),
+    (gameId) => files.readPublicAssets(gameId),
+  );
 
   // Boot-time recovery: seed goldens, reconcile DB<->filesystem, fail interrupted jobs.
   seedGoldenGames(

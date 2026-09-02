@@ -18,12 +18,13 @@ export async function generateMetadata({ params }: PublicGamePageProps): Promise
   const game = await findGame(id);
   if (!game) return { title: 'Game not found' };
   const title = game.title ? `${game.title} — shared game` : `Game ${game.id.toUpperCase()}`;
+  const indexable = game.status === 'ready' && game.feedVisibility === 'listed';
   return {
     title,
     description: game.status === 'ready' ? 'A Sparkade game, ready to play.' : game.message,
     alternates: { canonical: `/p/${game.id}` },
     manifest: `/p/${game.id}/manifest.webmanifest`,
-    robots: { index: false, follow: false },
+    robots: { index: indexable, follow: indexable },
     openGraph: { title, description: game.message, url: `/p/${game.id}` },
   };
 }

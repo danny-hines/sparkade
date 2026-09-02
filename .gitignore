@@ -28,3 +28,6 @@ scratch/
 
 headshots/
 .vercel/
+.env*
+!.env.example
+!apps/site/.env.example

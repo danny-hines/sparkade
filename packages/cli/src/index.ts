@@ -473,7 +473,14 @@ function cmdBackup(args: string[]): void {
   }
   const out = file ?? `sparkade-backup-${new Date().toISOString().slice(0, 10)}.tar.gz`;
   const base = dir.split(/[\\/]/).pop()!;
-  sh('tar', ['-czf', out, '-C', resolve(dir, '..'), base], {});
+  // Device identity must not be cloned onto another cabinet through a backup.
+  // It remains in place when restoring onto the same machine because extraction
+  // overlays the data directory rather than deleting it first.
+  sh(
+    'tar',
+    ['-czf', out, `--exclude=${base}/cloud-registration.json`, '-C', resolve(dir, '..'), base],
+    {},
+  );
   console.log(`backup written to ${out} (${(statSync(out).size / 1e6).toFixed(1)} MB)`);
 }
 

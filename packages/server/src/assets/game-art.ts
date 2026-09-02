@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import sharp, { type OverlayOptions } from 'sharp';
 import { FIGHTER_POSES, type FighterPose, type GameSpec } from '@sparkade/shared';
 import { fighterArtDirectionPrompt } from './fighter-art-direction';
 import {
@@ -358,7 +358,7 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
 async function mockGeneratedAdventureObjectBoard(): Promise<Buffer> {
   const cells = await Promise.all(
     GENERATED_ADVENTURE_OBJECTS.flatMap((role) =>
-      [0, 1].map(async (candidateIndex): Promise<sharp.OverlayOptions> => {
+      [0, 1].map(async (candidateIndex): Promise<OverlayOptions> => {
         const index = GENERATED_ADVENTURE_OBJECTS.indexOf(role) * 2 + candidateIndex;
         const rect = adventureObjectCellRect(index);
         const image = await mockGeneratedImage(
@@ -392,7 +392,7 @@ async function mockGeneratedAdventureObjectBoard(): Promise<Buffer> {
 async function mockGeneratedAdventureEnemyBoard(): Promise<Buffer> {
   const cells = await Promise.all(
     GENERATED_ADVENTURE_ENEMIES.flatMap((role) =>
-      [0, 1].map(async (candidateIndex): Promise<sharp.OverlayOptions> => {
+      [0, 1].map(async (candidateIndex): Promise<OverlayOptions> => {
         const index = GENERATED_ADVENTURE_ENEMIES.indexOf(role) * 2 + candidateIndex;
         const rect = adventureEnemyBoardCellRect(index);
         const image = await mockGeneratedImage(
@@ -426,7 +426,7 @@ async function mockGeneratedAdventureEnemyBoard(): Promise<Buffer> {
 async function mockGeneratedHShooterEnemyBoard(): Promise<Buffer> {
   const cells = await Promise.all(
     GENERATED_HSHOOTER_ENEMIES.flatMap((role) =>
-      [0, 1].map(async (candidateIndex): Promise<sharp.OverlayOptions> => {
+      [0, 1].map(async (candidateIndex): Promise<OverlayOptions> => {
         const index = GENERATED_HSHOOTER_ENEMIES.indexOf(role) * 2 + candidateIndex;
         const rect = hshooterEnemyBoardCellRect(index);
         const image = await mockGeneratedImage(
@@ -460,7 +460,7 @@ async function mockGeneratedHShooterEnemyBoard(): Promise<Buffer> {
 async function mockGeneratedShooterEnemyBoard(): Promise<Buffer> {
   const cells = await Promise.all(
     GENERATED_SHOOTER_ENEMIES.flatMap((role) =>
-      [0, 1].map(async (candidateIndex): Promise<sharp.OverlayOptions> => {
+      [0, 1].map(async (candidateIndex): Promise<OverlayOptions> => {
         const index = GENERATED_SHOOTER_ENEMIES.indexOf(role) * 2 + candidateIndex;
         const rect = hshooterEnemyBoardCellRect(index);
         const image = await mockGeneratedImage(
@@ -493,7 +493,7 @@ async function mockGeneratedShooterEnemyBoard(): Promise<Buffer> {
 
 async function mockGeneratedAdventureBossBoard(): Promise<Buffer> {
   const cells = await Promise.all(
-    [0, 1, 2, 3].map(async (index): Promise<sharp.OverlayOptions> => {
+    [0, 1, 2, 3].map(async (index): Promise<OverlayOptions> => {
       const image = await mockGeneratedImage(
         `One isolated top-down adventure-game sprite on #00ff00. Boss candidate ${index + 1}, neutral ready fighting stance.`,
       );
@@ -551,7 +551,7 @@ async function mockGeneratedAdventurePlayerSheet(
   poses: readonly MockAdventurePlayerPose[],
 ): Promise<Buffer> {
   const cells = await Promise.all(
-    poses.map(async (pose, index): Promise<sharp.OverlayOptions> => {
+    poses.map(async (pose, index): Promise<OverlayOptions> => {
       const rect = fighterPoseSheetCellRect(index);
       const action = pose.includes('Walk')
         ? 'mid-stride walking contact pose'
@@ -689,7 +689,7 @@ export async function mockGeneratedFighterPoseSheet(
 ): Promise<Buffer> {
   if (poses.length !== 6) throw new RangeError('mock fighter pose sheet requires six poses');
   const cells = await Promise.all(
-    poses.map(async (pose, index): Promise<sharp.OverlayOptions> => {
+    poses.map(async (pose, index): Promise<OverlayOptions> => {
       const rect = fighterPoseSheetCellRect(index);
       const image = await mockGeneratedImage(
         `One fighting-game sprite on #00ff00. ${MOCK_FIGHTER_POSE_HINTS[pose]}.`,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isAuthorizedKioskRequest } from '@/lib/kiosk-auth';
+import { authorizeKioskRequest } from '@/lib/kiosk-auth';
 import { isPublicGameStatus, updatePublicGame } from '@/lib/public-games';
 import { GENERATED_GAME_ASSET_FILES, type GameSpec } from '@sparkade/shared';
 
@@ -12,7 +12,8 @@ const PUBLIC_ASSET_FILENAMES = new Set<string>(Object.values(GENERATED_GAME_ASSE
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
-  if (!isAuthorizedKioskRequest(request)) {
+  const principal = await authorizeKioskRequest(request);
+  if (!principal) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
@@ -81,6 +82,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   const game = await updatePublicGame({
     id,
     sourceId: input.sourceId,
+    kioskId: principal.kioskId,
     status: input.status,
     stage: input.stage,
     message: input.message,

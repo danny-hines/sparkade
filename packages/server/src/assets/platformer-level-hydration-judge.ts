@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import sharp, { type OverlayOptions } from 'sharp';
 import type { PlatformerLevelHydrationResult } from './platformer-level-lab';
 
 export const PLATFORMER_LEVEL_HYDRATION_JUDGE_PROMPT_VERSION =
@@ -44,7 +44,9 @@ export function reviewPlatformerLevelHydrationGeometry(
     );
   }
   if (metrics.rejectedPaintRatio > 0.45) {
-    reasons.push(`${Math.round(metrics.rejectedPaintRatio * 100)}% of generated paint was rejected`);
+    reasons.push(
+      `${Math.round(metrics.rejectedPaintRatio * 100)}% of generated paint was rejected`,
+    );
   }
   if (metrics.collisionCoverageRatio < 0.52) {
     reasons.push(
@@ -159,13 +161,17 @@ export async function buildPlatformerLevelHydrationJudgeBoard(input: {
   const gap = 10;
   const rowHeight = labelHeight + imageHeight + gap;
   const totalHeight = rowHeight * (input.candidates.length + 1) + gap;
-  const composites: sharp.OverlayOptions[] = [];
+  const composites: OverlayOptions[] = [];
   const guide = await sharp(input.guide)
     .resize(width, imageHeight, { fit: 'fill', kernel: sharp.kernel.nearest })
     .png()
     .toBuffer();
   composites.push({ input: guide, left: 0, top: labelHeight });
-  composites.push({ input: labelSvg(width, labelHeight, 'CANONICAL COLLISION GUIDE'), left: 0, top: 0 });
+  composites.push({
+    input: labelSvg(width, labelHeight, 'CANONICAL COLLISION GUIDE'),
+    left: 0,
+    top: 0,
+  });
 
   for (let index = 0; index < input.candidates.length; index++) {
     const candidate = input.candidates[index]!;
@@ -276,7 +282,10 @@ function text(value: unknown, max = 1200): string {
 
 function strings(value: unknown): string[] {
   return Array.isArray(value)
-    ? value.map((item) => text(item, 240)).filter(Boolean).slice(0, 8)
+    ? value
+        .map((item) => text(item, 240))
+        .filter(Boolean)
+        .slice(0, 8)
     : [];
 }
 

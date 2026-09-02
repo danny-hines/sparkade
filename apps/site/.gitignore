@@ -2,3 +2,5 @@
 .vercel/
 .env.local
 *.tsbuildinfo
+.agents/
+skills-lock.json

@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import sharp, { type Metadata, type OverlayOptions } from 'sharp';
 import {
   FIGHTER_POSES,
   GENERATED_FIGHTER_ATLAS_CELL_SIZE,
@@ -903,7 +903,7 @@ export async function buildGeneratedFighterAtlas(
   poses: Readonly<Record<GeneratedFighterPose, Buffer>>,
 ): Promise<Buffer> {
   const size = GENERATED_FIGHTER_POSE_SIZE;
-  const layers: sharp.OverlayOptions[] = [];
+  const layers: OverlayOptions[] = [];
   for (const [index, pose] of GENERATED_FIGHTER_POSES.entries()) {
     const image = poses[pose];
     if (!image) throw new FighterPoseImageError('invalid-image', `missing fighter pose ${pose}`);
@@ -934,7 +934,7 @@ export async function buildGeneratedFighterAtlas(
 }
 
 export async function validateGeneratedFighterAtlas(atlas: Buffer): Promise<void> {
-  let metadata: sharp.Metadata;
+  let metadata: Metadata;
   try {
     metadata = await sharp(atlas).metadata();
   } catch (error) {

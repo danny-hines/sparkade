@@ -45,6 +45,7 @@ async function main(): Promise<void> {
     hub,
     (gameId) => files.readSpec(gameId),
     (gameId) => files.readPublicAssets(gameId),
+    dir,
   );
 
   // Boot-time recovery: seed goldens, reconcile DB<->filesystem, fail interrupted jobs.

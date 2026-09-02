@@ -75,6 +75,9 @@ describe('public game feed', () => {
     );
     expect((feedCall?.[0] as TemplateStringsArray).join('?')).toContain("WHERE status = 'ready'");
     expect((feedCall?.[0] as TemplateStringsArray).join('?')).toContain(
+      "feed_visibility = 'listed'",
+    );
+    expect((feedCall?.[0] as TemplateStringsArray).join('?')).toContain(
       'ORDER BY ready_at DESC, id DESC',
     );
     expect(feedCall?.slice(1)).toEqual(['key-art.png', 3]);

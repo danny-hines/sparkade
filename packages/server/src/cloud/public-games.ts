@@ -1,6 +1,7 @@
 import type {
   GameSpec,
   JobEvent,
+  KioskRegistrationStatus,
   PublicGameLink,
   PublicGamePublication,
   PublicGamePublicationStatus,
@@ -8,6 +9,7 @@ import type {
 import type { SseHub } from '../pipeline/sse';
 import type { Db } from '../storage/db';
 import type { PublicGameAsset } from '../storage/files';
+import { KioskRegistration } from './kiosk-registration';
 
 const PUBLIC_ID_PATTERN = /^[2-9bcdfghjkmnpqrstvwxyz]{7}$/;
 const REQUEST_TIMEOUT_MS = 4_000;
@@ -37,13 +39,14 @@ export class PublicGamePublisher {
 
   constructor(
     private readonly origin: string,
-    private readonly apiKey: string,
-    private readonly kioskName: string,
+    private readonly apiKey: string | (() => string | null),
+    private readonly kioskName: string | (() => string | null),
     private readonly db: GameLookup,
     private readonly hub: SseHub,
     private readonly fetchImpl: Fetch = fetch,
     private readonly specForGame: (gameId: string) => GameSpec | null = () => null,
     private readonly assetsForGame: (gameId: string) => PublicGameAsset[] = () => [],
+    private readonly registration?: KioskRegistration,
   ) {
     if (!this.restorePublications()) this.restoreLegacyLinks();
   }
@@ -54,6 +57,27 @@ export class PublicGamePublisher {
 
   publicationForGame(gameId: string): PublicGamePublication | null {
     return this.publicationsByGameId.get(gameId) ?? null;
+  }
+
+  registrationStatus(): KioskRegistrationStatus {
+    return (
+      this.registration?.status() ?? {
+        state: this.resolveApiKey() ? 'registered' : 'unregistered',
+        origin: this.origin,
+        name: this.resolveKioskName() ?? undefined,
+      }
+    );
+  }
+
+  refreshRegistration(): Promise<KioskRegistrationStatus> {
+    return this.registration?.refresh() ?? Promise.resolve(this.registrationStatus());
+  }
+
+  startPairing(forceNewCredential = false): Promise<KioskRegistrationStatus> {
+    return (
+      this.registration?.startPairing(forceNewCredential) ??
+      Promise.resolve(this.registrationStatus())
+    );
   }
 
   async reserveAndTrack(jobId: string, gameId: string): Promise<PublicGameLink | null> {
@@ -180,7 +204,7 @@ export class PublicGamePublisher {
     if (existing) return existing;
     const response = await this.request('/api/kiosk/games', {
       method: 'POST',
-      body: JSON.stringify({ sourceId: gameId, kioskName: this.kioskName }),
+      body: JSON.stringify({ sourceId: gameId, kioskName: this.resolveKioskName() ?? undefined }),
     });
     if (!response.ok) throw new Error(`reservation returned HTTP ${response.status}`);
     const payload = (await response.json()) as { game?: { id?: unknown } };
@@ -332,10 +356,12 @@ export class PublicGamePublisher {
   }
 
   private request(path: string, init: RequestInit): Promise<Response> {
+    const apiKey = this.resolveApiKey();
+    if (!apiKey) return Promise.reject(new Error('cabinet is not registered'));
     return this.fetchImpl(new URL(path, this.origin), {
       ...init,
       headers: {
-        authorization: `Bearer ${this.apiKey}`,
+        authorization: `Bearer ${apiKey}`,
         'content-type': 'application/json',
       },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -346,6 +372,8 @@ export class PublicGamePublisher {
     publicId: string,
     asset: PublicGameAsset,
   ): Promise<{ filename: string; url: string }> {
+    const apiKey = this.resolveApiKey();
+    if (!apiKey) throw new Error('cabinet is not registered');
     const response = await this.fetchImpl(
       new URL(
         `/api/kiosk/games/${publicId}/assets/${encodeURIComponent(asset.filename)}`,
@@ -354,7 +382,7 @@ export class PublicGamePublisher {
       {
         method: 'PUT',
         headers: {
-          authorization: `Bearer ${this.apiKey}`,
+          authorization: `Bearer ${apiKey}`,
           'content-type': 'image/png',
           'content-length': String(asset.content.byteLength),
         },
@@ -369,6 +397,16 @@ export class PublicGamePublisher {
     }
     return { filename: asset.filename, url: payload.url };
   }
+
+  private resolveApiKey(): string | null {
+    const value = typeof this.apiKey === 'function' ? this.apiKey() : this.apiKey;
+    return value?.trim() || null;
+  }
+
+  private resolveKioskName(): string | null {
+    const value = typeof this.kioskName === 'function' ? this.kioskName() : this.kioskName;
+    return value?.trim() || null;
+  }
 }
 
 export function createPublicGamePublisher(
@@ -376,27 +414,37 @@ export function createPublicGamePublisher(
   hub: SseHub,
   specForGame: (gameId: string) => GameSpec | null,
   assetsForGame: (gameId: string) => PublicGameAsset[],
+  registrationDataDir: string,
 ): PublicGamePublisher | null {
-  const configuredOrigin = process.env.SPARKADE_PUBLIC_ORIGIN?.trim();
-  const apiKey = process.env.SPARKADE_KIOSK_API_KEY?.trim();
+  const configuredOrigin = process.env.SPARKADE_PUBLIC_ORIGIN;
+  const originValue =
+    configuredOrigin === undefined ? 'https://sparkade.dev' : configuredOrigin.trim();
+  const apiKey = process.env.SPARKADE_KIOSK_API_KEY?.trim() || undefined;
   const kioskName =
     process.env.SPARKADE_KIOSK_NAME?.trim().replace(/\s+/g, ' ').slice(0, 80) || DEFAULT_KIOSK_NAME;
-  if (!configuredOrigin || !apiKey) return null;
+  if (!originValue) return null;
   try {
-    const origin = new URL(configuredOrigin);
+    const origin = new URL(originValue);
     if (origin.protocol !== 'https:' && origin.protocol !== 'http:') return null;
     origin.pathname = '/';
     origin.search = '';
     origin.hash = '';
+    const registration = new KioskRegistration(
+      origin.toString(),
+      registrationDataDir,
+      fetch,
+      apiKey ? { apiKey, kioskName } : undefined,
+    );
     return new PublicGamePublisher(
       origin.toString(),
-      apiKey,
-      kioskName,
+      () => registration.authorizationToken(),
+      () => registration.kioskName(),
       db,
       hub,
       fetch,
       specForGame,
       assetsForGame,
+      registration,
     );
   } catch {
     console.warn('SPARKADE_PUBLIC_ORIGIN is invalid; public game links are disabled');

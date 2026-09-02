@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import sharp, { type OverlayOptions } from 'sharp';
 import type { FighterArtDirection } from '@sparkade/shared';
 import { fighterArtDirectionPrompt } from './fighter-art-direction';
 import type { GeneratedFighterPose } from './fighter-pose';
@@ -613,7 +613,7 @@ export async function buildFighterIdentityJudgeBoard(input: {
   const top = 450;
   const rows = Math.ceil(input.candidates.length / columns);
   const height = top + rows * panelHeight + 30;
-  const layers: sharp.OverlayOptions[] = [];
+  const layers: OverlayOptions[] = [];
   layers.push({
     input: svg(
       width - 60,
@@ -686,7 +686,7 @@ export async function buildFighterPoseJudgeBoard(input: {
   const top = 300;
   const rows = Math.ceil(input.candidates.length / columns);
   const height = top + rows * panelHeight + 30;
-  const layers: sharp.OverlayOptions[] = [];
+  const layers: OverlayOptions[] = [];
   layers.push({
     input: svg(
       width - 60,

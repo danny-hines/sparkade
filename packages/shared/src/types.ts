@@ -961,6 +961,23 @@ export interface PublicGamePublication {
   link: PublicGameLink;
 }
 
+export type KioskFeedVisibility = 'listed' | 'unlisted';
+
+export type KioskRegistrationState =
+  'disabled' | 'unregistered' | 'pairing' | 'registered' | 'expired' | 'revoked' | 'error';
+
+/** Safe registration state exposed to the cabinet UI. The device credential is never included. */
+export interface KioskRegistrationStatus {
+  state: KioskRegistrationState;
+  origin: string | null;
+  name?: string;
+  pairingCode?: string;
+  expiresAt?: string;
+  defaultFeedVisibility?: KioskFeedVisibility;
+  message?: string;
+  legacy?: boolean;
+}
+
 export interface GameListItem {
   id: string;
   title: string;

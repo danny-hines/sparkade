@@ -133,6 +133,32 @@ sparkade backup [file] / backup restore <file>
 
 No SSH needed to update: **Settings → System info → Check for updates** runs the same `sparkade update` flow from the cabinet (detached so it survives the service restart), then the kiosk hard-reloads itself.
 
+### Register a kiosk for cloud publishing
+
+Cabinets use `https://sparkade.dev` by default and create their own device credential, so a new
+installation does not need a shared API key or an SSH configuration step:
+
+1. On the cabinet, open **Settings → Registration**. It shows a short-lived pairing code.
+2. Sign in at `https://sparkade.dev/admin`, enter the code, choose the kiosk name, and select its
+   default feed visibility.
+3. The cabinet updates automatically to show its registered name. Games published by that cabinet
+   use the chosen default.
+
+**Listed** games appear in the public, newest-first feed. **Unlisted** games remain playable and
+shareable at their direct `sparkade.dev/p/{id}` URL, and remain visible to administrators. The admin
+console can override visibility for an individual game, rename a kiosk, change its future default,
+or revoke that kiosk without affecting any other cabinet. Revocation disables future publishing;
+register the cabinet again to issue a fresh credential.
+
+`SPARKADE_PUBLIC_ORIGIN` is only needed to target a local or staging portal. The older
+`SPARKADE_KIOSK_API_KEY` and `SPARKADE_KIOSK_NAME` settings remain as a temporary migration fallback
+for already-configured cabinets.
+
+The Vercel portal uses Neon for games, kiosk registrations, and the waitlist; Vercel Blob for game
+assets; and Clerk for `/admin` authentication. `SPARKADE_ADMIN_EMAILS` is a comma-separated operator
+allowlist applied after sign-in. Keep `DATABASE_URL`, `BLOB_READ_WRITE_TOKEN`, `CLERK_SECRET_KEY`, and
+the admin allowlist server-only; only `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` belongs in browser code.
+
 ## Architecture
 
 ```
@@ -335,8 +361,8 @@ the canonical **racing** control map (B accelerate, Y brake, A item/boost, L/R h
 
 Manual `sparkade update` on the login user is fine for a hobbyist cabinet. A hardened install
 would add: a dedicated service user, checksummed release archives with atomic-symlink updates and
-rollback, CI-built artifacts, and a read-only root. Also out of scope: racing, multiplayer,
-accounts, localization, touch, analytics.
+rollback, CI-built artifacts, and a read-only root. Also out of scope: racing, multiplayer, public
+player accounts, localization, touch, analytics.
 
 ## License notes
 

@@ -567,6 +567,30 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     };
   });
 
+  // ---- cloud registration ------------------------------------------------------
+  app.get('/api/cloud/registration', async () => {
+    if (!publicGames) {
+      return {
+        state: 'disabled',
+        origin: null,
+        message: 'Cloud registration is disabled on this build.',
+      };
+    }
+    return publicGames.refreshRegistration();
+  });
+
+  app.post('/api/cloud/registration/pair', async (req) => {
+    if (!publicGames) {
+      return {
+        state: 'disabled',
+        origin: null,
+        message: 'Cloud registration is disabled on this build.',
+      };
+    }
+    const body = req.body as { force?: boolean } | null;
+    return publicGames.startPairing(body?.force === true);
+  });
+
   // ---- system -------------------------------------------------------------------
   app.get('/api/system/info', async (): Promise<SystemInfo> => {
     let diskFreeBytes = 0;

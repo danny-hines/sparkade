@@ -1,6 +1,7 @@
 import { randomInt } from 'node:crypto';
 import { GENERATED_GAME_ASSET_FILES, type GameSpec } from '@sparkade/shared';
 import { getSql } from './db';
+import type { FeedVisibility } from './kiosks';
 
 export const PUBLIC_GAME_ID_PATTERN = /^[2-9bcdfghjkmnpqrstvwxyz]{7}$/i;
 const PUBLIC_GAME_ALPHABET = '23456789bcdfghjkmnpqrstvwxyz';
@@ -10,7 +11,9 @@ export type PublicGameStatus = (typeof PUBLIC_GAME_STATUSES)[number];
 
 export interface PublicGame {
   id: string;
+  kioskId: string | null;
   kioskName: string;
+  feedVisibility: FeedVisibility;
   status: PublicGameStatus;
   stage: string;
   message: string;
@@ -37,9 +40,23 @@ export interface PublicGameFeedPage {
   nextCursor: string | null;
 }
 
+export interface ManagedPublicGame {
+  id: string;
+  kioskId: string | null;
+  kioskName: string;
+  title: string;
+  status: PublicGameStatus;
+  feedVisibility: FeedVisibility;
+  keyArtUrl: string | null;
+  createdAt: string;
+  readyAt: string | null;
+}
+
 type PublicGameRow = {
   id: string;
+  kiosk_id: string | null;
   kiosk_name: string;
+  feed_visibility: FeedVisibility;
   status: PublicGameStatus;
   stage: string;
   message: string;
@@ -59,6 +76,18 @@ type PublicGameFeedRow = {
   archetype: string | null;
   key_art_url: string | null;
   ready_at: string | Date;
+};
+
+type ManagedPublicGameRow = {
+  id: string;
+  kiosk_id: string | null;
+  kiosk_name: string;
+  title: string | null;
+  status: PublicGameStatus;
+  feed_visibility: FeedVisibility;
+  key_art_url: string | null;
+  created_at: string | Date;
+  ready_at: string | Date | null;
 };
 
 type PublicGameFeedCursor = {
@@ -95,7 +124,9 @@ function mapRow(row: PublicGameRow): PublicGame {
   }
   return {
     id: row.id,
+    kioskId: row.kiosk_id,
     kioskName: row.kiosk_name,
+    feedVisibility: row.feed_visibility,
     status: row.status,
     stage: row.stage,
     message: row.message,
@@ -160,7 +191,7 @@ function createPublicGameId(): string {
   return id;
 }
 
-async function ensureSchema(): Promise<void> {
+export async function ensurePublicGamesSchema(): Promise<void> {
   if (!schemaPromise) {
     schemaPromise = (async () => {
       const sql = getSql();
@@ -195,6 +226,26 @@ async function ensureSchema(): Promise<void> {
         ADD COLUMN IF NOT EXISTS assets_json JSONB NOT NULL DEFAULT '{}'::jsonb
       `;
       await sql`
+        ALTER TABLE public_games
+        ADD COLUMN IF NOT EXISTS kiosk_id TEXT
+      `;
+      await sql`
+        ALTER TABLE public_games
+        ADD COLUMN IF NOT EXISTS feed_visibility TEXT NOT NULL DEFAULT 'listed'
+      `;
+      await sql`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'public_games_feed_visibility_check'
+          ) THEN
+            ALTER TABLE public_games
+            ADD CONSTRAINT public_games_feed_visibility_check
+            CHECK (feed_visibility IN ('listed', 'unlisted'));
+          END IF;
+        END $$
+      `;
+      await sql`
         CREATE INDEX IF NOT EXISTS public_games_status_updated
         ON public_games (status, updated_at DESC)
       `;
@@ -218,31 +269,45 @@ export function normalizePublicGameId(id: string): string | null {
   return PUBLIC_GAME_ID_PATTERN.test(normalized) ? normalized : null;
 }
 
-export async function reservePublicGame(sourceId: string, kioskName: string): Promise<PublicGame> {
-  await ensureSchema();
+export async function reservePublicGame(
+  sourceId: string,
+  kiosk: {
+    id: string | null;
+    name: string;
+    defaultFeedVisibility: FeedVisibility;
+  },
+): Promise<PublicGame> {
+  await ensurePublicGamesSchema();
   const sql = getSql();
   const existing = await sql`
     UPDATE public_games
-    SET kiosk_name = ${kioskName}
+    SET kiosk_id = COALESCE(kiosk_id, ${kiosk.id}),
+        kiosk_name = ${kiosk.name}
     WHERE source_id = ${sourceId}
-    RETURNING id, kiosk_name, status, stage, message, title, spec_json, assets_json, created_at, updated_at, ready_at, failed_at
+      AND (${kiosk.id}::text IS NULL OR kiosk_id IS NULL OR kiosk_id = ${kiosk.id})
+    RETURNING id, kiosk_id, kiosk_name, feed_visibility, status, stage, message, title, spec_json, assets_json, created_at, updated_at, ready_at, failed_at
   `;
   if (existing[0]) return mapRow(existing[0] as PublicGameRow);
 
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const id = createPublicGameId();
     const inserted = await sql`
-      INSERT INTO public_games (id, source_id, kiosk_name)
-      VALUES (${id}, ${sourceId}, ${kioskName})
+      INSERT INTO public_games (
+        id, source_id, kiosk_id, kiosk_name, feed_visibility
+      )
+      VALUES (
+        ${id}, ${sourceId}, ${kiosk.id}, ${kiosk.name}, ${kiosk.defaultFeedVisibility}
+      )
       ON CONFLICT DO NOTHING
-      RETURNING id, kiosk_name, status, stage, message, title, spec_json, assets_json, created_at, updated_at, ready_at, failed_at
+      RETURNING id, kiosk_id, kiosk_name, feed_visibility, status, stage, message, title, spec_json, assets_json, created_at, updated_at, ready_at, failed_at
     `;
     if (inserted[0]) return mapRow(inserted[0] as PublicGameRow);
 
     const raced = await sql`
-      SELECT id, kiosk_name, status, stage, message, title, spec_json, assets_json, created_at, updated_at, ready_at, failed_at
+      SELECT id, kiosk_id, kiosk_name, feed_visibility, status, stage, message, title, spec_json, assets_json, created_at, updated_at, ready_at, failed_at
       FROM public_games
       WHERE source_id = ${sourceId}
+        AND (${kiosk.id}::text IS NULL OR kiosk_id IS NULL OR kiosk_id = ${kiosk.id})
       LIMIT 1
     `;
     if (raced[0]) return mapRow(raced[0] as PublicGameRow);
@@ -254,10 +319,10 @@ export async function reservePublicGame(sourceId: string, kioskName: string): Pr
 export async function getPublicGame(id: string): Promise<PublicGame | null> {
   const normalized = normalizePublicGameId(id);
   if (!normalized) return null;
-  await ensureSchema();
+  await ensurePublicGamesSchema();
   const sql = getSql();
   const rows = await sql`
-    SELECT id, kiosk_name, status, stage, message, title, spec_json, assets_json, created_at, updated_at, ready_at, failed_at
+    SELECT id, kiosk_id, kiosk_name, feed_visibility, status, stage, message, title, spec_json, assets_json, created_at, updated_at, ready_at, failed_at
     FROM public_games
     WHERE id = ${normalized}
     LIMIT 1
@@ -271,7 +336,7 @@ export async function listRecentPublicGames(
     limit?: number;
   } = {},
 ): Promise<PublicGameFeedPage> {
-  await ensureSchema();
+  await ensurePublicGamesSchema();
   const sql = getSql();
   const limit = Math.max(1, Math.min(48, Math.floor(options.limit ?? 12)));
   const cursor = decodePublicGameFeedCursor(options.after);
@@ -286,6 +351,7 @@ export async function listRecentPublicGames(
                ready_at
         FROM public_games
         WHERE status = 'ready'
+          AND feed_visibility = 'listed'
           AND spec_json IS NOT NULL
           AND ready_at IS NOT NULL
           AND (ready_at, id) < (${cursor.readyAt}::timestamptz, ${cursor.id})
@@ -301,6 +367,7 @@ export async function listRecentPublicGames(
                ready_at
         FROM public_games
         WHERE status = 'ready'
+          AND feed_visibility = 'listed'
           AND spec_json IS NOT NULL
           AND ready_at IS NOT NULL
         ORDER BY ready_at DESC, id DESC
@@ -320,6 +387,7 @@ export async function listRecentPublicGames(
 export async function updatePublicGame(input: {
   id: string;
   sourceId: string;
+  kioskId?: string | null;
   status: PublicGameStatus;
   stage: string;
   message: string;
@@ -329,7 +397,7 @@ export async function updatePublicGame(input: {
 }): Promise<PublicGame | null> {
   const id = normalizePublicGameId(input.id);
   if (!id) return null;
-  await ensureSchema();
+  await ensurePublicGamesSchema();
   const sql = getSql();
   const serializedSpec = input.spec ? JSON.stringify(input.spec) : null;
   const serializedAssets = input.assets ? JSON.stringify(input.assets) : null;
@@ -344,8 +412,65 @@ export async function updatePublicGame(input: {
         updated_at = NOW(),
         ready_at = CASE WHEN ${input.status} = 'ready' THEN COALESCE(ready_at, NOW()) ELSE ready_at END,
         failed_at = CASE WHEN ${input.status} = 'failed' THEN NOW() ELSE NULL END
-    WHERE id = ${id} AND source_id = ${input.sourceId}
-    RETURNING id, kiosk_name, status, stage, message, title, spec_json, assets_json, created_at, updated_at, ready_at, failed_at
+    WHERE id = ${id}
+      AND source_id = ${input.sourceId}
+      AND (${input.kioskId ?? null}::text IS NULL OR kiosk_id = ${input.kioskId ?? null})
+    RETURNING id, kiosk_id, kiosk_name, feed_visibility, status, stage, message, title, spec_json, assets_json, created_at, updated_at, ready_at, failed_at
   `;
   return rows[0] ? mapRow(rows[0] as PublicGameRow) : null;
+}
+
+export async function listManagedPublicGames(limit = 100): Promise<ManagedPublicGame[]> {
+  await ensurePublicGamesSchema();
+  const sql = getSql();
+  const keyArtFilename = GENERATED_GAME_ASSET_FILES.keyArt;
+  const rows = await sql`
+    SELECT id,
+           kiosk_id,
+           kiosk_name,
+           title,
+           status,
+           feed_visibility,
+           assets_json ->> ${keyArtFilename} AS key_art_url,
+           created_at,
+           ready_at
+    FROM public_games
+    ORDER BY created_at DESC, id DESC
+    LIMIT ${Math.max(1, Math.min(250, Math.floor(limit)))}
+  `;
+  return rows.map((value) => {
+    const row = value as ManagedPublicGameRow;
+    return {
+      id: row.id,
+      kioskId: row.kiosk_id,
+      kioskName: row.kiosk_name,
+      title: row.title?.trim() || `Game ${row.id.toUpperCase()}`,
+      status: row.status,
+      feedVisibility: row.feed_visibility,
+      keyArtUrl: safePublicAssetUrl(row.key_art_url),
+      createdAt: iso(row.created_at),
+      readyAt: optionalIso(row.ready_at),
+    };
+  });
+}
+
+function optionalIso(value: string | Date | null): string | null {
+  return value ? iso(value) : null;
+}
+
+export async function setPublicGameFeedVisibility(
+  id: string,
+  visibility: FeedVisibility,
+): Promise<boolean> {
+  const normalized = normalizePublicGameId(id);
+  if (!normalized || (visibility !== 'listed' && visibility !== 'unlisted')) return false;
+  await ensurePublicGamesSchema();
+  const sql = getSql();
+  const rows = await sql`
+    UPDATE public_games
+    SET feed_visibility = ${visibility}, updated_at = NOW()
+    WHERE id = ${normalized}
+    RETURNING id
+  `;
+  return rows.length > 0;
 }

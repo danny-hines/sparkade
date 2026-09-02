@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import sharp, { type OverlayOptions } from 'sharp';
 import {
   FighterPoseImageError,
   processGeneratedFighterPose,
@@ -365,7 +365,7 @@ export async function buildAdventureBossJudgeBoard(options: {
         .toBuffer();
     }),
   );
-  const composites: sharp.OverlayOptions[] = [
+  const composites: OverlayOptions[] = [
     { input: story, left: Math.floor((width - storyWidth) / 2), top: 46 },
     {
       input: labelSvg(storyWidth, 40, 'BOSS STORY ART · IDENTITY TRUTH'),

@@ -1,26 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isAuthorizedKioskRequest } from '@/lib/kiosk-auth';
+import { authorizeKioskRequest } from '@/lib/kiosk-auth';
+import { normalizeKioskName } from '@/lib/kiosks';
 import { reservePublicGame } from '@/lib/public-games';
 
 export const runtime = 'nodejs';
 
 const SOURCE_ID_PATTERN = /^[a-zA-Z0-9_-]{3,64}$/;
-const DEFAULT_KIOSK_NAME = 'Sparkade Cabinet';
-
-function normalizeKioskName(value: unknown): string | null {
-  if (value === undefined) return DEFAULT_KIOSK_NAME;
-  if (typeof value !== 'string') return null;
-  const name = value.trim().replace(/\s+/g, ' ');
-  if (!name || name.length > 80) return null;
-  for (const character of name) {
-    const code = character.charCodeAt(0);
-    if (code < 32 || code === 127) return null;
-  }
-  return name;
-}
-
 export async function POST(request: NextRequest) {
-  if (!isAuthorizedKioskRequest(request)) {
+  const principal = await authorizeKioskRequest(request);
+  if (!principal) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
@@ -35,12 +23,21 @@ export async function POST(request: NextRequest) {
   if (typeof sourceId !== 'string' || !SOURCE_ID_PATTERN.test(sourceId)) {
     return NextResponse.json({ error: 'sourceId is invalid' }, { status: 400 });
   }
-  const kioskName = normalizeKioskName(input.kioskName);
+  const kioskName =
+    principal.kind === 'registered'
+      ? principal.name
+      : normalizeKioskName(
+          typeof input.kioskName === 'string' ? input.kioskName : 'Sparkade Cabinet',
+        );
   if (!kioskName) {
     return NextResponse.json({ error: 'kioskName is invalid' }, { status: 400 });
   }
 
-  const game = await reservePublicGame(sourceId, kioskName);
+  const game = await reservePublicGame(sourceId, {
+    id: principal.kioskId,
+    name: kioskName,
+    defaultFeedVisibility: principal.defaultFeedVisibility,
+  });
   return NextResponse.json(
     {
       game,

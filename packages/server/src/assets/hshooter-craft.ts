@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import sharp, { type OverlayOptions } from 'sharp';
 import {
   FighterPoseImageError,
   processGeneratedFighterPose,
@@ -37,9 +37,7 @@ export function buildHShooterCraftPrompt(options: HShooterCraftPromptOptions): s
     'No person, pilot, rider, passenger, face, head, eyes, portrait, human body, initials, text, letters, numbers, logo, watermark, signature, UI, border, scenery, floor, shadow, projectile, exhaust trail, or second object.',
     'The complete craft must be visible and centered with generous room around it. Nothing may be cropped.',
     'The entire empty background, including every gap around or enclosed by the silhouette, must be perfectly flat solid #00ff00. The craft itself, including its canopy, must remain fully authored and must not use #00ff00 or a near-neon imitation; darker natural greens are allowed.',
-    options.retryGuidance
-      ? `ART DIRECTOR CORRECTION: ${clean(options.retryGuidance, 320)}.`
-      : '',
+    options.retryGuidance ? `ART DIRECTOR CORRECTION: ${clean(options.retryGuidance, 320)}.` : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -111,7 +109,7 @@ export async function buildHShooterIdentityReference(
     })
     .png()
     .toBuffer();
-  const composites: sharp.OverlayOptions[] = [
+  const composites: OverlayOptions[] = [
     {
       input: craftPanel,
       left: 72,

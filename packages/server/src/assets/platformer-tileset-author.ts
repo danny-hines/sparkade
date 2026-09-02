@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import sharp, { type Sharp } from 'sharp';
 import { FighterPoseImageError, processGeneratedFighterPose } from './fighter-pose';
 
 export const PLATFORMER_TILESET_FIXTURE_ROLES = [
@@ -150,7 +150,7 @@ export async function processPlatformerTilesetTerrain(
   // repeating body below that transition avoids baking a horizontal horizon
   // into the macrotexture (which becomes a seam every four tiles).
   const bodyTop = Math.round(metadata.height * 0.25);
-  const encode = (pipeline: sharp.Sharp) =>
+  const encode = (pipeline: Sharp) =>
     pipeline
       .flatten({ background: '#24202b' })
       .png({

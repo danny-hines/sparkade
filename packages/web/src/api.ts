@@ -11,6 +11,7 @@ import {
   type GenerationFeedEvent,
   type JobEvent,
   type JobRecord,
+  type KioskRegistrationStatus,
   type LogicalButton,
   type PartialSpec,
   type PriceRow,
@@ -548,6 +549,14 @@ export const api = {
     ),
   updateInstall: () =>
     fetch('/api/system/update', { method: 'POST' }).then((r) => json<{ started: boolean }>(r)),
+  cloudRegistration: () =>
+    fetch('/api/cloud/registration').then((r) => json<KioskRegistrationStatus>(r)),
+  startCloudPairing: (force = false) =>
+    fetch('/api/cloud/registration/pair', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ force }),
+    }).then((r) => json<KioskRegistrationStatus>(r)),
   wifiNetworks: () => fetch('/api/system/wifi/networks').then((r) => json<WifiNetwork[]>(r)),
   wifiStatus: () => fetch('/api/system/wifi/status').then((r) => json<WifiStatus>(r)),
   wifiConnect: async (

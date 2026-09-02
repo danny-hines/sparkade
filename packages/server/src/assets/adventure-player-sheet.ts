@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import sharp, { type OverlayOptions } from 'sharp';
 import type { AdventureCombatKit } from '@sparkade/shared';
 import {
   FIGHTER_POSE_SHEET_SIZE,
@@ -100,7 +100,7 @@ export async function buildAdventurePlayerSheetSeed(downIdle: Buffer): Promise<B
     })
     .png()
     .toBuffer();
-  const overlays = Array.from({ length: 6 }, (_, index): sharp.OverlayOptions => {
+  const overlays = Array.from({ length: 6 }, (_, index): OverlayOptions => {
     const rect = fighterPoseSheetCellRect(index);
     return { input: identity, left: rect.left + insetX, top: rect.top + insetY };
   });

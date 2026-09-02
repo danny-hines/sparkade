@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import sharp, { type OverlayOptions } from 'sharp';
 import type { FighterPose } from '@sparkade/shared';
 import {
   GENERATED_FIGHTER_POSE_DIRECTIONS,
@@ -127,7 +127,7 @@ export async function buildFighterPoseSheetSeed(identityAnchor: Buffer): Promise
     colors: 256,
     removeGreenSpill: true,
   });
-  const overlays = Array.from({ length: 6 }, (_, index): sharp.OverlayOptions => {
+  const overlays = Array.from({ length: 6 }, (_, index): OverlayOptions => {
     const rect = fighterPoseSheetCellRect(index);
     return { input: identity.png, left: rect.left + inset, top: rect.top + inset };
   });

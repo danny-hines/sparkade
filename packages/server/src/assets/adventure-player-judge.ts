@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import sharp, { type OverlayOptions } from 'sharp';
 import type { AdventureCombatKit } from '@sparkade/shared';
 import {
   GENERATED_ADVENTURE_PLAYER_POSES,
@@ -497,7 +497,7 @@ export async function buildAdventurePlayerSetJudgeBoard(input: {
   const top = 300;
   const rows = Math.ceil(input.candidates.length / columns);
   const height = top + rows * panelHeight + 30;
-  const layers: sharp.OverlayOptions[] = [
+  const layers: OverlayOptions[] = [
     {
       input: svg(
         width - 60,

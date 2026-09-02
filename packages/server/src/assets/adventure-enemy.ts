@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import sharp, { type OverlayOptions } from 'sharp';
 import type { AdventureEntityType } from '@sparkade/shared';
 import {
   FighterPoseImageError,
@@ -464,7 +464,7 @@ export async function buildAdventureEnemyJudgeBoard(options: {
       }),
     ),
   );
-  const composites: sharp.OverlayOptions[] = [
+  const composites: OverlayOptions[] = [
     { input: keyArt, left: Math.floor((width - keyArtWidth) / 2), top: 42 },
     {
       input: labelSvg(keyArtWidth, 38, 'KEY ART · WORLD STYLE'),

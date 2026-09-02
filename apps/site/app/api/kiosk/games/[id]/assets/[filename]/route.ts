@@ -1,7 +1,7 @@
 import { put } from '@vercel/blob';
 import { NextRequest, NextResponse } from 'next/server';
 import { GENERATED_GAME_ASSET_FILES } from '@sparkade/shared';
-import { isAuthorizedKioskRequest } from '@/lib/kiosk-auth';
+import { authorizeKioskRequest } from '@/lib/kiosk-auth';
 import { getPublicGame, normalizePublicGameId } from '@/lib/public-games';
 
 export const runtime = 'nodejs';
@@ -13,7 +13,8 @@ const PUBLIC_ASSET_FILENAMES = new Set<string>(Object.values(GENERATED_GAME_ASSE
 type RouteContext = { params: Promise<{ id: string; filename: string }> };
 
 export async function PUT(request: NextRequest, context: RouteContext) {
-  if (!isAuthorizedKioskRequest(request)) {
+  const principal = await authorizeKioskRequest(request);
+  if (!principal) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
@@ -22,7 +23,8 @@ export async function PUT(request: NextRequest, context: RouteContext) {
   if (!id || !PUBLIC_ASSET_FILENAMES.has(filename)) {
     return NextResponse.json({ error: 'asset not found' }, { status: 404 });
   }
-  if (!(await getPublicGame(id))) {
+  const game = await getPublicGame(id);
+  if (!game || (principal.kioskId !== null && game.kioskId !== principal.kioskId)) {
     return NextResponse.json({ error: 'game not found' }, { status: 404 });
   }
   if (request.headers.get('content-type') !== 'image/png') {

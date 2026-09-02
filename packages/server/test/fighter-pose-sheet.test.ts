@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import sharp, { type OverlayOptions } from 'sharp';
 import { describe, expect, it } from 'vitest';
 import { GENERATED_FIGHTER_POSES } from '../src/assets/fighter-pose';
 import {
@@ -15,7 +15,7 @@ import {
 import { mockGeneratedImage } from '../src/assets/game-art';
 
 async function syntheticBleedingSheet(koBleed: number): Promise<Buffer> {
-  const overlays: sharp.OverlayOptions[] = [];
+  const overlays: OverlayOptions[] = [];
   for (let index = 0; index < 5; index++) {
     const rect = fighterPoseSheetCellRect(index);
     const width = 80;

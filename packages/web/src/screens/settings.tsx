@@ -1,8 +1,13 @@
 // Settings: Controls (view + remap), Audio (volume sliders), WiFi (Pi only,
 // with on-screen keyboard), System info (incl. lifetime API spend), Model info.
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import { LOGICAL_BUTTONS, type SystemInfo, type WifiNetwork } from '@sparkade/shared';
+import {
+  LOGICAL_BUTTONS,
+  type KioskRegistrationStatus,
+  type SystemInfo,
+  type WifiNetwork,
+} from '@sparkade/shared';
 import { api, type SettingsPayload } from '../api';
 import {
   FooterLegend,
@@ -23,7 +28,7 @@ import { shellInput } from '../shell-input';
 import { Icon, Btn, SignalBars } from '../icons';
 import type { Screen } from '../app';
 
-type Tab = 'controls' | 'audio' | 'devices' | 'wifi' | 'system' | 'model';
+type Tab = 'controls' | 'audio' | 'devices' | 'wifi' | 'registration' | 'system' | 'model';
 type DeviceSel = { cameraId?: string; cameraLabel?: string; micId?: string; micLabel?: string };
 type WifiNotice = { tone: 'info' | 'error'; message: string };
 
@@ -51,6 +56,7 @@ export function SettingsScreen(props: {
     { id: 'audio', label: 'Audio' },
     { id: 'devices', label: 'Camera & Mic' },
     ...(info?.isPi ? [{ id: 'wifi' as Tab, label: 'WiFi' }] : []),
+    { id: 'registration', label: 'Registration' },
     { id: 'system', label: 'System info' },
     { id: 'model', label: 'Model info' },
   ];
@@ -72,7 +78,9 @@ export function SettingsScreen(props: {
   >('idle');
   const [upLatest, setUpLatest] = useState<string | null>(null);
   const [upMsg, setUpMsg] = useState('');
+  const [registration, setRegistration] = useState<KioskRegistrationStatus | null>(null);
   const oskTarget = useRef<string>('');
+  const registrationStartInFlight = useRef(false);
   const wifiConnectSeq = useRef(0);
   const wifiListRef = useRef<HTMLDivElement>(null);
   const deviceListRef = useRef<HTMLDivElement>(null);
@@ -88,6 +96,7 @@ export function SettingsScreen(props: {
     inputs,
     info,
     upState,
+    registration,
   });
   stateRef.current = {
     tab,
@@ -100,7 +109,31 @@ export function SettingsScreen(props: {
     inputs,
     info,
     upState,
+    registration,
   };
+
+  const beginPairing = useCallback((force = false) => {
+    if (registrationStartInFlight.current) return;
+    registrationStartInFlight.current = true;
+    setRegistration((current) => ({
+      state: 'pairing',
+      origin: current?.origin ?? 'https://sparkade.dev',
+      message: 'Requesting a pairing code…',
+    }));
+    void api
+      .startCloudPairing(force)
+      .then(setRegistration)
+      .catch((error: Error) => {
+        setRegistration({
+          state: 'error',
+          origin: 'https://sparkade.dev',
+          message: error.message,
+        });
+      })
+      .finally(() => {
+        registrationStartInFlight.current = false;
+      });
+  }, []);
 
   useEffect(() => {
     void api
@@ -108,6 +141,47 @@ export function SettingsScreen(props: {
       .then(setInfo)
       .catch(() => {});
   }, []);
+  useEffect(() => {
+    if (tab !== 'registration' || registration !== null) return;
+    let canceled = false;
+    void api
+      .cloudRegistration()
+      .then((next) => {
+        if (canceled) return;
+        setRegistration(next);
+        if (next.state === 'unregistered' || next.state === 'expired') beginPairing(false);
+        else if (next.state === 'revoked') beginPairing(true);
+      })
+      .catch((error: Error) => {
+        if (!canceled) {
+          setRegistration({
+            state: 'error',
+            origin: 'https://sparkade.dev',
+            message: error.message,
+          });
+        }
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [beginPairing, registration, tab]);
+
+  useEffect(() => {
+    if (tab !== 'registration' || registration?.state !== 'pairing') return;
+    const poll = () => {
+      void api
+        .cloudRegistration()
+        .then((next) => {
+          if (next.state === 'expired') beginPairing(false);
+          else setRegistration(next);
+        })
+        .catch(() => {
+          // Keep the current pairing code during a brief network interruption.
+        });
+    };
+    const interval = window.setInterval(poll, 3_000);
+    return () => window.clearInterval(interval);
+  }, [beginPairing, registration?.state, tab]);
   useEffect(() => {
     if (props.settings) setAudio(props.settings.audio);
     if (props.settings) setDevSel(props.settings.devices ?? {});
@@ -439,12 +513,24 @@ export function SettingsScreen(props: {
             }
           }
         }
+      } else if (s.tab === 'registration') {
+        const canPair =
+          !s.registration ||
+          s.registration.state === 'error' ||
+          s.registration.state === 'unregistered' ||
+          s.registration.state === 'expired' ||
+          s.registration.state === 'revoked' ||
+          s.registration.legacy;
+        if (btn === 'A' && canPair) {
+          shellInput.blip('select');
+          beginPairing(s.registration?.state === 'revoked' || s.registration?.legacy === true);
+        }
       } else if (s.tab === 'system') {
         // Only the update button is focusable, and only on the cabinet.
         if (btn === 'A' && s.info?.isPi) updateAction(s.upState);
       }
     });
-  }, [audio, props.go]);
+  }, [audio, beginPairing, props.go]);
 
   return (
     <div class="screen">
@@ -666,6 +752,99 @@ export function SettingsScreen(props: {
                 <p style="color:var(--gold);font-size:15px;margin-top:10px">
                   MOCK WiFi (SPARKADE_FORCE_PI)
                 </p>
+              )}
+            </div>
+          )}
+          {tab === 'registration' && (
+            <div class="registration-panel">
+              {registration === null ? (
+                <div class="registration-loading">
+                  <Icon name="sparkle" class="spin" /> Checking registration…
+                </div>
+              ) : registration.state === 'registered' ? (
+                <>
+                  <div class="registration-status registered">
+                    <span class="registration-status-icon">
+                      <Icon name="cloudFilled" />
+                    </span>
+                    <div>
+                      <span class="registration-label">Registered as</span>
+                      <strong>{registration.name}</strong>
+                    </div>
+                  </div>
+                  <div class="registration-detail">
+                    <span>New games</span>
+                    <strong>
+                      {registration.defaultFeedVisibility === 'listed'
+                        ? 'Listed in public feed'
+                        : 'Unlisted by default'}
+                    </strong>
+                  </div>
+                  <p class="registration-help">
+                    Manage this cabinet, rename it, or change game visibility at sparkade.dev/admin.
+                  </p>
+                  {registration.legacy ? (
+                    <div
+                      class={`focusable menu-item registration-action ${zone === 'panel' ? 'focused' : ''}`}
+                    >
+                      <span class="icon">
+                        <Icon name="refresh" />
+                      </span>
+                      Switch to secure pairing
+                    </div>
+                  ) : null}
+                </>
+              ) : registration.state === 'pairing' ? (
+                <>
+                  <div class="registration-label">Pair this cabinet</div>
+                  {registration.pairingCode ? (
+                    <div
+                      class="pairing-code"
+                      aria-label={`Pairing code ${registration.pairingCode}`}
+                    >
+                      {registration.pairingCode}
+                    </div>
+                  ) : (
+                    <div class="registration-loading">
+                      <Icon name="sparkle" class="spin" /> Requesting a pairing code…
+                    </div>
+                  )}
+                  <p class="registration-help registration-steps">
+                    Go to <strong>sparkade.dev/admin</strong>, choose <strong>Pair a kiosk</strong>,
+                    and enter this code. It expires after 10 minutes.
+                  </p>
+                  <div class="registration-waiting">
+                    <Icon name="sparkle" class="spin" /> Waiting for approval…
+                  </div>
+                </>
+              ) : registration.state === 'disabled' ? (
+                <div class="registration-empty">
+                  <Icon name="cloud" />
+                  <strong>Cloud registration is disabled</strong>
+                  <p>{registration.message}</p>
+                </div>
+              ) : (
+                <>
+                  <div class="registration-empty">
+                    <Icon name="warning" />
+                    <strong>
+                      {registration.state === 'revoked'
+                        ? 'Registration revoked'
+                        : registration.state === 'expired'
+                          ? 'Pairing code expired'
+                          : 'Could not reach Sparkade'}
+                    </strong>
+                    <p>{registration.message ?? 'Check the network connection and try again.'}</p>
+                  </div>
+                  <div
+                    class={`focusable menu-item registration-action ${zone === 'panel' ? 'focused' : ''}`}
+                  >
+                    <span class="icon">
+                      <Icon name="refresh" />
+                    </span>
+                    Request a new code
+                  </div>
+                </>
               )}
             </div>
           )}

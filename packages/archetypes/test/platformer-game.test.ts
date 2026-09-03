@@ -5,6 +5,7 @@ import {
   generatedPlatformerGaitFrame,
   generatedPlatformerGaitRate,
   generatedPlatformerGroundAnimation,
+  platformerAbilityNoticeFrame,
   generatedPlatformerBossDrawRect,
   generatedPlatformerEnemyDrawRect,
   generatedPlatformerPlayerDrawRect,
@@ -202,5 +203,15 @@ describe('generated platformer player poses', () => {
 
     const powerup = generatedPlatformerPropDrawRect('powerup', 100, 50, 12, 12, 0);
     expect(powerup).toEqual({ x: 100, y: 48.5, w: 12, h: 12 });
+  });
+});
+
+describe('platformer ability announcement', () => {
+  it('holds, rises, and then fades away', () => {
+    expect(platformerAbilityNoticeFrame(0)).toEqual({ alpha: 1, rise: 0 });
+    expect(platformerAbilityNoticeFrame(0.9).alpha).toBe(1);
+    expect(platformerAbilityNoticeFrame(0.9).rise).toBeGreaterThan(0);
+    expect(platformerAbilityNoticeFrame(1.4).alpha).toBeLessThan(1);
+    expect(platformerAbilityNoticeFrame(1.8)).toEqual({ alpha: 0, rise: 18 });
   });
 });

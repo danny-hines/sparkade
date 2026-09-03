@@ -166,7 +166,6 @@ export class Hud {
     if (opts.showAbilities) {
       for (const ability of hud.abilities ?? []) {
         const icon = opts.abilityIcons?.[ability.kind];
-        const label = ability.name.slice(0, 9).toUpperCase();
         r.ctx.save();
         r.ctx.globalAlpha = ability.active ? 1 : 0.24;
         if (icon) r.drawScaled(icon, x, 5, 10, 10);
@@ -176,8 +175,7 @@ export class Hud {
         }
         r.ctx.restore();
         if (ability.active) r.rect(x + 1, 16, 8, 1, r.theme.heading);
-        r.text(label, x + 12, 6, ability.active ? r.theme.text : r.theme.dim);
-        x += 16 + label.length * 8;
+        x += 14;
       }
     }
     if (opts.showBombs) {

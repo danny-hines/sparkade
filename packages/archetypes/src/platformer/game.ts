@@ -230,7 +230,22 @@ const GENERATED_BOSS_DRAW_W = 48;
 const GENERATED_BOSS_DRAW_H = 48;
 const GENERATED_BOSS_GROUND_OVERLAP = 2;
 const GENERATED_ENEMY_GROUND_OVERLAP = 1;
+const ABILITY_NOTICE_DURATION_S = 1.8;
+const ABILITY_NOTICE_RISE_PX = 18;
 export const GENERATED_PLATFORMER_BACKDROP_DIM_ALPHA = 0.22;
+
+/** Screen-space motion for the world-anchored ability pickup announcement. */
+export function platformerAbilityNoticeFrame(
+  elapsed: number,
+  duration = ABILITY_NOTICE_DURATION_S,
+): { alpha: number; rise: number } {
+  const progress = Math.max(0, Math.min(1, elapsed / Math.max(0.001, duration)));
+  const fadeStart = 0.55;
+  return {
+    alpha: progress <= fadeStart ? 1 : (1 - progress) / (1 - fadeStart),
+    rise: ABILITY_NOTICE_RISE_PX * (1 - (1 - progress) ** 2),
+  };
+}
 
 const GENERATED_ENEMY_DRAW_SIZE = {
   walker: { w: 24, h: 24 },
@@ -533,6 +548,7 @@ class PlatformerGame implements GameInstance {
   private horizontalIntent = 0;
   private noHorizontalInputT = 0;
   private playT = 0;
+  private abilityNotice: { text: string; x: number; y: number; elapsed: number } | null = null;
 
   // boss
   private boss:
@@ -1066,6 +1082,7 @@ class PlatformerGame implements GameInstance {
     this.horizontalIntent = 0;
     this.noHorizontalInputT = 0;
     this.invulnT = 0;
+    this.abilityNotice = null;
   }
 
   // ----------------------------------------------------------------- update
@@ -1074,6 +1091,10 @@ class PlatformerGame implements GameInstance {
     if (this.phase !== 'play') return;
     this.playT += dt;
     this.animT += dt;
+    if (this.abilityNotice) {
+      this.abilityNotice.elapsed += dt;
+      if (this.abilityNotice.elapsed >= ABILITY_NOTICE_DURATION_S) this.abilityNotice = null;
+    }
     this.updatePlayer(dt, input);
     this.updateEntities(dt);
     if (this.boss) this.updateBoss(dt);
@@ -1258,6 +1279,18 @@ class PlatformerGame implements GameInstance {
     this.power[kind] = active;
     const ability = this.hud.abilities?.find((entry) => entry.kind === kind);
     if (ability) ability.active = active;
+  }
+
+  private showAbilityNotice(kind: PlatformerAbilityKind): void {
+    const name =
+      this.hud.abilities?.find((ability) => ability.kind === kind)?.name ??
+      kind.replace(/([a-z])([A-Z])/g, '$1 $2');
+    this.abilityNotice = {
+      text: `ABILITY: ${name}`.toUpperCase(),
+      x: this.playerCenterX(),
+      y: this.py,
+      elapsed: 0,
+    };
   }
 
   private killPlayer(): void {
@@ -1452,6 +1485,7 @@ class PlatformerGame implements GameInstance {
           e.active = false;
           const kind = e.props.kind ?? 'doubleJump';
           this.setAbilityActive(kind, true);
+          this.showAbilityNotice(kind);
           this.hud.score += this.spec.scoring.events.pickup;
           this.engine.sfx.play('powerup');
           this.engine.particles.burst(e.x + 6, e.y + 6, 14, {
@@ -2200,6 +2234,30 @@ class PlatformerGame implements GameInstance {
 
     // Close foreground scenery, drawn in front of gameplay (parallax > 1) for depth.
     this.backdrop.drawForeground(r.ctx, cam.x, cam.y);
+
+    if (this.abilityNotice) {
+      const notice = this.abilityNotice;
+      const { alpha, rise } = platformerAbilityNoticeFrame(notice.elapsed);
+      const scale = 1 / this.worldScale;
+      const textWidth = r.textWidth(notice.text, scale);
+      const halfWidth = textWidth / 2;
+      const x = Math.max(
+        halfWidth + 2 / this.worldScale,
+        Math.min(this.viewW - halfWidth - 2 / this.worldScale, notice.x - cam.x),
+      );
+      const y = Math.max(
+        2 / this.worldScale,
+        notice.y - cam.y - (12 + rise) / this.worldScale,
+      );
+      r.ctx.save();
+      r.ctx.globalAlpha = alpha;
+      r.text(notice.text, x + 1 / this.worldScale, y + 1 / this.worldScale, r.theme.panelBg, {
+        align: 'center',
+        scale,
+      });
+      r.text(notice.text, x, y, r.theme.heading, { align: 'center', scale });
+      r.ctx.restore();
+    }
   }
 
   private entitySprite(e: Ent): ResolvedSprite | null {

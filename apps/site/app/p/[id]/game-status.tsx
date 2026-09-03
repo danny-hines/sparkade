@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { PublicGame } from '@/lib/public-games';
+import { GameShareActions } from './game-share-actions';
 import { PublicGamePlayer } from './public-game-player';
 
 const STATUS_LABELS = {
@@ -62,6 +63,7 @@ export function GameStatus({ initialGame }: { initialGame: PublicGame }) {
           (game.status === 'queued' ? 'Your game has a home.' : 'Sparkade is building.')}
       </h1>
       <p className="portal-message">{game.message}</p>
+      {game.status === 'ready' ? <GameShareActions game={game} /> : null}
       {game.status === 'ready' && game.spec ? (
         <PublicGamePlayer id={game.id} spec={game.spec} assets={game.assets} />
       ) : game.status === 'ready' ? (

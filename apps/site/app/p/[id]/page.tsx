@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import { getPublicGame } from '@/lib/public-games';
+import { buildPublicGameMetadata } from '@/lib/public-game-sharing';
 import { GameStatus } from './game-status';
 
 type PublicGamePageProps = {
@@ -17,16 +18,7 @@ export async function generateMetadata({ params }: PublicGamePageProps): Promise
   const { id } = await params;
   const game = await findGame(id);
   if (!game) return { title: 'Game not found' };
-  const title = game.title ? `${game.title} — shared game` : `Game ${game.id.toUpperCase()}`;
-  const indexable = game.status === 'ready' && game.feedVisibility === 'listed';
-  return {
-    title,
-    description: game.status === 'ready' ? 'A Sparkade game, ready to play.' : game.message,
-    alternates: { canonical: `/p/${game.id}` },
-    manifest: `/p/${game.id}/manifest.webmanifest`,
-    robots: { index: indexable, follow: indexable },
-    openGraph: { title, description: game.message, url: `/p/${game.id}` },
-  };
+  return buildPublicGameMetadata(game);
 }
 
 export default async function PublicGamePage({ params }: PublicGamePageProps) {

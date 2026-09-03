@@ -7,6 +7,7 @@ import type {
   RuntimeGameAssetAvailability,
   RuntimeGameAssetFilename,
 } from '@sparkade/web/likeness-assets';
+import { dpadKeysAtPoint, type DpadKey } from './dpad-direction';
 
 type PlayerState = 'idle' | 'playing' | 'exited' | 'error';
 
@@ -57,6 +58,99 @@ function TouchButton({
     >
       {control.label}
     </button>
+  );
+}
+
+function TouchDpad() {
+  const activePointer = useRef<number | null>(null);
+  const heldKeys = useRef<Set<DpadKey>>(new Set());
+  const [activeKeys, setActiveKeys] = useState<Set<DpadKey>>(() => new Set());
+
+  const setDirection = (nextKeys: DpadKey[]) => {
+    const next = new Set(nextKeys);
+    for (const code of heldKeys.current) {
+      if (!next.has(code)) dispatchKey('keyup', code);
+    }
+    for (const code of next) {
+      if (!heldKeys.current.has(code)) dispatchKey('keydown', code);
+    }
+    heldKeys.current = next;
+    setActiveKeys(next);
+  };
+
+  const release = () => {
+    activePointer.current = null;
+    setDirection([]);
+  };
+
+  useEffect(() => {
+    const handleBlur = () => release();
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      window.removeEventListener('blur', handleBlur);
+      for (const code of heldKeys.current) dispatchKey('keyup', code);
+      heldKeys.current.clear();
+    };
+  }, []);
+
+  const updateDirection = (event: ReactPointerEvent<HTMLDivElement>) => {
+    setDirection(
+      dpadKeysAtPoint(
+        event.clientX,
+        event.clientY,
+        event.currentTarget.getBoundingClientRect(),
+      ),
+    );
+  };
+
+  const directionalButton = (
+    direction: 'up' | 'down' | 'left' | 'right',
+    code: DpadKey,
+  ) => (
+    <button
+      type="button"
+      className={`public-control public-control-${direction}`}
+      aria-label={TOUCH_CONTROLS[direction].action}
+      data-active={activeKeys.has(code)}
+      tabIndex={-1}
+    >
+      {TOUCH_CONTROLS[direction].label}
+    </button>
+  );
+
+  return (
+    <div
+      className="public-dpad"
+      onContextMenu={(event) => event.preventDefault()}
+      onPointerDown={(event) => {
+        if (activePointer.current !== null) return;
+        event.preventDefault();
+        activePointer.current = event.pointerId;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        updateDirection(event);
+      }}
+      onPointerMove={(event) => {
+        if (event.pointerId !== activePointer.current) return;
+        event.preventDefault();
+        updateDirection(event);
+      }}
+      onPointerUp={(event) => {
+        if (event.pointerId !== activePointer.current) return;
+        event.preventDefault();
+        release();
+      }}
+      onPointerCancel={(event) => {
+        if (event.pointerId === activePointer.current) release();
+      }}
+      onLostPointerCapture={(event) => {
+        if (event.pointerId === activePointer.current) release();
+      }}
+    >
+      {directionalButton('up', 'ArrowUp')}
+      {directionalButton('left', 'ArrowLeft')}
+      {directionalButton('right', 'ArrowRight')}
+      {directionalButton('down', 'ArrowDown')}
+    </div>
   );
 }
 
@@ -204,12 +298,7 @@ export function PublicGamePlayer({
       <div className="public-player-stage">
         <div className="public-control-rail" aria-label="Directional controls">
           <TouchButton control={TOUCH_CONTROLS.l} className="public-control-shoulder" />
-          <div className="public-dpad">
-            <TouchButton control={TOUCH_CONTROLS.up} className="public-control-up" />
-            <TouchButton control={TOUCH_CONTROLS.left} className="public-control-left" />
-            <TouchButton control={TOUCH_CONTROLS.right} className="public-control-right" />
-            <TouchButton control={TOUCH_CONTROLS.down} className="public-control-down" />
-          </div>
+          <TouchDpad />
           <TouchButton control={TOUCH_CONTROLS.select} className="public-control-system" />
         </div>
 

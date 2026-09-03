@@ -2085,6 +2085,18 @@ main {
   transform: translateY(1px);
 }
 
+.public-dpad .public-control:active {
+  color: var(--ink-soft);
+  background: rgba(24, 31, 57, 0.92);
+  transform: none;
+}
+
+.public-dpad .public-control[data-active='true'] {
+  color: var(--night);
+  background: var(--cyan);
+  transform: translateY(1px);
+}
+
 .public-control-up {
   grid-column: 2;
   grid-row: 1;

@@ -3008,7 +3008,25 @@ body.dev-gallery #root {
   display: flex;
   gap: 6px;
 }
-.ppl-timing-presets button {
+.ppl-timing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 12px;
+}
+.ppl-preview-mode {
+  display: flex;
+  gap: 6px;
+  padding-right: 12px;
+  border-right: 1px solid var(--line);
+}
+.ppl-dissolve-length {
+  display: flex;
+  gap: 4px;
+}
+.ppl-timing-presets button,
+.ppl-preview-mode button,
+.ppl-dissolve-length button {
   padding: 6px 8px;
   border: 1px solid var(--line);
   border-radius: 5px;
@@ -3017,9 +3035,16 @@ body.dev-gallery #root {
   font-size: 7px;
   cursor: pointer;
 }
-.ppl-timing-presets button.active {
+.ppl-timing-presets button.active,
+.ppl-preview-mode button.active,
+.ppl-dissolve-length button.active {
   border-color: var(--cyan);
   color: var(--cyan);
+  background: rgba(126, 232, 250, 0.08);
+}
+.ppl-dissolve-length button:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 .ppl-timing-controls > div {
   display: grid;
@@ -3211,6 +3236,18 @@ body.dev-gallery #root {
     12px -12px,
     -12px 0;
   background-size: 24px 24px;
+}
+.ppl-dissolve-frame {
+  position: relative;
+  width: 224px;
+  height: 256px;
+  isolation: isolate;
+}
+.ppl-dissolve-frame .ppl-sprite {
+  position: absolute;
+  inset: 0;
+  opacity: 0.5;
+  mix-blend-mode: plus-lighter;
 }
 .ppl-human-verdict {
   display: grid;

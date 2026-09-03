@@ -40,8 +40,14 @@ const STAGES: Array<{ id: PlatformerPoseLabStage; label: string; note: string }>
 ];
 
 export type PlatformerPosePreviewDurations = [number, number, number, number];
+export interface PlatformerPosePreviewStep {
+  id: string;
+  blendFromId?: string;
+  durationMs: number;
+}
 
 const DEFAULT_PREVIEW_DURATIONS: PlatformerPosePreviewDurations = [140, 70, 140, 70];
+export const PLATFORMER_POSE_DISSOLVE_DURATION_MS = 1000 / 60;
 const PREVIEW_TIMING_LABELS = ['Phase A', 'Idle after A', 'Phase B', 'Idle after B'] as const;
 
 /** A neutral side silhouette separates the two contacts so subtle foreground
@@ -64,8 +70,61 @@ export function platformerPosePreviewFrameDuration(
   return durations[durationIndex]!;
 }
 
-function previewFrameLabel(id: string | undefined): string {
+/** Match the runtime's one-tick side-idle/contact dissolve while preserving
+ * each user-selected beat's total duration. */
+export function platformerPosePreviewTimeline(
+  sequence: readonly string[],
+  durations: PlatformerPosePreviewDurations,
+  dissolve: boolean,
+  dissolveFrames = 1,
+): PlatformerPosePreviewStep[] {
+  return sequence.flatMap((id, index) => {
+    const durationMs = platformerPosePreviewFrameDuration(index, sequence.length, durations);
+    const blendFromId = sequence[(index + sequence.length - 1) % sequence.length];
+    const eligible =
+      dissolve &&
+      sequence.length === 4 &&
+      blendFromId !== id &&
+      (blendFromId === 'side-anchor' || id === 'side-anchor');
+    if (!eligible) return [{ id, durationMs }];
+    const dissolveDurationMs = Math.min(
+      durationMs,
+      PLATFORMER_POSE_DISSOLVE_DURATION_MS * Math.max(1, Math.min(3, dissolveFrames)),
+    );
+    const remainingDurationMs = durationMs - dissolveDurationMs;
+    const steps: PlatformerPosePreviewStep[] = [
+      { id, blendFromId, durationMs: dissolveDurationMs },
+    ];
+    if (remainingDurationMs > 0) steps.push({ id, durationMs: remainingDurationMs });
+    return steps;
+  });
+}
+
+function previewPoseLabel(id: string | undefined): string {
   return id === 'side-anchor' ? 'SIDE IDLE' : (id ?? '');
+}
+
+function previewFrameLabel(step: PlatformerPosePreviewStep | undefined): string {
+  if (!step) return '';
+  return step.blendFromId
+    ? `DISSOLVE · ${previewPoseLabel(step.blendFromId)} + ${previewPoseLabel(step.id)}`
+    : previewPoseLabel(step.id);
+}
+
+function PreviewSprite(props: {
+  asset: AssetView;
+  blendFrom?: AssetView;
+  label: string;
+}): ComponentChildren {
+  if (!props.blendFrom?.processedUrl) {
+    return <img class="ppl-sprite" src={props.asset.processedUrl} alt={props.label} />;
+  }
+  return (
+    <div class="ppl-dissolve-frame" role="img" aria-label={props.label}>
+      <img class="ppl-sprite" src={props.blendFrom.processedUrl} alt="" />
+      <img class="ppl-sprite" src={props.asset.processedUrl} alt="" />
+    </div>
+  );
 }
 
 function stringValue(value: unknown): string | undefined {
@@ -453,6 +512,8 @@ export function PlatformerPosesLabScreen(): ComponentChildren {
   const [previewDurations, setPreviewDurations] = useState<PlatformerPosePreviewDurations>([
     ...DEFAULT_PREVIEW_DURATIONS,
   ]);
+  const [dissolvePreview, setDissolvePreview] = useState(true);
+  const [dissolveFrames, setDissolveFrames] = useState<1 | 2 | 3>(3);
   const [humanPhaseA, setHumanPhaseA] = useState('');
   const [humanPhaseB, setHumanPhaseB] = useState('');
   const [humanNotes, setHumanNotes] = useState('');
@@ -625,22 +686,39 @@ export function PlatformerPosesLabScreen(): ComponentChildren {
     hasSideIdle,
   );
   const humanPreviewSequence = platformerPosePreviewSequence(humanPhaseA, humanPhaseB, hasSideIdle);
-  const sparkPreviewId = sparkPreviewSequence.length
-    ? sparkPreviewSequence[frame % sparkPreviewSequence.length]
+  const sparkPreviewTimeline = platformerPosePreviewTimeline(
+    sparkPreviewSequence,
+    previewDurations,
+    dissolvePreview,
+    dissolveFrames,
+  );
+  const humanPreviewTimeline = platformerPosePreviewTimeline(
+    humanPreviewSequence,
+    previewDurations,
+    dissolvePreview,
+    dissolveFrames,
+  );
+  const sparkPreviewStep = sparkPreviewTimeline.length
+    ? sparkPreviewTimeline[frame % sparkPreviewTimeline.length]
     : undefined;
-  const humanPreviewId = humanPreviewSequence.length
-    ? humanPreviewSequence[frame % humanPreviewSequence.length]
+  const humanPreviewStep = humanPreviewTimeline.length
+    ? humanPreviewTimeline[frame % humanPreviewTimeline.length]
     : undefined;
-  const chosenAsset = sparkPreviewId ? assets.get(sparkPreviewId) : undefined;
-  const humanPreviewAsset = humanPreviewId ? assets.get(humanPreviewId) : undefined;
-  const activePreviewLength = sparkPreviewSequence.length || humanPreviewSequence.length;
-  const activeFrameIndex = activePreviewLength ? frame % activePreviewLength : 0;
+  const chosenAsset = sparkPreviewStep ? assets.get(sparkPreviewStep.id) : undefined;
+  const chosenBlendFromAsset = sparkPreviewStep?.blendFromId
+    ? assets.get(sparkPreviewStep.blendFromId)
+    : undefined;
+  const humanPreviewAsset = humanPreviewStep ? assets.get(humanPreviewStep.id) : undefined;
+  const humanBlendFromAsset = humanPreviewStep?.blendFromId
+    ? assets.get(humanPreviewStep.blendFromId)
+    : undefined;
+  const activePreviewStep = sparkPreviewStep ?? humanPreviewStep;
 
   useEffect(() => {
-    if (sparkPreviewSequence.length === 0 && humanPreviewSequence.length === 0) return;
+    if (!activePreviewStep) return;
     const timer = window.setTimeout(
       () => setFrame((value) => value + 1),
-      platformerPosePreviewFrameDuration(activeFrameIndex, activePreviewLength, previewDurations),
+      activePreviewStep.durationMs,
     );
     return () => window.clearTimeout(timer);
   }, [
@@ -651,6 +729,8 @@ export function PlatformerPosesLabScreen(): ComponentChildren {
     humanPhaseB,
     hasSideIdle,
     previewDurations,
+    dissolvePreview,
+    dissolveFrames,
   ]);
 
   const choosePhoto = (file: File): void => {
@@ -1095,16 +1175,19 @@ export function PlatformerPosesLabScreen(): ComponentChildren {
                     <div class="ppl-animation">
                       <span>
                         A {previewDurations[0]}ms → idle {previewDurations[1]}ms → B{' '}
-                        {previewDurations[2]}ms → idle {previewDurations[3]}ms
+                        {previewDurations[2]}ms → idle {previewDurations[3]}ms ·{' '}
+                        {dissolvePreview
+                          ? `${dissolveFrames}f / ${Math.round(PLATFORMER_POSE_DISSOLVE_DURATION_MS * dissolveFrames)}ms dissolve`
+                          : 'hard cuts'}
                       </span>
                       <div>
-                        <img
-                          class="ppl-sprite"
-                          src={chosenAsset.processedUrl}
-                          alt={`Animated selected ${chosenAsset.kind} frame`}
+                        <PreviewSprite
+                          asset={chosenAsset}
+                          blendFrom={chosenBlendFromAsset}
+                          label={`Animated selected ${chosenAsset.kind} frame`}
                         />
                       </div>
-                      <small>{previewFrameLabel(sparkPreviewId)}</small>
+                      <small>{previewFrameLabel(sparkPreviewStep)}</small>
                     </div>
                   )}
                 </div>
@@ -1115,32 +1198,81 @@ export function PlatformerPosesLabScreen(): ComponentChildren {
                   <header>
                     <div>
                       <strong>Animation timing</strong>
-                      <span>Adjust each beat while watching the previews above and below.</span>
+                      <span>
+                        Dissolve time replaces the start of each pose hold, so cycle speed stays
+                        fixed.
+                      </span>
                     </div>
-                    <div class="ppl-timing-presets">
-                      {[
-                        { label: 'Snappy', durations: [110, 50, 110, 50] },
-                        { label: 'Balanced', durations: [140, 70, 140, 70] },
-                        { label: 'Readable', durations: [170, 80, 170, 80] },
-                      ].map((preset) => (
+                    <div class="ppl-timing-actions">
+                      <div class="ppl-preview-mode" role="group" aria-label="Transition preview">
                         <button
                           type="button"
-                          class={
-                            previewDurations.every(
-                              (duration, index) => duration === preset.durations[index],
-                            )
-                              ? 'active'
-                              : ''
-                          }
+                          class={!dissolvePreview ? 'active' : ''}
+                          aria-pressed={!dissolvePreview}
                           onClick={() => {
-                            setPreviewDurations(preset.durations as PlatformerPosePreviewDurations);
+                            setDissolvePreview(false);
                             setFrame(0);
                           }}
-                          key={preset.label}
                         >
-                          {preset.label}
+                          Hard cuts
                         </button>
-                      ))}
+                        <button
+                          type="button"
+                          class={dissolvePreview ? 'active' : ''}
+                          aria-pressed={dissolvePreview}
+                          onClick={() => {
+                            setDissolvePreview(true);
+                            setFrame(0);
+                          }}
+                        >
+                          Dissolve
+                        </button>
+                      </div>
+                      <div class="ppl-dissolve-length" role="group" aria-label="Dissolve duration">
+                        {([1, 2, 3] as const).map((frames) => (
+                          <button
+                            type="button"
+                            class={dissolveFrames === frames ? 'active' : ''}
+                            aria-pressed={dissolveFrames === frames}
+                            disabled={!dissolvePreview}
+                            title={frames === 1 ? 'Current gameplay duration' : undefined}
+                            onClick={() => {
+                              setDissolveFrames(frames);
+                              setFrame(0);
+                            }}
+                            key={frames}
+                          >
+                            {frames}f{frames === 1 ? ' runtime' : ''}
+                          </button>
+                        ))}
+                      </div>
+                      <div class="ppl-timing-presets">
+                        {[
+                          { label: 'Snappy', durations: [110, 50, 110, 50] },
+                          { label: 'Balanced', durations: [140, 70, 140, 70] },
+                          { label: 'Readable', durations: [170, 80, 170, 80] },
+                        ].map((preset) => (
+                          <button
+                            type="button"
+                            class={
+                              previewDurations.every(
+                                (duration, index) => duration === preset.durations[index],
+                              )
+                                ? 'active'
+                                : ''
+                            }
+                            onClick={() => {
+                              setPreviewDurations(
+                                preset.durations as PlatformerPosePreviewDurations,
+                              );
+                              setFrame(0);
+                            }}
+                            key={preset.label}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </header>
                   <div>
@@ -1257,16 +1389,19 @@ export function PlatformerPosesLabScreen(): ComponentChildren {
                     <div class="ppl-animation">
                       <span>
                         A {previewDurations[0]}ms → idle {previewDurations[1]}ms → B{' '}
-                        {previewDurations[2]}ms → idle {previewDurations[3]}ms
+                        {previewDurations[2]}ms → idle {previewDurations[3]}ms ·{' '}
+                        {dissolvePreview
+                          ? `${dissolveFrames}f / ${Math.round(PLATFORMER_POSE_DISSOLVE_DURATION_MS * dissolveFrames)}ms dissolve`
+                          : 'hard cuts'}
                       </span>
                       <div>
-                        <img
-                          class="ppl-sprite"
-                          src={humanPreviewAsset.processedUrl}
-                          alt={`Human-selected ${humanPreviewAsset.kind} frame`}
+                        <PreviewSprite
+                          asset={humanPreviewAsset}
+                          blendFrom={humanBlendFromAsset}
+                          label={`Human-selected ${humanPreviewAsset.kind} frame`}
                         />
                       </div>
-                      <small>{previewFrameLabel(humanPreviewId)}</small>
+                      <small>{previewFrameLabel(humanPreviewStep)}</small>
                     </div>
                   )}
                 </div>

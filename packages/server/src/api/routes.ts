@@ -29,7 +29,7 @@ import type { ConfigStore } from '../storage/config';
 import type { Db } from '../storage/db';
 import type { GameFiles } from '../storage/files';
 import { connectWifi, listNetworks, wifiStatus } from '../system/wifi';
-import { checkForUpdate, startUpdate } from '../system/update';
+import { checkForUpdate, getUpdateStatus, startUpdate } from '../system/update';
 import { piMode, primaryIp } from '../util';
 import { LIKENESS_ASSET_FILES } from '../likeness/likeness';
 import { registerDevAssetRoutes } from './dev-assets';
@@ -645,6 +645,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
 
     // ---- self-update (cabinet only) --------------------------------------------
     app.get('/api/system/update/check', async () => checkForUpdate(ctx.version));
+    app.get('/api/system/update/status', async () => getUpdateStatus());
     app.post('/api/system/update', async (_req, reply) => {
       const res = startUpdate(join(files.dir, 'update.log'));
       if (!res.started)

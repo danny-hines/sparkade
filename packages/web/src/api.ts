@@ -18,6 +18,7 @@ import {
   type PublicGameLink,
   type PublicGamePublication,
   type ScoreRow,
+  type SoftwareUpdateStatus,
   type SystemInfo,
   type WifiNetwork,
   type WifiStatus,
@@ -547,6 +548,7 @@ export const api = {
     fetch('/api/system/update/check').then((r) =>
       json<{ current: string; latest: string | null; available: boolean; error?: string }>(r),
     ),
+  updateStatus: () => fetch('/api/system/update/status').then((r) => json<SoftwareUpdateStatus>(r)),
   updateInstall: () =>
     fetch('/api/system/update', { method: 'POST' }).then((r) => json<{ started: boolean }>(r)),
   cloudRegistration: () =>

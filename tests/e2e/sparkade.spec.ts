@@ -26,6 +26,62 @@ test('boots to attract; key screens produce no uncaught console errors', async (
   expect(errors).toEqual([]);
 });
 
+test('Settings rail scrolls with controller navigation at cabinet height', async ({ page }) => {
+  await toMenu(page);
+
+  // Settings is last in the launcher; the forced-Pi fixture has all seven tabs.
+  await tap(page, 'ArrowUp');
+  await tap(page, 'KeyX');
+  const rail = page.locator('.settings-tabs');
+  await expect(rail.locator('.settings-tab')).toHaveCount(7);
+  const cloud = rail.locator('.settings-tab', { hasText: 'Cloud' });
+  await expect(cloud).toHaveText('Cloud');
+  expect(await cloud.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+
+  // Moving to the final tab must scroll the bounded rail and keep focus visible.
+  await tap(page, 'ArrowDown', 6);
+  const focused = rail.locator('.settings-tab.focused');
+  await expect(focused).toHaveText('Model info');
+  const metrics = await rail.evaluate((element) => {
+    const active = element.querySelector('.settings-tab.focused');
+    const railRect = element.getBoundingClientRect();
+    const activeRect = active?.getBoundingClientRect();
+    return {
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      scrollTop: element.scrollTop,
+      railTop: railRect.top,
+      railBottom: railRect.bottom,
+      activeTop: activeRect?.top ?? -1,
+      activeBottom: activeRect?.bottom ?? -1,
+    };
+  });
+  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+  expect(metrics.scrollTop).toBeGreaterThan(0);
+  expect(metrics.activeTop).toBeGreaterThanOrEqual(metrics.railTop);
+  expect(metrics.activeBottom).toBeLessThanOrEqual(metrics.railBottom);
+});
+
+test('Settings reports a detached software-update failure', async ({ page }) => {
+  await page.route('**/api/system/update/status', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        state: 'failed',
+        message: 'Update failed with exit code 1. Details are in /tmp/update.log.',
+      }),
+    }),
+  );
+  await toMenu(page);
+
+  await tap(page, 'ArrowUp');
+  await tap(page, 'KeyX');
+  await expect(page.locator('.settings-tab')).toHaveCount(7);
+  await tap(page, 'ArrowDown', 5);
+
+  await expect(page.getByText('Update failed with exit code 1.')).toBeVisible();
+});
+
 test('WiFi flow can always cancel, retry a wrong password, and connect', async ({ page }) => {
   const errors = trackErrors(page);
   await toMenu(page);

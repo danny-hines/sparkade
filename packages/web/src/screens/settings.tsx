@@ -5,6 +5,7 @@ import type { ComponentChildren } from 'preact';
 import {
   LOGICAL_BUTTONS,
   type KioskRegistrationStatus,
+  type SoftwareUpdateStatus,
   type SystemInfo,
   type WifiNetwork,
 } from '@sparkade/shared';
@@ -56,7 +57,7 @@ export function SettingsScreen(props: {
     { id: 'audio', label: 'Audio' },
     { id: 'devices', label: 'Camera & Mic' },
     ...(info?.isPi ? [{ id: 'wifi' as Tab, label: 'WiFi' }] : []),
-    { id: 'registration', label: 'Registration' },
+    { id: 'registration', label: 'Cloud' },
     { id: 'system', label: 'System info' },
     { id: 'model', label: 'Model info' },
   ];
@@ -84,6 +85,7 @@ export function SettingsScreen(props: {
   const wifiConnectSeq = useRef(0);
   const wifiListRef = useRef<HTMLDivElement>(null);
   const deviceListRef = useRef<HTMLDivElement>(null);
+  const settingsTabsRef = useRef<HTMLDivElement>(null);
   const systemRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef({
     tab,
@@ -248,6 +250,15 @@ export function SettingsScreen(props: {
     setPanelCursor(networks.length);
   }, [tab, networks, panelCursor]);
 
+  // The Pi has one more tab than desktop. Keep controller navigation usable at
+  // the fixed 600px cabinet height by revealing the selected tab as it moves.
+  useEffect(() => {
+    if (zone !== 'tabs') return;
+    settingsTabsRef.current
+      ?.querySelector('.settings-tab.focused')
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [tab, zone, info?.isPi]);
+
   // The System-info tab can overflow (long data dir + update section); keep the
   // update button in view once it's focused.
   useEffect(() => {
@@ -309,6 +320,38 @@ export function SettingsScreen(props: {
         setUpMsg(e.message);
       });
   };
+
+  const applyUpdateStatus = useCallback((status: SoftwareUpdateStatus) => {
+    if (status.state === 'running') {
+      setUpState('installing');
+    } else if (status.state === 'failed') {
+      setUpState('error');
+      setUpMsg(status.message);
+    } else if (status.state === 'succeeded') {
+      setUpState('uptodate');
+      setUpMsg('Update finished. Waiting for the cabinet to reload…');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab !== 'system' || !info?.isPi) return;
+    void api
+      .updateStatus()
+      .then(applyUpdateStatus)
+      .catch(() => {});
+  }, [applyUpdateStatus, info?.isPi, tab]);
+
+  useEffect(() => {
+    if (upState !== 'installing') return;
+    const interval = window.setInterval(() => {
+      void api
+        .updateStatus()
+        .then(applyUpdateStatus)
+        .catch(() => {});
+    }, 2_000);
+    return () => window.clearInterval(interval);
+  }, [applyUpdateStatus, upState]);
+
   // A on the System-info update button: check first, install once one is found.
   const updateAction = (state: typeof upState) => {
     if (state === 'checking' || state === 'installing') return;
@@ -538,7 +581,7 @@ export function SettingsScreen(props: {
         <h2 class="pixel">SETTINGS</h2>
       </div>
       <div class="screen-body settings-layout">
-        <div class="settings-tabs">
+        <div class="settings-tabs" ref={settingsTabsRef}>
           {tabs.map((t) => (
             <div
               key={t.id}

@@ -1021,6 +1021,12 @@ export interface SystemInfo {
   gameCount: number;
 }
 
+export type SoftwareUpdateStatus =
+  | { state: 'idle' }
+  | { state: 'running' }
+  | { state: 'succeeded' }
+  | { state: 'failed'; message: string };
+
 export interface WifiNetwork {
   ssid: string;
   signal: number;

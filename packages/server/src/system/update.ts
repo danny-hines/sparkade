@@ -10,9 +10,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, openSync } from 'node:fs';
 import { join } from 'node:path';
+import type { SoftwareUpdateStatus } from '@sparkade/shared';
 import { repoRoot } from '../util';
 
 let updating = false;
+let lastUpdateStatus: SoftwareUpdateStatus = { state: 'idle' };
 
 export interface UpdateCheck {
   current: string;
@@ -53,12 +55,21 @@ export function checkForUpdate(current: string): UpdateCheck {
     const available = !!remoteHead && remoteHead !== localHead;
     return { current, latest: available ? label : current, available };
   } catch (e) {
-    return { current, latest: null, available: false, error: e instanceof Error ? e.message : 'check failed' };
+    return {
+      current,
+      latest: null,
+      available: false,
+      error: e instanceof Error ? e.message : 'check failed',
+    };
   }
 }
 
 export function updateInProgress(): boolean {
   return updating;
+}
+
+export function getUpdateStatus(): SoftwareUpdateStatus {
+  return lastUpdateStatus;
 }
 
 /** Launch `sparkade update` detached. Returns immediately; the process outlives
@@ -83,18 +94,30 @@ export function startUpdate(logPath: string): { started: boolean; reason?: strin
       env: { ...process.env, PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' },
     });
     updating = true;
+    lastUpdateStatus = { state: 'running' };
     // On a successful update the service restarts and kills us first; if it fails
     // before that (offline, bad build), the child exits and we clear the flag so
     // the button isn't wedged. A stale in-memory flag also resets on restart.
-    child.on('exit', () => {
+    child.on('exit', (code, signal) => {
       updating = false;
+      lastUpdateStatus =
+        code === 0
+          ? { state: 'succeeded' }
+          : {
+              state: 'failed',
+              message: `Update failed${code !== null ? ` with exit code ${code}` : signal ? ` after signal ${signal}` : ''}. Details are in ${logPath}.`,
+            };
     });
-    child.on('error', () => {
+    child.on('error', (error) => {
       updating = false;
+      lastUpdateStatus = { state: 'failed', message: `Update could not start: ${error.message}` };
     });
     child.unref();
     return { started: true };
   } catch (e) {
-    return { started: false, reason: e instanceof Error ? e.message : 'could not start the updater' };
+    return {
+      started: false,
+      reason: e instanceof Error ? e.message : 'could not start the updater',
+    };
   }
 }

@@ -244,14 +244,22 @@ function cmdUpdate(): void {
   // runs; downloading it is a big time sink on the Pi's network.
   process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = '1';
   // Incremental install: `npm ci` wipes node_modules and reinstalls everything
-  // every run (slow SD-card I/O on a Pi). Only reinstall when the lockfile
-  // actually changed; a source-only update then goes straight to the build.
+  // every run (slow SD-card I/O on a Pi). Reinstall when the lockfile changed
+  // or a prior production-only install omitted the required build tool.
   // (The installer still uses `npm ci` for a clean first install.)
   const depsChanged = lockId() !== lockBefore;
-  if (depsChanged || !existsSync(join(dir, 'node_modules'))) {
-    console.log('dependencies changed — installing …');
+  const buildToolMissing = !existsSync(join(dir, 'node_modules', 'vite', 'package.json'));
+  if (depsChanged || !existsSync(join(dir, 'node_modules')) || buildToolMissing) {
+    console.log(
+      depsChanged
+        ? 'dependencies changed — installing …'
+        : 'build dependencies missing — installing …',
+    );
     try {
-      sh('npm', ['install', '--no-audit', '--no-fund'], { cwd: dir });
+      // The in-app updater inherits NODE_ENV=production from systemd. Vite is a
+      // development dependency but is required to build the production bundle,
+      // so explicitly include build dependencies instead of letting npm omit it.
+      sh('npm', ['install', '--include=dev', '--no-audit', '--no-fund'], { cwd: dir });
     } finally {
       // Keep the working tree clean even when npm fails or is interrupted, so
       // the next `git pull --ff-only` is not wedged by generated lockfile drift.
@@ -278,7 +286,8 @@ function cmdUpdate(): void {
     }
   }
   console.log('restarting service (the kiosk reloads itself via version poll) …');
-  tryRun('sudo', ['-n', 'systemctl', 'restart', SERVICE]);
+  const restarted = tryRun('sudo', ['-n', 'systemctl', 'restart', SERVICE]);
+  if (!restarted.ok) throw new Error(`service restart failed: ${restarted.out}`);
   console.log('update complete. The data dir was not touched.');
 }
 

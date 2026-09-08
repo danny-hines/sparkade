@@ -25,6 +25,14 @@ import {
   type Solidity,
 } from '@sparkade/engine';
 import {
+  platformerPlayStyle,
+  platformerChargeShot,
+  PLATFORMER_CHARGED_SHOT,
+  platformerMechanics,
+  platformerTowerLevel,
+  requiredPlatformerActionPoses,
+  type PlatformerActionPose,
+  type PlatformerPose,
   FEEL,
   INTERNAL_HEIGHT,
   INTERNAL_WIDTH,
@@ -41,7 +49,16 @@ import {
   type PlatformerTileType,
   type ResolvedPlatformerMovement,
 } from '@sparkade/shared';
+import {
+  platformerActionFrame,
+  platformerBlasterFacing,
+  platformerPoseBounds,
+  platformerWallDrawX,
+  type PlatformerPoseBounds,
+} from './poses';
 import { surfaceDecorations } from './decor';
+import { drawPixelCharge, drawPixelStrike } from './effects';
+import { stepTowerMotion, TOWER_MOTION, type TowerMotion } from './tower-motion';
 import {
   isSolidInnerLibraryId,
   platformNeighborMask,
@@ -73,6 +90,18 @@ const STOMP_BOUNCE = -230;
 const SPIN_BOUNCE = -280;
 const CONVEYOR_SPEED = 42;
 const PLAYER_FRONT_IDLE_DELAY_S = 1;
+
+export function platformerStrikeBox(
+  player: { x: number; y: number; w: number; h: number },
+  facing: number,
+) {
+  return {
+    x: facing > 0 ? player.x + player.w / 2 : player.x + player.w / 2 - 34,
+    y: player.y + 3,
+    w: 34,
+    h: player.h - 6,
+  };
+}
 
 export type PlatformerSurfaceMaterial = 'normal' | 'ice' | 'conveyorLeft' | 'conveyorRight';
 
@@ -199,6 +228,8 @@ interface Proj {
   grav: boolean;
   t: number;
   trailT: number;
+  damage: number;
+  hitsLeft: number;
 }
 
 interface OutlinedMovingPlatformFrame {
@@ -215,7 +246,10 @@ interface BossAttackState {
 
 const PLATFORMER_PLAYER_POSES = ['idle', 'sideIdle', 'walk1', 'walk2', 'jump'] as const;
 type PlatformerPlayerPose = (typeof PLATFORMER_PLAYER_POSES)[number];
-type GeneratedPlatformerPoses = Readonly<Record<PlatformerPlayerPose, CanvasImageSource>>;
+type GeneratedPlatformerPoses = Readonly<
+  Record<PlatformerPlayerPose, CanvasImageSource> &
+    Partial<Record<PlatformerActionPose, CanvasImageSource>>
+>;
 const GENERATED_PLAYER_FALLBACK_DRAW_W = 24;
 const GENERATED_PLAYER_FALLBACK_DRAW_H = 32;
 const GENERATED_PLAYER_GROUND_OVERLAP = 2;
@@ -444,13 +478,14 @@ export function generatedPlatformerPropDrawRect(
  * pixel densities when one asset is missing or fails to load. */
 export function completeGeneratedPlatformerPoses(
   poses: Readonly<Record<string, CanvasImageSource>> | null,
+  requiredActions: readonly PlatformerActionPose[] = [],
 ): GeneratedPlatformerPoses | null {
   if (!poses) return null;
-  const complete = {} as Record<PlatformerPlayerPose, CanvasImageSource>;
-  for (const pose of PLATFORMER_PLAYER_POSES) {
+  const complete = { ...poses } as Record<PlatformerPlayerPose, CanvasImageSource>;
+  for (const pose of [...PLATFORMER_PLAYER_POSES, ...requiredActions]) {
     const image = poses[pose];
     if (!image) return null;
-    complete[pose] = image;
+    // The spread preserves optional action poses on older saves.
   }
   return complete;
 }
@@ -521,6 +556,8 @@ class PlatformerGame implements GameInstance {
     grav: false,
     t: 0,
     trailT: 0,
+    damage: 1,
+    hitsLeft: 1,
   }));
 
   // player
@@ -541,6 +578,33 @@ class PlatformerGame implements GameInstance {
   private airJumpUsed = false;
   private invulnT = 0;
   private throwCooldown = 0;
+  private charge = 0;
+  private shotPoseT = 0;
+  private aimUp = false;
+  private shotUp = false;
+  private shotFacing = 1;
+  private meleeT = 0;
+  private meleeActiveStarted = false;
+  private meleeHits = new Set<Ent>();
+  private meleeFacing = 1;
+  private towerMotion: TowerMotion | null = null;
+
+  private get playStyle() {
+    return platformerPlayStyle(this.spec);
+  }
+  private get kit() {
+    return platformerMechanics(this.spec);
+  }
+  private get blasterFacing() {
+    return platformerBlasterFacing(this.facing, this.onGround, this.towerMotion?.wall ?? 0);
+  }
+  private get canStomp() {
+    return this.kit.combat === 'stomp';
+  }
+  private get meleeActive() {
+    return this.kit.combat === 'melee' && this.meleeT <= 0.36 && this.meleeT > 0.2;
+  }
+
   private power = { doubleJump: false, projectile: false, shield: false };
   private checkpoint: { x: number; y: number } | null = null;
   private animT = 0;
@@ -557,7 +621,8 @@ class PlatformerGame implements GameInstance {
 
   private sprites: Record<string, ResolvedSprite> = {};
   private generatedPlayerPoses: GeneratedPlatformerPoses;
-  private playerAuras: Readonly<Record<PlatformerPlayerPose, SilhouetteAura>>;
+  private poseBounds: Partial<Record<PlatformerPose, PlatformerPoseBounds>> = {};
+  private playerAuras: Readonly<Record<PlatformerPose, SilhouetteAura>>;
   private bossAuras = new Map<CanvasImageSource, SilhouetteAura>();
   private generatedBoss: CanvasImageSource | null = null;
   private generatedEnemies: Readonly<Record<string, CanvasImageSource>> | null = null;
@@ -610,19 +675,27 @@ class PlatformerGame implements GameInstance {
     const body = platformerPlayerBody(this.spec.playerHeightTiles, this.spec.platformerScale);
     this.playerW = body.w;
     this.playerH = body.h;
-    const generatedPlayerPoses = completeGeneratedPlatformerPoses(this.engine.platformerPoses);
+    const generatedPlayerPoses = completeGeneratedPlatformerPoses(
+      this.engine.platformerPoses,
+      this.spec.actionPoseVersion === 1 ? requiredPlatformerActionPoses(this.spec) : [],
+    );
     if (!generatedPlayerPoses) {
       throw new Error('Platformer games require a complete generated player pose set');
     }
     this.generatedPlayerPoses = generatedPlayerPoses;
+    this.poseBounds = Object.fromEntries(
+      Object.entries(generatedPlayerPoses).map(([pose, image]) => [
+        pose,
+        platformerPoseBounds(image),
+      ]),
+    );
     const shieldColor = this.spec.palette[14] ?? '#94e7ff';
     this.playerAuras = Object.fromEntries(
-      PLATFORMER_PLAYER_POSES.map((pose) => {
-        const image = generatedPlayerPoses[pose];
+      Object.entries(generatedPlayerPoses).map(([pose, image]) => {
         const size = generatedImageDrawSize(image);
         return [pose, createSilhouetteAura(image, size.w, size.h, shieldColor, 3)];
       }),
-    ) as unknown as Readonly<Record<PlatformerPlayerPose, SilhouetteAura>>;
+    ) as unknown as Readonly<Record<PlatformerPose, SilhouetteAura>>;
     this.generatedBoss = this.engine.platformerBoss;
     const bossSprite = this.sprites['boss']!;
     const bossAuraColor = this.spec.palette[11] ?? '#ef7d57';
@@ -1083,6 +1156,13 @@ class PlatformerGame implements GameInstance {
     this.noHorizontalInputT = 0;
     this.invulnT = 0;
     this.abilityNotice = null;
+    this.charge = 0;
+    this.meleeT = 0;
+    this.meleeHits.clear();
+    this.shotPoseT = 0;
+    this.throwCooldown = 0;
+    this.towerMotion = null;
+    if (this.kit.combat === 'blaster') this.setAbilityActive('projectile', true);
   }
 
   // ----------------------------------------------------------------- update
@@ -1124,70 +1204,124 @@ class PlatformerGame implements GameInstance {
   }
 
   private updatePlayer(dt: number, input: InputSnapshot): void {
-    const run = input.X.held || input.Y.held;
-    const target = (input.LEFT.held ? -1 : 0) + (input.RIGHT.held ? 1 : 0);
+    const style = this.playStyle;
+    const kit = this.kit;
+    const combat = kit.combat !== 'stomp';
+    this.aimUp = input.UP.held;
+    const run = combat ? input.B.held : input.X.held || input.Y.held;
+    const target =
+      kit.combat === 'melee' && this.meleeT > 0 && this.onGround
+        ? 0
+        : (input.LEFT.held ? -1 : 0) + (input.RIGHT.held ? 1 : 0);
+    const jumpPressed = input.A.pressed || (!combat && input.B.pressed);
+    this.shotPoseT = Math.max(0, this.shotPoseT - dt);
+    this.meleeT = Math.max(0, this.meleeT - dt);
     this.horizontalIntent = target;
     this.noHorizontalInputT = target === 0 ? this.noHorizontalInputT + dt : 0;
-    if (target !== 0) this.facing = target;
-    const maxSpeed = run ? this.run : this.walk;
-    const surface = this.playerSurfaceMaterial();
-    this.pvx = stepPlatformerHorizontalVelocity(
-      this.pvx,
-      target,
-      maxSpeed,
-      dt,
-      this.onGround,
-      this.movement,
-      surface,
-    );
+    if (target !== 0 && !(kit.combat === 'melee' && this.meleeT > 0)) this.facing = target;
+    if (kit.traversal === 'wallJump') {
+      const previous = this.towerMotion ?? { wall: 0, lock: 0, coyote: 0, buffer: 0 };
+      const beforeVy = this.pvy;
+      this.towerMotion = stepTowerMotion(
+        {
+          cols: this.grid.cols,
+          rows: this.grid.rows,
+          tileSize: TILE_SIZE,
+          solidityAt: (x, y) => this.solidity(x, y),
+        },
+        {
+          ...previous,
+          x: this.px,
+          y: this.py,
+          w: this.playerW,
+          h: this.playerH,
+          vx: this.pvx,
+          vy: this.pvy,
+          grounded: this.onGround,
+        },
+        {
+          direction: target,
+          run,
+          jump: jumpPressed,
+          release: input.A.released || (!combat && input.B.released),
+          drop: input.DOWN.held && jumpPressed,
+        },
+        dt,
+        this.ents.filter((entity) => entity.active && entity.type === 'movingPlatform'),
+      );
+      const moved = this.towerMotion;
+      this.px = moved.x;
+      this.py = moved.y;
+      this.pvx = moved.vx;
+      this.pvy = moved.vy;
+      this.onGround = moved.grounded;
+      this.spinning = false;
+      if (moved.vy < beforeVy - 100) this.engine.sfx.play('jump');
+    } else {
+      const maxSpeed = run ? this.run : this.walk;
+      const surface = this.playerSurfaceMaterial();
+      this.pvx = stepPlatformerHorizontalVelocity(
+        this.pvx,
+        target,
+        maxSpeed,
+        dt,
+        this.onGround,
+        this.movement,
+        surface,
+      );
 
-    // jump buffering + coyote time
-    this.coyoteT = this.onGround ? FEEL.coyoteMs / 1000 : Math.max(0, this.coyoteT - dt);
-    this.jumpBufT = Math.max(0, this.jumpBufT - dt);
-    const jumpPressed = input.B.pressed || input.A.pressed;
-    if (jumpPressed) this.jumpBufT = FEEL.jumpBufferMs / 1000;
-    if (this.jumpBufT > 0 && (this.onGround || this.coyoteT > 0)) {
-      this.pvy = this.jumpV;
-      this.spinning = input.B.pressed || (input.B.held && !input.A.held);
-      this.jumpBufT = 0;
-      this.coyoteT = 0;
-      this.airJumpUsed = false;
-      this.engine.sfx.play('jump');
-    } else if (this.jumpBufT > 0 && this.power.doubleJump && !this.airJumpUsed && !this.onGround) {
-      this.pvy = this.jumpV * 0.92;
-      this.airJumpUsed = true;
-      this.jumpBufT = 0;
-      this.spinning = true;
-      this.engine.sfx.play('jump');
-      this.engine.particles.burst(this.playerCenterX(), this.playerBottom(), 6, {
-        color: this.spec.palette[7],
-        gravity: 40,
-        speed: 50,
-      });
+      // jump buffering + coyote time
+      this.coyoteT = this.onGround ? FEEL.coyoteMs / 1000 : Math.max(0, this.coyoteT - dt);
+      this.jumpBufT = Math.max(0, this.jumpBufT - dt);
+      if (jumpPressed) this.jumpBufT = FEEL.jumpBufferMs / 1000;
+      if (this.jumpBufT > 0 && (this.onGround || this.coyoteT > 0)) {
+        this.pvy = this.jumpV;
+        this.spinning = !combat && (input.B.pressed || (input.B.held && !input.A.held));
+        this.jumpBufT = 0;
+        this.coyoteT = 0;
+        this.airJumpUsed = false;
+        this.engine.sfx.play('jump');
+      } else if (
+        this.jumpBufT > 0 &&
+        this.power.doubleJump &&
+        !this.airJumpUsed &&
+        !this.onGround
+      ) {
+        this.pvy = this.jumpV * 0.92;
+        this.airJumpUsed = true;
+        this.jumpBufT = 0;
+        this.spinning = true;
+        this.engine.sfx.play('jump');
+        this.engine.particles.burst(this.playerCenterX(), this.playerBottom(), 6, {
+          color: this.spec.palette[7],
+          gravity: 40,
+          speed: 50,
+        });
+      }
+      // variable jump height
+      if ((input.A.released || (!combat && input.B.released)) && this.pvy < this.jumpReleaseV) {
+        this.pvy = this.jumpReleaseV;
+      }
+
+      this.pvy = Math.min(this.maxFall, this.pvy + this.grav * dt);
+
+      const drop = input.DOWN.held && jumpPressed;
+      const grid = {
+        cols: this.grid.cols,
+        rows: this.grid.rows,
+        tileSize: TILE_SIZE,
+        solidityAt: (x: number, y: number) => this.solidity(x, y),
+      };
+      const box = this.playerBox();
+      const moved = moveAABB(grid, box, this.pvx * dt, this.pvy * dt, { dropThrough: drop });
+      this.px = moved.x;
+      this.py = moved.y;
+      if (moved.hitX) this.pvx = 0;
+      if (moved.hitY && this.pvy > 0) this.pvy = 0;
+      if (moved.hitY && this.pvy < 0) this.pvy = 0;
+      if (!this.onGround && moved.onGround) this.spinning = false;
+      this.onGround = moved.onGround;
     }
-    // variable jump height
-    if ((input.B.released || input.A.released) && this.pvy < this.jumpReleaseV) {
-      this.pvy = this.jumpReleaseV;
-    }
-
-    this.pvy = Math.min(this.maxFall, this.pvy + this.grav * dt);
-
-    const drop = input.DOWN.held && jumpPressed;
-    const grid = {
-      cols: this.grid.cols,
-      rows: this.grid.rows,
-      tileSize: TILE_SIZE,
-      solidityAt: (x: number, y: number) => this.solidity(x, y),
-    };
-    const box = this.playerBox();
-    const moved = moveAABB(grid, box, this.pvx * dt, this.pvy * dt, { dropThrough: drop });
-    this.px = moved.x;
-    this.py = moved.y;
-    if (moved.hitX) this.pvx = 0;
-    if (moved.hitY && this.pvy > 0) this.pvy = 0;
-    if (moved.hitY && this.pvy < 0) this.pvy = 0;
-    if (!this.onGround && moved.onGround) this.spinning = false;
-    this.onGround = moved.onGround;
     if (this.onGround) this.airJumpUsed = false;
     if (this.onGround && target !== 0 && Math.abs(this.pvx) > 8) {
       this.generatedGaitT += dt * generatedPlatformerGaitRate(this.pvx);
@@ -1200,7 +1334,7 @@ class PlatformerGame implements GameInstance {
       const k = this.grid.kind(c.tx, c.ty);
       if (k === 'hazard') this.hurtPlayer();
       else if (k === 'checkpoint') {
-        if (!this.checkpoint || this.checkpoint.x !== c.tx) {
+        if (!this.checkpoint || this.checkpoint.x !== c.tx || this.checkpoint.y !== c.ty) {
           this.checkpoint = { x: c.tx, y: c.ty };
           this.engine.sfx.play('powerup');
           this.engine.particles.burst(c.tx * TILE_SIZE + 8, c.ty * TILE_SIZE + 4, 10, {
@@ -1223,9 +1357,39 @@ class PlatformerGame implements GameInstance {
     // fell out of the world
     if (this.playerBottom() > this.grid.rows * TILE_SIZE + 48) this.killPlayer();
 
-    // throw (projectile powerup)
     this.throwCooldown = Math.max(0, this.throwCooldown - dt);
-    if (this.power.projectile && (input.X.pressed || input.Y.pressed) && this.throwCooldown <= 0) {
+    if (kit.combat === 'blaster') {
+      const canCharge = platformerChargeShot(this.spec) !== 'none';
+      if (canCharge && input.X.held)
+        this.charge = Math.min(1, this.charge + dt / PLATFORMER_CHARGED_SHOT.chargeSeconds);
+      if (canCharge && input.X.released) {
+        if (this.charge > 0 && this.throwCooldown === 0)
+          this.shootBlaster(input.UP.held, this.charge >= 1);
+        this.charge = 0;
+      }
+      if (
+        (input.Y.held || (!canCharge && input.X.held)) &&
+        !(canCharge && input.X.held) &&
+        this.throwCooldown === 0
+      )
+        this.shootBlaster(input.UP.held, false);
+    } else if (kit.combat === 'melee') {
+      if (input.Y.pressed && this.meleeT === 0) {
+        this.meleeT = 0.48;
+        this.meleeActiveStarted = false;
+        this.meleeHits.clear();
+        this.meleeFacing = this.facing;
+      }
+      if (this.meleeActive) {
+        if (!this.meleeActiveStarted) this.engine.sfx.play('shoot');
+        this.meleeActiveStarted = true;
+        this.strike();
+      }
+    } else if (
+      this.power.projectile &&
+      (input.X.pressed || input.Y.pressed) &&
+      this.throwCooldown <= 0
+    ) {
       if (
         this.fireProj(
           this.playerCenterX(),
@@ -1237,9 +1401,58 @@ class PlatformerGame implements GameInstance {
         )
       ) {
         this.throwCooldown = 0.35;
+        this.shotPoseT = 0.18;
+        this.shotUp = false;
+        this.shotFacing = this.facing;
         this.engine.sfx.play('shoot');
       }
     }
+    this.hud.mechanic = this.spec.playStyle
+      ? {
+          label:
+            kit.combat === 'blaster'
+              ? platformerChargeShot(this.spec) === 'none'
+                ? 'BLASTER'
+                : kit.traversal === 'wallJump'
+                  ? 'WALL / CHARGE'
+                  : 'CHARGE'
+              : style === 'towerClimber'
+                ? this.boss
+                  ? 'WALL JUMP'
+                  : 'ASCENT'
+                : kit.combat === 'melee'
+                  ? 'MELEE'
+                  : 'ACROBAT',
+          value:
+            style === 'towerClimber'
+              ? this.boss
+                ? 'CLIMB TO DODGE'
+                : `${Math.max(0, Math.round(((this.level.playerSpawn.y + 1) * TILE_SIZE - this.py - this.playerH) / TILE_SIZE))}m`
+              : kit.combat === 'melee'
+                ? this.meleeT > 0.36
+                  ? 'WINDUP'
+                  : this.meleeT > 0.2
+                    ? 'STRIKE'
+                    : this.meleeT > 0
+                      ? 'RECOVERY'
+                      : 'READY'
+                : kit.combat === 'blaster'
+                  ? platformerChargeShot(this.spec) === 'none'
+                    ? 'FIRE'
+                    : this.charge >= 1
+                      ? 'READY'
+                      : `${Math.round(this.charge * 100)}%`
+                  : 'JUMP / BOUNCE',
+          progress:
+            kit.combat === 'blaster'
+              ? platformerChargeShot(this.spec) === 'none'
+                ? undefined
+                : this.charge
+              : kit.combat === 'melee'
+                ? 1 - this.meleeT / 0.48
+                : undefined,
+        }
+      : undefined;
 
     this.invulnT = Math.max(0, this.invulnT - dt);
   }
@@ -1250,6 +1463,249 @@ class PlatformerGame implements GameInstance {
     this.phase = 'cards';
     this.engine.music.stopSong();
     this.enterLevel(this.levelIndex + 1);
+  }
+
+  private attackLineClear(x: number, y: number): boolean {
+    const fromX = this.playerCenterX();
+    const fromY = this.playerCenterY();
+    const steps = Math.max(1, Math.ceil(Math.hypot(x - fromX, y - fromY) / 4));
+    for (let i = 1; i <= steps; i++) {
+      if (
+        this.solidity(
+          Math.floor((fromX + ((x - fromX) * i) / steps) / TILE_SIZE),
+          Math.floor((fromY + ((y - fromY) * i) / steps) / TILE_SIZE),
+        ) === 'solid'
+      )
+        return false;
+    }
+    return true;
+  }
+
+  private playerPoseDrawRect(pose: PlatformerPose, flip: boolean, compression: 0 | 1 = 0) {
+    const image = this.generatedPlayerPoses[pose]!;
+    const size = generatedImageDrawSize(image);
+    const rect = generatedPlatformerPlayerDrawRect(
+      this.px,
+      this.py,
+      this.playerW,
+      this.playerH,
+      size.w,
+      size.h,
+      compression,
+    );
+    const drawW = rect.w;
+    let heroWorldX = rect.x;
+    if (this.kit.traversal === 'wallJump' && !this.onGround) {
+      let leftWall = -Infinity,
+        rightWall = Infinity;
+      for (
+        let ty = Math.floor((this.py + 2) / TILE_SIZE);
+        ty <= Math.floor((this.py + this.playerH - 2) / TILE_SIZE);
+        ty++
+      ) {
+        for (
+          let tx = Math.floor((this.px - drawW) / TILE_SIZE);
+          tx <= Math.floor((this.px + this.playerW + drawW) / TILE_SIZE);
+          tx++
+        ) {
+          const kind = this.solidity(tx, ty);
+          const height =
+            kind === 'solid'
+              ? TILE_SIZE
+              : kind === 'platform'
+                ? TOWER_MOTION.platformSideHeight
+                : 0;
+          if (!height || ty * TILE_SIZE + height <= this.py + 2) continue;
+          if ((tx + 1) * TILE_SIZE <= this.px + 0.01)
+            leftWall = Math.max(leftWall, (tx + 1) * TILE_SIZE);
+          if (tx * TILE_SIZE >= this.px + this.playerW - 0.01)
+            rightWall = Math.min(rightWall, tx * TILE_SIZE);
+        }
+      }
+      for (const platform of this.ents) {
+        if (
+          !platform.active ||
+          platform.type !== 'movingPlatform' ||
+          platform.y + platform.h <= this.py + 2 ||
+          platform.y >= this.py + this.playerH - 2
+        )
+          continue;
+        if (platform.x + platform.w <= this.px + 0.01)
+          leftWall = Math.max(leftWall, platform.x + platform.w);
+        if (platform.x >= this.px + this.playerW - 0.01)
+          rightWall = Math.min(rightWall, platform.x);
+      }
+      heroWorldX = platformerWallDrawX(
+        heroWorldX,
+        drawW,
+        this.poseBounds[pose] ?? { left: 0, right: 1 },
+        flip,
+        leftWall,
+        rightWall,
+      );
+    }
+    return { ...rect, x: heroWorldX };
+  }
+
+  private blasterMuzzle(up: boolean): { x: number; y: number } {
+    const wall = !this.onGround ? (this.towerMotion?.wall ?? 0) : 0;
+    const pose: PlatformerPose = wall
+      ? up
+        ? 'wallShootUp'
+        : 'wallShoot'
+      : !this.onGround
+        ? up
+          ? 'jumpShootUp'
+          : 'jumpShoot'
+        : up
+          ? 'shootUp'
+          : 'shoot';
+    const facing = this.blasterFacing;
+    if (!this.generatedPlayerPoses[pose])
+      return {
+        x: this.playerCenterX() + (up ? 0 : facing * 12),
+        y: this.playerCenterY() - (up ? 12 : 0),
+      };
+    const flip = wall ? wall < 0 : facing < 0;
+    const rect = this.playerPoseDrawRect(pose, flip);
+    const bounds = this.poseBounds[pose] ?? { left: 0, right: 1 };
+    const left = rect.x + rect.w * (flip ? 1 - bounds.right : bounds.left);
+    const right = rect.x + rect.w * (flip ? 1 - bounds.left : bounds.right);
+    return up
+      ? { x: this.playerCenterX() - wall * 6, y: rect.y + 6 }
+      : { x: facing < 0 ? left - 1 : right + 1, y: this.playerCenterY() - 3 };
+  }
+
+  private shootBlaster(up: boolean, charged: boolean): void {
+    const facing = this.blasterFacing;
+    const { x, y } = this.blasterMuzzle(up);
+    if (!this.attackLineClear(x, y)) return;
+    if (
+      this.fireProj(
+        x,
+        y,
+        up ? 0 : facing * 280,
+        up ? -280 : 0,
+        true,
+        false,
+        charged ? PLATFORMER_CHARGED_SHOT.damage : 1,
+      )
+    ) {
+      this.throwCooldown = charged ? 0.35 : 0.18;
+      this.shotPoseT = 0.18;
+      this.shotUp = up;
+      this.shotFacing = facing;
+      this.engine.sfx.play('shoot');
+      this.engine.particles.burst(x, y, charged ? 10 : 3, {
+        color: this.spec.palette[13],
+        speed: charged ? 75 : 30,
+        life: 0.16,
+        gravity: 0,
+      });
+    }
+  }
+
+  private strike(): void {
+    for (const enemy of this.ents) {
+      if (!enemy.active || !['walker', 'flyer', 'shooter', 'chaser'].includes(enemy.type)) continue;
+      this.tryMeleeHit(enemy);
+    }
+    if (this.boss) this.tryMeleeHit(this.boss);
+  }
+
+  /** Check throughout the active window, including targets that move into it.
+   * A descending strike covers the feet; ordinary jumps never gain this hitbox. */
+  private tryMeleeHit(enemy: Ent): boolean {
+    if (!this.meleeActive || !enemy.active) return false;
+    const landing =
+      !this.onGround &&
+      this.pvy > 0 &&
+      this.playerBottom() <= enemy.y + 10 &&
+      aabbOverlap(
+        { x: this.px - 4, y: this.playerBottom() - 5, w: this.playerW + 8, h: 11 },
+        enemy,
+      );
+    const previouslyHit = this.meleeHits.has(enemy);
+    if (
+      !previouslyHit &&
+      ((!landing && !aabbOverlap(platformerStrikeBox(this.playerBox(), this.meleeFacing), enemy)) ||
+        !this.attackLineClear(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2))
+    )
+      return false;
+
+    if (landing) {
+      this.py = Math.min(this.py, enemy.y - this.playerH - 0.01);
+      this.pvy = STOMP_BOUNCE;
+      this.onGround = false;
+      this.airJumpUsed = false;
+    }
+    // The same swing cannot damage a boss again, or trade contact damage after
+    // landing its hit. Boss invulnerability still blocks additional HP damage.
+    if (previouslyHit) return true;
+    this.meleeHits.add(enemy);
+    const b = this.boss;
+    if (enemy === b) {
+      if (b.invulnT <= 0) {
+        b.hp -= 2;
+        b.invulnT = 0.3;
+        this.hud.score += this.spec.scoring.events.bossHit;
+        this.engine.sfx.play('hit');
+        this.engine.hitStop(65);
+        this.engine.shake(100, 2);
+      }
+    } else {
+      enemy.active = false;
+      this.hud.score += this.spec.scoring.events.enemyKill;
+      this.burstEnemyDefeat(enemy);
+      this.engine.sfx.play('hit');
+      this.engine.hitStop(45);
+    }
+    return true;
+  }
+
+  /** Palette-bound energy core and inward sparks; no extra generated asset required. */
+  private drawChargeOrb(x: number, y: number, amount: number, time: number, flying: boolean): void {
+    drawPixelCharge(
+      this.engine.renderer.ctx,
+      x,
+      y,
+      amount,
+      time,
+      flying,
+      platformerChargeShot(this.spec) === 'arcane',
+      this.spec.palette,
+    );
+  }
+
+  private drawSignatureEffects(): void {
+    const { renderer: r, camera: cam } = this.engine;
+    const x = this.playerCenterX() - cam.x;
+    const y = this.playerCenterY() - cam.y;
+    const ctx = r.ctx;
+    ctx.save();
+    ctx.fillStyle = this.spec.palette[14]!;
+    if (this.kit.combat === 'blaster' && this.charge > 0) {
+      const muzzle = this.blasterMuzzle(this.aimUp);
+      this.drawChargeOrb(muzzle.x - cam.x, muzzle.y - cam.y, this.charge, this.animT, false);
+    }
+    if (this.kit.combat === 'melee' && this.meleeT > 0.2) {
+      drawPixelStrike(
+        ctx,
+        x,
+        y,
+        this.playerBottom() - cam.y,
+        this.meleeFacing,
+        this.meleeT,
+        !this.onGround && this.pvy > 0,
+        this.spec.palette,
+      );
+    }
+    if (this.kit.traversal === 'wallJump' && this.towerMotion?.wall && !this.onGround) {
+      const wallX = x + this.towerMotion.wall * (this.playerW / 2 + 1);
+      for (let i = 0; i < 3; i++)
+        ctx.fillRect(wallX, y + ((this.animT * 35 + i * 7) % 20) - 6, 2, 3);
+    }
+    ctx.restore();
   }
 
   private hurtPlayer(): void {
@@ -1265,6 +1721,8 @@ class PlatformerGame implements GameInstance {
       });
       return;
     }
+    this.charge = 0;
+    this.meleeT = 0;
     this.hud.health--;
     this.invulnT = FEEL.invulnMs / 1000;
     this.pvy = -170;
@@ -1337,10 +1795,16 @@ class PlatformerGame implements GameInstance {
 
   private updateEntities(dt: number): void {
     const camX = this.engine.camera.x;
+    const camY = this.engine.camera.y;
     for (const e of this.ents) {
       if (!e.active) continue;
       // Activate only near the camera (budget); keep updating once seen.
       if (e.x > camX + this.viewW + 64 || e.x < camX - 96) continue;
+      if (
+        platformerTowerLevel(this.spec, this.level) &&
+        (e.y > camY + this.viewH + 64 || e.y + e.h < camY - 64)
+      )
+        continue;
       e.t += dt;
       switch (e.type) {
         case 'walker':
@@ -1456,6 +1920,8 @@ class PlatformerGame implements GameInstance {
       }
 
       // player interaction
+      if (['walker', 'flyer', 'shooter', 'chaser'].includes(e.type) && this.tryMeleeHit(e))
+        continue;
       if (!aabbOverlap(this.playerBox(), e)) continue;
       switch (e.type) {
         case 'coin':
@@ -1485,6 +1951,8 @@ class PlatformerGame implements GameInstance {
           e.active = false;
           const kind = e.props.kind ?? 'doubleJump';
           this.setAbilityActive(kind, true);
+          if (kind === 'projectile' && this.kit.combat === 'blaster')
+            this.hud.health = Math.min(this.hud.maxHealth, this.hud.health + 1);
           this.showAbilityNotice(kind);
           this.hud.score += this.spec.scoring.events.pickup;
           this.engine.sfx.play('powerup');
@@ -1517,7 +1985,7 @@ class PlatformerGame implements GameInstance {
           // enemy contact: stomp vs hurt
           const falling = this.pvy > 40;
           const above = this.playerBottom() - e.y < 8;
-          if (falling && above) {
+          if (this.canStomp && falling && above) {
             e.active = false;
             this.pvy = this.spinning ? SPIN_BOUNCE : STOMP_BOUNCE;
             this.hud.score += this.spec.scoring.events.enemyKill;
@@ -1689,10 +2157,11 @@ class PlatformerGame implements GameInstance {
 
     // boss vs player
     const pbox = this.playerBox();
-    if (aabbOverlap(pbox, b)) {
+    const meleeConnected = this.tryMeleeHit(b);
+    if (aabbOverlap(pbox, b) && !meleeConnected) {
       const falling = this.pvy > 40;
       const above = this.playerBottom() - b.y < 10;
-      if (falling && above && b.invulnT <= 0) {
+      if (this.canStomp && falling && above && b.invulnT <= 0) {
         b.hp--;
         b.invulnT = 0.5;
         this.pvy = this.spinning ? SPIN_BOUNCE : STOMP_BOUNCE;
@@ -1704,7 +2173,7 @@ class PlatformerGame implements GameInstance {
           color: this.spec.palette[9],
           speed: 100,
         });
-      } else if (!falling || !above) {
+      } else if (!this.canStomp || !falling || !above) {
         this.hurtPlayer();
       }
     }
@@ -1749,6 +2218,7 @@ class PlatformerGame implements GameInstance {
     vy: number,
     friendly: boolean,
     grav: boolean,
+    damage = 1,
   ): boolean {
     for (const p of this.projs) {
       if (p.active) continue;
@@ -1761,6 +2231,8 @@ class PlatformerGame implements GameInstance {
       p.grav = grav;
       p.t = 0;
       p.trailT = 0;
+      p.damage = damage;
+      p.hitsLeft = friendly && damage > 1 ? PLATFORMER_CHARGED_SHOT.enemyHits : 1;
       return true;
     }
     return false;
@@ -1791,11 +2263,27 @@ class PlatformerGame implements GameInstance {
         p.active = false;
         continue;
       }
+      const radius = p.friendly && p.damage > 1 ? PLATFORMER_CHARGED_SHOT.radius : 3;
+      const box = { x: p.x - radius, y: p.y - radius, w: radius * 2, h: radius * 2 };
+      if (
+        p.friendly &&
+        p.damage > 1 &&
+        cellsUnder(box, TILE_SIZE).some((cell) => this.solidity(cell.tx, cell.ty) === 'solid')
+      ) {
+        p.active = false;
+        this.engine.particles.burst(p.x, p.y, 10, {
+          color: this.spec.palette[5],
+          speed: 65,
+          life: 0.25,
+          gravity: 0,
+        });
+        continue;
+      }
       const tx = Math.floor(p.x / TILE_SIZE);
       const ty = Math.floor(p.y / TILE_SIZE);
       if (this.solidity(tx, ty) === 'solid' && !(p.grav && p.vy < 0)) {
         // ground shockwaves slide along the floor; others break on walls
-        if (!(Math.abs(p.vy) < 1 && this.solidity(tx, ty - 1) === 'empty')) {
+        if (!(!p.friendly && Math.abs(p.vy) < 1 && this.solidity(tx, ty - 1) === 'empty')) {
           this.engine.particles.burst(p.x, p.y, 4, {
             color: this.spec.palette[p.friendly ? 13 : 11],
             speed: 45,
@@ -1806,7 +2294,6 @@ class PlatformerGame implements GameInstance {
           continue;
         }
       }
-      const box = { x: p.x - 3, y: p.y - 3, w: 6, h: 6 };
       if (p.friendly) {
         for (const e of this.ents) {
           if (
@@ -1820,16 +2307,17 @@ class PlatformerGame implements GameInstance {
             continue;
           if (aabbOverlap(box, e)) {
             e.active = false;
-            p.active = false;
+            p.hitsLeft--;
+            p.active = p.hitsLeft > 0;
             this.hud.score += this.spec.scoring.events.enemyKill;
             this.engine.sfx.play('hit');
             this.burstEnemyDefeat(e);
-            break;
+            if (!p.active) break;
           }
         }
         const b = this.boss;
         if (p.active && b && b.active && b.invulnT <= 0 && aabbOverlap(box, b)) {
-          b.hp--;
+          b.hp -= p.damage;
           b.invulnT = 0.3;
           p.active = false;
           this.hud.score += this.spec.scoring.events.bossHit;
@@ -2127,13 +2615,16 @@ class PlatformerGame implements GameInstance {
       if (!p.active) continue;
       const generatedProjectile =
         this.generatedProps?.[p.friendly ? 'heroProjectile' : 'enemyProjectile'];
+      const charged = p.friendly && p.damage > 1;
+      if (charged) this.drawChargeOrb(p.x - cam.x, p.y - cam.y, 1, p.t, true);
       if (generatedProjectile) {
+        const size = charged ? PLATFORMER_CHARGED_SHOT.drawSize : 8;
         r.drawScaledFlipped(
           generatedProjectile,
-          p.x - cam.x - 4,
-          p.y - cam.y - 4,
-          8,
-          8,
+          p.x - cam.x - size / 2,
+          p.y - cam.y - size / 2,
+          size,
+          size,
           p.friendly ? p.vx < 0 : p.vx > 0,
         );
         continue;
@@ -2143,6 +2634,8 @@ class PlatformerGame implements GameInstance {
       r.draw(img, p.x - cam.x - 4, p.y - cam.y - 4);
     }
 
+    this.drawSignatureEffects();
+
     // player (invulnerability flicker)
     if (this.invulnT <= 0 || Math.floor(this.animT * 12) % 2 === 0) {
       const hero = this.sprites['hero']!;
@@ -2151,34 +2644,44 @@ class PlatformerGame implements GameInstance {
         this.pvx,
         this.noHorizontalInputT,
       );
-      const gait = groundAnim === 'walk' ? generatedPlatformerGaitFrame(this.generatedGaitT) : null;
-      const generatedPose: PlatformerPlayerPose = !this.onGround
+      const gait =
+        this.onGround && groundAnim === 'walk'
+          ? generatedPlatformerGaitFrame(this.generatedGaitT)
+          : null;
+      const base: PlatformerPlayerPose = !this.onGround
         ? 'jump'
         : groundAnim === 'walk'
           ? gait!.pose
           : groundAnim;
-      const generatedImage = this.generatedPlayerPoses[generatedPose];
-      let flip = generatedPose !== 'idle' && this.facing < 0;
+      const action = platformerActionFrame({
+        grounded: this.onGround,
+        base,
+        runContact: gait?.pose === 'walk2' ? 2 : 1,
+        facing: this.facing,
+        wall: this.towerMotion?.wall ?? 0,
+        firing: this.charge > 0 || this.shotPoseT > 0,
+        aimUp: this.charge > 0 ? this.aimUp : this.shotUp,
+        attackFacing:
+          this.meleeT > 0
+            ? this.meleeFacing
+            : this.charge > 0
+              ? this.blasterFacing
+              : this.shotFacing,
+        meleeT: this.meleeT,
+      });
+      // Old saves keep their original five-frame set. New saves require every action at load.
+      const generatedPose = this.generatedPlayerPoses[action.pose] ? action.pose : base;
+      const generatedImage = this.generatedPlayerPoses[generatedPose]!;
+      let flip = action.pose === generatedPose ? action.flip : base !== 'idle' && this.facing < 0;
       const img: CanvasImageSource = generatedImage;
-      if (this.spinning && !this.onGround) {
+      if (this.spinning && !this.onGround && generatedPose === 'jump') {
         flip = Math.floor(this.animT * 12) % 2 === 0;
       }
-      const generatedSize = generatedImageDrawSize(generatedImage);
-      const generatedRect = generatedSize
-        ? generatedPlatformerPlayerDrawRect(
-            this.px,
-            this.py,
-            this.playerW,
-            this.playerH,
-            generatedSize.w,
-            generatedSize.h,
-            gait?.compression ?? 0,
-          )
-        : null;
-      const drawW = generatedRect?.w ?? hero.w;
-      const drawH = generatedRect?.h ?? hero.h;
-      const heroWorldX = generatedRect?.x ?? this.px - (drawW - this.playerW) / 2;
-      const heroWorldY = generatedRect?.y ?? this.py - (drawH - this.playerH);
+      const generatedRect = this.playerPoseDrawRect(generatedPose, flip, gait?.compression ?? 0);
+      const drawW = generatedRect.w;
+      const drawH = generatedRect.h;
+      const heroWorldX = generatedRect.x;
+      const heroWorldY = generatedRect.y;
       const heroX = heroWorldX - cam.x;
       const heroY = heroWorldY - cam.y;
       if (this.power.shield) {
@@ -2245,10 +2748,7 @@ class PlatformerGame implements GameInstance {
         halfWidth + 2 / this.worldScale,
         Math.min(this.viewW - halfWidth - 2 / this.worldScale, notice.x - cam.x),
       );
-      const y = Math.max(
-        2 / this.worldScale,
-        notice.y - cam.y - (12 + rise) / this.worldScale,
-      );
+      const y = Math.max(2 / this.worldScale, notice.y - cam.y - (12 + rise) / this.worldScale);
       r.ctx.save();
       r.ctx.globalAlpha = alpha;
       r.text(notice.text, x + 1 / this.worldScale, y + 1 / this.worldScale, r.theme.panelBg, {

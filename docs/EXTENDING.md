@@ -98,7 +98,7 @@ with three identity candidates; Spark selects the foundation, twelve action stat
 exact anchor, weak states receive bounded targeted retries, and the thirteen selected states are
 packed into a 4x4 atlas of 96px cells. A supplied player photo is identity truth; key art and boss
 story art guide the remaining roster. Platformer photo games whose design selects
-`platformerArtDensity: "detailed"` attempt an all-or-nothing five-pose 112×128 player set. The
+`platformerArtDensity: "detailed"` require a complete five-pose 112×128 base player set. New `actionPoseVersion: 1` games also require the mechanic-specific actions described below. The
 neutral side view anchors two opposing run contacts and the jump, while the runtime uses a
 speed-driven gait from those coherent key frames. Pair validation measures the
 lower-body alpha silhouette, rejects arm/prop drift without an opposing stride, and regenerates only
@@ -167,6 +167,23 @@ reject-all verdict in `human-verdict.json` and the manifest without replacing Sp
 normalized decision. This directory is local and gitignored; it is intentionally separate from
 published game assets and generation incidents.
 Append `&run=<run-id>` to the lab URL to reopen any persisted run after a dev-server restart.
+
+Mechanic-specific action experiments reuse approved base artwork without generating a whole game:
+`npx tsx scripts/platformer-action-lab.mts --style armedClimber --out data/experiments/platformer-actions/my-run`.
+The default is mock. Add `--live` to use configured image and design providers; `--game` and `--assets`
+select another saved spec and its approved base sprites. The output contains exact prompts, references,
+raw candidates, normalized accepted actions, review boards/responses and per-invocation costs.
+With the dev server running, preview the default golden source in gameplay at
+`/?dev=playtest&style=armedClimber&actionRun=my-run`. For another source, also supply `&game=<id>`.
+
+The shared `requiredPlatformerActionPoses` function is the generation/loading contract. Blaster kits
+need standing, running-contact and airborne shots in forward/upward aim; wall jumping adds a slide;
+armed climber also adds wall shots; melee adds grounded/airborne windup and strike. Action canvases
+are 160×128 at the same render density as the 112×128 base, providing room for extended arms without
+shrinking the character. Frames edit approved base references; wall-shot frames edit the accepted wall slide to preserve its grip. All undergo independent semantic review
+in batches of six with one guided retry. Each accepted action has its own prompt/reference hash.
+A failed action preserves the base and other accepted actions for retry, but a new game cannot publish
+or load with an incomplete required set. Legacy saves retain the original five-frame fallback.
 
 An accepted player photo is sent to Muse Image. Spark's design-stage `heroConcept` is the canonical
 game-world wardrobe contract shared by key art, story scenes, portraits, and detailed platformer

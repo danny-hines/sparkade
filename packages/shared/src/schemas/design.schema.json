@@ -4,6 +4,24 @@
   "title": "Sparkade design pass output",
   "type": "object",
   "properties": {
+    "chargeShot": {
+      "description": "Blaster weapon choice: none for conventional guns; plasma or arcane for a charged energy blast.",
+      "enum": ["none", "plasma", "arcane"]
+    },
+    "mechanics": {
+      "type": "object",
+      "properties": {
+        "traversal": { "enum": ["jump", "wallJump"] },
+        "combat": { "enum": ["stomp", "blaster", "melee"] },
+        "structure": { "enum": ["horizontal", "tower", "mixed"] }
+      },
+      "required": ["traversal", "combat", "structure"],
+      "additionalProperties": false
+    },
+    "playStyle": {
+      "description": "Platformer gameplay package. Omission preserves legacy acrobat behavior.",
+      "enum": ["acrobat", "runAndGun", "towerClimber", "meleeAction", "armedClimber"]
+    },
     "title": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[ -~]+$" },
     "tagline": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[ -~]+$" },
     "archetype": { "enum": ["platformer", "shooter", "adventure", "hshooter", "fighter"] },
@@ -254,6 +272,18 @@
     }
   },
   "allOf": [
+    {
+      "if": { "properties": { "archetype": { "const": "platformer" } }, "required": ["archetype"] },
+      "else": {
+        "not": {
+          "anyOf": [
+            { "required": ["playStyle"] },
+            { "required": ["mechanics"] },
+            { "required": ["chargeShot"] }
+          ]
+        }
+      }
+    },
     {
       "if": { "properties": { "archetype": { "const": "hshooter" } }, "required": ["archetype"] },
       "then": { "required": ["vehicleConcept"] }

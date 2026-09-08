@@ -388,3 +388,72 @@ test('everything fits 1024×600 with no page scrolling', async ({ page }: { page
   }));
   expect(overflow).toEqual({ x: false, y: false });
 });
+
+test('generates and plays an armed climber with the complete action sprite set', async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(240_000);
+  const errors = trackErrors(page);
+  const response = await request.post('/api/games', {
+    multipart: {
+      promptText:
+        'A platformer with a blaster and wall jumping, mixing horizontal stages and a tower climb',
+      sourceKind: 'surprise',
+      requestedArchetype: 'platformer',
+      idempotencyKey: 'e2e-armed-climber',
+    },
+  });
+  expect(response.ok()).toBe(true);
+  const { gameId } = await response.json();
+  await expect
+    .poll(
+      async () => {
+        const game = await (await request.get(`/api/games/${gameId}`)).json();
+        if (game.job?.status === 'failed') throw new Error(JSON.stringify(game.job.error));
+        return game.item.status;
+      },
+      { timeout: 180_000, intervals: [1000] },
+    )
+    .toBe('ready');
+  const game = await (await request.get(`/api/games/${gameId}`)).json();
+  expect(game.spec).toMatchObject({
+    playStyle: 'armedClimber',
+    actionPoseVersion: 1,
+    mechanics: { traversal: 'wallJump', combat: 'blaster', structure: 'mixed' },
+  });
+  for (const role of [
+    'platformerShoot',
+    'platformerShootUp',
+    'platformerRunShoot1',
+    'platformerRunShoot2',
+    'platformerRunShootUp1',
+    'platformerRunShootUp2',
+    'platformerJumpShoot',
+    'platformerJumpShootUp',
+    'platformerWallSlide',
+    'platformerWallShoot',
+    'platformerWallShootUp',
+  ])
+    expect(game.assets[role], role).toBe(true);
+  const loaded = new Set<string>();
+  page.on('response', (response) => {
+    if (response.url().includes(`/api/games/${gameId}/assets/platformer-player-`) && response.ok())
+      loaded.add(response.url());
+  });
+  await toMenu(page);
+  await tap(page, 'ArrowDown');
+  await tap(page, 'KeyX', 2);
+  const canvas = page.locator('.play-screen canvas');
+  await expect(canvas).toBeVisible();
+  await expect.poll(() => loaded.size).toBe(16);
+  await tap(page, 'KeyX', 6);
+  await page.keyboard.down('ArrowRight');
+  await page.keyboard.down('KeyS');
+  await hold(page, 'KeyX', 500);
+  await page.keyboard.up('KeyS');
+  await hold(page, 'KeyA', 900);
+  await page.keyboard.up('ArrowRight');
+  await expect(canvas).toBeVisible();
+  expect(errors).toEqual([]);
+});

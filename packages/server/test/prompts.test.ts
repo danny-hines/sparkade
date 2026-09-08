@@ -155,11 +155,15 @@ describe('entities prompt likeness casting', () => {
 
   it('uses compact run rows for large generated tile grids', () => {
     const prompt = buildLevelsPrompt('platformer', design);
-    const level = (prompt.jsonSchema as { $defs: Record<string, { required: string[] }> }).$defs[
-      'level'
-    ]!;
+    const level = (
+      prompt.jsonSchema as {
+        $defs: Record<string, { required: string[]; anyOf: { required: string[] }[] }>;
+      }
+    ).$defs['level']!;
 
-    expect(level.required).toContain('tileRuns');
+    expect(level.anyOf.map((branch) => branch.required)).toEqual(
+      expect.arrayContaining([expect.arrayContaining(['tileRuns']), ['towerRoute']]),
+    );
     expect(level.required).not.toContain('tiles');
     expect(prompt.system).toContain('Compact tile rows');
     expect(prompt.system).toContain('at most 6 tuples per row on average');

@@ -92,6 +92,7 @@ export function goldenExcerpt(archetype: ArchetypeId, stage: SpecStage | 'design
             ? {
                 platformerScale: g.platformerScale ?? 'heroic',
                 platformerArtDensity: g.platformerArtDensity ?? 'chunky',
+                playStyle: g.playStyle ?? 'acrobat',
                 movementProfile: g.movementProfile ?? 'balanced',
                 abilityLoadout: g.abilityLoadout,
               }

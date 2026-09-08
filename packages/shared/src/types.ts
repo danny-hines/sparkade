@@ -492,6 +492,13 @@ export interface GameSpecBase {
 
 export interface PlatformerSpec extends GameSpecBase {
   archetype: 'platformer';
+  /** Released gameplay package. Omitted saves preserve the original acrobat controls. */
+  playStyle?: import('./play-styles').PlatformerPlayStyle;
+  mechanics?: import('./play-styles').PlatformerMechanics;
+  /** New games require the complete mechanic-specific action set; legacy saves omit this. */
+  actionPoseVersion?: 1;
+  /** Charging is a weapon choice: conventional weapons use none. */
+  chargeShot?: import('./platformer-weapons').PlatformerChargeShot;
   /** Collision/layout version for the 16x32 likeness hero; omitted means legacy 10x14 physics. */
   playerHeightTiles?: 2;
   /** Camera framing for platformer gameplay; omitted preserves the original wide view. */
@@ -551,9 +558,13 @@ export type GameSpec = PlatformerSpec | ShooterSpec | AdventureSpec | HShooterSp
 // ---------------------------------------------------------------------------
 
 export interface DesignDoc {
+  chargeShot?: import('./platformer-weapons').PlatformerChargeShot;
   title: string;
   tagline: string;
   archetype: ArchetypeId;
+  /** Platformer gameplay package, selected before authoring levels and assets. */
+  playStyle?: import('./play-styles').PlatformerPlayStyle;
+  mechanics?: import('./play-styles').PlatformerMechanics;
   palette: string[];
   /** Canonical player visual brief. With a photo, this directs the story-specific
    * wardrobe below the neck while the photo remains truth for head identity. */

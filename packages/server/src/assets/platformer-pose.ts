@@ -73,7 +73,7 @@ export function buildPlatformerPosePrompt(
   const colors = cleanPromptFragment(options.colors);
   return [
     'Create exactly ONE isolated, full-body platform-game sprite of the exact person or character in the attached reference image.',
-    "Preserve their recognizable identity from the neck up: apparent adult age, face and head shape, skin tone, hair texture and style, facial hair, glasses, headwear, and visible head accessories in the reference. Never invent glasses or head accessories that are absent, and never remove ones that are present. The canonical costume contract below is wardrobe truth and overrides any conflicting clothing in the reference.",
+    'Preserve their recognizable identity from the neck up: apparent adult age, face and head shape, skin tone, hair texture and style, facial hair, glasses, headwear, and visible head accessories in the reference. Never invent glasses or head accessories that are absent, and never remove ones that are present. The canonical costume contract below is wardrobe truth and overrides any conflicting clothing in the reference.',
     heroConcept
       ? `Canonical game-world costume contract: ${heroConcept}. Dress the character in these garments, footwear, colors, and body-worn costume details from the neck down in every pose. Ignore any action, pose, tool, light, weapon, artifact, or held/carried object mentioned in that concept; both hands must remain empty.`
       : '',
@@ -190,9 +190,13 @@ export async function recoverGeneratedPlatformerGreenPanel(
 }
 
 /** Key, validate, crop, quantize, and foot-anchor one native 112x128 pose. */
-export async function processGeneratedPlatformerPose(image: Buffer): Promise<ProcessedFighterPose> {
+export async function processGeneratedPlatformerPose(
+  image: Buffer,
+  options: { width?: number } = {},
+): Promise<ProcessedFighterPose> {
+  const width = options.width ?? GENERATED_PLATFORMER_POSE_WIDTH;
   const processed = await processGeneratedFighterPose(image, {
-    width: GENERATED_PLATFORMER_POSE_WIDTH,
+    width,
     height: GENERATED_PLATFORMER_POSE_HEIGHT,
     padding: 6,
     bottomPadding: 0,
@@ -221,7 +225,7 @@ export async function processGeneratedPlatformerPose(image: Buffer): Promise<Pro
     })
     .extend({
       left: targetBounds.left,
-      right: GENERATED_PLATFORMER_POSE_WIDTH - targetBounds.left - targetBounds.width,
+      right: width - targetBounds.left - targetBounds.width,
       top: targetBounds.top,
       bottom: 0,
       background: { r: 0, g: 0, b: 0, alpha: 0 },

@@ -2,6 +2,12 @@
 // reachability along the primary route, entity budgets, content floors.
 import {
   BUDGET,
+  platformerPlayStyle,
+  platformerMechanics,
+  platformerTowerLevel,
+  type PlatformerMechanics,
+  platformerStyleDiagnostics,
+  type PlatformerPlayStyle,
   type LintError,
   type PlatformerLevel,
   type PlatformerSpec,
@@ -16,6 +22,7 @@ import {
   lintSongRef,
   lintSpriteRefs,
 } from '../common';
+import { towerClimbDestinations } from './tower-motion';
 
 const ENEMY_TYPES = ['walker', 'flyer', 'shooter', 'chaser'] as const;
 
@@ -44,6 +51,8 @@ function conveyorDirection(kind: CellKind): -1 | 0 | 1 {
 }
 
 export interface PlatformerReachabilityOptions {
+  playStyle?: PlatformerPlayStyle;
+  traversal?: PlatformerMechanics['traversal'];
   /** Used by deterministic relocation so a moving platform cannot make its
    * own proposed replacement appear reachable through its previous path. */
   ignoreMovingPlatformIndex?: number;
@@ -240,6 +249,16 @@ function reachableTraversalGraph(
     // Touching the exit completes the level. Do not report terrain that is
     // reachable only by hypothetically walking through that terminal cell.
     if (current === key(level.exit.x, level.exit.y)) continue;
+    if (
+      (options.traversal ?? platformerMechanics({ playStyle: options.playStyle }).traversal) ===
+        'wallJump' &&
+      grid.standable(cur.x, cur.y)
+    ) {
+      for (const destination of towerClimbDestinations(level, cur, playerHeightTiles)) {
+        const [x, y] = destination.split(',').map(Number);
+        if (grid.standable(x!, y!)) connect(current, destination);
+      }
+    }
     // Once boarded, every sampled position along the same platform's travel
     // is reachable by waiting and riding. These virtual nodes can bridge to
     // authored terrain without changing collision or tile semantics.
@@ -507,6 +526,22 @@ export function platformerReachabilityBlockage(
 
 export function lintPlatformer(spec: PlatformerSpec): LintError[] {
   const out: LintError[] = [];
+  const style = platformerPlayStyle(spec);
+  const kit = platformerMechanics(spec);
+  const traversalOptions = { playStyle: style, traversal: kit.traversal };
+  if (
+    kit.structure === 'mixed' &&
+    (!spec.levels.some((l) => platformerTowerLevel(spec, l)) ||
+      !spec.levels.some((l) => !platformerTowerLevel(spec, l)))
+  )
+    out.push(
+      err(
+        'PLAT_MIXED_STRUCTURE',
+        '/levels',
+        'Mixed structure requires both horizontal stages and at least one tower climb.',
+      ),
+    );
+  out.push(...platformerStyleDiagnostics(spec));
   out.push(...lintMusic(spec), ...lintSpriteRefs(spec));
 
   const enemyTypesUsed = new Set<string>();
@@ -534,6 +569,41 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
 
     const playerHeightTiles = spec.playerHeightTiles === 2 ? 2 : 1;
     const grid = parseLevelGrid(level, playerHeightTiles);
+    const tower = platformerTowerLevel(spec, level);
+    if (tower) {
+      if (
+        grid.h < 40 ||
+        grid.h > 128 ||
+        grid.w < 32 ||
+        grid.w > 48 ||
+        level.playerSpawn.y - level.exit.y < 24
+      ) {
+        out.push(
+          err(
+            'PLAT_TOWER_ASCENT',
+            `${path}/exit`,
+            'A tower stage needs a 40-128 row, 32-48 column tower with the exit at least 24 rows above spawn',
+          ),
+        );
+      }
+      if (reachableCells(level, playerHeightTiles).has(`${level.exit.x},${level.exit.y}`)) {
+        out.push(
+          err(
+            'PLAT_TOWER_SIGNATURE',
+            `${path}/tiles`,
+            'include a required wall-jump climb between safe ledges; ordinary jumps currently bypass the signature mechanic',
+          ),
+        );
+      }
+    } else if (grid.h > 32) {
+      out.push(
+        err(
+          'PLAT_TOO_TALL',
+          `${path}/tiles`,
+          'horizontal play styles use at most 32 rows; use tower or mixed structure for tall levels',
+        ),
+      );
+    }
     const inBounds = (x: number, y: number) => x >= 0 && x < grid.w && y >= 0 && y < grid.h;
     const movingPlatformClearance =
       playerHeightTiles === 2 ? 'two clear player rows' : 'a clear player row';
@@ -739,7 +809,7 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
     // reachable safe landing that strands the player alive.
     let reachable: Set<string> | null = null;
     if (spawnCell && exitCell) {
-      const traversal = analyzePlatformerTraversal(level, playerHeightTiles);
+      const traversal = analyzePlatformerTraversal(level, playerHeightTiles, traversalOptions);
       reachable = traversal.reachable;
       if (!traversal.reachable.has(exitCell)) {
         const blockage = platformerReachabilityBlockage(level, playerHeightTiles);
@@ -750,7 +820,7 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
           err(
             'PLAT_EXIT_UNREACHABLE',
             `${path}/exit`,
-            `exit is not reachable from spawn; ${actionable} (normal jump: at most 4 tiles across and 3 tiles up)`,
+            `exit is not reachable from spawn; ${actionable} (${tower ? 'provide continuous solid walls with two clear body rows, an approach and supported rest ledges; the wall controller must reach the summit' : 'normal jump: at most 4 tiles across and 3 tiles up'})`,
           ),
         );
       } else if (traversal.trapCells.size) {
@@ -772,11 +842,11 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
 
     // Entity budget: max simultaneous active within any one-screen (32-tile) window.
     const active = level.entities.filter((e) => e.type !== 'coin' && e.type !== 'heart');
-    const xs = active.map((e) => e.x).sort((a, b) => a - b);
+    const xs = active.map((e) => (tower ? e.y : e.x)).sort((a, b) => a - b);
     let maxWindow = 0;
     for (let i = 0; i < xs.length; i++) {
       let j = i;
-      while (j < xs.length && xs[j]! - xs[i]! <= 40) j++;
+      while (j < xs.length && xs[j]! - xs[i]! <= (tower ? 26 : 40)) j++;
       maxWindow = Math.max(maxWindow, j - i);
     }
     if (maxWindow > BUDGET.maxActiveEntities - 4) {
@@ -789,7 +859,7 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
       );
     }
 
-    reachable ??= reachableCells(level, playerHeightTiles);
+    reachable ??= reachableCells(level, playerHeightTiles, traversalOptions);
     for (const [entityIndex, e] of level.entities.entries()) {
       if ((ENEMY_TYPES as readonly string[]).includes(e.type)) enemyTypesUsed.add(e.type);
       if (e.type === 'coin' || e.type === 'heart' || e.type === 'powerup') pickupCount++;
@@ -997,7 +1067,10 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
 export function estimatePlatformerDurationS(spec: PlatformerSpec): number {
   let total = 0;
   for (const level of spec.levels) {
-    const w = (level.tiles[0]?.length ?? 0) * 16;
+    const w =
+      (platformerTowerLevel(spec, level)
+        ? Math.max(0, level.playerSpawn.y - level.exit.y) * 2.2
+        : (level.tiles[0]?.length ?? 0)) * 16;
     total += (w / 70) * 1.9; // avg horizontal speed with vertical detours/backtrack
     for (const e of level.entities) {
       if (e.type === 'walker' || e.type === 'flyer' || e.type === 'shooter' || e.type === 'chaser')

@@ -132,6 +132,8 @@ export interface HudState {
   collectibles?: number;
   /** The game-specific platformer ability loadout and current acquisition state. */
   abilities?: Array<{ kind: PlatformerAbilityKind; name: string; active: boolean }>;
+  /** Signature mechanic state; rendered separately from health and boss information. */
+  mechanic?: { label: string; value: string; progress?: number };
   /** Optional boss health while a boss fight is active. */
   boss?: { hp: number; maxHp: number; name: string };
 }

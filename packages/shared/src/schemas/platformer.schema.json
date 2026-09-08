@@ -4,6 +4,25 @@
   "title": "Sparkade platformer game spec (specVersion 1)",
   "type": "object",
   "properties": {
+    "chargeShot": {
+      "description": "Blaster weapon choice: none for conventional guns; plasma or arcane for a charged energy blast.",
+      "enum": ["none", "plasma", "arcane"]
+    },
+    "actionPoseVersion": { "const": 1 },
+    "mechanics": {
+      "type": "object",
+      "properties": {
+        "traversal": { "enum": ["jump", "wallJump"] },
+        "combat": { "enum": ["stomp", "blaster", "melee"] },
+        "structure": { "enum": ["horizontal", "tower", "mixed"] }
+      },
+      "required": ["traversal", "combat", "structure"],
+      "additionalProperties": false
+    },
+    "playStyle": {
+      "description": "Platformer gameplay package. Omission preserves legacy acrobat behavior.",
+      "enum": ["acrobat", "runAndGun", "towerClimber", "meleeAction", "armedClimber"]
+    },
     "specVersion": { "const": 1 },
     "archetype": { "const": "platformer" },
     "seed": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
@@ -447,7 +466,7 @@
       "type": "object",
       "properties": {
         "x": { "type": "integer", "minimum": 0, "maximum": 255 },
-        "y": { "type": "integer", "minimum": 0, "maximum": 63 }
+        "y": { "type": "integer", "minimum": 0, "maximum": 127 }
       },
       "required": ["x", "y"],
       "additionalProperties": false
@@ -523,7 +542,7 @@
       "properties": {
         "type": { "$ref": "#/$defs/entityType" },
         "x": { "type": "integer", "minimum": 0, "maximum": 255 },
-        "y": { "type": "integer", "minimum": 0, "maximum": 63 },
+        "y": { "type": "integer", "minimum": 0, "maximum": 127 },
         "props": { "$ref": "#/$defs/entityProps" }
       },
       "required": ["type", "x", "y"],
@@ -539,10 +558,10 @@
           "pattern": "^[a-z][a-zA-Z0-9_]{0,15}$"
         },
         "tiles": {
-          "description": "Row strings, top to bottom. Every row must be the same length (32-256 chars). Each character must appear in the legend or be '.' (empty). 1 tile = 16 px. The player occupies two vertical tiles; playable routes need two clear rows.",
+          "description": "Row strings, top to bottom. Every row must be the same length (32-256 chars). Each character must appear in the legend or be '.' (empty). 1 tile = 16 px. The player occupies two vertical tiles; playable routes need two clear rows. Tower climbers use 40-96 rows, bounded at 128.",
           "type": "array",
           "minItems": 10,
-          "maxItems": 32,
+          "maxItems": 128,
           "items": { "type": "string", "minLength": 32, "maxLength": 256, "pattern": "^[ -~]+$" }
         },
         "legend": {

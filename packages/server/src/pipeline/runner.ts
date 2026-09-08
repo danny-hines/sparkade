@@ -2,12 +2,19 @@
 // Jobs are persisted BEFORE work starts; all output goes to staging/<jobId>/
 // and is atomically renamed into games/<gameId>/ only after every gate passes.
 // On boot the server reconciles: interrupted jobs become failed-retryable.
+import { generatePlatformerActions } from '../assets/platformer-actions';
 import { randomInt } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { nanoid } from 'nanoid';
 import { archetypes } from '@sparkade/archetypes';
 import {
+  mechanicalFingerprint,
+  platformerMechanics,
+  GENERATED_GAME_ASSET_FILES,
+  platformerStyleDiagnostics,
+  platformerPlayStyle,
+  type MechanicalFingerprint,
   ENGINE_VERSION,
   GENERATION,
   nearestMood,
@@ -683,10 +690,16 @@ function compileGeneratedLevels(
     const levels = Array.isArray(output) ? output : isRecord(output) ? output['levels'] : null;
     if (!Array.isArray(levels)) throw new TileRunsError('$.levels', 'expected an array');
     levels.forEach((level, index) => {
-      if (!isRecord(level) || !Object.prototype.hasOwnProperty.call(level, 'tileRuns')) {
+      if (
+        !isRecord(level) ||
+        !(
+          Object.prototype.hasOwnProperty.call(level, 'tileRuns') ||
+          (archetype === 'platformer' && Object.prototype.hasOwnProperty.call(level, 'towerRoute'))
+        )
+      ) {
         throw new TileRunsError(
           `$.levels[${index}].tileRuns`,
-          'compact generation output must include tileRuns instead of tiles',
+          'compact generation output must include tileRuns (or towerRoute for towers) instead of tiles',
         );
       }
     });
@@ -696,10 +709,16 @@ function compileGeneratedLevels(
 
 function compileGeneratedLevel(archetype: ArchetypeId, level: unknown): unknown {
   if (archetype !== 'platformer' && archetype !== 'hshooter') return level;
-  if (!isRecord(level) || !Object.prototype.hasOwnProperty.call(level, 'tileRuns')) {
+  if (
+    !isRecord(level) ||
+    !(
+      Object.prototype.hasOwnProperty.call(level, 'tileRuns') ||
+      (archetype === 'platformer' && Object.prototype.hasOwnProperty.call(level, 'towerRoute'))
+    )
+  ) {
     throw new TileRunsError(
       '$.levels[0].tileRuns',
-      'compact generation output must include tileRuns instead of tiles',
+      'compact generation output must include tileRuns (or towerRoute for towers) instead of tiles',
     );
   }
   const compiled = compileTileRunsStage(
@@ -768,6 +787,10 @@ export function designOutputDiagnostics(raw: unknown): LintError[] {
         },
       ];
     }
+  }
+  if (raw.archetype === 'platformer') {
+    const styleErrors = platformerStyleDiagnostics(raw as unknown as PlatformerSpec);
+    if (styleErrors.length) return styleErrors;
   }
   // Reuse the same inert-string scan applied to the assembled game. Supplying
   // an empty sprite roster keeps design fields at their natural JSON paths.
@@ -1564,9 +1587,11 @@ export class GenerationRunner {
         backdrops: [] as string[],
       };
       const recentMoods: string[] = [];
+      const recentMechanics: MechanicalFingerprint[] = [];
       for (const g of recentGames) {
         const s = this.files.readSpec(g.id);
         if (!s) continue;
+        recentMechanics.push(mechanicalFingerprint(s));
         const assign = (s.sprites?.assign ?? {}) as Record<string, string>;
         if (assign['hero']?.startsWith('lib:')) recentUse.heroes.push(assign['hero']);
         if (assign['boss']?.startsWith('lib:')) recentUse.bosses.push(assign['boss']);
@@ -1636,6 +1661,7 @@ export class GenerationRunner {
             describeInStory,
             antiCollision: existingGames,
             recentMoods,
+            recentMechanics,
             photo: describeInStory ? photo : undefined,
             creationBrief: job.creationBrief,
             extraNote: requiredArchetypeNote,
@@ -1649,6 +1675,7 @@ export class GenerationRunner {
           describeInStory,
           antiCollision: existingGames,
           recentMoods,
+          recentMechanics,
           photo: describeInStory ? photo : undefined,
           creationBrief: job.creationBrief,
           extraNote: requiredArchetypeNote,
@@ -1678,6 +1705,7 @@ export class GenerationRunner {
           describeInStory,
           antiCollision: existingGames,
           recentMoods,
+          recentMechanics,
           photo: describeInStory ? photo : undefined,
           creationBrief: job.creationBrief,
           extraNote: [
@@ -1990,6 +2018,17 @@ export class GenerationRunner {
       }
 
       spec = ensurePlatformerImageCharacterFallbacks(spec, recentUse.bosses);
+      if (
+        spec.archetype === 'platformer' &&
+        (platformerPlayStyle(spec) !== (design.playStyle ?? 'acrobat') ||
+          JSON.stringify(platformerMechanics(spec)) !== JSON.stringify(platformerMechanics(design)))
+      ) {
+        throw new PipelineError(
+          'validation-failed',
+          'The validated game must preserve the design-selected platformer play style.',
+          'validating',
+        );
+      }
 
       try {
         this.files.writeValidatedSpecCheckpoint(jobId, job.attempt, {
@@ -6885,6 +6924,78 @@ export class GenerationRunner {
             })
           : Promise.resolve();
 
+      const platformerActionsTask =
+        spec.archetype === 'platformer' && spec.actionPoseVersion === 1
+          ? platformerPlayerTask.then(async () => {
+              try {
+                const base = Object.fromEntries(
+                  GENERATED_PLATFORMER_POSES.map((pose) => [
+                    pose,
+                    readFileSync(
+                      join(
+                        assetWorkspace.dir,
+                        GENERATED_GAME_ASSET_FILES[PLATFORMER_ASSET_ROLES[pose]],
+                      ),
+                    ),
+                  ]),
+                ) as Record<GeneratedPlatformerPose, Buffer>;
+                await generatePlatformerActions({
+                  spec,
+                  base,
+                  source: photoReference ?? (await keyArtTask),
+                  sourceKind: photoReference ? 'photo' : 'key-art',
+                  wardrobe: {
+                    heroConcept: canonicalHeroConcept,
+                    colors: spec.palette
+                      .filter((hex) => {
+                        const r = parseInt(hex.slice(1, 3), 16),
+                          g = parseInt(hex.slice(3, 5), 16),
+                          b = parseInt(hex.slice(5, 7), 16);
+                        return !(g > r * 1.15 && g > b * 1.15);
+                      })
+                      .join(', '),
+                  },
+                  workspace: assetWorkspace,
+                  generate: (pose, prompt, reference) =>
+                    callImage({
+                      role: `platformer-action-${pose}`,
+                      label: `Painting player ${pose}`,
+                      prompt,
+                      reference,
+                      size: '1024x1024',
+                    }),
+                  judge: async (prompt, jsonSchema, image, mockDecision) =>
+                    mockImages
+                      ? mockDecision
+                      : callLlm(
+                          'design',
+                          { ...prompt, jsonSchema, maxTokens: 3000, timeoutMs: 120_000 },
+                          {
+                            stage: 'building-assets',
+                            label: 'Reviewing player action poses',
+                            image,
+                            reasoningEffort: 'low',
+                          },
+                        ),
+                  report: (message) => emit('building-assets', message),
+                  rejected: (pose) => validationFailure(`platformer-action-${pose}`),
+                });
+              } catch (error) {
+                if (
+                  abort.signal.aborted ||
+                  error instanceof PipelineError ||
+                  error instanceof GeneratedAssetStorageError
+                )
+                  throw error;
+                throw new PipelineError(
+                  'image-invalid',
+                  error instanceof Error ? error.message : String(error),
+                  'building-assets',
+                );
+              }
+            })
+          : Promise.resolve();
+
       const finishingAssets = await Promise.allSettled([
         storyTask,
         platformerBackdropTask,
@@ -6904,6 +7015,7 @@ export class GenerationRunner {
         fighterArenaTask,
         fighterTask,
         platformerPlayerTask,
+        platformerActionsTask,
         adventurePlayerTask,
         portraitTask,
         portraitDefeatTask,
@@ -6914,6 +7026,10 @@ export class GenerationRunner {
       );
       if (finishingFailure) throw finishingFailure.reason;
       writeFileSync(join(staging, 'game.json'), JSON.stringify(spec, null, 1));
+      writeFileSync(
+        join(staging, 'mechanics.json'),
+        JSON.stringify(mechanicalFingerprint(spec), null, 2),
+      );
       const stageCfg = config.stages.design;
       const meta: GameMetaFile = {
         id: gameId,
@@ -7105,6 +7221,7 @@ export class GenerationRunner {
       describeInStory: boolean;
       antiCollision: { title: string; tagline: string }[];
       recentMoods?: string[];
+      recentMechanics?: MechanicalFingerprint[];
       photo?: Buffer;
       creationBrief?: CreationBrief;
       extraNote?: string;
@@ -7217,6 +7334,10 @@ export class GenerationRunner {
       ...(design.difficulty ? { difficulty: design.difficulty } : {}),
       ...(archetype === 'platformer'
         ? {
+            playStyle: design.playStyle ?? ('acrobat' as const),
+            mechanics: platformerMechanics(design),
+            actionPoseVersion: 1 as const,
+            ...(design.chargeShot ? { chargeShot: design.chargeShot } : {}),
             playerHeightTiles: 2 as const,
             platformerScale: design.platformerScale ?? ('heroic' as const),
             platformerArtDensity:

@@ -437,6 +437,21 @@ export const GENERATED_GAME_ASSET_FILES = {
   platformerWalk1: 'platformer-player-walk-1.png',
   platformerWalk2: 'platformer-player-walk-2.png',
   platformerJump: 'platformer-player-jump.png',
+  platformerShoot: 'platformer-player-shoot.png',
+  platformerShootUp: 'platformer-player-shoot-up.png',
+  platformerRunShoot1: 'platformer-player-run-shoot1.png',
+  platformerRunShoot2: 'platformer-player-run-shoot2.png',
+  platformerRunShootUp1: 'platformer-player-run-shoot-up1.png',
+  platformerRunShootUp2: 'platformer-player-run-shoot-up2.png',
+  platformerJumpShoot: 'platformer-player-jump-shoot.png',
+  platformerJumpShootUp: 'platformer-player-jump-shoot-up.png',
+  platformerWallSlide: 'platformer-player-wall-slide.png',
+  platformerWallShoot: 'platformer-player-wall-shoot.png',
+  platformerWallShootUp: 'platformer-player-wall-shoot-up.png',
+  platformerMeleeWindup: 'platformer-player-melee-windup.png',
+  platformerMeleeStrike: 'platformer-player-melee-strike.png',
+  platformerJumpMeleeWindup: 'platformer-player-jump-melee-windup.png',
+  platformerJumpMeleeStrike: 'platformer-player-jump-melee-strike.png',
   platformerBoss: 'platformer-boss.png',
   platformerEnemyWalker: 'platformer-enemy-walker.png',
   platformerEnemyFlyer: 'platformer-enemy-flyer.png',
@@ -924,3 +939,6 @@ export const DEFERRED_CONTROL_MAPS = {
     R: 'hop / drift',
   },
 } as const;
+
+/** Maximum bytes accepted by the public game asset upload endpoint. */
+export const PUBLIC_GAME_ASSET_MAX_BYTES = 4 * 1024 * 1024;

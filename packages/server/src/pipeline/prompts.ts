@@ -2,6 +2,9 @@
 // packages/generation and fills their placeholders (schemas verbatim from
 // @sparkade/shared, golden few-shot excerpts, anti-collision block).
 import {
+  PLATFORMER_STYLE_CATALOG,
+  platformerStylePreference,
+  type MechanicalFingerprint,
   ARCHETYPE_SCHEMAS,
   DESIGN_SCHEMA,
   LIB_BOSSES_ADVENTURE,
@@ -27,6 +30,7 @@ import {
 import { goldenExcerpt, loadGolden, loadTemplate, renderTemplate } from '@sparkade/generation';
 import type { LintError } from '@sparkade/shared';
 import { compactLevelsStageSchema } from './tile-runs';
+import { TOWER_ROUTE_GUIDANCE } from './tower-routes';
 
 export interface BuiltPrompt {
   system: string;
@@ -55,6 +59,7 @@ export function buildDesignPrompt(opts: {
   describeInStory: boolean;
   antiCollision: { title: string; tagline: string; key?: string }[];
   recentMoods?: string[];
+  recentMechanics?: MechanicalFingerprint[];
   creationBrief?: CreationBrief;
   extraNote?: string;
 }): BuiltPrompt {
@@ -100,6 +105,12 @@ export function buildDesignPrompt(opts: {
     ...(creationBrief ? [creationBrief] : []),
     `PHOTO FOR LIKENESS: ${opts.hasPhoto ? 'yes' : 'no'}. ${likenessNotes}`,
     `GAMES ALREADY ON THIS CABINET (be clearly different):\n${anti}`,
+    ...(opts.recentMechanics?.length
+      ? [
+          `RECENT GAME MECHANICS (newest first; prioritize different decisions, objectives and topology over cosmetic differences):\n${JSON.stringify(opts.recentMechanics)}`,
+          `PLATFORMER STYLE PREFERENCE (least recently used first): ${platformerStylePreference(opts.recentMechanics).join(', ')}. This is a preference only: explicit requested mechanics take precedence.`,
+        ]
+      : []),
     ...(moodNote ? [moodNote] : []),
     ...(opts.extraNote ? [`IMPORTANT: ${opts.extraNote}`] : []),
     'Design the game now.',
@@ -136,6 +147,8 @@ export function buildPlatformerAbilityLoadoutPrompt(design: unknown): BuiltPromp
       ? (design as Record<string, unknown>)
       : ({} as Record<string, unknown>);
   const context = {
+    playStyle: source['playStyle'],
+    mechanics: source['mechanics'],
     title: source['title'],
     tagline: source['tagline'],
     heroConcept: source['heroConcept'],
@@ -145,6 +158,7 @@ export function buildPlatformerAbilityLoadoutPrompt(design: unknown): BuiltPromp
   const system = [
     'You are completing one missing field in an already-authored Sparkade platformer design.',
     'Choose one or two DISTINCT supported engine behaviors that best fit the premise: doubleJump, projectile, or shield.',
+    'Respect playStyle: runAndGun and armedClimber must include projectile; armedClimber excludes doubleJump; meleeAction must exclude projectile; towerClimber selects shield only. An absent playStyle means acrobat.',
     'Give each a short premise-specific name and a concrete visualConcept. Do not invent new behavior kinds or redesign any other part of the game.',
     'Return raw JSON matching this schema, with no prose or markdown:',
     JSON.stringify(PLATFORMER_ABILITY_LOADOUT_COMPLETION_SCHEMA, null, 1),
@@ -178,6 +192,14 @@ export function buildLevelsPrompt(
     system,
     user: [
       `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}`,
+      ...(archetype === 'platformer'
+        ? [
+            platformerStyleBrief(design),
+            ...(['towerClimber', 'armedClimber'].includes(design.playStyle ?? '')
+              ? [TOWER_ROUTE_GUIDANCE]
+              : []),
+          ]
+        : []),
       diagnostics.length
         ? `THE PREVIOUS LEVEL OUTPUT FAILED THESE CHECKS. Build a fresh set that specifically avoids them:\n${formatDiagnostics(diagnostics)}`
         : '',
@@ -197,6 +219,28 @@ export function buildLevelsPrompt(
     // default deliberately — without it, platformer generation cannot complete.
     timeoutMs: 150_000,
   };
+}
+
+export function platformerStyleBrief(
+  design: Pick<DesignDoc, 'playStyle' | 'mechanics' | 'chargeShot'>,
+): string {
+  const style = design.playStyle ?? 'acrobat';
+  const recipe = PLATFORMER_STYLE_CATALOG[style];
+  return (
+    `GAMEPLAY PACKAGE: ${style} (${recipe.name}). ${recipe.summary} Objective: ${recipe.objective}. ` +
+    (design.chargeShot === 'none'
+      ? 'WEAPON OVERRIDE: No charging. X and Y both fire; do not describe charge attacks or energy buildup. '
+      : '') +
+    (style === 'armedClimber'
+      ? `Combine the permanent blaster and wall jump. Structure: ${design.mechanics?.structure ?? 'mixed'}. Mixed means at least one horizontal level (14-18 rows, 80-104 columns) and at least one tower (48-96 rows, 32-40 columns, exit at least 24 rows above spawn). For tower structure use three towers; for horizontal structure use three horizontal stages with exposed walls for dodges. Tower climbs must require wall jumping with continuous solid wall faces, two clear body rows, supported approaches within four tiles and safe rest ledges; ordinary jumps cannot bypass the climb. Include checkpoints at different heights. Put ranged enemies on ledges and across open shafts, leave room to land, and teach shooting away from a wall and keeping charge through wall jumps. Use precision movement and projectile plus optional shield, never doubleJump. Contact hurts from all directions. A jumps/wall jumps, B runs, Y fires, X charges, UP aims upward. Runtime generates ground, running, airborne, and wall-shoot poses.`
+      : style === 'towerClimber'
+        ? 'Use 32-40 columns and 48-96 rows. Spawn near the bottom, exit at least 24 rows above it. Build continuous exposed solid walls with clear approach space and rest ledges. A hero can hold toward one wall and repeatedly jump up it; no alternating-wall trick is required. Place each wall within four tiles of a supported approach and provide a wide landing at its top. Vary climb height, approach direction and threats between ledges. Wall jumping is permanent and may be REQUIRED. Use several short climb encounters, two safe checkpoints at different heights, and at least one climb that ordinary jumps cannot bypass. No required double jumps, springs or moving platforms. Keep the upward sightline clear. Alternate safe teaching, threats on ledges, and recovery.'
+        : style === 'runAndGun'
+          ? 'Build readable shooting lanes, overhead targets reachable with UP+Y, and cover/approach choices. Introduce the permanent blaster immediately. Select projectile in abilityLoadout; its pickup replenishes health because the blaster is already equipped. Ordinary enemies must be defeated with ranged attacks; stomping causes damage. Avoid unavoidable contact at spawns or landings.'
+          : style === 'meleeAction'
+            ? 'Build close encounters on broad supported ledges with space to approach, strike and retreat. The permanent Y-button energy strike has a windup and recovery, and checks for hits throughout its active window. An active descending strike damages the enemy or boss and bounces the player safely; landing without an active strike causes damage. Include jump-in approaches and room to dodge shooter projectiles. Use close enemy placement that allows an attack before contact. Do not promise held swords or whips; the signature strike is a subtle pixel energy wave. Select shield and/or doubleJump pickups, never projectile.'
+            : 'Emphasize jump sequences, enemy bounces, momentum, secrets and different terrain silhouettes. Selected powerups enrich an ordinary-jump route.')
+  );
 }
 
 /**
@@ -488,6 +532,12 @@ export function buildEntitiesPrompt(
     user: [
       `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}`,
       `Photo for likeness: ${hasPhoto ? 'yes' : 'no'}.${likenessBodyNote}${recentNote}`,
+      ...(archetype === 'platformer'
+        ? [
+            platformerStyleBrief(design),
+            'Make the boss fight support the selected gameplay package. Melee heroes need safe attack openings within strike range. Tower heroes need exposed side walls for wall-jump dodges.',
+          ]
+        : []),
       diagnostics.length
         ? `THE PREVIOUS ENTITY OUTPUT FAILED THESE CHECKS. Recast it while specifically avoiding them:\n${formatDiagnostics(diagnostics)}`
         : '',
@@ -619,6 +669,14 @@ export function buildLevelRegenerationPrompt(
     system,
     user: [
       `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}`,
+      ...(archetype === 'platformer'
+        ? [
+            platformerStyleBrief(design),
+            ...(['towerClimber', 'armedClimber'].includes(design.playStyle ?? '')
+              ? [TOWER_ROUTE_GUIDANCE]
+              : []),
+          ]
+        : []),
       `LEVEL SET SUMMARY (the entry at index ${levelIndex} is the one being replaced):\n${JSON.stringify(siblingSummary)}`,
       `FAILURES TO AVOID:\n${formatDiagnostics(diagnostics)}`,
       `Write only {"level": <replacement for index ${levelIndex}>} now.`,

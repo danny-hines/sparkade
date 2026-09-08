@@ -4,6 +4,7 @@
 // from the runner via the archetypes registry.
 import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020.js';
 import {
+  platformerMechanics,
   ADVENTURE_ROOM_COLUMNS,
   ARCHETYPE_SCHEMAS,
   DESIGN_SCHEMA,
@@ -528,7 +529,8 @@ export function repairPlatformerExitRoutes(
 ): NormalizedGeneratedSpec {
   const out = structuredClone(spec);
   const fixes: NormalizationFix[] = [];
-  if (out.archetype !== 'platformer') return { spec: out, fixes };
+  if (out.archetype !== 'platformer' || platformerMechanics(out).traversal === 'wallJump')
+    return { spec: out, fixes };
   const targets = new Set(levelIndexes);
   const playerHeight = out.playerHeightTiles === 2 ? 2 : 1;
 
@@ -1200,6 +1202,8 @@ function normalizePlatformerContent(out: GameSpec, fixes: NormalizationFix[]): v
 
     level.entities.forEach((entity, ei) => {
       const reach = reachableCells(level, playerHeight, {
+        playStyle: out.playStyle,
+        traversal: platformerMechanics(out).traversal,
         ...(entity.type === 'movingPlatform' ? { ignoreMovingPlatformIndex: ei } : {}),
       });
       const issue = platformerEntityReachabilityIssue(level, entity, playerHeight, reach);

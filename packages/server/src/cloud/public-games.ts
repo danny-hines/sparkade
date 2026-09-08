@@ -10,6 +10,7 @@ import type { SseHub } from '../pipeline/sse';
 import type { Db } from '../storage/db';
 import type { PublicGameAsset } from '../storage/files';
 import { KioskRegistration } from './kiosk-registration';
+import { preparePublicGameAsset } from './public-game-assets';
 
 const PUBLIC_ID_PATTERN = /^[2-9bcdfghjkmnpqrstvwxyz]{7}$/;
 const REQUEST_TIMEOUT_MS = 4_000;
@@ -319,12 +320,15 @@ export class PublicGamePublisher {
     attempts: number,
   ): Promise<void> {
     let lastError: unknown;
+    const preparedAssets = update.assets
+      ? await Promise.all(update.assets.map(preparePublicGameAsset))
+      : undefined;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       try {
         const assets: Record<string, string> = {};
-        if (update.assets) {
-          for (let index = 0; index < update.assets.length; index += ASSET_UPLOAD_CONCURRENCY) {
-            const batch = update.assets.slice(index, index + ASSET_UPLOAD_CONCURRENCY);
+        if (preparedAssets) {
+          for (let index = 0; index < preparedAssets.length; index += ASSET_UPLOAD_CONCURRENCY) {
+            const batch = preparedAssets.slice(index, index + ASSET_UPLOAD_CONCURRENCY);
             const uploaded = await Promise.all(
               batch.map((asset) => this.uploadAsset(publicId, asset)),
             );
@@ -390,7 +394,10 @@ export class PublicGamePublisher {
         signal: AbortSignal.timeout(ASSET_UPLOAD_TIMEOUT_MS),
       },
     );
-    if (!response.ok) throw new Error(`asset upload returned HTTP ${response.status}`);
+    if (!response.ok)
+      throw new Error(
+        `asset upload for ${asset.filename} returned HTTP ${response.status}${response.status === 404 ? ' (the cloud deployment may not support this asset yet)' : ''}`,
+      );
     const payload = (await response.json()) as { filename?: unknown; url?: unknown };
     if (payload.filename !== asset.filename || typeof payload.url !== 'string') {
       throw new Error('asset upload returned an invalid response');

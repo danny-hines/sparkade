@@ -329,6 +329,20 @@ describe('loadLikenessAssets', () => {
     }
   });
 
+  it('loads advertised action poses atomically with the base player', async () => {
+    const assets = {
+      ...legacyAssets,
+      ...Object.fromEntries(PLATFORMER_POSE_ASSETS.map(([, role]) => [role, true])),
+      platformerWallShoot: true,
+      platformerJumpShoot: true,
+    };
+    const result = await loadLikenessAssets('combo', assets);
+    expect(result?.platformerPoses?.wallShoot).toBeTruthy();
+    expect(result?.platformerPoses?.jumpShoot).toBeTruthy();
+    failing.add('/api/games/combo/assets/platformer-player-wall-shoot.png');
+    expect((await loadLikenessAssets('combo', assets))?.platformerPoses).toBeNull();
+  });
+
   it('rejects the entire platformer set when one pose fails to load', async () => {
     const availability = Object.fromEntries(PLATFORMER_POSE_ASSETS.map(([, role]) => [role, true]));
     failing.add(

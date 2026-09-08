@@ -189,6 +189,17 @@ export class Hud {
       align: 'right',
     });
 
+    if (hud.mechanic) {
+      const text = `${hud.mechanic.label}  ${hud.mechanic.value}`;
+      const width = Math.min(INTERNAL_WIDTH - 12, Math.max(112, r.textWidth(text) + 12));
+      r.rect(6, 24, width, 17, 'rgba(6,7,20,0.85)');
+      r.text(text, 12, 28, r.theme.text);
+      if (hud.mechanic.progress !== undefined) {
+        const progress = Math.max(0, Math.min(1, hud.mechanic.progress));
+        r.rect(8, 38, (width - 4) * progress, 2, r.theme.accent);
+      }
+    }
+
     // Boss bar (center, only during boss fights)
     if (hud.boss) {
       const w = 160;

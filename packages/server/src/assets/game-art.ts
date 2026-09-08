@@ -743,8 +743,11 @@ function mockFighterSubject(x: number, y: number, prompt: string): boolean {
     );
   }
 
+  const action = /Action frame ID: (\w+)\./.exec(prompt)?.[1] ?? '';
   const airborne =
-    prompt.includes('airborne fighting pose') || prompt.includes('airborne platforming pose');
+    action.startsWith('jump') ||
+    prompt.includes('airborne fighting pose') ||
+    prompt.includes('airborne platforming pose');
   const crouching = prompt.includes('low stationary crouching');
   const offsetY = airborne ? -70 : crouching ? 55 : 0;
   const headY = 105 + offsetY;
@@ -773,6 +776,34 @@ function mockFighterSubject(x: number, y: number, prompt: string): boolean {
     arms =
       thickSegment(x, y, 220, shoulderY + 8, 145, 175 + offsetY, 18) ||
       thickSegment(x, y, 280, shoulderY + 8, 350, 130 + offsetY, 18);
+  }
+
+  if (action) {
+    const rearArm = thickSegment(x, y, 225, shoulderY + 10, 206, shoulderY + 80, 17);
+    if (action === 'wallSlide') {
+      arms =
+        thickSegment(x, y, 275, shoulderY + 8, 325, headY + 10, 17) ||
+        thickSegment(x, y, 225, shoulderY + 10, 320, shoulderY + 10, 17);
+    } else if (action.includes('Up')) {
+      arms =
+        rearArm ||
+        thickSegment(x, y, 275, shoulderY + 10, 308, shoulderY + 40, 17) ||
+        thickSegment(x, y, 308, shoulderY + 40, 308, headY + 8, 17);
+    } else if (action.includes('Windup')) {
+      arms = rearArm || thickSegment(x, y, 275, shoulderY + 10, 185, shoulderY + 15, 19);
+    } else {
+      arms =
+        rearArm ||
+        thickSegment(
+          x,
+          y,
+          275,
+          shoulderY + 10,
+          action === 'wallShoot' ? 130 : 390,
+          shoulderY + 10,
+          19,
+        );
+    }
   }
 
   let legs =
@@ -804,6 +835,7 @@ function mockFighterSubject(x: number, y: number, prompt: string): boolean {
       thickSegment(x, y, 272, hipY - 4, 315, 350, 22) ||
       thickSegment(x, y, 315, 350, 280, 402, 20);
   } else if (
+    /^(runShoot1|runShootUp1)$/.test(action) ||
     prompt.includes('run-cycle PHASE A') ||
     prompt.includes('left foot reaching forward') ||
     prompt.includes('extended running CONTACT')
@@ -813,6 +845,7 @@ function mockFighterSubject(x: number, y: number, prompt: string): boolean {
       thickSegment(x, y, 272, hipY - 4, 335, 355, 22) ||
       thickSegment(x, y, 335, 355, 390, 420, 20);
   } else if (
+    /^(runShoot2|runShootUp2)$/.test(action) ||
     prompt.includes('run-cycle PHASE B') ||
     prompt.includes('right foot reaching forward')
   ) {
@@ -826,6 +859,11 @@ function mockFighterSubject(x: number, y: number, prompt: string): boolean {
       thickSegment(x, y, 272, hipY - 4, 372, 430, 22);
   }
 
+  if (action.startsWith('wall'))
+    legs =
+      thickSegment(x, y, 228, hipY, 185, 355, 22) ||
+      thickSegment(x, y, 185, 355, 325, 390, 20) ||
+      thickSegment(x, y, 270, hipY, 325, 420, 22);
   return head || neck || torso || arms || legs;
 }
 

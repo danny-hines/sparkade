@@ -10,6 +10,7 @@ well-defined implementation tasks still belong in [`../BACKLOG.md`](../BACKLOG.m
 
 ## Roadmaps
 
+- [Game uniqueness: cross-archetype catalogue and priorities](game-uniqueness.md)
 - [Platformer](platformer.md)
 - [Adventure](adventure.md)
 - [Vertical Shooter](shooter.md)

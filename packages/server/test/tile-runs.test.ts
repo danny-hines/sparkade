@@ -65,7 +65,7 @@ describe('compact tile-row generation schema', () => {
 
     const tileRuns = object(compactProperties['tileRuns']);
     expect(tileRuns['minItems']).toBe(10);
-    expect(tileRuns['maxItems']).toBe(32);
+    expect(tileRuns['maxItems']).toBe(128);
     const compactRow = object(tileRuns['items']);
     expect(compactRow['maxItems']).toBe(256);
     const run = object(compactRow['items']);
@@ -195,7 +195,7 @@ describe('compact tile-row compiler', () => {
       compileTileRunsStage('platformer', {
         levels: [{ ...compactPlatformerLevel(), tileRuns: compactRows(9, 32) }],
       }),
-    ).toThrow(/expected 10-32 rows, received 9/);
+    ).toThrow(/expected 10-128 rows, received 9/);
   });
 
   it('rejects short, oversized, and unequal expanded rows before allocating them', () => {

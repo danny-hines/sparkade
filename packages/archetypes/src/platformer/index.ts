@@ -1,4 +1,10 @@
-import { ARCHETYPE_SCHEMAS, type GameSpec, type PlatformerSpec } from '@sparkade/shared';
+import {
+  ARCHETYPE_SCHEMAS,
+  platformerMechanics,
+  platformerChargeShot,
+  type GameSpec,
+  type PlatformerSpec,
+} from '@sparkade/shared';
 import type { Archetype } from '../types';
 import { estimatePlatformerDurationS, lintPlatformer } from './lint';
 import { createPlatformerGame } from './game';
@@ -14,6 +20,35 @@ const BASE_CONTROL_HELP = [
 ] as const;
 
 function platformerControlHelp(spec: PlatformerSpec) {
+  const kit = platformerMechanics(spec);
+  if (kit.combat !== 'stomp')
+    return [
+      ...BASE_CONTROL_HELP.slice(0, 3),
+      { button: 'A' as const, label: kit.traversal === 'wallJump' ? 'Jump / wall jump' : 'Jump' },
+      { button: 'B' as const, label: 'Run' },
+      {
+        button: 'Y' as const,
+        label: kit.combat === 'blaster' ? 'Fire (hold)' : 'Strike / air strike',
+      },
+      ...(kit.combat === 'blaster'
+        ? [
+            {
+              button: 'X' as const,
+              label:
+                platformerChargeShot(spec) === 'none' ? 'Fire (hold)' : 'Hold / release charge',
+            },
+            { button: 'UP' as const, label: 'Aim upward' },
+          ]
+        : []),
+    ];
+  if (kit.traversal === 'wallJump')
+    return [
+      ...BASE_CONTROL_HELP.slice(0, 3),
+      { button: 'A' as const, label: 'Jump / wall jump' },
+      { button: 'B' as const, label: 'Jump / wall jump' },
+      { button: 'Y' as const, label: 'Run' },
+      { button: 'X' as const, label: 'Run' },
+    ];
   const doubleJump = spec.abilityLoadout?.find(({ kind }) => kind === 'doubleJump');
   const projectile = spec.abilityLoadout?.find(({ kind }) => kind === 'projectile');
   return [

@@ -16,6 +16,7 @@ export const archetypes: Record<ArchetypeId, Archetype> = {
 };
 
 export type { Archetype } from './types';
+export { platformerStyleExample, towerExampleLevel } from './platformer/examples';
 export {
   analyzePlatformerTraversal,
   lintPlatformer,

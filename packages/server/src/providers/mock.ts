@@ -5,6 +5,12 @@
 // the delays).
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { platformerStyleExample } from '@sparkade/archetypes';
+import {
+  PLATFORMER_PLAY_STYLES,
+  platformerMechanics,
+  type PlatformerPlayStyle,
+} from '@sparkade/shared';
 import type {
   ArchetypeId,
   CompleteRequest,
@@ -113,7 +119,37 @@ export class MockProvider implements Provider {
     await this.delay();
     const stage = detectStage(req);
     const archetype = detectArchetype(req) ?? this.pickArchetype(req.user);
-    const golden = this.golden(archetype);
+    const source = this.golden(archetype);
+    // Follow the actual design JSON on subsequent stages; never match the system's whole catalogue.
+    const authoredStyle =
+      stage === 'design'
+        ? undefined
+        : /"playStyle"\s*:\s*"(acrobat|runAndGun|towerClimber|meleeAction|armedClimber)"/.exec(
+            req.user,
+          )?.[1];
+    const requestText = req.user.split('GAMES ALREADY ON THIS CABINET')[0] ?? req.user;
+    const requestedStyle =
+      authoredStyle ??
+      (stage === 'design'
+        ? /armed.?climber|mega.?man.?x/i.test(requestText) ||
+          (/wall.?jump|tower|climb/i.test(requestText) && /blaster|shoot|gun/i.test(requestText))
+          ? 'armedClimber'
+          : /wall.?jump|tower|climb.*up/i.test(requestText)
+            ? 'towerClimber'
+            : /run.and.gun|blaster|mega.?man|shoot.*platform/i.test(requestText)
+              ? 'runAndGun'
+              : /melee|energy strike|castlevania/i.test(requestText)
+                ? 'meleeAction'
+                : /PLATFORMER STYLE PREFERENCE[^:]*:\s*(acrobat|runAndGun|towerClimber|meleeAction|armedClimber)/.exec(
+                    req.user,
+                  )?.[1]
+        : undefined);
+    const style =
+      requestedStyle && PLATFORMER_PLAY_STYLES.includes(requestedStyle as PlatformerPlayStyle)
+        ? (requestedStyle as PlatformerPlayStyle)
+        : undefined;
+    const golden =
+      source.archetype === 'platformer' && style ? platformerStyleExample(source, style) : source;
     this.counter++;
 
     let payload: unknown;
@@ -212,6 +248,8 @@ export class MockProvider implements Provider {
               : [],
           ...(archetype === 'platformer'
             ? {
+                playStyle: style ?? ('acrobat' as const),
+                mechanics: platformerMechanics({ playStyle: style }),
                 movementProfile: 'precision' as const,
               }
             : {}),

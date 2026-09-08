@@ -197,6 +197,7 @@ export async function buildPlatformerJumpJudgeBoard(input: {
   idle: Buffer;
   sideAnchor: Buffer;
   candidates: readonly PlatformerJumpJudgeBoardAsset[];
+  purpose?: 'actions';
 }): Promise<Buffer> {
   const width = 1720;
   const columns = 3;
@@ -215,7 +216,17 @@ export async function buildPlatformerJumpJudgeBoard(input: {
 
   layers.push({
     input: Buffer.from(
-      '<svg width="1640" height="70" xmlns="http://www.w3.org/2000/svg"><text x="0" y="30" fill="#f5f7ff" font-family="monospace" font-size="26" font-weight="bold">PLATFORMER JUMP CONTINUITY REVIEW</text><text x="0" y="58" fill="#aab3d5" font-family="monospace" font-size="16">Identity truth → canonical costume → select one airborne pose</text></svg>',
+      '<svg width="1640" height="70" xmlns="http://www.w3.org/2000/svg"><text x="0" y="30" fill="#f5f7ff" font-family="monospace" font-size="26" font-weight="bold">PLATFORMER JUMP CONTINUITY REVIEW</text><text x="0" y="58" fill="#aab3d5" font-family="monospace" font-size="16">Identity truth → canonical costume → select one airborne pose</text></svg>'
+        .replace(
+          'PLATFORMER JUMP CONTINUITY REVIEW',
+          input.purpose === 'actions'
+            ? 'PLATFORMER ACTION CONTINUITY REVIEW'
+            : 'PLATFORMER JUMP CONTINUITY REVIEW',
+        )
+        .replace(
+          'select one airborne pose',
+          input.purpose === 'actions' ? 'review each required action' : 'select one airborne pose',
+        ),
     ),
     left: 40,
     top: 20,
@@ -235,7 +246,12 @@ export async function buildPlatformerJumpJudgeBoard(input: {
   layers.push({ input: await enlargedSprite(input.sideAnchor, 224, 256), left: 758, top: 140 });
   layers.push({
     input: Buffer.from(
-      '<svg width="610" height="300" xmlns="http://www.w3.org/2000/svg"><text x="0" y="30" fill="#ffd75e" font-family="monospace" font-size="20" font-weight="bold">WARDROBE IS IMMUTABLE</text><text x="0" y="72" fill="#c4cae8" font-family="monospace" font-size="17"><tspan x="0" dy="0">• Same person, face, hair and head accessories</tspan><tspan x="0" dy="34">• Same jacket, sleeves, shirt, armor and gloves</tspan><tspan x="0" dy="34">• Same trousers, belt, footwear and color placement</tspan><tspan x="0" dy="34">• Both feet visibly airborne in a clear jump</tspan><tspan x="0" dy="34">• Reject exposed skin caused by missing clothing</tspan><tspan x="0" dy="34">• Reject props, cropping, drift or extra limbs</tspan></text></svg>',
+      '<svg width="610" height="300" xmlns="http://www.w3.org/2000/svg"><text x="0" y="30" fill="#ffd75e" font-family="monospace" font-size="20" font-weight="bold">WARDROBE IS IMMUTABLE</text><text x="0" y="72" fill="#c4cae8" font-family="monospace" font-size="17"><tspan x="0" dy="0">• Same person, face, hair and head accessories</tspan><tspan x="0" dy="34">• Same jacket, sleeves, shirt, armor and gloves</tspan><tspan x="0" dy="34">• Same trousers, belt, footwear and color placement</tspan><tspan x="0" dy="34">• Both feet visibly airborne in a clear jump</tspan><tspan x="0" dy="34">• Reject exposed skin caused by missing clothing</tspan><tspan x="0" dy="34">• Reject props, cropping, drift or extra limbs</tspan></text></svg>'.replace(
+        'Both feet visibly airborne in a clear jump',
+        input.purpose === 'actions'
+          ? 'Match each requested movement and attack'
+          : 'Both feet visibly airborne in a clear jump',
+      ),
     ),
     left: 1070,
     top: 130,
@@ -250,8 +266,12 @@ export async function buildPlatformerJumpJudgeBoard(input: {
     const x = 40 + (index % columns) * 560;
     const y = 490 + Math.floor(index / columns) * 350;
     layers.push({
-      input: await enlargedSprite(input.candidates[index]!.processed, 224, 256),
-      left: x + 148,
+      input: await enlargedSprite(
+        input.candidates[index]!.processed,
+        input.purpose === 'actions' ? 320 : 224,
+        256,
+      ),
+      left: x + (input.purpose === 'actions' ? 100 : 148),
       top: y + 50,
     });
   }

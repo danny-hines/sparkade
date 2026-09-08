@@ -75,8 +75,7 @@ export function assertPatchTargetsOwner(
     diagnostics.every((diagnostic) =>
       failingIndexes.some(
         (index) =>
-          diagnostic.path === `/levels/${index}` ||
-          diagnostic.path.startsWith(`/levels/${index}/`),
+          diagnostic.path === `/levels/${index}` || diagnostic.path.startsWith(`/levels/${index}/`),
       ),
     );
   for (const operation of patch) {
@@ -92,6 +91,16 @@ export function assertPatchTargetsOwner(
       throw new PatchError(`repair operation ${operation.op} is not allowed`);
     }
     const root = pointerRoot(operation.path);
+    if (
+      root === 'playStyle' ||
+      root === 'mechanics' ||
+      root === 'actionPoseVersion' ||
+      root === 'chargeShot'
+    ) {
+      throw new PatchError(
+        'repair must preserve the design-selected playStyle; repair its levels or loadout instead',
+      );
+    }
     let allowed =
       owner === 'levels'
         ? !!root && LEVEL_ROOTS.has(root)
@@ -103,8 +112,7 @@ export function assertPatchTargetsOwner(
     if (allowed && indexedLevelOnly) {
       allowed = failingIndexes.some(
         (index) =>
-          operation.path === `/levels/${index}` ||
-          operation.path.startsWith(`/levels/${index}/`),
+          operation.path === `/levels/${index}` || operation.path.startsWith(`/levels/${index}/`),
       );
     }
     if (!allowed) {

@@ -4,6 +4,9 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import sharp from 'sharp';
 import {
+  mechanicalFingerprint,
+  requiredPlatformerActionPoses,
+  PLATFORMER_ACTION_ASSET_ROLES,
   GENERATED_GAME_ASSET_FILES,
   type GameSpec,
   type GeneratedGameAssetRole,
@@ -387,6 +390,58 @@ describe('story art prompts', () => {
 });
 
 describe.sequential('mock image asset pipeline', () => {
+  it.each([
+    ['acrobat', 'A jumping platformer about a courier'],
+    ['runAndGun', 'A platformer with a permanent blaster'],
+    ['towerClimber', 'A wall-jumping tower platformer'],
+    ['meleeAction', 'A melee platformer with an energy strike'],
+    ['armedClimber', 'A platformer combining a blaster and wall jumps'],
+  ] as const)(
+    'publishes the %s package and its final mechanical fingerprint',
+    async (style, promptText) => {
+      const { db, files, runner } = createHarness();
+      const { jobId, gameId } = runner.createJob({
+        promptText,
+        sourceKind: 'surprise',
+        requestedArchetype: 'platformer',
+        idempotencyKey: `package-${style}`,
+      });
+      expect(await waitForTerminal(db, jobId, 45_000)).toMatchObject({ status: 'done' });
+      const spec = files.readSpec(gameId) as PlatformerSpec;
+      expect(spec.playStyle).toBe(style);
+      expect(spec.actionPoseVersion).toBe(1);
+      for (const pose of requiredPlatformerActionPoses(spec)) {
+        expect(
+          generatedAssetForRole(
+            join(files.gameDir(gameId), 'assets'),
+            PLATFORMER_ACTION_ASSET_ROLES[pose],
+          ),
+          pose,
+        ).toMatchObject({ width: 160, height: 128 });
+      }
+      if (style === 'armedClimber') {
+        expect(spec.mechanics).toEqual({
+          traversal: 'wallJump',
+          combat: 'blaster',
+          structure: 'mixed',
+        });
+        expect(spec.levels.map((level) => level.tiles.length > 32)).toEqual([false, true, false]);
+      }
+      expect(
+        JSON.parse(readFileSync(join(files.gameDir(gameId), 'mechanics.json'), 'utf8')),
+      ).toEqual(mechanicalFingerprint(spec));
+      if (style === 'towerClimber') {
+        expect(spec.levels.every((level) => level.playerSpawn.y - level.exit.y >= 24)).toBe(true);
+        expect(spec.levels.every((level) => level.tiles.length >= 40)).toBe(true);
+      }
+      expect(
+        generatedAssetForRole(join(files.gameDir(gameId), 'assets'), 'platformerIdle'),
+      ).toBeTruthy();
+    },
+    // The combined kit normalizes/reviews eleven extra poses after the base graph.
+    60_000,
+  );
+
   it('publishes the room atlas, complete movement/combat player set, and selected boss for Adventure games', async () => {
     const { db, files, runner } = createHarness();
     const { jobId, gameId } = runner.createJob({

@@ -2,6 +2,7 @@
 // isolated, observable experiment: photo -> three front-idle foundations ->
 // Muse Spark identity selection -> shared side anchor -> three Phase A + three
 // inverse Phase B candidates -> Muse Spark pair selection.
+import { registerDevPlatformerActionRoutes } from './dev-platformer-actions';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { MultipartFile } from '@fastify/multipart';
 import { randomUUID } from 'node:crypto';
@@ -146,6 +147,7 @@ export function registerDevPlatformerPoseRoutes(
   dataDir: string,
   options: DevPlatformerPoseOptions = {},
 ): void {
+  registerDevPlatformerActionRoutes(app, dataDir);
   const runs = new Map<string, LabRun>();
   const experimentsDir = ensureDir(join(dataDir, 'experiments', 'platformer-poses'));
 

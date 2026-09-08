@@ -39,7 +39,7 @@ export function moveAABB(
   box: AABB,
   dx: number,
   dy: number,
-  opts: { dropThrough?: boolean } = {},
+  opts: { dropThrough?: boolean; platformSideHeight?: number } = {},
 ): MoveResult {
   const ts = grid.tileSize;
   const eps = 0.001;
@@ -67,7 +67,14 @@ export function moveAABB(
     for (let tx = fromTx + dir; dir > 0 ? tx <= toTx : tx >= toTx; tx += dir) {
       let blocked = false;
       for (let ty = ty0; ty <= ty1; ty++) {
-        if (solidAt(tx, ty) === 'solid') {
+        const solidity = solidAt(tx, ty);
+        const platformSide =
+          solidity === 'platform' &&
+          !opts.dropThrough &&
+          (opts.platformSideHeight ?? 0) > 0 &&
+          y + box.h > ty * ts + eps &&
+          y < ty * ts + opts.platformSideHeight! - eps;
+        if (solidity === 'solid' || platformSide) {
           blocked = true;
           break;
         }
@@ -135,7 +142,6 @@ export function cellsUnder(box: AABB, ts: number): { tx: number; ty: number }[] 
   const tx1 = Math.floor((box.x + box.w - eps) / ts);
   const ty0 = Math.floor((box.y + eps) / ts);
   const ty1 = Math.floor((box.y + box.h - eps) / ts);
-  for (let ty = ty0; ty <= ty1; ty++)
-    for (let tx = tx0; tx <= tx1; tx++) out.push({ tx, ty });
+  for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) out.push({ tx, ty });
   return out;
 }

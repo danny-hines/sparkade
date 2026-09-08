@@ -1,4 +1,5 @@
 import { stageSchema, type ArchetypeId } from '@sparkade/shared';
+import { compileTowerRoute, TOWER_ROUTE_SCHEMA } from './tower-routes';
 
 /** Archetypes whose generated levels contain large ASCII tile grids. */
 export type TileRunsArchetype = Extract<ArchetypeId, 'platformer' | 'hshooter'>;
@@ -169,7 +170,18 @@ export function deriveTileRunsStageSchema(source: JsonObject): JsonObject {
 
 /** Build the opt-in compact generation schema for one tile-grid archetype. */
 export function compactLevelsStageSchema(archetype: TileRunsArchetype): JsonObject {
-  return deriveTileRunsStageSchema(stageSchema(archetype, 'levels'));
+  const schema = deriveTileRunsStageSchema(stageSchema(archetype, 'levels'));
+  if (archetype === 'platformer') {
+    const level = levelSchemaFromStage(schema);
+    const properties = objectAt(level['properties'], 'level.properties');
+    properties['towerRoute'] = TOWER_ROUTE_SCHEMA;
+    const geometry = ['tileRuns', 'legend', 'entities', 'playerSpawn', 'exit'];
+    level['required'] = (level['required'] as string[]).filter((key) => !geometry.includes(key));
+    // Positive alternatives work with the provider's structured decoder. Nested
+    // `not` constraints cause HTTP 500s; the compiler enforces exclusivity below.
+    level['anyOf'] = [{ required: geometry }, { required: ['towerRoute'] }];
+  }
+  return schema;
 }
 
 function compileRows(
@@ -274,6 +286,24 @@ export function compileTileRunsStage<T>(
   levels.forEach((levelValue, levelIndex) => {
     const levelPath = `${levelsPath}[${levelIndex}]`;
     const level = objectAt(levelValue, levelPath);
+    if (archetype === 'platformer' && own(level, 'towerRoute')) {
+      if (
+        ['tiles', 'tileRuns', 'legend', 'entities', 'playerSpawn', 'exit'].some((key) =>
+          own(level, key),
+        )
+      )
+        throw new TileRunsError(levelPath, 'towerRoute cannot be combined with grid geometry');
+      try {
+        Object.assign(level, compileTowerRoute(level['towerRoute']));
+      } catch (error) {
+        throw new TileRunsError(
+          `${levelPath}.towerRoute`,
+          error instanceof Error ? error.message : 'invalid tower route',
+        );
+      }
+      delete level['towerRoute'];
+      return;
+    }
     if (!own(level, 'tileRuns')) return;
     if (own(level, 'tiles')) {
       throw new TileRunsError(levelPath, 'cannot contain both tiles and tileRuns');

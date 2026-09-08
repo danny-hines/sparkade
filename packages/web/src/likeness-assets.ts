@@ -1,5 +1,9 @@
 import type { LikenessAssets } from '@sparkade/engine';
-import { GENERATED_GAME_ASSET_FILES, type GeneratedGameAssetRole } from '@sparkade/shared';
+import {
+  GENERATED_GAME_ASSET_FILES,
+  PLATFORMER_ACTION_ASSET_ROLES,
+  type GeneratedGameAssetRole,
+} from '@sparkade/shared';
 import { api as defaultApi } from './api';
 
 export type RuntimeGameAssetFilename = Parameters<typeof defaultApi.assetUrl>[1];
@@ -245,18 +249,27 @@ export async function loadLikenessAssets(
   const fighterArenaPromise = assets[FIGHTER_ARENA_ASSET]
     ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[FIGHTER_ARENA_ASSET]))
     : Promise.resolve(null);
-  const platformerPromise: Promise<Record<PlatformerPoseName, HTMLImageElement> | null> =
+  const platformerAssets = [
+    ...PLATFORMER_POSE_ASSETS,
+    ...Object.entries(PLATFORMER_ACTION_ASSET_ROLES).filter(([, role]) => assets[role]),
+  ];
+  const platformerPromise: Promise<Record<string, HTMLImageElement> | null> =
     hasCompletePlatformerSet
       ? Promise.all(
-          PLATFORMER_POSE_ASSETS.map(([, role]) =>
-            loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[role])),
+          platformerAssets.map(
+            async ([pose, role]) =>
+              [
+                pose,
+                await loadImage(
+                  api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[role as GeneratedGameAssetRole]),
+                ),
+              ] as const,
           ),
-        ).then((images) => {
-          if (images.some((image) => image === null)) return null;
-          return Object.fromEntries(
-            PLATFORMER_POSE_ASSETS.map(([pose], index) => [pose, images[index]!]),
-          ) as Record<PlatformerPoseName, HTMLImageElement>;
-        })
+        ).then((entries) =>
+          entries.some(([, image]) => !image)
+            ? null
+            : (Object.fromEntries(entries) as Record<string, HTMLImageElement>),
+        )
       : Promise.resolve(null);
   const platformerBossPromise = assets.platformerBoss
     ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES.platformerBoss))

@@ -9,6 +9,7 @@
       "enum": ["none", "plasma", "arcane"]
     },
     "actionPoseVersion": { "const": 1 },
+    "encounterVersion": { "const": 1 },
     "mechanics": {
       "type": "object",
       "properties": {
@@ -551,6 +552,64 @@
     "level": {
       "type": "object",
       "properties": {
+        "encounters": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "const": 1
+            },
+            "orientation": {
+              "enum": ["horizontal", "tower"]
+            },
+            "direction": {
+              "enum": ["left", "right"]
+            },
+            "sections": {
+              "type": "array",
+              "minItems": 5,
+              "maxItems": 6,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "pattern": {
+                    "enum": [
+                      "bounce-run",
+                      "stepped-route",
+                      "high-low",
+                      "cover-advance",
+                      "overhead-targets",
+                      "patrol-duel",
+                      "jump-in",
+                      "crossfire-break",
+                      "wall-ascent",
+                      "switchback-climb",
+                      "sheltered-climb",
+                      "armed-ascent"
+                    ]
+                  },
+                  "variant": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2
+                  },
+                  "challenge": {
+                    "enum": ["introduce", "develop", "test"]
+                  },
+                  "enemy": {
+                    "enum": ["none", "walker", "flyer", "shooter", "chaser"]
+                  },
+                  "reward": {
+                    "enum": ["coins", "heart", "doubleJump", "projectile", "shield"]
+                  }
+                },
+                "required": ["pattern", "variant", "challenge", "enemy", "reward"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["version", "orientation", "direction", "sections"],
+          "additionalProperties": false
+        },
         "name": { "$ref": "#/$defs/shortName" },
         "musicSong": {
           "description": "Must be a key of music.songs.",

@@ -127,21 +127,12 @@ describe('prompt templates', () => {
     expect(Object.values(example.legend)).not.toContain('exit');
 
     const prompt = loadTemplate('levels-platformer');
-    expect(prompt).toContain('1 tile wide and 2 tiles tall');
-    expect(prompt).toContain('LOWER/FOOT cell');
-    expect(prompt).toContain('Do NOT author `decoration` or `exit` cells');
-    expect(prompt).toContain('one-tile-high tunnels');
-    expect(prompt).toContain('one semantic value per cell');
-    expect(prompt).toContain('never add separate cap/inner characters');
-    expect(prompt).toContain('engine selects exposed cap art versus buried inner art');
-    expect(prompt).toContain("design document's `abilityLoadout`");
-    expect(prompt).toContain('one reachable powerup for EVERY entry');
-    expect(prompt).toContain('`"heroic"` uses a close 2x camera');
-    expect(prompt).toContain('≤ 8 near any heroic screen');
-    expect(prompt).toContain('Choose neither, one, or both');
-    expect(prompt).toContain('never add them merely to satisfy a quota');
-    expect(prompt).toContain('coherent runs of 4–10 cells');
-    expect(prompt).toContain('never ice or conveyors');
+    expect(prompt).toContain('`encounterRoute`');
+    expect(prompt).toContain('safe anchors and checkpoints');
+    expect(prompt).toContain('never author those fields yourself');
+    expect(prompt).toContain('behavior selected in `abilityLoadout`');
+    expect(prompt).toContain('no temporary ability is required');
+    expect(prompt).toContain('at least three distinct patterns');
   });
 
   it('teaches platformer entity generation to pair themed cap and inner art', () => {

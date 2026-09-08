@@ -5,6 +5,7 @@
 // the delays).
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { mockEncounterLevels } from './mock-encounters';
 import { platformerStyleExample } from '@sparkade/archetypes';
 import {
   PLATFORMER_PLAY_STYLES,
@@ -262,7 +263,10 @@ export class MockProvider implements Provider {
           ...(golden.archetype === 'fighter' && golden.player
             ? { player: structuredClone(golden.player) }
             : {}),
-          levels: structuredClone(golden.levels),
+          levels:
+            golden.archetype === 'platformer' && req.system.includes('`encounterRoute`')
+              ? mockEncounterLevels(golden)
+              : structuredClone(golden.levels),
         };
         break;
       case 'entities':

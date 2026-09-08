@@ -95,6 +95,7 @@ export function assertPatchTargetsOwner(
       root === 'playStyle' ||
       root === 'mechanics' ||
       root === 'actionPoseVersion' ||
+      root === 'encounterVersion' ||
       root === 'chargeShot'
     ) {
       throw new PatchError(

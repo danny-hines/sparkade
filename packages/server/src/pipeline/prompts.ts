@@ -30,7 +30,7 @@ import {
 import { goldenExcerpt, loadGolden, loadTemplate, renderTemplate } from '@sparkade/generation';
 import type { LintError } from '@sparkade/shared';
 import { compactLevelsStageSchema } from './tile-runs';
-import { TOWER_ROUTE_GUIDANCE } from './tower-routes';
+import { encounterGuidance } from './encounter-guidance';
 
 export interface BuiltPrompt {
   system: string;
@@ -176,29 +176,30 @@ export function buildLevelsPrompt(
   archetype: ArchetypeId,
   design: DesignDoc,
   diagnostics: readonly LintError[] = [],
+  recentMechanics: readonly MechanicalFingerprint[] = [],
 ): BuiltPrompt {
   const compact = archetype === 'platformer' || archetype === 'hshooter';
-  const schema = compact ? compactLevelsStageSchema(archetype) : stageSchema(archetype, 'levels');
+  const schema = compact
+    ? compactLevelsStageSchema(archetype, archetype === 'platformer')
+    : stageSchema(archetype, 'levels');
   const renderedSystem = renderTemplate(loadTemplate(`levels-${archetype}`), {
     GOLDEN_EXCERPT: compact
       ? safeCompactLevelsExcerpt(archetype)
       : safeExcerpt(archetype, 'levels'),
     SCHEMA: JSON.stringify(schema, null, 1),
   });
-  const system = compact
-    ? `${renderedSystem}\n\n## Compact tile rows\n\nThe output schema deliberately replaces each level's literal \`tiles\` strings with \`tileRuns\`. For every visual row, emit a left-to-right array of two-item \`[tile,count]\` tuples, for example \`[[".",72],["#",8]]\`. Adjacent tuples reconstruct the row; all expanded rows in a level must have the same total width. This compact form is compiled to ordinary tile strings by the engine.`
-    : renderedSystem;
+  const system =
+    archetype === 'platformer'
+      ? renderedSystem
+      : compact
+        ? `${renderedSystem}\n\n## Compact tile rows\n\nThe output schema deliberately replaces each level's literal \`tiles\` strings with \`tileRuns\`. For every visual row, emit a left-to-right array of two-item \`[tile,count]\` tuples, for example \`[[".",72],["#",8]]\`. Adjacent tuples reconstruct the row; all expanded rows in a level must have the same total width. This compact form is compiled to ordinary tile strings by the engine.`
+        : renderedSystem;
   return {
     system,
     user: [
       `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}`,
       ...(archetype === 'platformer'
-        ? [
-            platformerStyleBrief(design),
-            ...(['towerClimber', 'armedClimber'].includes(design.playStyle ?? '')
-              ? [TOWER_ROUTE_GUIDANCE]
-              : []),
-          ]
+        ? [platformerStyleBrief(design), encounterGuidance(design, recentMechanics)]
         : []),
       diagnostics.length
         ? `THE PREVIOUS LEVEL OUTPUT FAILED THESE CHECKS. Build a fresh set that specifically avoids them:\n${formatDiagnostics(diagnostics)}`
@@ -232,7 +233,7 @@ export function platformerStyleBrief(
       ? 'WEAPON OVERRIDE: No charging. X and Y both fire; do not describe charge attacks or energy buildup. '
       : '') +
     (style === 'armedClimber'
-      ? `Combine the permanent blaster and wall jump. Structure: ${design.mechanics?.structure ?? 'mixed'}. Mixed means at least one horizontal level (14-18 rows, 80-104 columns) and at least one tower (48-96 rows, 32-40 columns, exit at least 24 rows above spawn). For tower structure use three towers; for horizontal structure use three horizontal stages with exposed walls for dodges. Tower climbs must require wall jumping with continuous solid wall faces, two clear body rows, supported approaches within four tiles and safe rest ledges; ordinary jumps cannot bypass the climb. Include checkpoints at different heights. Put ranged enemies on ledges and across open shafts, leave room to land, and teach shooting away from a wall and keeping charge through wall jumps. Use precision movement and projectile plus optional shield, never doubleJump. Contact hurts from all directions. A jumps/wall jumps, B runs, Y fires, X charges, UP aims upward. Runtime generates ground, running, airborne, and wall-shoot poses.`
+      ? `Combine the permanent blaster and wall jump. Structure: ${design.mechanics?.structure ?? 'mixed'}. Mixed means at least one horizontal encounter route and at least one tower encounter route, with the summit at least 24 rows above spawn. For tower structure use three towers; for horizontal structure use three horizontal stages with exposed walls for dodges. Tower climbs must require wall jumping with continuous solid wall faces, two clear body rows, supported approaches within four tiles and safe rest ledges; ordinary jumps cannot bypass the climb. Include checkpoints at different heights. Put ranged enemies on ledges and across open shafts, leave room to land, and teach shooting away from a wall and keeping charge through wall jumps. Use precision movement and projectile plus optional shield, never doubleJump. Contact hurts from all directions. A jumps/wall jumps, B runs, Y fires, X charges, UP aims upward. Runtime generates ground, running, airborne, and wall-shoot poses.`
       : style === 'towerClimber'
         ? 'Use 32-40 columns and 48-96 rows. Spawn near the bottom, exit at least 24 rows above it. Build continuous exposed solid walls with clear approach space and rest ledges. A hero can hold toward one wall and repeatedly jump up it; no alternating-wall trick is required. Place each wall within four tiles of a supported approach and provide a wide landing at its top. Vary climb height, approach direction and threats between ledges. Wall jumping is permanent and may be REQUIRED. Use several short climb encounters, two safe checkpoints at different heights, and at least one climb that ordinary jumps cannot bypass. No required double jumps, springs or moving platforms. Keep the upward sightline clear. Alternate safe teaching, threats on ledges, and recovery.'
         : style === 'runAndGun'
@@ -633,10 +634,13 @@ export function buildLevelRegenerationPrompt(
   levelIndex: number,
   currentLevels: readonly unknown[],
   diagnostics: readonly LintError[],
+  recentMechanics: readonly MechanicalFingerprint[] = [],
 ): BuiltPrompt {
   const compact = archetype === 'platformer' || archetype === 'hshooter';
   const fullSchema = (
-    compact ? compactLevelsStageSchema(archetype) : stageSchema(archetype, 'levels')
+    compact
+      ? compactLevelsStageSchema(archetype, archetype === 'platformer')
+      : stageSchema(archetype, 'levels')
   ) as {
     properties: Record<string, unknown>;
     $defs?: Record<string, unknown>;
@@ -658,7 +662,7 @@ export function buildLevelRegenerationPrompt(
       : safeExcerpt(archetype, 'levels'),
     SCHEMA: JSON.stringify(schema, null, 1),
   });
-  const system = `${baseSystem}\n\n## Single-level regeneration override\n\nThis call replaces ONLY zero-based level ${levelIndex}. Ignore any earlier instruction to emit all levels. Return exactly one object shaped as {"level": ...}, matching the final schema below. Preserve the premise and progression role of this level, but rebuild the invalid geometry/content from scratch. Do not copy the invalid tile rows verbatim.${compact ? ' The replacement schema uses compact tileRuns rather than literal tiles; emit [tile,count] tuples whose counts expand to equal-width rows.' : ''}`;
+  const system = `${baseSystem}\n\n## Single-level regeneration override\n\nThis call replaces ONLY zero-based level ${levelIndex}. Ignore any earlier instruction to emit all levels. Return exactly one object shaped as {"level": ...}, matching the final schema below. Preserve the premise and progression role of this level, but rebuild the invalid geometry/content from scratch. Do not copy the invalid tile rows verbatim.${archetype === 'hshooter' ? ' The replacement schema uses compact tileRuns rather than literal tiles; emit [tile,count] tuples whose counts expand to equal-width rows.' : ''}`;
   const siblingSummary = currentLevels.map((level, index) => ({
     index,
     ...(level && typeof level === 'object'
@@ -672,9 +676,8 @@ export function buildLevelRegenerationPrompt(
       ...(archetype === 'platformer'
         ? [
             platformerStyleBrief(design),
-            ...(['towerClimber', 'armedClimber'].includes(design.playStyle ?? '')
-              ? [TOWER_ROUTE_GUIDANCE]
-              : []),
+            encounterGuidance(design, recentMechanics),
+            `Existing encounter sequences: ${JSON.stringify(currentLevels.map((level) => (level as { encounters?: unknown })?.encounters))}. Vary healthy siblings; preserve the requested kit.`,
           ]
         : []),
       `LEVEL SET SUMMARY (the entry at index ${levelIndex} is the one being replaced):\n${JSON.stringify(siblingSummary)}`,
@@ -698,23 +701,11 @@ function safeCompactLevelsExcerpt(
   archetype: Extract<ArchetypeId, 'platformer' | 'hshooter'>,
 ): string {
   try {
+    if (archetype === 'platformer')
+      return 'Each level contains only name, musicSong (theme), and encounterRoute. Choose its compatible patterns from the catalog in the user message; geometry is compiled by the engine.';
     const golden = loadGolden(archetype);
     const level = structuredClone(golden.levels[0]) as unknown as Record<string, unknown>;
-    let rows = Array.isArray(level['tiles']) ? (level['tiles'] as string[]) : [];
-    if (archetype === 'platformer' && level['legend'] && typeof level['legend'] === 'object') {
-      const legend = level['legend'] as Record<string, string>;
-      const engineOwned = new Set(
-        Object.entries(legend)
-          .filter(([, kind]) => kind === 'decoration' || kind === 'exit')
-          .map(([tile]) => tile),
-      );
-      rows = rows.map((row) =>
-        [...row].map((tile) => (engineOwned.has(tile) ? '.' : tile)).join(''),
-      );
-      level['legend'] = Object.fromEntries(
-        Object.entries(legend).filter(([, kind]) => kind !== 'decoration' && kind !== 'exit'),
-      );
-    }
+    const rows = Array.isArray(level['tiles']) ? (level['tiles'] as string[]) : [];
     delete level['tiles'];
     level['tileRuns'] = rows.map(compactRow);
     return `One complete level object (the response envelope and level count come from the schema):\n${JSON.stringify(level, null, 1)}`;

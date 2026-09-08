@@ -694,12 +694,14 @@ function compileGeneratedLevels(
         !isRecord(level) ||
         !(
           Object.prototype.hasOwnProperty.call(level, 'tileRuns') ||
-          (archetype === 'platformer' && Object.prototype.hasOwnProperty.call(level, 'towerRoute'))
+          (archetype === 'platformer' &&
+            (Object.prototype.hasOwnProperty.call(level, 'towerRoute') ||
+              Object.prototype.hasOwnProperty.call(level, 'encounterRoute')))
         )
       ) {
         throw new TileRunsError(
           `$.levels[${index}].tileRuns`,
-          'compact generation output must include tileRuns (or towerRoute for towers) instead of tiles',
+          'compact generation output must include tileRuns (or encounterRoute/towerRoute for platformers) instead of tiles',
         );
       }
     });
@@ -713,12 +715,14 @@ function compileGeneratedLevel(archetype: ArchetypeId, level: unknown): unknown 
     !isRecord(level) ||
     !(
       Object.prototype.hasOwnProperty.call(level, 'tileRuns') ||
-      (archetype === 'platformer' && Object.prototype.hasOwnProperty.call(level, 'towerRoute'))
+      (archetype === 'platformer' &&
+        (Object.prototype.hasOwnProperty.call(level, 'towerRoute') ||
+          Object.prototype.hasOwnProperty.call(level, 'encounterRoute')))
     )
   ) {
     throw new TileRunsError(
       '$.levels[0].tileRuns',
-      'compact generation output must include tileRuns (or towerRoute for towers) instead of tiles',
+      'compact generation output must include tileRuns (or encounterRoute/towerRoute for platformers) instead of tiles',
     );
   }
   const compiled = compileTileRunsStage(
@@ -1893,11 +1897,15 @@ export class GenerationRunner {
         const resumedMusic = resumeStage('music');
         const loadLevels = async (): Promise<unknown> => {
           if (resumedLevels !== undefined) return resumedLevels;
-          const raw = await callLlm('levels', buildLevelsPrompt(archetype, design), {
-            stage: 'writing-spec',
-            checkpoint: 'levels',
-            label: 'Building levels…',
-          });
+          const raw = await callLlm(
+            'levels',
+            buildLevelsPrompt(archetype, design, [], recentMechanics),
+            {
+              stage: 'writing-spec',
+              checkpoint: 'levels',
+              label: 'Building levels…',
+            },
+          );
           try {
             return compileGeneratedLevels(archetype, raw, true);
           } catch (error) {
@@ -1907,7 +1915,7 @@ export class GenerationRunner {
             try {
               const retryRaw = await callLlm(
                 'levels',
-                buildLevelsPrompt(archetype, design, [diagnostic]),
+                buildLevelsPrompt(archetype, design, [diagnostic], recentMechanics),
                 {
                   stage: 'writing-spec',
                   checkpoint: 'levels',
@@ -2013,6 +2021,7 @@ export class GenerationRunner {
           !!photo,
           recentUse,
           { jobId, gameId, attempt: job.attempt },
+          recentMechanics,
         );
         spec = ensureLikenessHeroBody(spec, !!photo);
       }
@@ -6462,8 +6471,21 @@ export class GenerationRunner {
                       processed = await processGeneratedPlatformerPose(normalizedReference);
                     }
                     return { id, kind, reference: normalizedReference, png: processed.png };
-                  } catch (_error) {
+                  } catch (error) {
                     validationFailure(`platformer-${id}`);
+                    feed(
+                      'decision',
+                      `${label} could not fit the sprite constraints`,
+                      'building-assets',
+                      {
+                        category: 'sprite-validation',
+                        candidateId: id,
+                        reason: (error instanceof Error ? error.message : String(error)).slice(
+                          0,
+                          500,
+                        ),
+                      },
+                    );
                     emit('building-assets', `${label} failed local sprite validation`);
                     return null;
                   }
@@ -7337,6 +7359,11 @@ export class GenerationRunner {
             playStyle: design.playStyle ?? ('acrobat' as const),
             mechanics: platformerMechanics(design),
             actionPoseVersion: 1 as const,
+            ...((parts.levels as PlatformerSpec['levels'] | undefined)?.some(
+              (level) => level.encounters,
+            )
+              ? { encounterVersion: 1 as const }
+              : {}),
             ...(design.chargeShot ? { chargeShot: design.chargeShot } : {}),
             playerHeightTiles: 2 as const,
             platformerScale: design.platformerScale ?? ('heroic' as const),
@@ -7392,6 +7419,7 @@ export class GenerationRunner {
     hasPhoto: boolean,
     recentUse?: RecentUse,
     repairContext?: { jobId: string; gameId: string; attempt: number },
+    recentMechanics: readonly MechanicalFingerprint[] = [],
   ): Promise<GameSpec> {
     const fallbackOptions = { recentBosses: recentUse?.bosses };
     const passByOwner = new Map<string, number>();
@@ -7658,7 +7686,14 @@ export class GenerationRunner {
                 const requestReplacement = (issues: readonly LintError[], label: string) =>
                   callLlm(
                     'levels',
-                    buildLevelRegenerationPrompt(archetype, design, index, currentLevels, issues),
+                    buildLevelRegenerationPrompt(
+                      archetype,
+                      design,
+                      index,
+                      currentLevels,
+                      issues,
+                      recentMechanics,
+                    ),
                     { label, stage: 'writing-spec', reasoningEffort: 'minimal' },
                   );
                 const checkpointReplacement = (document: unknown): void => {
@@ -7729,12 +7764,16 @@ export class GenerationRunner {
               /* best-effort canonical checkpoint */
             }
           } else {
-            let raw = await callLlm('levels', buildLevelsPrompt(archetype, design, before), {
-              label: 'Levels rebuilt',
-              stage: 'writing-spec',
-              checkpoint: 'levels',
-              reasoningEffort: 'minimal',
-            });
+            let raw = await callLlm(
+              'levels',
+              buildLevelsPrompt(archetype, design, before, recentMechanics),
+              {
+                label: 'Levels rebuilt',
+                stage: 'writing-spec',
+                checkpoint: 'levels',
+                reasoningEffort: 'minimal',
+              },
+            );
             let canonical: unknown;
             try {
               canonical = compileGeneratedLevels(archetype, raw, true);
@@ -7744,7 +7783,12 @@ export class GenerationRunner {
               const retryStarted = Date.now();
               raw = await callLlm(
                 'levels',
-                buildLevelsPrompt(archetype, design, [...before, compileDiagnostic]),
+                buildLevelsPrompt(
+                  archetype,
+                  design,
+                  [...before, compileDiagnostic],
+                  recentMechanics,
+                ),
                 {
                   label: 'Correcting rebuilt level rows…',
                   stage: 'writing-spec',

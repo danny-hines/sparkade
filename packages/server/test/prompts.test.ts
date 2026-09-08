@@ -153,23 +153,19 @@ describe('entities prompt likeness casting', () => {
     expect(system).toContain('custom-pixel budget on terrain or a gameplay object');
   });
 
-  it('uses compact run rows for large generated tile grids', () => {
+  it('uses bounded encounter composition for newly generated platformers', () => {
     const prompt = buildLevelsPrompt('platformer', design);
     const level = (
       prompt.jsonSchema as {
-        $defs: Record<string, { required: string[]; anyOf: { required: string[] }[] }>;
+        $defs: Record<string, { required: string[]; properties: Record<string, unknown> }>;
       }
     ).$defs['level']!;
-
-    expect(level.anyOf.map((branch) => branch.required)).toEqual(
-      expect.arrayContaining([expect.arrayContaining(['tileRuns']), ['towerRoute']]),
-    );
-    expect(level.required).not.toContain('tiles');
-    expect(prompt.system).toContain('Compact tile rows');
-    expect(prompt.system).toContain('at most 6 tuples per row on average');
-    expect(prompt.system).toContain('trace one continuous route');
-    expect(prompt.system).toContain('must never be required to make the exit reachable');
-    expect(prompt.maxTokens).toBe(9000);
+    expect(level.required).toContain('encounterRoute');
+    expect(level.properties).not.toHaveProperty('tileRuns');
+    expect(level.properties).not.toHaveProperty('encounters');
+    expect(prompt.system).toContain('never identical neighbors');
+    expect(prompt.user).toContain('at least THREE different patterns');
+    expect(prompt.user).toContain('Available catalog, least recently used first');
   });
 
   it('uses the vertical-shooter backdrop vocabulary instead of side-view ids', () => {

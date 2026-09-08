@@ -18,6 +18,7 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:8098',
     viewport: { width: 1024, height: 600 },
     trace: 'retain-on-failure',
+    launchOptions: { args: ['--mute-audio'] },
   },
   webServer: {
     // Wipes .e2e-data first (fresh library = exactly the five golden games).

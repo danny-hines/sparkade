@@ -229,6 +229,8 @@ export interface Coord {
 }
 
 export interface PlatformerLevel {
+  /** Compiler provenance, validated against the final geometry after repair. */
+  encounters?: import('./platformer-encounters').PlatformerEncounterPlan;
   name: string;
   musicSong: string;
   tiles: string[];
@@ -492,6 +494,8 @@ export interface GameSpecBase {
 
 export interface PlatformerSpec extends GameSpecBase {
   archetype: 'platformer';
+  /** Bounded encounter composition and readable combat timing. Legacy games omit it. */
+  encounterVersion?: 1;
   /** Released gameplay package. Omitted saves preserve the original acrobat controls. */
   playStyle?: import('./play-styles').PlatformerPlayStyle;
   mechanics?: import('./play-styles').PlatformerMechanics;

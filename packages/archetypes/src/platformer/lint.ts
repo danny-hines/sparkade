@@ -22,6 +22,7 @@ import {
   lintSongRef,
   lintSpriteRefs,
 } from '../common';
+import { lintPlatformerEncounters } from './encounters';
 import { towerClimbDestinations } from './tower-motion';
 
 const ENEMY_TYPES = ['walker', 'flyer', 'shooter', 'chaser'] as const;
@@ -542,6 +543,7 @@ export function lintPlatformer(spec: PlatformerSpec): LintError[] {
       ),
     );
   out.push(...platformerStyleDiagnostics(spec));
+  out.push(...lintPlatformerEncounters(spec));
   out.push(...lintMusic(spec), ...lintSpriteRefs(spec));
 
   const enemyTypesUsed = new Set<string>();

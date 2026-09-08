@@ -26,6 +26,7 @@ import {
 } from '@sparkade/engine';
 import {
   platformerPlayStyle,
+  platformerBossPacing,
   platformerChargeShot,
   PLATFORMER_CHARGED_SHOT,
   platformerMechanics,
@@ -1793,11 +1794,26 @@ class PlatformerGame implements GameInstance {
 
   // ---------------------------------------------------------------- enemies
 
+  private shooterInterval(e: Ent): number {
+    const interval = (e.props.fireIntervalMs ?? 2200) / 1000 / this.diff.fire;
+    return this.spec.encounterVersion === 1 ? Math.max(1.8, interval) : interval;
+  }
+
   private updateEntities(dt: number): void {
     const camX = this.engine.camera.x;
     const camY = this.engine.camera.y;
     for (const e of this.ents) {
       if (!e.active) continue;
+      // New encounters never bank an unseen turret shot. Re-entering the
+      // viewport gives the full interval again, even after camera backtracking.
+      if (
+        this.spec.encounterVersion === 1 &&
+        e.type === 'shooter' &&
+        (e.x < camX || e.x + e.w > camX + this.viewW || e.y < camY || e.y + e.h > camY + this.viewH)
+      ) {
+        e.fireT = 0;
+        continue;
+      }
       // Activate only near the camera (budget); keep updating once seen.
       if (e.x > camX + this.viewW + 64 || e.x < camX - 96) continue;
       if (
@@ -1809,7 +1825,15 @@ class PlatformerGame implements GameInstance {
       switch (e.type) {
         case 'walker':
         case 'chaser': {
-          const speed = (e.props.speed ?? 1) * (e.type === 'chaser' ? 60 : 34);
+          // A chaser above a climb must leave the landing clear until the
+          // player approaches its elevation. Keep gravity active while waiting.
+          const waitingForApproach =
+            this.spec.encounterVersion === 1 &&
+            e.type === 'chaser' &&
+            Math.abs(this.playerCenterY() - (e.y + e.h / 2)) > TILE_SIZE * 2;
+          const speed = waitingForApproach
+            ? 0
+            : (e.props.speed ?? 1) * (e.type === 'chaser' ? 60 : 34);
           let dir = e.dir;
           if (
             e.type === 'chaser' &&
@@ -1859,7 +1883,7 @@ class PlatformerGame implements GameInstance {
           e.fireT += dt;
           const enemyCenterX = e.x + e.w / 2;
           e.dir = platformerShooterFacingDirection(this.playerCenterX(), enemyCenterX, e.dir);
-          const interval = (e.props.fireIntervalMs ?? 2200) / 1000 / this.diff.fire;
+          const interval = this.shooterInterval(e);
           if (
             e.fireT >= interval &&
             Math.abs(this.playerCenterX() - enemyCenterX) < this.viewW * 0.6
@@ -2036,7 +2060,11 @@ class PlatformerGame implements GameInstance {
       });
     }
     const phase = this.spec.boss.phases[b.phaseIx]!;
-    const tempo = phase.tempo;
+    const pacing =
+      this.spec.encounterVersion === 1
+        ? platformerBossPacing(platformerMechanics(this.spec).combat)
+        : null;
+    const tempo = pacing ? Math.min(phase.tempo, pacing.maxTempo) : phase.tempo;
     const grid = {
       cols: this.grid.cols,
       rows: this.grid.rows,
@@ -2050,11 +2078,15 @@ class PlatformerGame implements GameInstance {
       case 'idle': {
         // face the player; pick next attack after a beat
         b.dir = Math.sign(this.playerCenterX() - (b.x + b.w / 2)) || -1;
-        const interval = 1.6 / tempo;
+        const interval = Math.max(1.6 / tempo, pacing?.recovery ?? 0);
         if (atk.t >= interval) {
           const list = phase.attacks;
           const next = list[Math.floor(this.engine.rng.next() * list.length)]!;
-          b.attack = { name: next, t: 0, telegraph: 0.45 / tempo };
+          b.attack = {
+            name: next,
+            t: 0,
+            telegraph: Math.max(0.45 / tempo, pacing?.telegraph ?? 0),
+          };
         }
         break;
       }
@@ -2102,7 +2134,7 @@ class PlatformerGame implements GameInstance {
       }
       case 'spread': {
         if (atk.t < atk.telegraph) break;
-        const n = 3 + b.phaseIx;
+        const n = Math.min(3 + b.phaseIx, pacing?.spreadCount ?? Infinity);
         for (let i = 0; i < n; i++) {
           const a =
             Math.atan2(
@@ -2474,6 +2506,29 @@ class PlatformerGame implements GameInstance {
       const generatedEnemy = generatedEnemyRole
         ? this.generatedEnemies?.[generatedEnemyRole]
         : null;
+      if (
+        this.spec.encounterVersion === 1 &&
+        e.type === 'shooter' &&
+        e.fireT >= this.shooterInterval(e) - 0.55
+      ) {
+        const sprite = this.sprites['shooter']!;
+        const rect = generatedEnemy
+          ? generatedPlatformerEnemyDrawRect('shooter', e.x, e.y, e.w, e.h)
+          : { x: e.x - (sprite.w - e.w) / 2, y: e.y - (sprite.h - e.h), w: sprite.w, h: sprite.h };
+        const muzzle = platformerShooterMuzzlePoint(rect, e.dir);
+        const x = Math.round(muzzle.x - cam.x),
+          y = Math.round(muzzle.y - cam.y);
+        r.ctx.fillStyle = this.spec.palette[10]!;
+        // Sparse pixels keep the warning in the same visual language as attacks.
+        const pulse = Math.floor(e.fireT * 12) % 2;
+        for (const [dx, dy] of [
+          [-3 - pulse, 0],
+          [3 + pulse, 0],
+          [0, -3 - pulse],
+          [0, 3 + pulse],
+        ])
+          r.ctx.fillRect(x + dx!, y + dy!, 1, 1);
+      }
       if (generatedEnemy && generatedEnemyRole) {
         const rect = generatedPlatformerEnemyDrawRect(generatedEnemyRole, e.x, e.y, e.w, e.h);
         r.drawScaledFlipped(

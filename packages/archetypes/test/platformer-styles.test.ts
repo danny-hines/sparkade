@@ -6,6 +6,7 @@ import {
   type LogicalButton,
   type PlatformerPlayStyle,
   type PlatformerSpec,
+  type PlatformerEntity,
 } from '@sparkade/shared';
 import type { EngineContext, GameInstance, HudState, InputSnapshot } from '@sparkade/engine';
 import { platformerStyleExample } from '../src/platformer/examples';
@@ -62,6 +63,7 @@ interface Harness extends GameInstance {
   }[];
   towerMotion: TowerMotion | null;
   updatePlayer(dt: number, input: InputSnapshot): void;
+  makeEnt(entity: PlatformerEntity): Entity & { fireT: number };
   updateEntities(dt: number): void;
   updateBoss(dt: number): void;
   updateProjectiles(dt: number): void;
@@ -119,6 +121,75 @@ function harness(style: PlatformerPlayStyle): Harness {
 }
 
 describe('platformer packages in the real controller', () => {
+  it('gives new encounter turrets a full visible interval before firing, including re-entry', () => {
+    const g = harness('runAndGun');
+    g.spec.encounterVersion = 1;
+    g.enterBoss(false);
+    g.px = 60;
+    g.py = 60;
+    const turret = g.makeEnt({ type: 'shooter', x: 7, y: 5, props: { fireIntervalMs: 2800 } });
+    g.ents = [turret];
+    turret.x = 2000;
+    g.updateEntities(20);
+    expect(turret.fireT).toBe(0);
+    expect(g.projs.filter((p) => p.active)).toHaveLength(0);
+    turret.x = 112;
+    for (let i = 0; i < 150; i++) g.updateEntities(DT);
+    expect(g.projs.filter((p) => p.active)).toHaveLength(0);
+    for (let i = 0; i < 30; i++) g.updateEntities(DT);
+    expect(g.projs.filter((p) => p.active && !p.friendly)).toHaveLength(1);
+    turret.x = 2000;
+    g.updateEntities(DT);
+    turret.x = 112;
+    g.updateEntities(DT);
+    expect(turret.fireT).toBeLessThan(0.02);
+  });
+
+  it('keeps new chasers on their landing until the hero reaches their elevation', () => {
+    const g = harness('runAndGun');
+    g.spec.encounterVersion = 1;
+    g.enterBoss(false);
+    g.px = 80;
+    g.py = 60;
+    const chaser = g.makeEnt({ type: 'chaser', x: 12, y: 14, props: { speed: 1, range: 1 } });
+    g.ents = [chaser];
+    const start = chaser.x;
+    for (let i = 0; i < 60; i++) g.updateEntities(DT);
+    expect(chaser.x).toBe(start);
+    g.py = 212;
+    for (let i = 0; i < 20; i++) g.updateEntities(DT);
+    expect(chaser.x).toBeLessThan(start - 10);
+  });
+
+  it.each(['meleeAction', 'runAndGun', 'towerClimber'] as const)(
+    'preserves a readable final-phase boss opening for %s',
+    (style) => {
+      const g = harness(style);
+      g.spec.encounterVersion = 1;
+      g.spec.boss.phases.forEach((phase) => {
+        phase.tempo = 2;
+        phase.attacks = ['spread'];
+      });
+      g.enterBoss(false);
+      const boss = g.boss! as Entity & { attack: { name: string; t: number; telegraph: number } };
+      boss.hp = 1;
+      g.px = 25;
+      g.py = 200;
+      g.updateBoss(0.9);
+      expect(boss.attack.name).toBe('idle');
+      g.updateBoss(0.6);
+      expect(boss.attack.name).toBe('spread');
+      expect(boss.attack.telegraph).toBeGreaterThanOrEqual(style === 'meleeAction' ? 0.7 : 0.6);
+      g.updateBoss(boss.attack.telegraph - 0.01);
+      expect(g.projs.some((p) => p.active)).toBe(false);
+      g.updateBoss(0.02);
+      expect(boss.attack.name).toBe('idle');
+      if (style === 'meleeAction') expect(g.projs.filter((p) => p.active)).toHaveLength(3);
+      g.updateBoss(0.9);
+      expect(boss.attack.name).toBe('idle');
+    },
+  );
+
   it('equips the blaster at spawn, charges an upward shot, and keeps it after damage and respawn', () => {
     const g = harness('runAndGun');
     expect(g.power.projectile).toBe(true);

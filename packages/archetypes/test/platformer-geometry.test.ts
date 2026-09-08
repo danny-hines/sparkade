@@ -9,10 +9,30 @@ import {
   platformerHeroPresentation,
   platformerMovingPlatformOutlineRect,
   platformerPlayerBody,
+  platformerProjectileTargetRect,
   platformerWorldScale,
 } from '../src/platformer/geometry';
 
 describe('platformer player geometry', () => {
+  it('fits projectile targets to opaque artwork and mirrors asymmetric padding', () => {
+    const body = { x: 100, y: 100, w: 14, h: 14 };
+    const draw = { x: 95, y: 91, w: 24, h: 24 };
+    const bounds = { left: 0.25, right: 1, top: 0.25, bottom: 0.75 };
+    expect(platformerProjectileTargetRect(body, draw, bounds, false)).toEqual({
+      x: 100,
+      y: 97,
+      w: 19,
+      h: 17,
+    });
+    expect(platformerProjectileTargetRect(body, draw, bounds, true)).toEqual({
+      x: 95,
+      y: 97,
+      w: 19,
+      h: 17,
+    });
+    expect(body).toEqual({ x: 100, y: 100, w: 14, h: 14 });
+  });
+
   it('makes the explicit height marker authoritative while legacy saves stay native-sized', () => {
     expect(platformerPlayerBody(2)).toEqual(TALL_PLATFORMER_PLAYER_BODY);
     expect(platformerPlayerBody(2, 'heroic')).toEqual(HEROIC_PLATFORMER_PLAYER_BODY);

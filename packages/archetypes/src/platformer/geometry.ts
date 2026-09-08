@@ -1,5 +1,6 @@
 import type { SpritePresentation } from '@sparkade/engine';
 import { DISPLAY_SCALE, TILE_SIZE, type Coord, type PlatformerScale } from '@sparkade/shared';
+import type { PlatformerSpriteBounds } from './poses';
 
 export interface PlatformerPlayerBody {
   w: number;
@@ -9,6 +10,26 @@ export interface PlatformerPlayerBody {
 export interface PlatformerRect extends PlatformerPlayerBody {
   x: number;
   y: number;
+}
+
+/** Player shots may hit the visible enemy above/outside its small movement body.
+ * Keep the old body hittable too, without enlarging terrain or contact collision. */
+export function platformerProjectileTargetRect(
+  body: PlatformerRect,
+  draw: PlatformerRect,
+  bounds: PlatformerSpriteBounds,
+  flip: boolean,
+): PlatformerRect {
+  const left = draw.x + draw.w * (flip ? 1 - bounds.right : bounds.left);
+  const right = draw.x + draw.w * (flip ? 1 - bounds.left : bounds.right);
+  const x = Math.min(body.x, left);
+  const y = Math.min(body.y, draw.y + draw.h * bounds.top);
+  return {
+    x,
+    y,
+    w: Math.max(body.x + body.w, right) - x,
+    h: Math.max(body.y + body.h, draw.y + draw.h * bounds.bottom) - y,
+  };
 }
 
 export const LEGACY_PLATFORMER_PLAYER_BODY: Readonly<PlatformerPlayerBody> = {
@@ -76,9 +97,7 @@ export function platformerWorldScale(
 }
 
 /** Legacy specs retain their authored sprite dimensions; only marked games opt in. */
-export function platformerHeroPresentation(
-  playerHeightTiles: 2 | undefined,
-): SpritePresentation {
+export function platformerHeroPresentation(playerHeightTiles: 2 | undefined): SpritePresentation {
   return playerHeightTiles === 2 ? 'tall-humanoid' : 'native';
 }
 

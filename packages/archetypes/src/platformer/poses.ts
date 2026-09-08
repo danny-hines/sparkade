@@ -65,7 +65,19 @@ export interface PlatformerPoseBounds {
 
 /** Cache once at load; transparent gutters must not determine wall alignment. */
 export function platformerPoseBounds(image: CanvasImageSource): PlatformerPoseBounds {
-  if (typeof document === 'undefined') return { left: 0, right: 1 };
+  const { left, right } = platformerSpriteBounds(image);
+  return { left, right };
+}
+
+export interface PlatformerSpriteBounds extends PlatformerPoseBounds {
+  top: number;
+  bottom: number;
+}
+
+/** Normalized opaque bounds, shared by wall alignment and projectile targets. */
+export function platformerSpriteBounds(image: CanvasImageSource): PlatformerSpriteBounds {
+  const full = { left: 0, right: 1, top: 0, bottom: 1 };
+  if (typeof document === 'undefined') return full;
   const source = image as { width: number; height: number };
   const canvas = document.createElement('canvas');
   canvas.width = source.width;
@@ -74,14 +86,25 @@ export function platformerPoseBounds(image: CanvasImageSource): PlatformerPoseBo
   ctx.drawImage(image, 0, 0);
   const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
   let left = canvas.width,
-    right = 0;
+    right = 0,
+    top = canvas.height,
+    bottom = 0;
   for (let y = 0; y < canvas.height; y++)
     for (let x = 0; x < canvas.width; x++) {
       if (data[(y * canvas.width + x) * 4 + 3]! < 32) continue;
       left = Math.min(left, x);
       right = Math.max(right, x + 1);
+      top = Math.min(top, y);
+      bottom = Math.max(bottom, y + 1);
     }
-  return right ? { left: left / canvas.width, right: right / canvas.width } : { left: 0, right: 1 };
+  return right
+    ? {
+        left: left / canvas.width,
+        right: right / canvas.width,
+        top: top / canvas.height,
+        bottom: bottom / canvas.height,
+      }
+    : full;
 }
 
 /** Keep the visible sprite outside the physical wall, including its jump departure. */

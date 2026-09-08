@@ -39,6 +39,7 @@ interface Harness extends GameInstance {
   pvy: number;
   playerW: number;
   playerH: number;
+  facing: number;
   phase: string;
   levelIndex: number;
   invulnT: number;
@@ -95,7 +96,7 @@ function example(style: PlatformerPlayStyle): PlatformerSpec {
   ) as PlatformerSpec;
   return platformerStyleExample(base, style);
 }
-function harness(style: PlatformerPlayStyle): Harness {
+function harness(style: PlatformerPlayStyle, generatedCombatArt = false): Harness {
   const spec = example(style);
   const noop = () => undefined;
   const sprite = { w: 16, h: 16, frames: [], flipped: [] };
@@ -104,8 +105,23 @@ function harness(style: PlatformerPlayStyle): Harness {
     spec,
     sprites: { byRole: () => sprite, byRef: () => sprite },
     platformerPoses: Object.fromEntries(
-      ['idle', 'sideIdle', 'walk1', 'walk2', 'jump'].map((p) => [p, image]),
+      [
+        'idle',
+        'sideIdle',
+        'walk1',
+        'walk2',
+        'jump',
+        ...(generatedCombatArt ? ['shoot', 'jumpShoot'] : []),
+      ].map((p) => [p, image]),
     ),
+    ...(generatedCombatArt
+      ? {
+          platformerEnemies: Object.fromEntries(
+            ['walker', 'flyer', 'shooter', 'chaser'].map((role) => [role, image]),
+          ),
+          platformerBoss: image,
+        }
+      : {}),
     cards: { show: (_cards: unknown, done: () => void) => done() },
     sfx: { play: noop },
     music: { playJingle: noop, playSong: noop, stopSong: noop },
@@ -221,6 +237,67 @@ describe('platformer packages in the real controller', () => {
     expect(g.projs.filter((p) => p.active).length).toBeGreaterThan(1);
     expect(g.projs.filter((p) => p.active).every((p) => p.damage === 1)).toBe(true);
     expect(g.hud.mechanic).toMatchObject({ label: 'BLASTER', value: 'FIRE' });
+  });
+
+  it.each(['walker', 'flyer', 'shooter', 'chaser'] as const)(
+    'hits a generated %s at standing blaster height from either direction',
+    (type) => {
+      for (const facing of [-1, 1]) {
+        const g = harness('runAndGun', true);
+        g.spec.chargeShot = 'none';
+        g.enterBoss(false);
+        g.boss = null;
+        const enemy = g.makeEnt({ type, x: 9, y: 14 });
+        enemy.y = 240 - enemy.h;
+        g.ents = [enemy];
+        g.spawnPlayer(facing > 0 ? 5 : 13, 14);
+        g.facing = facing;
+        for (let i = 0; i < 30; i++) g.updatePlayer(DT, input());
+        const body = { x: enemy.x, y: enemy.y, w: enemy.w, h: enemy.h };
+        const score = g.hud.score;
+        g.updatePlayer(DT, input(['Y']));
+        const shot = g.projs.find((p) => p.active && p.friendly)!;
+        expect(shot.damage).toBe(1);
+        // Regression: this normal shot passes just above the 14px physics body.
+        expect(shot.y + 3).toBeLessThanOrEqual(enemy.y);
+        for (let i = 0; i < 30; i++) g.updateProjectiles(DT);
+        expect(enemy.active).toBe(false);
+        expect(shot.active).toBe(false);
+        expect(g.hud.score).toBe(score + g.spec.scoring.events.enemyKill);
+        expect(enemy).toMatchObject(body);
+      }
+    },
+  );
+
+  it('damages visible generated boss artwork above its movement body', () => {
+    const g = harness('runAndGun', true);
+    g.enterBoss(false);
+    g.updatePlayer(DT, input(['Y']));
+    const shot = g.projs.find((p) => p.active && p.friendly)!;
+    const boss = g.boss!;
+    const hp = boss.hp;
+    shot.x = boss.x + boss.w / 2;
+    shot.y = boss.y - 6;
+    g.updateProjectiles(0);
+    expect(boss.hp).toBe(hp - 1);
+    expect(shot.active).toBe(false);
+  });
+
+  it('preserves small fallback enemy targets when generated art is absent', () => {
+    const g = harness('runAndGun');
+    g.enterBoss(false);
+    g.boss = null;
+    const enemy = g.makeEnt({ type: 'walker', x: 9, y: 14 });
+    g.ents = [enemy];
+    g.updatePlayer(DT, input(['Y']));
+    const shot = g.projs.find((p) => p.active && p.friendly)!;
+    shot.x = enemy.x + enemy.w / 2;
+    shot.y = enemy.y - 4;
+    g.updateProjectiles(0);
+    expect(enemy.active).toBe(true);
+    shot.y = enemy.y + enemy.h / 2;
+    g.updateProjectiles(0);
+    expect(enemy.active).toBe(false);
   });
 
   it('gives a full charge a wider collision area and exactly three enemy hits', () => {

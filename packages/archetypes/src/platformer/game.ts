@@ -54,8 +54,10 @@ import {
   platformerActionFrame,
   platformerBlasterFacing,
   platformerPoseBounds,
+  platformerSpriteBounds,
   platformerWallDrawX,
   type PlatformerPoseBounds,
+  type PlatformerSpriteBounds,
 } from './poses';
 import { surfaceDecorations } from './decor';
 import { drawPixelCharge, drawPixelStrike } from './effects';
@@ -75,6 +77,7 @@ import {
   platformerHeroPresentation,
   platformerMovingPlatformOutlineRect,
   platformerPlayerBody,
+  platformerProjectileTargetRect,
   platformerWorldScale,
 } from './geometry';
 import { estimatePlatformerDurationS } from './lint';
@@ -627,6 +630,7 @@ class PlatformerGame implements GameInstance {
   private bossAuras = new Map<CanvasImageSource, SilhouetteAura>();
   private generatedBoss: CanvasImageSource | null = null;
   private generatedEnemies: Readonly<Record<string, CanvasImageSource>> | null = null;
+  private projectileSpriteBounds: Partial<Record<string, PlatformerSpriteBounds>> = {};
   private generatedProps: Readonly<Record<string, CanvasImageSource>> | null = null;
   private generatedBackdrops: Readonly<Record<string, CanvasImageSource>> | null = null;
   private generatedBackdropActive = false;
@@ -720,6 +724,10 @@ class PlatformerGame implements GameInstance {
       }
     }
     this.generatedEnemies = this.engine.platformerEnemies;
+    for (const [role, image] of Object.entries(this.generatedEnemies ?? {}))
+      this.projectileSpriteBounds[role] = platformerSpriteBounds(image);
+    if (this.generatedBoss)
+      this.projectileSpriteBounds.boss = platformerSpriteBounds(this.generatedBoss);
     this.generatedProps = this.engine.platformerProps;
     this.generatedBackdrops = this.engine.platformerBackdrops;
     if (this.spec.abilityLoadout?.length) {
@@ -2246,6 +2254,22 @@ class PlatformerGame implements GameInstance {
 
   // ------------------------------------------------------------- projectiles
 
+  private projectileTarget(e: Ent) {
+    const boss = e === this.boss;
+    const bounds = this.projectileSpriteBounds[boss ? 'boss' : e.type];
+    if (!bounds || (!boss && !isGeneratedPlatformerEnemyRole(e.type))) return e;
+    const draw = boss
+      ? generatedPlatformerBossDrawRect(e.x, e.y, e.w, e.h)
+      : generatedPlatformerEnemyDrawRect(
+          e.type as GeneratedPlatformerEnemyRole,
+          e.x,
+          e.y,
+          e.w,
+          e.h,
+        );
+    return platformerProjectileTargetRect(e, draw, bounds, e.dir > 0);
+  }
+
   private fireProj(
     x: number,
     y: number,
@@ -2340,7 +2364,7 @@ class PlatformerGame implements GameInstance {
             e.type === 'movingPlatform'
           )
             continue;
-          if (aabbOverlap(box, e)) {
+          if (aabbOverlap(box, this.projectileTarget(e))) {
             e.active = false;
             p.hitsLeft--;
             p.active = p.hitsLeft > 0;
@@ -2351,7 +2375,13 @@ class PlatformerGame implements GameInstance {
           }
         }
         const b = this.boss;
-        if (p.active && b && b.active && b.invulnT <= 0 && aabbOverlap(box, b)) {
+        if (
+          p.active &&
+          b &&
+          b.active &&
+          b.invulnT <= 0 &&
+          aabbOverlap(box, this.projectileTarget(b))
+        ) {
           b.hp -= p.damage;
           b.invulnT = 0.3;
           p.active = false;

@@ -49,6 +49,20 @@ These are diversity checks, not a subjective uniqueness score. Games still share
 - Compare Copper Comet’s plasma armed climbing with Solar Sprout’s arcane charging and two tower stages. Both delivered mixed wall-jump/blaster structures.
 - Compare Moonbell Ascent and Glacier Signal for changes in wall side, shelter placement and how shelves feel when running into a jump.
 
+## Playtest correction: shots passing over enemies
+
+Dustline Deputy exposed a combat bug that the route-only replay did not test: generated enemies
+were drawn above their 14-pixel movement bodies, so a standing normal shot could visibly cross an
+enemy without damage. Friendly projectiles now test the opaque artwork's bounding rectangle plus
+the existing body, using the rendered scale and facing. Transparent outer padding is excluded;
+movement, terrain collision and contact damage keep their existing bodies. Generated bosses use
+the same correction.
+
+The original miss was reproduced and then verified as a hit in Dustline Deputy. Browser checks
+defeated its walkers, shooters and chasers from both directions and its elevated flyer with upward
+fire. All 88 targeted platformer tests, typecheck, changed-file lint and production builds pass.
+The fix applies when existing games reload; the sample assets and generation costs are unchanged.
+
 ## Artwork failures preserved
 
 The new encounter layouts passed validation in the failed experiments. Their generated player poses exceeded the existing sprite canvas’s width-to-height limit. A locally rejected pose now leaves its reason in the generation feed. The experiment briefs were revised to supported upright silhouettes; the sprite quality gate was retained.

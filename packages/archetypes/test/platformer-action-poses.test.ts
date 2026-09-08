@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { requiredPlatformerActionPoses, type PlatformerPlayStyle } from '@sparkade/shared';
 import { completeGeneratedPlatformerPoses } from '../src/platformer/game';
 import {
   platformerActionFrame,
+  platformerPoseBounds,
+  platformerSpriteBounds,
   platformerWallDrawX,
   type PlatformerPoseState,
 } from '../src/platformer/poses';
@@ -74,6 +76,30 @@ describe('composed movement and action animation', () => {
 });
 
 describe('visible wall contact alignment', () => {
+  it('measures all opaque edges while ignoring transparent gutters and faint specks', () => {
+    const data = new Uint8ClampedArray(8 * 8 * 4);
+    data[3] = 31;
+    data[(2 * 8 + 1) * 4 + 3] = 255;
+    data[(5 * 8 + 4) * 4 + 3] = 255;
+    vi.stubGlobal('document', {
+      createElement: () => ({
+        getContext: () => ({ drawImage: () => {}, getImageData: () => ({ data }) }),
+      }),
+    });
+    try {
+      const image = { width: 8, height: 8 } as CanvasImageSource;
+      expect(platformerSpriteBounds(image)).toEqual({
+        left: 1 / 8,
+        right: 5 / 8,
+        top: 2 / 8,
+        bottom: 6 / 8,
+      });
+      expect(platformerPoseBounds(image)).toEqual({ left: 1 / 8, right: 5 / 8 });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('anchors opaque pixels outside a right wall despite wide transparent gutters', () => {
     const bounds = { left: 0.1, right: 0.85 };
     const x = platformerWallDrawX(77, 40, bounds, false, -Infinity, 100);

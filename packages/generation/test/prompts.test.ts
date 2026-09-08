@@ -49,10 +49,12 @@ describe('prompt templates', () => {
 
   it('keeps platformer plans within the runtime and display strings complete', () => {
     const t = loadTemplate('design');
-    expect(t).toContain('Plan ONLY what this runtime can deliver');
+    expect(t).toContain('Plan ONLY what the current encounter composer delivers');
     expect(t).toContain('walker/flyer/shooter/chaser');
-    expect(t).toContain('springs; moving platforms');
-    expect(t).toContain("player's run/jump/spin verbs");
+    expect(t).toContain('legacy runtime still understands springs, moving platforms');
+    expect(t).toContain('this composer does not author them yet');
+    expect(t).toContain('Keep levelPlan and story instructions within those choices');
+    expect(t).toContain("player's selected movement/combat kit");
     expect(t).toContain('Do NOT promise glide, collapsing tiles, pendulums');
     expect(t).toContain('invented cast roles such as `bruiser`');
     expect(t).toContain('NEVER truncate a string or cut off its final word');

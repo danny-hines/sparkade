@@ -18,7 +18,7 @@ and repair receive that same choice.
 | `runAndGun`    | Permanent blaster; Y fires; X fires or charges when enabled; UP aims upward; A jumps; B runs | Firing lanes, overhead threats and approach choices; contact hurts                               |
 | `towerClimber` | Permanent wall slide/jump; A/B jump while pressing toward a wall; X/Y run                    | Tall ascents with rest ledges, required wall climbs and checkpoints at different heights         |
 | `armedClimber` | Blaster plus wall slide/jump; A jumps, B runs, Y fires, X fires or charges, UP aims          | Horizontal, tower, or mixed stages; charge survives jumps and wall shots fire away from the wall |
-| `meleeAction`  | Permanent energy strike on Y, with windup and recovery; A jumps; B runs                      | Ground approaches and jump-in strikes; active landing strikes damage enemies and bounce safely |
+| `meleeAction`  | Permanent energy strike on Y, with windup and recovery; A jumps; B runs                      | Ground approaches and jump-in strikes; active landing strikes damage enemies and bounce safely   |
 
 The runtime reads `mechanics.traversal`, `mechanics.combat`, and `mechanics.structure` independently.
 The five presets constrain AI to tested combinations. Armed climber defaults to mixed structure,
@@ -64,11 +64,10 @@ Each action edits the approved running, jump, side, or wall-slide reference and 
 identity/costume/action review. Failed actions get one guided retry. Accepted poses are cached
 individually; a missing required action prevents publication rather than substituting an idle frame. Tower route
 validation replays the same wall controller and collision code as gameplay; its solver is conservative
-and currently proves climbs from supported approaches to rest ledges. Invalid towers cannot fall
-back to the horizontal corridor repair. Tower generation can select five to eight climb sections,
-their rise/width, direction, encounters, and rewards. The server compiles those choices into connected
-wall faces with landings and checkpoints before applying ordinary spec and traversal validation.
-Horizontal stages retain compact tile-grid authoring. Style/loadout conflicts are rejected during design.
+and proves climbs from supported approaches to rest ledges. Invalid towers cannot fall
+back to horizontal corridor repair. Legacy towerRoute and compact tile-grid authoring remain
+supported for saved work. New platformer generations use the encounter composer described below.
+Style/loadout conflicts are rejected during design.
 
 All five archetypes now have a mechanical fingerprint derived from the final spec. New games save
 it in `mechanics.json`; generation also derives it from recent saved specs, so old games participate
@@ -79,7 +78,7 @@ With `npm run dev`, open [the playable comparison](http://127.0.0.1:5173/?dev=pl
 and use its five style links. Keyboard: arrows move; **X** is A/jump; **Z** is B; **A** is X/charge;
 **S** is Y/fire/strike; Enter is Start. The comparison reuses local golden art; the tower has an authored
 reference course, armed climber combines both layouts, and other styles reuse the horizontal course to make controller differences
-easy to compare. Real generation authors its own levels from the selected package brief.
+easy to compare. Real generation selects encounter compositions from the selected package brief.
 
 Verification covers controller timing/damage, wall obstruction, physical tower completion, route
 validation, tall coordinates, style-preserving repair, prompt selection, and all five packages through
@@ -96,6 +95,26 @@ Gameplay replay loaded the complete sets, rendered wall/air/ground attacks, reta
 wall jump, and reached the tower exit. Reopening the armed-climber experiment reused every accepted
 pose with zero image or review calls. This validates one character; it does not establish success
 rates across arbitrary photos and costumes.
+
+## Encounter composition milestone — September 8
+
+New generation chooses 5–6 bounded encounters per level from twelve patterns, with three terrain
+variants each. Eight horizontal patterns cover bouncing, stepped routes, high/low routes, cover,
+overhead targets, patrol duels, jump-in attacks and crossfire. Four climbing patterns cover continuous
+faces, switchbacks, sheltered landings and armed ascents. Each level needs at least three distinct
+patterns, different neighbors, an introduction and a final test. The AI chooses order, variants,
+direction, enemies and rewards; the engine compiles the geometry.
+
+Saved encounter plans are checked against their compiled tiles and entities. Repairs cannot retain
+stale labels after changing a route. Delivered pattern/variant labels feed the next game's recency
+guidance. New-format turrets have a visible warning and a fresh firing interval on camera entry;
+chasers wait until the player approaches their elevation; bosses retain kit-specific warning and
+recovery windows. Existing saved games retain their previous timing.
+
+See the [accepted scope](platformer-encounters.md) and
+[live comparison report](../reports/platformer-encounters-20260908.md). Human combat balance and
+broader character shapes remain areas for playtesting; the comparison preserves artwork failures
+and records the limits of automated route checks.
 
 ## Recommendation
 

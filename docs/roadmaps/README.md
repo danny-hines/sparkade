@@ -12,6 +12,7 @@ well-defined implementation tasks still belong in [`../BACKLOG.md`](../BACKLOG.m
 
 - [Game uniqueness: cross-archetype catalogue and priorities](game-uniqueness.md)
 - [Platformer](platformer.md)
+- [Platformer encounter composition and fairness](platformer-encounters.md)
 - [Adventure](adventure.md)
 - [Vertical Shooter](shooter.md)
 - [H-Scroll Shooter](hshooter.md)

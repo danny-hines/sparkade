@@ -7,20 +7,20 @@ checks, and readable enemy/boss openings. Existing game specs remain supported. 
 deliverable is a reviewable branch and two live examples of each of the five styles, with a combined
 $10 generation cap, a comparison report, and explicit failures or verification limits.
 
-| Pattern | Decision it creates |
-| --- | --- |
-| Bounce run | Patrol spacing and optional bounce shortcuts |
-| Stepped route | Changing landing heights and approach direction |
-| High/low route | Upper rewards versus the supported lower route |
-| Cover advance | Shoot, cross cover, and advance between volleys |
-| Overhead targets | Aim upward or take the elevated approach |
-| Patrol duel | Read a patrol, strike, and recover in open space |
-| Jump-in approach | Use the upper perch for an active landing strike |
-| Crossfire break | Use separated cover and staggered threats |
-| Wall ascent | A continuous face with a supported rest bridge |
-| Switchback climb | Change which wall leads to the next landing |
-| Sheltered climb | Intermediate rest ledges and cover |
-| Armed ascent | Combine wall movement with elevated ranged threats |
+| Pattern          | Decision it creates                                |
+| ---------------- | -------------------------------------------------- |
+| Bounce run       | Patrol spacing and optional bounce shortcuts       |
+| Stepped route    | Changing landing heights and approach direction    |
+| High/low route   | Upper rewards versus the supported lower route     |
+| Cover advance    | Shoot, cross cover, and advance between volleys    |
+| Overhead targets | Aim upward or take the elevated approach           |
+| Patrol duel      | Read a patrol, strike, and recover in open space   |
+| Jump-in approach | Use the upper perch for an active landing strike   |
+| Crossfire break  | Use separated cover and staggered threats          |
+| Wall ascent      | A continuous face with a supported rest bridge     |
+| Switchback climb | Change which wall leads to the next landing        |
+| Sheltered climb  | Intermediate rest ledges and cover                 |
+| Armed ascent     | Combine wall movement with elevated ranged threats |
 
 Each level starts with an introduction and ends with a test, with distinct middle encounters.
 Variants change authored geometry; the AI selects the pattern sequence, variants, enemy types, and

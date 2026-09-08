@@ -143,6 +143,11 @@ describe('platformer packages in the real controller', () => {
     turret.x = 112;
     g.updateEntities(DT);
     expect(turret.fireT).toBeLessThan(0.02);
+    // The collision box is in view but the wider visible sprite is clipped.
+    turret.x = 0;
+    turret.fireT = 2.7;
+    g.updateEntities(0.2);
+    expect(turret.fireT).toBe(0);
   });
 
   it('keeps new chasers on their landing until the hero reaches their elevation', () => {

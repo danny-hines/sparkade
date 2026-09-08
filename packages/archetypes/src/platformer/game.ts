@@ -1799,6 +1799,13 @@ class PlatformerGame implements GameInstance {
     return this.spec.encounterVersion === 1 ? Math.max(1.8, interval) : interval;
   }
 
+  private shooterDrawRect(e: Ent) {
+    const sprite = this.sprites['shooter']!;
+    return this.generatedEnemies?.shooter
+      ? generatedPlatformerEnemyDrawRect('shooter', e.x, e.y, e.w, e.h)
+      : { x: e.x - (sprite.w - e.w) / 2, y: e.y - (sprite.h - e.h), w: sprite.w, h: sprite.h };
+  }
+
   private updateEntities(dt: number): void {
     const camX = this.engine.camera.x;
     const camY = this.engine.camera.y;
@@ -1806,13 +1813,19 @@ class PlatformerGame implements GameInstance {
       if (!e.active) continue;
       // New encounters never bank an unseen turret shot. Re-entering the
       // viewport gives the full interval again, even after camera backtracking.
-      if (
-        this.spec.encounterVersion === 1 &&
-        e.type === 'shooter' &&
-        (e.x < camX || e.x + e.w > camX + this.viewW || e.y < camY || e.y + e.h > camY + this.viewH)
-      ) {
-        e.fireT = 0;
-        continue;
+      if (this.spec.encounterVersion === 1 && e.type === 'shooter') {
+        // Use the visible sprite, not its smaller collision box: a clipped
+        // head/muzzle must not charge a shot while only the feet are visible.
+        const rect = this.shooterDrawRect(e);
+        if (
+          rect.x < camX ||
+          rect.x + rect.w > camX + this.viewW ||
+          rect.y < camY ||
+          rect.y + rect.h > camY + this.viewH
+        ) {
+          e.fireT = 0;
+          continue;
+        }
       }
       // Activate only near the camera (budget); keep updating once seen.
       if (e.x > camX + this.viewW + 64 || e.x < camX - 96) continue;
@@ -1889,17 +1902,7 @@ class PlatformerGame implements GameInstance {
             Math.abs(this.playerCenterX() - enemyCenterX) < this.viewW * 0.6
           ) {
             e.fireT = 0;
-            const generatedShooter = this.generatedEnemies?.shooter;
-            const shooterSprite = this.sprites['shooter']!;
-            const drawRect = generatedShooter
-              ? generatedPlatformerEnemyDrawRect('shooter', e.x, e.y, e.w, e.h)
-              : {
-                  x: e.x - (shooterSprite.w - e.w) / 2,
-                  y: e.y - (shooterSprite.h - e.h),
-                  w: shooterSprite.w,
-                  h: shooterSprite.h,
-                };
-            const muzzle = platformerShooterMuzzlePoint(drawRect, e.dir);
+            const muzzle = platformerShooterMuzzlePoint(this.shooterDrawRect(e), e.dir);
             if (e.props.aim === 'arc') {
               this.fireProj(muzzle.x, muzzle.y, e.dir * 80, -190, false, true);
             } else {
@@ -2511,11 +2514,7 @@ class PlatformerGame implements GameInstance {
         e.type === 'shooter' &&
         e.fireT >= this.shooterInterval(e) - 0.55
       ) {
-        const sprite = this.sprites['shooter']!;
-        const rect = generatedEnemy
-          ? generatedPlatformerEnemyDrawRect('shooter', e.x, e.y, e.w, e.h)
-          : { x: e.x - (sprite.w - e.w) / 2, y: e.y - (sprite.h - e.h), w: sprite.w, h: sprite.h };
-        const muzzle = platformerShooterMuzzlePoint(rect, e.dir);
+        const muzzle = platformerShooterMuzzlePoint(this.shooterDrawRect(e), e.dir);
         const x = Math.round(muzzle.x - cam.x),
           y = Math.round(muzzle.y - cam.y);
         r.ctx.fillStyle = this.spec.palette[10]!;

@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import { platformerReviewSprite } from './platformer-review';
 import type { ProviderUsage } from '@sparkade/shared';
 import { buildPlatformerPosePrompt, type PlatformerPosePromptOptions } from './platformer-pose';
 
@@ -140,6 +141,7 @@ function commonSpriteConstraints(colors?: string): string[] {
     colorDirection ? `Preserve this costume color direction: ${colorDirection}.` : '',
     'Show exactly one complete, uncropped full-body character from the top of the hair or headwear through both feet.',
     'Polished 16-bit SNES-era platformer pixel art authored for a native 112x128 high-density player sprite: crisp square pixel clusters, hard edges, a limited flat palette, and no antialiasing, blur, gradients, or photorealism.',
+    'Preserve natural broad or round character proportions. Wider silhouettes may use a wider canvas at the same height; never stretch them into a narrow humanoid to fit.',
     'Keep the character centered, at the same scale, with the feet on the same ground line.',
     'This is one sprite in one pose, not a sprite sheet, turnaround, sequence, collage, portrait, or character-select card.',
     'No text, letters, numbers, logos, watermark, signature, UI, border, scenery, floor, platform, shadow, glow, particles, extra objects, or second character.',
@@ -584,10 +586,7 @@ async function enlargedSprite(sprite: Buffer, width: number, height: number): Pr
   const checker = Buffer.from(
     `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="c" width="24" height="24" patternUnits="userSpaceOnUse"><rect width="24" height="24" fill="#202640"/><rect width="12" height="12" fill="#2a3150"/><rect x="12" y="12" width="12" height="12" fill="#2a3150"/></pattern></defs><rect width="100%" height="100%" fill="url(#c)"/></svg>`,
   );
-  const enlarged = await sharp(sprite)
-    .resize(width, height, { fit: 'fill', kernel: sharp.kernel.nearest })
-    .png()
-    .toBuffer();
+  const enlarged = await platformerReviewSprite(sprite, width, height);
   return sharp(checker)
     .composite([{ input: enlarged }])
     .png()

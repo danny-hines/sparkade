@@ -1,6 +1,7 @@
 import {
   PLATFORMER_ENCOUNTERS,
   PLATFORMER_ENCOUNTER_IDS,
+  encounterModifiers,
   platformerMechanics,
   type EncounterEnemy,
   type PlatformerEncounterRoute,
@@ -31,6 +32,12 @@ export function mockEncounterLevels(spec: PlatformerSpec) {
         return {
           pattern,
           variant: ((i + li) % 3) as 0 | 1 | 2,
+          modifier:
+            i % 2
+              ? 'none'
+              : (encounterModifiers(pattern)[
+                  1 + ((i + li) % Math.max(1, encounterModifiers(pattern).length - 1))
+                ] ?? 'none'),
           challenge: i === 0 ? 'introduce' : i === 5 ? 'test' : 'develop',
           enemy: p.enemies.includes(desired) ? desired : p.enemies[1]!,
           reward:

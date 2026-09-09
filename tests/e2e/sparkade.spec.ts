@@ -2,6 +2,7 @@
 // Keyboard-only, like the cabinet with a keyboard-mode encoder.
 import { expect, test, type Page } from '@playwright/test';
 import { hold, tap, toMenu, trackErrors } from './helpers';
+import { checkPlatformerCombat } from '../helpers/platformer-combat.js';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -456,4 +457,11 @@ test('generates and plays an armed climber with the complete action sprite set',
   await page.keyboard.up('ArrowRight');
   await expect(canvas).toBeVisible();
   expect(errors).toEqual([]);
+  await page.goto(`http://127.0.0.1:5198/?dev=playtest&game=${gameId}`);
+  await page.waitForFunction(() => !!(window as any).sparkadePlaytest?.instance);
+  const combat = await page.evaluate(checkPlatformerCombat);
+  expect(
+    combat.results.filter((result) => !result.pass),
+    JSON.stringify(combat),
+  ).toEqual([]);
 });

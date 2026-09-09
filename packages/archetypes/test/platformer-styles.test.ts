@@ -258,7 +258,8 @@ describe('platformer packages in the real controller', () => {
         g.updatePlayer(DT, input(['Y']));
         const shot = g.projs.find((p) => p.active && p.friendly)!;
         expect(shot.damage).toBe(1);
-        // Regression: this normal shot passes just above the 14px physics body.
+        // A raised shot should still hit visible art above the movement body.
+        shot.y -= 3;
         expect(shot.y + 3).toBeLessThanOrEqual(enemy.y);
         for (let i = 0; i < 30; i++) g.updateProjectiles(DT);
         expect(enemy.active).toBe(false);
@@ -268,6 +269,22 @@ describe('platformer packages in the real controller', () => {
       }
     },
   );
+
+  it('keeps normal waist-height shots inside short ground-enemy targets', () => {
+    const g = harness('runAndGun', true);
+    g.enterBoss(false);
+    g.boss = null;
+    const e = g.makeEnt({ type: 'walker', x: 9, y: 14 });
+    e.y = 240 - e.h;
+    g.ents = [e];
+    g.spawnPlayer(5, 14);
+    for (let i = 0; i < 30; i++) g.updatePlayer(DT, input());
+    g.updatePlayer(DT, input(['Y']));
+    const shot = g.projs.find((p) => p.active && p.friendly)!;
+    expect(shot.y + 3).toBeGreaterThan(e.y);
+    for (let i = 0; i < 30; i++) g.updateProjectiles(DT);
+    expect(e.active).toBe(false);
+  });
 
   it('damages visible generated boss artwork above its movement body', () => {
     const g = harness('runAndGun', true);

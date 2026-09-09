@@ -21,7 +21,7 @@ import {
   normalizePlatformerJumpJudgeDecision,
 } from './platformer-jump-judge';
 
-export const PLATFORMER_ACTION_PROMPT_VERSION = 'platformer-actions-v2';
+export const PLATFORMER_ACTION_PROMPT_VERSION = 'platformer-actions-v3';
 
 export function buildPlatformerActionPrompt(
   pose: PlatformerActionPose,

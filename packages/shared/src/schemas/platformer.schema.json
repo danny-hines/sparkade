@@ -592,6 +592,16 @@
                     "minimum": 0,
                     "maximum": 2
                   },
+                  "modifier": {
+                    "enum": [
+                      "none",
+                      "spring",
+                      "moving-platform",
+                      "ice",
+                      "conveyor-forward",
+                      "conveyor-backward"
+                    ]
+                  },
                   "challenge": {
                     "enum": ["introduce", "develop", "test"]
                   },

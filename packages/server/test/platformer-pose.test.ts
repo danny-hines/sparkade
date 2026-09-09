@@ -1,10 +1,12 @@
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 import { mockGeneratedImage } from '../src/assets/game-art';
+import { platformerReviewSprite } from '../src/assets/platformer-review';
 import {
   GENERATED_PLATFORMER_POSE_HEIGHT,
   GENERATED_PLATFORMER_POSE_WIDTH,
   GENERATED_PLATFORMER_POSES,
+  alignGeneratedPlatformerPoseCanvases,
   buildPlatformerPosePrompt,
   buildPlatformerRunCorrectionPrompt,
   measureGeneratedPlatformerRunPair,
@@ -331,7 +333,7 @@ describe('generated platformer player preprocessing', () => {
     });
   });
 
-  it('keeps a near-threshold wide stride at the shared player height', async () => {
+  it('widens the canvas for a broad stride without stretching its proportions', async () => {
     const width = 512;
     const height = 512;
     const raw = Buffer.alloc(width * height * 4);
@@ -351,9 +353,70 @@ describe('generated platformer player preprocessing', () => {
     const result = await processGeneratedPlatformerPose(source);
 
     expect(result.metrics.outputBounds).toMatchObject({ height: 112, top: 16 });
+    expect(result.metrics.outputBounds.width / result.metrics.outputBounds.height).toBeCloseTo(
+      370 / 400,
+      2,
+    );
     await expect(sharp(result.png).metadata()).resolves.toMatchObject({
-      width: GENERATED_PLATFORMER_POSE_WIDTH,
+      width: 160,
       height: GENERATED_PLATFORMER_POSE_HEIGHT,
+    });
+  });
+
+  it('preserves round and wide silhouettes and pads the base set without resizing pixels', async () => {
+    const makeShape = async (aspect: number) => {
+      const raw = Buffer.alloc(512 * 512 * 4);
+      for (let y = 0; y < 512; y++)
+        for (let x = 0; x < 512; x++) {
+          const inside = ((x - 256) / (100 * aspect)) ** 2 + ((y - 256) / 100) ** 2 < 1;
+          const i = (y * 512 + x) * 4;
+          raw[i] = inside ? 130 : 0;
+          raw[i + 1] = inside ? 50 : 255;
+          raw[i + 2] = inside ? 80 : 0;
+          raw[i + 3] = 255;
+        }
+      return sharp(raw, { raw: { width: 512, height: 512, channels: 4 } })
+        .png()
+        .toBuffer();
+    };
+    const round = await processGeneratedPlatformerPose(await makeShape(1));
+    const broad = await processGeneratedPlatformerPose(await makeShape(1.8));
+    expect(round.metrics.outputBounds.width).toBe(112);
+    expect(broad.metrics.outputBounds.width / broad.metrics.outputBounds.height).toBeCloseTo(
+      1.8,
+      1,
+    );
+    expect(await sharp(round.png).metadata()).toMatchObject({ width: 160, height: 128 });
+    expect(await sharp(broad.png).metadata()).toMatchObject({ width: 224, height: 128 });
+    const aligned = await alignGeneratedPlatformerPoseCanvases({
+      idle: round.png,
+      sideIdle: round.png,
+      walk1: broad.png,
+      walk2: broad.png,
+      jump: round.png,
+    });
+    await expect(
+      validateGeneratedPlatformerPoseSet(aligned, { strictMotion: false }),
+    ).resolves.toBeUndefined();
+    const original = await sharp(round.png).ensureAlpha().raw().toBuffer();
+    const padded = await sharp(aligned.idle)
+      .extract({ left: 32, top: 0, width: 160, height: 128 })
+      .ensureAlpha()
+      .raw()
+      .toBuffer();
+    expect(padded).toEqual(original);
+    const review = await platformerReviewSprite(round.png, 224, 256);
+    const sameReview = await platformerReviewSprite(aligned.idle, 224, 256);
+    expect(await sharp(review).metadata()).toMatchObject({ width: 224, height: 256 });
+    // Compare visible pixels; PNG palette encoding may change RGB under zero alpha.
+    const reviewPixels = await sharp(review).flatten({ background: '#101020' }).raw().toBuffer();
+    const alignedReviewPixels = await sharp(sameReview)
+      .flatten({ background: '#101020' })
+      .raw()
+      .toBuffer();
+    expect(reviewPixels.equals(alignedReviewPixels)).toBe(true);
+    await expect(processGeneratedPlatformerPose(await makeShape(2.2))).rejects.toMatchObject({
+      code: 'inconsistent-scale',
     });
   });
 

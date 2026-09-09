@@ -6,6 +6,7 @@ import {
   PLATFORMER_ENCOUNTERS,
   PLATFORMER_ENCOUNTER_IDS,
   encounterPreference,
+  encounterModifiers,
   mechanicalFingerprint,
   type PlatformerEncounterId,
   type PlatformerEncounterRoute,
@@ -48,6 +49,69 @@ function route(
 }
 
 describe('compiled platformer encounters', () => {
+  it.each(
+    PLATFORMER_ENCOUNTER_IDS.flatMap((pattern) =>
+      encounterModifiers(pattern)
+        .filter((modifier) => modifier !== 'none')
+        .flatMap((modifier) =>
+          [0, 1, 2].flatMap((variant) =>
+            ['left', 'right'].map((direction) => ({
+              pattern,
+              modifier,
+              variant: variant as 0 | 1 | 2,
+              direction: direction as 'left' | 'right',
+            })),
+          ),
+        ),
+    ),
+  )(
+    '$pattern $modifier v$variant $direction retains a safe playable route',
+    ({ pattern, modifier, variant, direction }) => {
+      const plan = route(pattern, variant, direction);
+      plan.sections[0]!.modifier = modifier;
+      const level = {
+        name: 'Modified',
+        musicSong: 'theme',
+        ...compilePlatformerEncounterRoute(plan),
+      };
+      const base = compilePlatformerEncounterRoute(route(pattern, variant, direction));
+      expect(JSON.stringify([level.tiles, level.entities])).not.toBe(
+        JSON.stringify([base.tiles, base.entities]),
+      );
+      const style = PLATFORMER_ENCOUNTERS[pattern].styles[0]!;
+      const spec = platformerStyleExample(loadGolden('platformer') as PlatformerSpec, style);
+      spec.encounterVersion = 1;
+      spec.levels = [level];
+      spec.abilityLoadout = undefined;
+      if (spec.mechanics?.structure === 'mixed') spec.mechanics.structure = 'horizontal';
+      expect(
+        lintPlatformer(spec).filter(
+          (e) =>
+            ![
+              'DURATION_TOO_SHORT',
+              'PLAT_FLOOR_ENEMY_TYPES',
+              'PLAT_FLOOR_POWERUP',
+              'PLAT_STYLE_LOADOUT',
+            ].includes(e.code),
+        ),
+      ).toEqual([]);
+      expect(mechanicalFingerprint(spec).encounters).toContain(`modifier:${pattern}:${modifier}`);
+    },
+    20000,
+  );
+
+  it('rejects unsupported modifiers and keeps unmodified saved geometry stable', () => {
+    const plan = route('wall-ascent', 0, 'right');
+    plan.sections[0]!.modifier = 'spring';
+    expect(() => compilePlatformerEncounterRoute(plan)).toThrow('invalid encounter');
+    const plain = route('high-low', 0, 'right');
+    const before = compilePlatformerEncounterRoute(plain);
+    plain.sections.forEach((section) => (section.modifier = 'none'));
+    const after = compilePlatformerEncounterRoute(plain);
+    expect(after.tiles).toEqual(before.tiles);
+    expect(after.legend).toEqual(before.legend);
+    expect(after.entities).toEqual(before.entities);
+  });
   it.each(['acrobat', 'runAndGun', 'towerClimber', 'meleeAction', 'armedClimber'] as const)(
     'validates a complete three-level %s composition',
     (style) => {

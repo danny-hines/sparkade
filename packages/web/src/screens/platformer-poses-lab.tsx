@@ -927,7 +927,7 @@ export function PlatformerPosesLabScreen(): ComponentChildren {
                     <h3>Front-idle candidates</h3>
                     <p>
                       Local validation runs first; Spark then compares each surviving raw seed and
-                      112×128 high-density sprite directly against the source photo.
+                      128px-tall high-density sprite directly against the source photo.
                     </p>
                   </div>
                   {idleJudgeResponse?.elapsedMs !== undefined && (

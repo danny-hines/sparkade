@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import { platformerReviewSprite } from './platformer-review';
 
 export const PLATFORMER_JUMP_JUDGE_PROMPT_VERSION = 'platformer-jump-judge-v1';
 
@@ -286,10 +287,7 @@ async function enlargedSprite(sprite: Buffer, width: number, height: number): Pr
   const checker = Buffer.from(
     `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="c" width="24" height="24" patternUnits="userSpaceOnUse"><rect width="24" height="24" fill="#202640"/><rect width="12" height="12" fill="#2a3150"/><rect x="12" y="12" width="12" height="12" fill="#2a3150"/></pattern></defs><rect width="100%" height="100%" fill="url(#c)"/></svg>`,
   );
-  const enlarged = await sharp(sprite)
-    .resize(width, height, { fit: 'fill', kernel: sharp.kernel.nearest })
-    .png()
-    .toBuffer();
+  const enlarged = await platformerReviewSprite(sprite, width, height);
   return sharp(checker)
     .composite([{ input: enlarged }])
     .png()

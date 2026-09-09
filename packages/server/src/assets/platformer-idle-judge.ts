@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import { platformerReviewSprite } from './platformer-review';
 import { buildPlatformerPosePrompt, type PlatformerPosePromptOptions } from './platformer-pose';
 
 export const PLATFORMER_IDLE_JUDGE_PROMPT_VERSION = 'platformer-idle-judge-v2';
@@ -343,7 +344,7 @@ export async function buildPlatformerIdleJudgeBoard(input: {
   panel(550, 90, 1170, 430, 'NON-NEGOTIABLE FOUNDATION CHECKS');
   layers.push({
     input: Buffer.from(
-      '<svg width="1080" height="330" xmlns="http://www.w3.org/2000/svg"><text x="0" y="34" fill="#ffd75e" font-family="monospace" font-size="22" font-weight="bold">COMPARE EACH CANDIDATE DIRECTLY TO SOURCE</text><text x="0" y="86" fill="#c4cae8" font-family="monospace" font-size="19"><tspan x="0" dy="0">• Classify source eyewear first; reject invented or missing glasses</tspan><tspan x="0" dy="42">• Preserve adult age, face/head shape, hairline and facial hair</tspan><tspan x="0" dy="42">• Match game wardrobe; source clothing below neck may change</tspan><tspan x="0" dy="42">• RAW is the downstream edit seed—inspect eye and face artifacts</tspan><tspan x="0" dy="42">• PROCESSED must be a complete neutral 112×128 front idle</tspan><tspan x="0" dy="42">• Reject generic identity, props, extra subjects or anatomy defects</tspan></text></svg>',
+      '<svg width="1080" height="330" xmlns="http://www.w3.org/2000/svg"><text x="0" y="34" fill="#ffd75e" font-family="monospace" font-size="22" font-weight="bold">COMPARE EACH CANDIDATE DIRECTLY TO SOURCE</text><text x="0" y="86" fill="#c4cae8" font-family="monospace" font-size="19"><tspan x="0" dy="0">• Classify source eyewear first; reject invented or missing glasses</tspan><tspan x="0" dy="42">• Preserve adult age, face/head shape, hairline and facial hair</tspan><tspan x="0" dy="42">• Match game wardrobe; source clothing below neck may change</tspan><tspan x="0" dy="42">• RAW is the downstream edit seed—inspect eye and face artifacts</tspan><tspan x="0" dy="42">• PROCESSED must be a complete neutral front idle with natural proportions</tspan><tspan x="0" dy="42">• Reject generic identity, props, extra subjects or anatomy defects</tspan></text></svg>',
     ),
     left: 600,
     top: 145,
@@ -368,7 +369,7 @@ export async function buildPlatformerIdleJudgeBoard(input: {
     });
     layers.push({
       input: Buffer.from(
-        `<svg width="500" height="48" xmlns="http://www.w3.org/2000/svg"><text x="195" y="24" text-anchor="middle" fill="#aab3d5" font-family="monospace" font-size="15">HIGH-RES SEED</text><text x="445" y="24" text-anchor="middle" fill="#aab3d5" font-family="monospace" font-size="15">112×128</text></svg>`,
+        `<svg width="500" height="48" xmlns="http://www.w3.org/2000/svg"><text x="195" y="24" text-anchor="middle" fill="#aab3d5" font-family="monospace" font-size="15">HIGH-RES SEED</text><text x="445" y="24" text-anchor="middle" fill="#aab3d5" font-family="monospace" font-size="15">PLAYER SPRITE</text></svg>`,
       ),
       left: x + 20,
       top: y + 520,
@@ -385,10 +386,7 @@ async function enlargedIdleSprite(sprite: Buffer, width: number, height: number)
   const checker = Buffer.from(
     `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="c" width="16" height="16" patternUnits="userSpaceOnUse"><rect width="16" height="16" fill="#202640"/><rect width="8" height="8" fill="#2a3150"/><rect x="8" y="8" width="8" height="8" fill="#2a3150"/></pattern></defs><rect width="100%" height="100%" fill="url(#c)"/></svg>`,
   );
-  const enlarged = await sharp(sprite)
-    .resize(width, height, { fit: 'fill', kernel: sharp.kernel.nearest })
-    .png()
-    .toBuffer();
+  const enlarged = await platformerReviewSprite(sprite, width, height);
   return sharp(checker)
     .composite([{ input: enlarged }])
     .png()

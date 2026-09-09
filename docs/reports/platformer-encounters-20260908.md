@@ -1,5 +1,9 @@
 # Platformer encounter comparison — September 8, 2026
 
+Follow-up: [combat validation, terrain modifiers and broad character framing](platformer-combat-terrain-framing-20260908.md)
+addresses the combat and generation limits recorded here. This report preserves the original
+comparison's results, layouts and spending.
+
 Branch `codex/platformer-encounters` adds twelve encounter patterns with three geometry variants, AI composition using recent delivered choices, placement checks, and combat pacing tailored to the player kit. Code checkpoints: `aa414de` and `f028906`, based on baseline checkpoint `aa8134d`.
 
 **10/10 samples ready. Recorded spend: $5.714 of the $10 cap**, including 3 preserved failed experiments and their retries. The published application code has not been deployed from this branch. Use the local links below to test its combat timing.

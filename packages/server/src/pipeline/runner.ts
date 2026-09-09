@@ -124,6 +124,7 @@ import {
 import {
   GENERATED_PLATFORMER_POSES,
   GENERATED_PLATFORMER_POSE_PROMPT_VERSION,
+  alignGeneratedPlatformerPoseCanvases,
   prepareGeneratedPlatformerReference,
   processGeneratedPlatformerPose,
   recoverGeneratedPlatformerGreenPanel,
@@ -6904,13 +6905,13 @@ export class GenerationRunner {
                     : `Spark selected ${walk1.id} + ${walk2.id} as the best available run animation`,
                 );
 
-                const generated: Record<GeneratedPlatformerPose, Buffer> = {
+                const generated = await alignGeneratedPlatformerPoseCanvases({
                   idle: idle.png,
                   sideIdle: sideAnchor.png,
                   walk1: walk1.png,
                   walk2: walk2.png,
                   jump,
-                };
+                });
                 await validateGeneratedPlatformerPoseSet(generated, { strictMotion: false });
                 await Promise.all(
                   GENERATED_PLATFORMER_POSES.map((pose) =>

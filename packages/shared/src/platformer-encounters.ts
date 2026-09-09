@@ -17,12 +17,23 @@ export const PLATFORMER_ENCOUNTER_IDS = [
 export type PlatformerEncounterId = (typeof PLATFORMER_ENCOUNTER_IDS)[number];
 export type EncounterEnemy = 'none' | 'walker' | 'flyer' | 'shooter' | 'chaser';
 export type EncounterReward = 'coins' | 'heart' | 'doubleJump' | 'projectile' | 'shield';
+export const PLATFORMER_ENCOUNTER_MODIFIERS = [
+  'none',
+  'spring',
+  'moving-platform',
+  'ice',
+  'conveyor-forward',
+  'conveyor-backward',
+] as const;
+export type PlatformerEncounterModifier = (typeof PLATFORMER_ENCOUNTER_MODIFIERS)[number];
 export interface PlatformerEncounterSection {
   pattern: PlatformerEncounterId;
   variant: 0 | 1 | 2;
   challenge: 'introduce' | 'develop' | 'test';
   enemy: EncounterEnemy;
   reward: EncounterReward;
+  /** Omission preserves the exact geometry of saved version-one compositions. */
+  modifier?: PlatformerEncounterModifier;
 }
 export interface PlatformerEncounterRoute {
   orientation: 'horizontal' | 'tower';
@@ -120,6 +131,22 @@ export const PLATFORMER_ENCOUNTERS: Record<
   },
 };
 
+export function encounterModifiers(
+  pattern: PlatformerEncounterId,
+): readonly PlatformerEncounterModifier[] {
+  if (PLATFORMER_ENCOUNTERS[pattern].orientation === 'tower') return ['none'];
+  return [
+    'none',
+    'ice',
+    'conveyor-forward',
+    'conveyor-backward',
+    ...(['bounce-run', 'high-low', 'jump-in'].includes(pattern) ? ['spring' as const] : []),
+    ...(['high-low', 'overhead-targets', 'jump-in'].includes(pattern)
+      ? ['moving-platform' as const]
+      : []),
+  ];
+}
+
 export const ENCOUNTER_SECTION_SCHEMA = {
   type: 'object',
   properties: {
@@ -128,6 +155,7 @@ export const ENCOUNTER_SECTION_SCHEMA = {
     challenge: { enum: ['introduce', 'develop', 'test'] },
     enemy: { enum: allEnemies },
     reward: { enum: ['coins', 'heart', 'doubleJump', 'projectile', 'shield'] },
+    modifier: { enum: [...PLATFORMER_ENCOUNTER_MODIFIERS] },
   },
   required: ['pattern', 'variant', 'challenge', 'enemy', 'reward'],
   additionalProperties: false,

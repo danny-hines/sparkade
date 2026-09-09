@@ -51,8 +51,8 @@ describe('prompt templates', () => {
     const t = loadTemplate('design');
     expect(t).toContain('Plan ONLY what the current encounter composer delivers');
     expect(t).toContain('walker/flyer/shooter/chaser');
-    expect(t).toContain('legacy runtime still understands springs, moving platforms');
-    expect(t).toContain('this composer does not author them yet');
+    expect(t).toContain('Horizontal encounters can add springs');
+    expect(t).toContain('only one terrain modifier per encounter');
     expect(t).toContain('Keep levelPlan and story instructions within those choices');
     expect(t).toContain("player's selected movement/combat kit");
     expect(t).toContain('Do NOT promise glide, collapsing tiles, pendulums');

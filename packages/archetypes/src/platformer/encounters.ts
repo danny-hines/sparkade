@@ -1,5 +1,6 @@
 import {
   PLATFORMER_ENCOUNTERS,
+  encounterModifiers,
   type EncounterEnemy,
   type PlatformerEncounterRoute,
   type PlatformerEncounterSection,
@@ -36,8 +37,9 @@ export function compilePlatformerEncounterRoute(value: unknown): Geometry {
       s.variant > 2 ||
       !['introduce', 'develop', 'test'].includes(s.challenge) ||
       !['coins', 'heart', 'doubleJump', 'projectile', 'shield'].includes(s.reward) ||
+      !encounterModifiers(s.pattern).includes(s.modifier ?? 'none') ||
       Object.keys(s).some(
-        (k) => !['pattern', 'variant', 'challenge', 'enemy', 'reward'].includes(k),
+        (k) => !['pattern', 'variant', 'challenge', 'enemy', 'reward', 'modifier'].includes(k),
       )
     )
       throw new Error(
@@ -154,6 +156,32 @@ export function compilePlatformerEncounterRoute(value: unknown): Geometry {
             enemy('shooter', start + 9 + shift, 12, s, true);
           break;
       }
+      switch (s.modifier) {
+        case 'spring':
+          // An optional higher reward route; the ordinary-jump route remains.
+          entities.push({ type: 'spring', x: start + 4, y: 15 });
+          platform(start + 8, 9, 5);
+          entities.push({ type: 'coin', x: start + 10, y: 8 });
+          break;
+        case 'moving-platform':
+          // The supported lower route never depends on the platform's phase.
+          entities.push({
+            type: 'movingPlatform',
+            x: start + 3,
+            y: 10,
+            props: { dx: 6 + shift, dy: 0, periodMs: 3200 + shift * 300 },
+          });
+          break;
+        case 'ice':
+        case 'conveyor-forward':
+        case 'conveyor-backward': {
+          const material =
+            s.modifier === 'ice' ? 'I' : s.modifier === 'conveyor-forward' ? '>' : '<';
+          // A coherent 4–6 tile run with ordinary stopping buffers at both ends.
+          for (let x = start + span - 7 - shift; x < start + span - 3; x++) tile(x, 16, material);
+          break;
+        }
+      }
       enemy(s.enemy, enemyX, enemyY, s);
       // Coins and rewards sit on the guaranteed lower route, outside obstacle cells.
       for (const dx of [1, 3, span - 2]) entities.push({ type: 'coin', x: start + dx, y: 15 });
@@ -187,16 +215,31 @@ export function compilePlatformerEncounterRoute(value: unknown): Geometry {
     });
   }
   if (!tower && route.direction === 'left') {
-    cells.forEach((row) => row.reverse());
+    cells.forEach((row) => {
+      row.reverse();
+      row.forEach((ch, x) => {
+        if (ch === '>') row[x] = '<';
+        else if (ch === '<') row[x] = '>';
+      });
+    });
     playerSpawn.x = width - 1 - playerSpawn.x;
     exit.x = width - 1 - exit.x;
     entities.forEach((e) => {
       e.x = width - 1 - e.x;
+      if (e.type === 'movingPlatform' && e.props?.dx) e.props.dx = -e.props.dx;
     });
   }
   return {
     tiles: cells.map((row) => row.join('')),
-    legend: { '#': 'solid', '=': 'platform', '!': 'hazard', C: 'checkpoint' },
+    legend: {
+      '#': 'solid',
+      '=': 'platform',
+      '!': 'hazard',
+      C: 'checkpoint',
+      ...(cells.some((row) => row.includes('I')) ? { I: 'ice' as const } : {}),
+      ...(cells.some((row) => row.includes('>')) ? { '>': 'conveyorRight' as const } : {}),
+      ...(cells.some((row) => row.includes('<')) ? { '<': 'conveyorLeft' as const } : {}),
+    },
     entities,
     playerSpawn,
     exit,
@@ -293,13 +336,14 @@ export function lintPlatformerEncounters(spec: PlatformerSpec): LintError[] {
           'Give shooters a readable firing interval of at least 2400 ms.',
         );
       if (e.type !== 'flyer') {
+        const fullSolids = ['solid', 'ice', 'conveyorLeft', 'conveyorRight'];
         const kind = (x: number, y: number) => level.legend[level.tiles[y]?.[x] ?? '.'];
         const standing = (x: number) =>
           x >= 0 &&
           x < level.tiles[0]!.length &&
-          !['solid', 'platform', 'hazard'].includes(kind(x, e.y) ?? '') &&
-          !['solid', 'platform', 'hazard'].includes(kind(x, e.y - 1) ?? '') &&
-          ['solid', 'platform'].includes(kind(x, e.y + 1) ?? '');
+          ![...fullSolids, 'platform', 'hazard'].includes(kind(x, e.y) ?? '') &&
+          ![...fullSolids, 'platform', 'hazard'].includes(kind(x, e.y - 1) ?? '') &&
+          [...fullSolids, 'platform'].includes(kind(x, e.y + 1) ?? '');
         if (![-1, 1].some((dir) => [1, 2].every((distance) => standing(e.x + dir * distance))))
           fail(
             'PLAT_ENCOUNTER_APPROACH',
@@ -307,7 +351,7 @@ export function lintPlatformerEncounters(spec: PlatformerSpec): LintError[] {
             'A ground threat needs at least two supported, body-clear approach/retreat cells on one side.',
           );
         const below = level.legend[level.tiles[e.y + 1]?.[e.x] ?? '.'];
-        if (!['solid', 'platform'].includes(below ?? ''))
+        if (![...fullSolids, 'platform'].includes(below ?? ''))
           fail(
             'PLAT_ENCOUNTER_ENEMY_SUPPORT',
             `${path}/entities/${j}`,

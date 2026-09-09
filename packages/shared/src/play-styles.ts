@@ -202,6 +202,9 @@ export function mechanicalFingerprint(spec: GameSpec): MechanicalFingerprint {
               ...(level.encounters?.sections.flatMap((s) => [
                 `pattern:${s.pattern}`,
                 `variant:${s.pattern}:${s.variant}`,
+                ...(s.modifier && s.modifier !== 'none'
+                  ? [`modifier:${s.pattern}:${s.modifier}`]
+                  : []),
               ]) ?? []),
               ...level.entities.map((e) => e.type),
               ...[...new Set(level.tiles.join(''))].flatMap((ch) =>

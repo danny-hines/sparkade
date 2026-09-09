@@ -14,12 +14,12 @@ export type GeneratedPlatformerPose = (typeof GENERATED_PLATFORMER_POSES)[number
 
 export const GENERATED_PLATFORMER_POSE_WIDTH = 112;
 export const GENERATED_PLATFORMER_POSE_HEIGHT = 128;
-export const GENERATED_PLATFORMER_POSE_PROMPT_VERSION = 'platformer-pose-v7';
+export const GENERATED_PLATFORMER_POSE_PROMPT_VERSION = 'platformer-pose-v8';
+export const GENERATED_PLATFORMER_POSE_CANVAS_WIDTHS = [112, 160, 192, 224] as const;
 
 const PLATFORMER_RUN_LOWER_BODY_TOP = 72;
 const PLATFORMER_RUN_MAX_LOWER_BODY_IOU = 0.72;
 const PLATFORMER_RUN_MIN_LOWER_TO_UPPER_CHANGE_RATIO = 0.7;
-const PLATFORMER_MIN_NORMALIZABLE_POSE_HEIGHT = 108;
 const PLATFORMER_TARGET_POSE_HEIGHT = 112;
 
 const POSE_DIRECTIONS: Record<GeneratedPlatformerPose, string> = {
@@ -82,6 +82,7 @@ export function buildPlatformerPosePrompt(
     'Show the complete silhouette from the top of the hair or headwear through every hand and both feet. Nothing may be cropped.',
     'Polished 16-bit SNES-era platformer pixel art authored for a native 112x128 high-density player sprite canvas: crisp square pixel clusters, hard edges, expressive readable silhouette, limited flat colors, and no antialiasing, blur, gradients, or photorealism.',
     'Keep the character centered and consistently proportioned so this frame can animate with the other poses at the same size and ground line.',
+    'Preserve natural proportions for round robots, broad animals, tails and wings. The canvas may widen to 160, 192 or 224 pixels while retaining the same character height; never stretch a broad character into a tall narrow body. Keep the head and torso scale consistent across poses.',
     'This is one sprite in one pose, NOT a sprite sheet, turnaround, sequence, collage, portrait, or character-select card.',
     'No text, letters, numbers, logos, watermark, signature, UI, border, scenery, floor, platform, shadow, glow, particles, weapons, held props, extra objects, or second character.',
     'The entire background must be perfectly flat solid #00ff00, including every gap enclosed by arms and legs. No texture or color variation. Do not use the exact #00ff00 key color or a near-neon imitation in the character; preserve darker natural or dyed greens when they are part of the person.',
@@ -189,37 +190,41 @@ export async function recoverGeneratedPlatformerGreenPanel(
   };
 }
 
-/** Key, validate, crop, quantize, and foot-anchor one native 112x128 pose. */
+/** Key and validate before choosing a wider canvas; preserve the source aspect
+ * ratio at a common subject height instead of stretching width-limited poses. */
 export async function processGeneratedPlatformerPose(
   image: Buffer,
   options: { width?: number } = {},
 ): Promise<ProcessedFighterPose> {
-  const width = options.width ?? GENERATED_PLATFORMER_POSE_WIDTH;
   const processed = await processGeneratedFighterPose(image, {
-    width,
+    width: GENERATED_PLATFORMER_POSE_CANVAS_WIDTHS.at(-1)!,
     height: GENERATED_PLATFORMER_POSE_HEIGHT,
     padding: 6,
     bottomPadding: 0,
     removeGreenSpill: true,
     colors: 32,
   });
-  if (processed.metrics.outputBounds.height < PLATFORMER_MIN_NORMALIZABLE_POSE_HEIGHT) {
+  const bounds = processed.metrics.outputBounds;
+  const targetWidth = Math.round((bounds.width * PLATFORMER_TARGET_POSE_HEIGHT) / bounds.height);
+  const width = GENERATED_PLATFORMER_POSE_CANVAS_WIDTHS.find(
+    (value) =>
+      value >= (options.width ?? GENERATED_PLATFORMER_POSE_WIDTH) && value >= targetWidth + 12,
+  );
+  if (!width) {
     throw new FighterPoseImageError(
       'inconsistent-scale',
-      `generated platformer pose is too wide to preserve player scale (${processed.metrics.outputBounds.width}x${processed.metrics.outputBounds.height})`,
+      `generated platformer pose exceeds the 224px canvas at consistent scale (${targetWidth}x${PLATFORMER_TARGET_POSE_HEIGHT}); keep extreme appendages closer without changing body proportions`,
     );
   }
-  if (processed.metrics.outputBounds.height >= PLATFORMER_TARGET_POSE_HEIGHT) return processed;
-
-  const bounds = processed.metrics.outputBounds;
   const targetBounds = {
-    ...bounds,
+    left: Math.floor((width - targetWidth) / 2),
+    width: targetWidth,
     top: GENERATED_PLATFORMER_POSE_HEIGHT - PLATFORMER_TARGET_POSE_HEIGHT,
     height: PLATFORMER_TARGET_POSE_HEIGHT,
   };
   const png = await sharp(processed.png)
     .extract(bounds)
-    .resize(bounds.width, targetBounds.height, {
+    .resize(targetBounds.width, targetBounds.height, {
       fit: 'fill',
       kernel: sharp.kernel.nearest,
     })
@@ -245,9 +250,54 @@ export async function processGeneratedPlatformerPose(
       outputBounds: targetBounds,
       outputSubjectFraction:
         processed.metrics.outputSubjectFraction *
-        (targetBounds.height / processed.metrics.outputBounds.height),
+        (targetBounds.height / bounds.height) ** 2 *
+        (GENERATED_PLATFORMER_POSE_CANVAS_WIDTHS.at(-1)! / width),
     },
   };
+}
+
+/** One character gets one base canvas. Padding changes; pixels never rescale. */
+export async function alignGeneratedPlatformerPoseCanvases(
+  poses: Readonly<Record<GeneratedPlatformerPose, Buffer>>,
+): Promise<Record<GeneratedPlatformerPose, Buffer>> {
+  const dimensions = await Promise.all(
+    GENERATED_PLATFORMER_POSES.map(async (pose) => ({
+      pose,
+      ...(await sharp(poses[pose]).metadata()),
+    })),
+  );
+  const width = Math.max(...dimensions.map((d) => d.width ?? 0));
+  if (
+    !GENERATED_PLATFORMER_POSE_CANVAS_WIDTHS.some((w) => w === width) ||
+    dimensions.some(
+      (d) =>
+        d.height !== GENERATED_PLATFORMER_POSE_HEIGHT ||
+        !GENERATED_PLATFORMER_POSE_CANVAS_WIDTHS.some((w) => w === d.width),
+    )
+  )
+    throw new FighterPoseImageError(
+      'inconsistent-scale',
+      'generated platformer set has unsupported canvas dimensions',
+    );
+  const entries = await Promise.all(
+    dimensions.map(async (d) => {
+      const padding = width - d.width!;
+      const png = padding
+        ? await sharp(poses[d.pose])
+            .extend({
+              left: Math.floor(padding / 2),
+              right: Math.ceil(padding / 2),
+              top: 0,
+              bottom: 0,
+              background: { r: 0, g: 0, b: 0, alpha: 0 },
+            })
+            .png({ palette: true, colours: 32, dither: 0 })
+            .toBuffer()
+        : poses[d.pose];
+      return [d.pose, png] as const;
+    }),
+  );
+  return Object.fromEntries(entries) as Record<GeneratedPlatformerPose, Buffer>;
 }
 
 function runRegionMetrics(
@@ -293,7 +343,8 @@ export async function measureGeneratedPlatformerRunPair(
   const [first, second] = decoded;
   for (const { info } of decoded) {
     if (
-      info.width !== GENERATED_PLATFORMER_POSE_WIDTH ||
+      !GENERATED_PLATFORMER_POSE_CANVAS_WIDTHS.some((w) => w === info.width) ||
+      info.width !== first.info.width ||
       info.height !== GENERATED_PLATFORMER_POSE_HEIGHT
     ) {
       throw new FighterPoseImageError(
@@ -306,14 +357,14 @@ export async function measureGeneratedPlatformerRunPair(
     upperBody: runRegionMetrics(
       first.data,
       second.data,
-      GENERATED_PLATFORMER_POSE_WIDTH,
+      first.info.width,
       0,
       PLATFORMER_RUN_LOWER_BODY_TOP,
     ),
     lowerBody: runRegionMetrics(
       first.data,
       second.data,
-      GENERATED_PLATFORMER_POSE_WIDTH,
+      first.info.width,
       PLATFORMER_RUN_LOWER_BODY_TOP,
       GENERATED_PLATFORMER_POSE_HEIGHT,
     ),
@@ -351,7 +402,7 @@ export async function validateGeneratedPlatformerPoseSet(
         .raw()
         .toBuffer({ resolveWithObject: true });
       if (
-        info.width !== GENERATED_PLATFORMER_POSE_WIDTH ||
+        !GENERATED_PLATFORMER_POSE_CANVAS_WIDTHS.some((w) => w === info.width) ||
         info.height !== GENERATED_PLATFORMER_POSE_HEIGHT
       ) {
         throw new FighterPoseImageError(
@@ -374,9 +425,14 @@ export async function validateGeneratedPlatformerPoseSet(
           `generated platformer ${pose} pose is not foot-anchored`,
         );
       }
-      return { pose, height: bottom - top + 1 };
+      return { pose, height: bottom - top + 1, width: info.width };
     }),
   );
+  if (new Set(dimensions.map((d) => d.width)).size !== 1)
+    throw new FighterPoseImageError(
+      'inconsistent-scale',
+      'generated platformer base poses need one shared canvas',
+    );
   if (options.strictMotion === false) return;
   const walk1 = dimensions.find(({ pose }) => pose === 'walk1')!;
   const walk2 = dimensions.find(({ pose }) => pose === 'walk2')!;

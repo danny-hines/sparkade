@@ -1582,7 +1582,9 @@ class PlatformerGame implements GameInstance {
     const right = rect.x + rect.w * (flip ? 1 - bounds.left : bounds.right);
     return up
       ? { x: this.playerCenterX() - wall * 6, y: rect.y + 6 }
-      : { x: facing < 0 ? left - 1 : right + 1, y: this.playerCenterY() - 3 };
+      : // Waist-height fire intersects a one-tile ground enemy even when its
+        // generated silhouette is short. Keep the ray level with the held weapon.
+        { x: facing < 0 ? left - 1 : right + 1, y: this.playerCenterY() };
   }
 
   private shootBlaster(up: boolean, charged: boolean): void {
@@ -2428,10 +2430,13 @@ class PlatformerGame implements GameInstance {
         const x = tx * TILE_SIZE - camX;
         const y = ty * TILE_SIZE - camY;
         if (kind === 'ice') {
-          ctx.globalAlpha = 0.78;
+          // Give pale ice marks contrast even on bright generated ground art.
+          ctx.globalAlpha = 0.56;
+          ctx.fillStyle = '#111111';
+          ctx.fillRect(Math.round(x), Math.round(y + 2), TILE_SIZE, 4);
+          ctx.globalAlpha = 0.95;
           ctx.fillStyle = iceColor;
           ctx.fillRect(Math.round(x), Math.round(y), TILE_SIZE, 2);
-          ctx.globalAlpha = 0.42;
           const glintX = 2 + ((tx * 5 + ty * 3 + sparklePhase) % 11);
           ctx.fillRect(Math.round(x + glintX), Math.round(y + 3), 3, 1);
           ctx.fillRect(Math.round(x + glintX + 1), Math.round(y + 2), 1, 3);

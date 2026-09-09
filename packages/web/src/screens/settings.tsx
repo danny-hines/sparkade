@@ -290,14 +290,18 @@ export function SettingsScreen(props: {
     void api
       .updateCheck()
       .then((r) => {
-        if (r.available) {
+        if (r.error) {
+          setUpState('error');
+          setUpLatest(null);
+          setUpMsg(`Couldn't check for updates: ${r.error}`);
+        } else if (r.available) {
           setUpState('available');
           setUpLatest(r.latest);
           setUpMsg('');
         } else {
           setUpState('uptodate');
           setUpLatest(null);
-          setUpMsg(r.error ? `Couldn't reach the update server: ${r.error}` : '');
+          setUpMsg('');
         }
       })
       .catch((e: Error) => {
@@ -945,6 +949,8 @@ export function SettingsScreen(props: {
                         <span style="color:var(--gold)">Updating…</span>
                       ) : upState === 'uptodate' ? (
                         <span style="color:var(--ok)">Up to date</span>
+                      ) : upState === 'error' ? (
+                        <span style="color:var(--danger)">Update error</span>
                       ) : (
                         '—'
                       )}

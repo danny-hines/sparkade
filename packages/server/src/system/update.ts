@@ -31,6 +31,18 @@ export function checkForUpdate(current: string): UpdateCheck {
   const dir = repoRoot();
   const git = (args: string[]) =>
     spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 30_000 });
+  const revision = (ref: string): string => {
+    const result = git(['rev-parse', '--verify', `${ref}^{commit}`]);
+    const value = result.stdout?.trim();
+    if (result.status !== 0 || !value || !/^[a-f0-9]{40,64}$/i.test(value)) {
+      throw new Error(
+        (result.stderr || result.error?.message || `Could not read Git revision ${ref}`)
+          .trim()
+          .slice(0, 200),
+      );
+    }
+    return value;
+  };
   try {
     const fetched = git(['fetch', '--tags', '--force', '--quiet']);
     if (fetched.status !== 0) {
@@ -38,21 +50,25 @@ export function checkForUpdate(current: string): UpdateCheck {
         current,
         latest: null,
         available: false,
-        error: (fetched.stderr || 'could not reach the update server').trim().slice(0, 200),
+        error: (fetched.stderr || fetched.error?.message || 'could not reach the update server')
+          .trim()
+          .slice(0, 200),
       };
     }
-    const localHead = git(['rev-parse', 'HEAD']).stdout.trim();
-    const latestTag = git(['describe', '--tags', '--abbrev=0', 'origin/main']).stdout.trim();
+    const localHead = revision('HEAD');
+    const mainHead = revision('origin/main');
+    const tagResult = git(['describe', '--tags', '--abbrev=0', 'origin/main']);
+    const latestTag = tagResult.status === 0 ? tagResult.stdout.trim() : '';
     let remoteHead: string;
     let label: string;
     if (latestTag) {
-      remoteHead = git(['rev-list', '-n', '1', latestTag]).stdout.trim();
+      remoteHead = revision(latestTag);
       label = latestTag;
     } else {
-      remoteHead = git(['rev-parse', 'origin/main']).stdout.trim();
+      remoteHead = mainHead;
       label = 'main';
     }
-    const available = !!remoteHead && remoteHead !== localHead;
+    const available = remoteHead !== localHead;
     return { current, latest: available ? label : current, available };
   } catch (e) {
     return {

@@ -57,7 +57,10 @@ export function LibraryDemo(props: {
             canvas: canvasRef.current,
             spec,
             archetype: archetypes[spec.archetype],
-            input: new PilotBroker(spec.archetype),
+            input: new PilotBroker(
+              spec.archetype,
+              spec.archetype === 'shooter' ? spec.shooterStyle : undefined,
+            ),
             likeness,
             volumes: DEMO_VOLUMES,
             attract: true,

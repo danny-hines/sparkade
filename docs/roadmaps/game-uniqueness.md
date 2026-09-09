@@ -70,6 +70,11 @@ back to horizontal corridor repair. Legacy towerRoute and compact tile-grid auth
 supported for saved work. New platformer generations use the encounter composer described below.
 Style/loadout conflicts are rejected during design.
 
+Vertical shooters now offer three independent weapon styles: switching focus/spread, committed
+piercing charge, and lock-on missile salvos. Each has required matching encounters, boss openings,
+controls and HUD state. The [shooter roadmap](shooter.md#kiosk-slice-distinct-weapon-styles) records
+the runtime and generation contracts and links to the three authored references.
+
 All five archetypes now have a mechanical fingerprint derived from the final spec. New games save
 it in `mechanics.json`; generation also derives it from recent saved specs, so old games participate
 without a migration. The platformer catalogue uses a recency preference, with explicit player requests

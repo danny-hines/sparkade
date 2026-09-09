@@ -262,6 +262,8 @@ export type ShooterPath = 'dive' | 'sweep' | 'sine' | 'hold';
 export type ShooterPickupType = 'spread' | 'rapid' | 'shield' | 'bomb';
 
 export interface ShooterWave {
+  /** Vertical shooter only: authored formation center, clamped as a group. */
+  centerX?: number;
   t: number;
   enemyType: ShooterEnemyType;
   count: number;
@@ -522,6 +524,7 @@ export interface PlatformerSpec extends GameSpecBase {
 }
 
 export interface ShooterSpec extends GameSpecBase {
+  shooterStyle?: import('./shooter-styles').ShooterPlayStyle;
   archetype: 'shooter';
   /** Published with the required generated boss and five-role enemy cast. */
   shooterGameplayArtVersion?: 1;
@@ -564,6 +567,7 @@ export type GameSpec = PlatformerSpec | ShooterSpec | AdventureSpec | HShooterSp
 // ---------------------------------------------------------------------------
 
 export interface DesignDoc {
+  shooterStyle?: import('./shooter-styles').ShooterPlayStyle;
   presentationFamily?: import('./presentation').PresentationFamily;
   chargeShot?: import('./platformer-weapons').PlatformerChargeShot;
   title: string;

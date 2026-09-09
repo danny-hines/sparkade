@@ -2,6 +2,8 @@
 // packages/generation and fills their placeholders (schemas verbatim from
 // @sparkade/shared, golden few-shot excerpts, anti-collision block).
 import {
+  SHOOTER_STYLE_CATALOG,
+  shooterStylePreference,
   PRESENTATION_CATALOG,
   presentationPreference,
   PLATFORMER_STYLE_CATALOG,
@@ -114,6 +116,8 @@ export function buildDesignPrompt(opts: {
         ]
       : []),
     `PLATFORMER PRESENTATION PREFERENCE (least recently used first): ${presentationPreference(opts.recentMechanics ?? []).join(', ')}. Choose independently of playStyle; explicit aesthetic requests take precedence. Only platformer supports presentationFamily.`,
+    `VERTICAL SHOOTER STYLE PREFERENCE (least recently used first): ${shooterStylePreference(opts.recentMechanics ?? []).join(', ')}. Explicit requested mechanics take precedence.`,
+    `SHOOTER STYLE CATALOG: ${JSON.stringify(SHOOTER_STYLE_CATALOG)}`,
     `PRESENTATION CATALOG: ${JSON.stringify(PRESENTATION_CATALOG)}`,
     ...(moodNote ? [moodNote] : []),
     ...(opts.extraNote ? [`IMPORTANT: ${opts.extraNote}`] : []),
@@ -202,6 +206,7 @@ export function buildLevelsPrompt(
     system,
     user: [
       `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}`,
+      ...(archetype === 'shooter' ? [shooterStyleBrief(design)] : []),
       ...(archetype === 'platformer'
         ? [platformerStyleBrief(design), encounterGuidance(design, recentMechanics)]
         : []),
@@ -224,6 +229,11 @@ export function buildLevelsPrompt(
     // default deliberately — without it, platformer generation cannot complete.
     timeoutMs: 150_000,
   };
+}
+
+export function shooterStyleBrief(design: Pick<DesignDoc, 'shooterStyle'>): string {
+  const style = design.shooterStyle ?? 'chargeSpecialist';
+  return `COMMITTED SHOOTER KIT: ${style}. ${SHOOTER_STYLE_CATALOG[style].summary} Preserve shooterStyle through every repair. Every level needs two signature waves including one by 20s: weaponSwitch needs BOTH wideSwarm (line/vee/arc, count>=4, hp<=2) AND armorColumn (column, count>=2, hp>=3, dive); chargeSpecialist needs armorColumn; lockOnStriker needs lockScreen (non-column formation, count>=3, hold). Author centerX lanes. Switching and lock-on bosses require at least two pods. weaponSwitch rewards use rapid/shield/bomb, never spread. The engine owns weapon balance and the 4.8s attack / 2.4s boss opening cycle; do not invent numeric weapon fields or additional abilities.`;
 }
 
 export function platformerStyleBrief(
@@ -536,6 +546,7 @@ export function buildEntitiesPrompt(
     system,
     user: [
       `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}`,
+      ...(archetype === 'shooter' ? [shooterStyleBrief(design)] : []),
       `Photo for likeness: ${hasPhoto ? 'yes' : 'no'}.${likenessBodyNote}${recentNote}`,
       ...(archetype === 'platformer'
         ? [
@@ -618,6 +629,9 @@ export function buildRepairPrompt(
   });
   const context = repairContext(invalidJson, diagnostics, owner);
   const user = [
+    ...(archetype === 'shooter'
+      ? [shooterStyleBrief(invalidJson as Pick<DesignDoc, 'shooterStyle'>)]
+      : []),
     `REPAIR OWNER: ${owner}. Every patch path is absolute in the original game document. Do not touch another owner.`,
     'VALIDATION DIAGNOSTICS (fix every one shown):',
     formatDiagnostics(diagnostics),
@@ -677,6 +691,7 @@ export function buildLevelRegenerationPrompt(
     system,
     user: [
       `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}`,
+      ...(archetype === 'shooter' ? [shooterStyleBrief(design)] : []),
       ...(archetype === 'platformer'
         ? [
             platformerStyleBrief(design),

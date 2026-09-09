@@ -1,3 +1,4 @@
+import { type ShooterPlayStyle } from '@sparkade/shared';
 // Mock provider: returns golden-game fixtures with artificial stage delays and
 // fake usage numbers, traveling through the SAME durable pipeline, validators,
 // persistence, SSE and cost ledger as a real provider. Powers `npm run demo`,
@@ -6,7 +7,7 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { mockEncounterLevels } from './mock-encounters';
-import { platformerStyleExample } from '@sparkade/archetypes';
+import { shooterStyleExample, platformerStyleExample } from '@sparkade/archetypes';
 import {
   PLATFORMER_PLAY_STYLES,
   platformerMechanics,
@@ -149,8 +150,27 @@ export class MockProvider implements Provider {
       requestedStyle && PLATFORMER_PLAY_STYLES.includes(requestedStyle as PlatformerPlayStyle)
         ? (requestedStyle as PlatformerPlayStyle)
         : undefined;
+    const shooterStyle = (
+      stage === 'design'
+        ? /lock.?on|missile|lockOnStriker/i.test(requestText)
+          ? 'lockOnStriker'
+          : /weapon.?switch|switching|spread.*focus|weaponSwitch/i.test(requestText)
+            ? 'weaponSwitch'
+            : /charge/i.test(requestText)
+              ? 'chargeSpecialist'
+              : (/VERTICAL SHOOTER STYLE PREFERENCE[^:]*:\s*(weaponSwitch|chargeSpecialist|lockOnStriker)/.exec(
+                  req.user,
+                )?.[1] ?? 'chargeSpecialist')
+        : (/"shooterStyle"\s*:\s*"(weaponSwitch|chargeSpecialist|lockOnStriker)"/.exec(
+            req.user,
+          )?.[1] ?? 'chargeSpecialist')
+    ) as ShooterPlayStyle;
     const golden =
-      source.archetype === 'platformer' && style ? platformerStyleExample(source, style) : source;
+      source.archetype === 'platformer' && style
+        ? platformerStyleExample(source, style)
+        : source.archetype === 'shooter'
+          ? shooterStyleExample(source, shooterStyle)
+          : source;
     this.counter++;
 
     let payload: unknown;
@@ -247,6 +267,7 @@ export class MockProvider implements Provider {
                     },
                   ]
               : [],
+          ...(archetype === 'shooter' ? { shooterStyle } : {}),
           ...(archetype === 'platformer'
             ? {
                 playStyle: style ?? ('acrobat' as const),

@@ -83,6 +83,35 @@ describe('generated vertical-shooter enemy cast', () => {
     expect(prompt).toContain('never a surface-mounted emplacement');
   });
 
+  it('gives a too-wide scout an actionable aspect constraint without relaxing validation', async () => {
+    const prompt = buildShooterEnemyReplacementPrompt({
+      ...OPTIONS,
+      role: 'popcorn',
+      correction: 'Candidate was 84x38',
+    });
+    expect(prompt).toContain('at least 1.05 times the TOTAL opaque width');
+    expect(prompt).toContain('fold or sweep wings backward');
+    const image = await sharp({
+      create: { width: 96, height: 96, channels: 3, background: '#00ff00' },
+    })
+      .composite([
+        {
+          input: await sharp({
+            create: { width: 72, height: 32, channels: 3, background: '#302b46' },
+          })
+            .png()
+            .toBuffer(),
+          left: 12,
+          top: 32,
+        },
+      ])
+      .png()
+      .toBuffer();
+    await expect(processGeneratedShooterEnemy(image, 'popcorn')).rejects.toThrow(
+      'at least 1.05 times total width',
+    );
+  });
+
   it('accepts a readable laterally expressive weaver silhouette', async () => {
     const image = await sharp({
       create: { width: 96, height: 96, channels: 3, background: '#00ff00' },

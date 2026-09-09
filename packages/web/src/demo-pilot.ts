@@ -9,7 +9,12 @@
 //  - platformer/adventure stay low-risk (idle/short shuffles) so the real world,
 //    backdrop and weather read as a living diorama rather than a bot faceplanting.
 import { InputBroker, type InputSnapshot } from '@sparkade/engine';
-import { LOGICAL_BUTTONS, type ArchetypeId, type LogicalButton } from '@sparkade/shared';
+import {
+  LOGICAL_BUTTONS,
+  type ShooterPlayStyle,
+  type ArchetypeId,
+  type LogicalButton,
+} from '@sparkade/shared';
 
 type Held = Partial<Record<LogicalButton, boolean>>;
 /** Given elapsed demo seconds, return which buttons are held this frame. */
@@ -71,9 +76,20 @@ export class PilotBroker extends InputBroker {
   private readonly snap: InputSnapshot;
   private readonly strategy: Strategy;
 
-  constructor(archetype: ArchetypeId) {
+  constructor(archetype: ArchetypeId, shooterStyle?: ShooterPlayStyle) {
     super();
-    this.strategy = STRATEGIES[archetype] ?? (() => ({}));
+    this.strategy =
+      archetype === 'shooter' && shooterStyle
+        ? (t) => {
+            const held = STRATEGIES.shooter(t);
+            // Show the permanent signature in library previews without reading world state.
+            held.X =
+              shooterStyle === 'weaponSwitch'
+                ? t % 4 < 0.1
+                : t % 3.6 < (shooterStyle === 'lockOnStriker' ? 1.5 : 0.9);
+            return held;
+          }
+        : (STRATEGIES[archetype] ?? (() => ({})));
     this.prev = {} as Record<LogicalButton, boolean>;
     this.snap = {} as InputSnapshot;
     for (const b of LOGICAL_BUTTONS) {

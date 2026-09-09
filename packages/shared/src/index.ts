@@ -8,3 +8,4 @@ export * from './platformer-actions';
 export * from './platformer-weapons';
 export * from './platformer-encounters';
 export * from './presentation';
+export * from './shooter-styles';

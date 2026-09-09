@@ -1,3 +1,4 @@
+import { shooterEncounters, shooterPlayStyle } from './shooter-styles';
 import type { GameSpec, LintError, PlatformerSpec } from './types';
 
 export const PLATFORMER_PLAY_STYLES = [
@@ -247,10 +248,33 @@ export function mechanicalFingerprint(spec: GameSpec): MechanicalFingerprint {
         encounters: [...new Set(spec.levels.map((l) => l.opponent.build))].sort(),
       };
     case 'shooter':
+      return {
+        ...base,
+        playStyle: shooterPlayStyle(spec),
+        movement:
+          shooterPlayStyle(spec) === 'weaponSwitch'
+            ? 'twoSpeedFlight'
+            : 'twoSpeedFlight+committedTargeting',
+        weapons: [
+          shooterPlayStyle(spec) === 'weaponSwitch'
+            ? 'focus+spreadSwitch'
+            : shooterPlayStyle(spec) === 'lockOnStriker'
+              ? 'trackingSalvo'
+              : 'piercingCharge',
+          'shot',
+          'bomb',
+        ],
+        objective: 'surviveWaves+boss',
+        topology: 'verticalScroll',
+        progression: 'permanentSignature+pickups',
+        encounters: [
+          ...new Set(spec.levels.flatMap((l) => l.waves.flatMap(shooterEncounters))),
+        ].sort(),
+      };
     case 'hshooter':
       return {
         ...base,
-        playStyle: spec.archetype === 'shooter' ? 'formationShooter' : 'corridorShooter',
+        playStyle: 'corridorShooter',
         movement: 'twoSpeedFlight',
         weapons: [
           'shot',
@@ -259,7 +283,7 @@ export function mechanicalFingerprint(spec: GameSpec): MechanicalFingerprint {
           ...new Set(spec.levels.flatMap((l) => l.pickups.map((p) => p.type))),
         ].sort(),
         objective: 'surviveWaves+boss',
-        topology: spec.archetype === 'shooter' ? 'verticalScroll' : 'terrainCorridor',
+        topology: 'terrainCorridor',
         progression: 'weaponPickups',
         encounters: [
           ...new Set(

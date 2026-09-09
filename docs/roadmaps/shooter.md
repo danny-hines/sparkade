@@ -10,6 +10,40 @@ and hit-feedback vocabulary. It does **not** share a terrain corridor, world-spa
 mounts, or a single forward route. All encounter composition and validation here therefore operate
 in screen space across a fully traversable 512x300 playfield.
 
+## Kiosk slice: distinct weapon styles
+
+Implemented September 9, 2026. New vertical shooters select `shooterStyle` during design:
+
+| Style              | Decision                                                      | Encounter contract                                       | Boss opening                                                        |
+| ------------------ | ------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------- |
+| `weaponSwitch`     | Tap X for focused power or three-shot coverage                | Broad fragile swarms alternating with armored columns    | Pods spread during volleys, then converge for a focused core attack |
+| `chargeSpecialist` | Hold X for 0.8s; release a six-damage piercing bolt           | Armored dive columns with alignment and preparation time | Core settles after volleys and takes double charged damage          |
+| `lockOnStriker`    | Hold X to acquire up to four locks; release tracking missiles | Scattered holding gunships with time to target           | Pods fan outward and stop firing during a targeting window          |
+
+Y remains primary fire, B bombs, A speed toggles, and the d-pad moves. Charging and targeting
+slow flight and pause primary fire. Missile salvos finish before a new targeting cycle. Locks
+belong to individual enemy spawns and clear when targets leave the field, die, or the player
+restarts. Bombs, deaths and stage transitions retain bounded projectile pools.
+
+Bosses alternate 4.8 seconds of attacks with 2.4 seconds of openings; ordinary fire can damage
+them throughout. Each stage must include two signature encounters, with one by 20 seconds;
+switching requires both broad swarms and armored columns. Wave `centerX` authors formation lanes.
+The engine owns weapon balance and opening timing. Model-authored numeric weapon tuning is excluded.
+
+Controls, HUD weapon state, library demo input, repair guidance, and mechanical fingerprints
+follow the committed kit. Recent shooter styles are ordered least recently used for design,
+with explicit player requests taking precedence. Craft art stays rigid and shared across its
+weapon states; charge, lock brackets and missile effects use pixel clusters.
+
+Three authored references share golden art to make mechanics easy to compare:
+[Prism Patrol](http://127.0.0.1:5173/?dev=playtest&shooterStyle=weaponSwitch),
+[Ion Pilgrim](http://127.0.0.1:5173/?dev=playtest&shooterStyle=chargeSpecialist), and
+[Kestrel Command](http://127.0.0.1:5173/?dev=playtest&shooterStyle=lockOnStriker).
+
+Horizontal shooter adaptations remain a separate follow-up: corridors require different targeting
+fields, aiming lanes and reaction-time validation. Review the vertical reference and generated
+games for difficulty and pacing before extending these kits to horizontal flight.
+
 ## Generation principle
 
 The pilot and craft are separate identities. `heroConcept` describes the pilot and a

@@ -1,4 +1,9 @@
-import { ARCHETYPE_SCHEMAS, type GameSpec, type ShooterSpec } from '@sparkade/shared';
+import {
+  ARCHETYPE_SCHEMAS,
+  shooterControlHelp,
+  type GameSpec,
+  type ShooterSpec,
+} from '@sparkade/shared';
 import type { Archetype } from '../types';
 import { estimateShooterDurationS, lintShooter } from './lint';
 import { createShooterGame } from './game';
@@ -10,6 +15,7 @@ export const shooter: Archetype = {
   lint: (spec: GameSpec) => lintShooter(spec as ShooterSpec),
   estimateDurationS: (spec: GameSpec) => estimateShooterDurationS(spec as ShooterSpec),
   create: (engine, spec) => createShooterGame(engine, spec as ShooterSpec),
+  controlHelpFor: (spec) => shooterControlHelp(spec as ShooterSpec),
   controlHelp: [
     { button: 'UP', label: 'Move' },
     { button: 'DOWN', label: 'Move' },

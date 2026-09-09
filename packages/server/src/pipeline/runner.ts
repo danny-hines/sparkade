@@ -2043,6 +2043,14 @@ export class GenerationRunner {
         );
       }
 
+      if (spec.archetype === 'shooter' && spec.shooterStyle !== design.shooterStyle) {
+        throw new PipelineError(
+          'validation-failed',
+          'The validated game must preserve the design-selected shooter style.',
+          'validating',
+        );
+      }
+
       try {
         this.files.writeValidatedSpecCheckpoint(jobId, job.attempt, {
           engineVersion: ENGINE_VERSION,
@@ -7380,6 +7388,9 @@ export class GenerationRunner {
               ? { abilityLoadout: structuredClone(design.abilityLoadout) }
               : {}),
           }
+        : {}),
+      ...(archetype === 'shooter'
+        ? { shooterStyle: design.shooterStyle ?? ('chargeSpecialist' as const) }
         : {}),
       ...(archetype === 'hshooter' ? { hshooterArtDensity: 'detailed' as const } : {}),
       ...(archetype === 'platformer' && design.feel ? { feel: design.feel } : {}),

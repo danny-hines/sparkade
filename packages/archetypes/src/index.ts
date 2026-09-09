@@ -74,3 +74,5 @@ export {
   type AdventureBossPattern,
   type AdventureCell,
 } from './adventure/encounters';
+
+export { shooterStyleExample } from './shooter/examples';

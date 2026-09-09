@@ -4,6 +4,7 @@
   "title": "Sparkade vertical shooter game spec (specVersion 1)",
   "type": "object",
   "properties": {
+    "shooterStyle": { "enum": ["weaponSwitch", "chargeSpecialist", "lockOnStriker"] },
     "specVersion": { "const": 1 },
     "archetype": { "const": "shooter" },
     "shooterGameplayArtVersion": {
@@ -420,6 +421,7 @@
           "minimum": 0,
           "maximum": 300
         },
+        "centerX": { "type": "number", "minimum": 40, "maximum": 472 },
         "enemyType": { "enum": ["popcorn", "weaver", "tank", "turret", "kamikaze"] },
         "count": { "type": "integer", "minimum": 1, "maximum": 8 },
         "formation": { "enum": ["line", "vee", "column", "arc"] },

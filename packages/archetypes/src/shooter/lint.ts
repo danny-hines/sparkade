@@ -1,6 +1,12 @@
 // Shooter semantic lints: wave timing, on-screen and bullet-density budgets,
 // finite boss fights, content floors.
-import { BUDGET, type LintError, type ShooterSpec } from '@sparkade/shared';
+import {
+  shooterEncounters,
+  type ShooterEncounter,
+  BUDGET,
+  type LintError,
+  type ShooterSpec,
+} from '@sparkade/shared';
 import { err, lintDuration, lintMusic, lintSongRef, lintSpriteRefs } from '../common';
 import {
   SHOOTER_DENSE_WAVE_RECOVERY_S,
@@ -25,6 +31,36 @@ export function lintShooter(spec: ShooterSpec): LintError[] {
   spec.levels.forEach((level, li) => {
     const path = `/levels/${li}`;
     out.push(...lintSongRef(level.musicSong, `${path}/musicSong`, spec));
+
+    if (spec.shooterStyle) {
+      const required: ShooterEncounter[] =
+        spec.shooterStyle === 'weaponSwitch'
+          ? ['wideSwarm', 'armorColumn']
+          : spec.shooterStyle === 'chargeSpecialist'
+            ? ['armorColumn']
+            : ['lockScreen'];
+      for (const encounter of required) {
+        const matching = level.waves.filter((wave) => shooterEncounters(wave).includes(encounter));
+        if (matching.length < 2 || !matching.some((wave) => wave.t <= 20)) {
+          out.push(
+            err(
+              'SHOOT_STYLE_ENCOUNTERS',
+              `${path}/waves`,
+              `${spec.shooterStyle} needs at least two ${encounter} waves in each level, including one by 20 seconds. wideSwarm = line/vee/arc, count>=4, hp<=2; armorColumn = column, count>=2, hp>=3, dive; lockScreen = non-column, count>=3, hold.`,
+            ),
+          );
+        }
+      }
+      if (spec.shooterStyle === 'weaponSwitch' && level.pickups.some((p) => p.type === 'spread')) {
+        out.push(
+          err(
+            'SHOOT_STYLE_PICKUP',
+            `${path}/pickups`,
+            'weaponSwitch starts with both weapons. Use rapid, shield or bomb rewards instead of a redundant spread pickup.',
+          ),
+        );
+      }
+    }
 
     // Sorted timestamps, all within the level's duration.
     for (let i = 0; i < level.waves.length; i++) {
@@ -145,6 +181,16 @@ export function lintShooter(spec: ShooterSpec): LintError[] {
       }
     }
   });
+
+  if (spec.shooterStyle && spec.shooterStyle !== 'chargeSpecialist' && spec.boss.pods < 2) {
+    out.push(
+      err(
+        'SHOOT_STYLE_BOSS',
+        '/boss/pods',
+        'Switching and lock-on boss fights need at least two wing pods to reward coverage and targeting.',
+      ),
+    );
+  }
 
   // Boss: finite fight.
   const bossEffortHp = spec.boss.hp + spec.boss.pods * spec.boss.podHp;

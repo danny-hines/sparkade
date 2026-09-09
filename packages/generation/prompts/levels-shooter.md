@@ -12,6 +12,7 @@ free-flying gun platform that enters, holds, fires, and leaves.
 
 - Each level is a timeline: `durationS` seconds long (60–120 recommended), scrolling at `scroll` px/s (backdrop speed; higher = more urgent).
 - `waves` fire at ascending timestamps `t` (seconds). Each wave: `enemyType` (popcorn = fragile swarm, weaver = darting, tank = armored slow, turret = holds position and aims, kamikaze = homing missile), `count` (1–8), `formation` (line | vee | column | arc), `path` (dive = straight down, sweep = diagonal cross, sine = weaving descent, hold = stop mid-screen, fire, then leave), `hp`, `fireRate` (aimed shots/sec per enemy; 0 = silent).
+- `centerX` optionally authors a wave center lane (40–472); the engine clamps the whole formation into view. Keep aligned charge columns on dive paths.
 - `pickups` drift in at time `t`: spread | rapid | shield | bomb. Author `x` (40–472) as the screen-space entry lane so the reward follows a cleared formation or leads toward the next safe region.
 - `musicSong`: use `theme` (a `boss` song also always exists).
 
@@ -21,7 +22,7 @@ free-flying gun platform that enters, holds, fires, and leaves.
 - Preserve at least 1.4s recovery after dense swarms, heavily armored groups, or waves emitting ≥3.2 bullets/sec. Keep pickups at least 1.25s away from a dense wave spawn so rewards never hide under an incoming formation.
 - Keep ≤ 18 enemies alive at once and total aimed fire ≤ 14 bullets/sec in any window (validator caps both) — tension comes from movement patterns, not bullet spam.
 - Difficulty curve: level 1 teaches each enemy type solo; level 2 mixes pairs; level 3 layers formations. popcorn swarms = points; tanks anchor; kamikaze punctuates.
-- 15+ waves total (floor), 4+ enemy types (floor), 2+ pickup types (floor). Place a shield or bomb before the hardest stretch; spread/rapid early in level 1 so the player feels growth.
+- 15+ waves total (floor), 4+ enemy types (floor), 2+ pickup types (floor). Place a shield or bomb before the hardest stretch; rapid early in level 1 (weaponSwitch already has spread; do not give it spread pickups) so the player feels growth.
 - Total durationS across the three levels should be 240–330s (the five-minute rule counts real play time).
 
 ## Example (condensed from a shipped game)
@@ -33,3 +34,7 @@ free-flying gun platform that enters, holds, fires, and leaves.
 Respond with RAW JSON ONLY — no markdown fences, no commentary — matching this JSON Schema exactly (an object with a `levels` array of EXACTLY 3 levels):
 
 {{SCHEMA}}
+
+## Committed kit
+
+Follow the COMMITTED SHOOTER KIT in the user message. Its encounter floors apply to each of the three stages. Do not reuse a generic timeline for all kits. Prefer 3-6 second gaps after signature formations so the player can aim or mark the next group.

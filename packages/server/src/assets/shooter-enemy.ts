@@ -32,7 +32,7 @@ export const SHOOTER_ENEMY_BOARD_SIZE = HSHOOTER_ENEMY_BOARD_SIZE;
 export const SHOOTER_ENEMY_CANDIDATES_PER_ROLE = HSHOOTER_ENEMY_CANDIDATES_PER_ROLE;
 export const GENERATED_SHOOTER_ENEMY_SIZE = 96;
 export const SHOOTER_ENEMY_BOARD_PROMPT_VERSION = 'shooter-enemy-board-v1';
-export const SHOOTER_ENEMY_REPLACEMENT_PROMPT_VERSION = 'shooter-enemy-replacement-v1';
+export const SHOOTER_ENEMY_REPLACEMENT_PROMPT_VERSION = 'shooter-enemy-replacement-v2';
 export const SHOOTER_ENEMY_JUDGE_PROMPT_VERSION = 'shooter-enemy-judge-v1';
 export const SHOOTER_ENEMY_PIPELINE_PROMPT_VERSION = 'shooter-enemy-pipeline-v1';
 
@@ -92,6 +92,10 @@ export function buildShooterEnemyBoardPrompt(options: ShooterEnemyPromptOptions)
   ].join(' ');
 }
 
+function shooterEnemyMinimumAspect(role: GeneratedShooterEnemy): number {
+  return role === 'weaver' ? 0.75 : role === 'tank' || role === 'turret' ? 0.82 : 1.05;
+}
+
 export function buildShooterEnemyReplacementPrompt(
   options: ShooterEnemyPromptOptions & { role: GeneratedShooterEnemy; correction: string },
 ): string {
@@ -100,6 +104,7 @@ export function buildShooterEnemyReplacementPrompt(
     `Role: ${options.role}. ${ROLE_DIRECTION[options.role]}. Concept: ${clean(options.concepts[options.role]) || 'a premise-specific hostile craft or creature'}.`,
     `Game: ${clean(options.gameTitle, 100)} — ${clean(options.tagline, 180)}. Use attached key art only for world style, hostile-faction materials, palette logic, and pixel technique.`,
     `CORRECTION FROM LOCAL VALIDATION: ${clean(options.correction, 420)}.`,
+    `SILHOUETTE PROPORTIONS: opaque height must be at least ${shooterEnemyMinimumAspect(options.role)} times the TOTAL opaque width, including wings, fins and ornaments. Aim for a noticeably taller-than-wide overall silhouette for light scouts and kamikaze. If the previous subject was too wide, lengthen its nose-to-tail body and fold or sweep wings backward toward the TOP, close to the body. Keep the same faction identity. Do not merely rotate a side-view sprite or add a detached exhaust trail to increase height.`,
     'Strict TOP-DOWN overhead camera, attack end pointing DOWN, one neutral combat-ready pose, complete uncropped silhouette centered with generous clearance. Turret is a free-flying or hovering gun platform, never a surface-mounted emplacement.',
     `Color direction: ${clean(options.colors)}. Polished high-density modern retro pixel art for a 96x96 gameplay cell, crisp square pixels, hard edges, limited flat colors, strong darkest contour, and no antialiasing, blur, gradients, photorealism, or 3D rendering.`,
     'No player, pilot, player craft, boss, other enemy, pod, projectile, muzzle flash, exhaust, particles, text, logo, UI, terrain, floor, scenery, shadow, or detached object.',
@@ -127,12 +132,11 @@ export async function processGeneratedShooterEnemy(
   const minHeight = role === 'tank' ? 38 : role === 'turret' ? 30 : 28;
   // Weaver silhouettes intentionally use lateral fins or vanes to communicate
   // their side-to-side movement, so they may be wider than the other light roles.
-  const minimumAspect =
-    role === 'weaver' ? 0.75 : role === 'tank' || role === 'turret' ? 0.82 : 1.05;
+  const minimumAspect = shooterEnemyMinimumAspect(role);
   if (width < minWidth || height < minHeight || height / Math.max(1, width) < minimumAspect) {
     throw new FighterPoseImageError(
       'inconsistent-scale',
-      `${role} candidate needs a readable top-down silhouette (${width}x${height})`,
+      `${role} candidate needs a readable top-down silhouette (${width}x${height}); opaque height must be at least ${minimumAspect} times total width, including wings (minimum ${minWidth}px wide and ${minHeight}px tall). Narrow or sweep wide wings backward and lengthen the nose-to-tail body.`,
     );
   }
   return processed;

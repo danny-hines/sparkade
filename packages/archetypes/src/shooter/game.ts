@@ -18,6 +18,7 @@ import {
   type SilhouetteAura,
 } from '@sparkade/engine';
 import {
+  shooterPlayStyle,
   FEEL,
   INTERNAL_HEIGHT,
   INTERNAL_WIDTH,
@@ -31,6 +32,12 @@ import {
   type ShooterSpec,
   type ShooterWave,
 } from '@sparkade/shared';
+import {
+  ShooterLocks,
+  SHOOTER_LOCK_TIME_S,
+  shooterBossOpening,
+  type ShooterTarget,
+} from './weapons';
 import { estimateShooterDurationS } from './lint';
 import { planShooterWaveCenterX, shooterFormationOffsets } from './encounters';
 
@@ -113,6 +120,7 @@ export interface ShooterCraftAnchors {
 }
 
 interface Foe {
+  spawnId: number;
   active: boolean;
   type: ShooterEnemyType;
   path: ShooterPath;
@@ -138,6 +146,8 @@ interface Foe {
 }
 
 interface PShot {
+  missile: boolean;
+  targetKey: string | null;
   active: boolean;
   x: number;
   y: number;
@@ -372,6 +382,7 @@ class ShooterGame implements GameInstance {
   // pools (allocated once; BUDGET.maxActiveEntities = 24 enemies)
   private foes: Foe[] = Array.from({ length: 24 }, () => ({
     active: false,
+    spawnId: 0,
     type: 'popcorn',
     path: 'dive',
     x: 0,
@@ -395,6 +406,8 @@ class ShooterGame implements GameInstance {
     chargeSeq: 0,
   }));
   private pshots: PShot[] = Array.from({ length: 8 }, () => ({
+    missile: false,
+    targetKey: null,
     active: false,
     x: 0,
     y: 0,
@@ -429,6 +442,12 @@ class ShooterGame implements GameInstance {
   private pvx = 0;
   private fast = false;
   private fireCd = 0;
+  private weaponMode: 'focus' | 'spread' = 'focus';
+  private locks = new ShooterLocks();
+  private targeting = false;
+  private salvoCd = 0;
+  private spawnSerial = 0;
+  private opening = false;
   private chargeT = 0;
   private chargeReady = false;
   private glowT = 0;
@@ -693,6 +712,12 @@ class ShooterGame implements GameInstance {
     this.chargeT = 0;
     this.chargeReady = false;
     this.invulnT = 0;
+    this.locks.clear();
+    this.targeting = false;
+    this.salvoCd = 0;
+    this.weaponMode = 'focus';
+    this.opening = false;
+    this.updateWeaponHud();
   }
 
   // ----------------------------------------------------------------- update
@@ -721,6 +746,7 @@ class ShooterGame implements GameInstance {
     this.updateEnemyShots(dt);
     if (this.phase !== 'play') return;
     this.updatePickups(dt);
+    this.updateWeaponHud();
     if (!this.isBoss()) this.checkLevelEnd();
   }
 
@@ -750,7 +776,14 @@ class ShooterGame implements GameInstance {
     // d-pad move, clamped to the screen
     const ax = (input.LEFT.held ? -1 : 0) + (input.RIGHT.held ? 1 : 0);
     const ay = (input.UP.held ? -1 : 0) + (input.DOWN.held ? 1 : 0);
-    const speed = this.fast ? SPEED_HIGH : SPEED_LOW;
+    const style = shooterPlayStyle(this.spec);
+    const committed = style !== 'weaponSwitch' && input.X.held;
+    const speed = (this.fast ? SPEED_HIGH : SPEED_LOW) * (committed ? 0.65 : 1);
+    this.salvoCd = Math.max(0, this.salvoCd - dt);
+    if (style === 'weaponSwitch' && input.X.pressed) {
+      this.weaponMode = this.weaponMode === 'focus' ? 'spread' : 'focus';
+      this.engine.sfx.play('uiSelect');
+    }
     const norm = ax !== 0 && ay !== 0 ? 0.7071 : 1;
     this.pvx = ax * speed * norm;
     this.px = clamp(this.px + this.pvx * dt, 10, W - 10);
@@ -786,20 +819,29 @@ class ShooterGame implements GameInstance {
 
     // Y: autofire
     this.fireCd = Math.max(0, this.fireCd - dt);
-    if (input.Y.held && this.fireCd <= 0) {
+    if (input.Y.held && !committed && this.fireCd <= 0) {
       const muzzle = this.playerMuzzleAt();
       if (this.fireNormalShot(muzzle.x, muzzle.y, 0, -PLAYER_SHOT_SPEED)) {
-        if (this.spread) {
-          this.fireNormalShot(muzzle.x - 5, muzzle.y + 2, -70, -PLAYER_SHOT_SPEED * 0.92);
-          this.fireNormalShot(muzzle.x + 5, muzzle.y + 2, 70, -PLAYER_SHOT_SPEED * 0.92);
+        if (style === 'weaponSwitch' ? this.weaponMode === 'spread' : this.spread) {
+          const spreadSpeed = style === 'weaponSwitch' ? 120 : 70;
+          this.fireNormalShot(muzzle.x - 5, muzzle.y + 2, -spreadSpeed, -PLAYER_SHOT_SPEED * 0.92);
+          this.fireNormalShot(muzzle.x + 5, muzzle.y + 2, spreadSpeed, -PLAYER_SHOT_SPEED * 0.92);
         }
-        this.fireCd = 1 / (this.rapid ? RAPID_RATE : FIRE_RATE);
+        this.fireCd =
+          1 /
+          (style === 'weaponSwitch' && this.weaponMode === 'spread'
+            ? this.rapid
+              ? 7
+              : 5
+            : this.rapid
+              ? RAPID_RATE
+              : FIRE_RATE);
         this.engine.sfx.play('shoot');
       }
     }
 
     // X: charge shot (hold >= 0.8s, release to fire a big piercing bolt)
-    if (input.X.held) {
+    if (style === 'chargeSpecialist' && input.X.held) {
       this.chargeT += dt;
       if (this.chargeT >= CHARGE_TIME && !this.chargeReady) {
         this.chargeReady = true;
@@ -843,10 +885,127 @@ class ShooterGame implements GameInstance {
       this.chargeReady = false;
     }
 
+    if (style === 'lockOnStriker') {
+      if (input.X.held && this.salvoCd <= 0 && !this.pshots.some((p) => p.active && p.missile)) {
+        this.targeting = true;
+        const before = this.locks.keys.length;
+        this.locks.update(dt, this.targets(), this.px, this.py);
+        if (this.locks.keys.length > before) this.engine.sfx.play('uiMove');
+      } else if (!input.X.held && this.targeting) {
+        const muzzle = this.playerMuzzleAt();
+        let launched = 0;
+        for (const [index, key] of this.locks.keys.entries()) {
+          if (!this.targets().some((target) => target.key === key)) continue;
+          if (
+            this.claimPShot(
+              muzzle.x,
+              muzzle.y,
+              (index % 2 ? 1 : -1) * (70 + index * 15),
+              -160,
+              3,
+              false,
+              0,
+              key,
+            )
+          )
+            launched++;
+        }
+        if (launched) {
+          this.engine.sfx.play('shoot');
+          this.salvoCd = 0.65;
+        }
+        this.targeting = false;
+        this.locks.clear();
+      }
+    }
+    this.updateWeaponHud();
+
     // B: bomb
     if (input.B.pressed && this.hud.bombs > 0) this.detonateBomb();
 
     this.invulnT = Math.max(0, this.invulnT - dt);
+  }
+
+  private targets(): ShooterTarget[] {
+    const targets: ShooterTarget[] = this.foes
+      .filter((f) => f.active && f.y > 8 && f.y < H - 8)
+      .map((f) => ({ key: `foe:${f.spawnId}`, x: f.x, y: f.y }));
+    const boss = this.boss;
+    if (boss?.active && boss.entranceT >= BOSS_ENTRANCE_S) {
+      targets.push({ key: 'boss', x: boss.x, y: boss.y });
+      for (const [index, pod] of this.pods.entries()) {
+        if (pod.alive)
+          targets.push({ key: `pod:${index}`, x: boss.x + pod.ox, y: boss.y + pod.oy });
+      }
+    }
+    return targets;
+  }
+
+  private updateWeaponHud(): void {
+    const opening = this.opening && this.boss?.active;
+    switch (shooterPlayStyle(this.spec)) {
+      case 'weaponSwitch':
+        this.hud.mechanic = {
+          label: this.weaponMode === 'focus' ? 'FOCUS' : 'SPREAD',
+          value: opening ? 'CORE OPEN' : 'X SWITCH',
+        };
+        break;
+      case 'chargeSpecialist':
+        this.hud.mechanic = {
+          label: 'CHARGE',
+          value: this.chargeReady ? 'RELEASE!' : opening ? 'CORE EXPOSED' : 'HOLD X',
+          progress: Math.min(1, this.chargeT / CHARGE_TIME),
+        };
+        break;
+      case 'lockOnStriker': {
+        const flying = this.pshots.some((p) => p.active && p.missile);
+        this.hud.mechanic = {
+          label: `LOCK ${this.locks.keys.length}/4`,
+          value: flying
+            ? 'SALVO AWAY'
+            : this.salvoCd > 0
+              ? 'RELOADING'
+              : this.targeting
+                ? this.locks.keys.length
+                  ? 'RELEASE!'
+                  : 'ACQUIRING'
+                : opening
+                  ? 'PODS EXPOSED'
+                  : 'HOLD X',
+          progress: this.locks.keys.length / 4 + this.locks.progress / SHOOTER_LOCK_TIME_S / 4,
+        };
+        break;
+      }
+    }
+  }
+
+  private drawTargetLocks(): void {
+    if (!this.targeting) return;
+    const ctx = this.engine.renderer.ctx;
+    ctx.save();
+    ctx.fillStyle = this.spec.palette[14] ?? '#8df5e5';
+    ctx.globalAlpha = 0.4;
+    for (let distance = 28; distance <= 248; distance += 18) {
+      const half = Math.min(160, 50 + distance * 0.55);
+      for (const side of [-1, 1])
+        ctx.fillRect(Math.round(this.px + side * half), Math.round(this.py - distance), 2, 2);
+    }
+    ctx.globalAlpha = 1;
+    for (const target of this.targets()) {
+      const count = this.locks.keys.filter((key) => key === target.key).length;
+      if (!count) continue;
+      const radius = 12 + Math.round(Math.sin(this.animT * 12));
+      for (const dx of [-1, 1])
+        for (const dy of [-1, 1]) {
+          const x = Math.round(target.x + dx * radius),
+            y = Math.round(target.y + dy * radius);
+          ctx.fillRect(x - (dx > 0 ? 4 : 0), y, 5, 1);
+          ctx.fillRect(x, y - (dy > 0 ? 4 : 0), 1, 5);
+        }
+      for (let i = 0; i < count; i++)
+        ctx.fillRect(Math.round(target.x - count * 2 + i * 4), Math.round(target.y - 17), 2, 2);
+    }
+    ctx.restore();
   }
 
   private detonateBomb(): void {
@@ -928,13 +1087,14 @@ class ShooterGame implements GameInstance {
     const sweepDir = rng.chance(0.5) ? 1 : -1;
     const preferredCenterX =
       w.path === 'sweep' ? (sweepDir > 0 ? 80 : W - 80) : rng.range(120, W - 120);
-    const centerX = planShooterWaveCenterX(w, preferredCenterX);
+    const centerX = planShooterWaveCenterX(w, w.centerX ?? preferredCenterX);
     if (centerX === null) return;
     const offsets = shooterFormationOffsets(w);
     for (let i = 0; i < w.count; i++) {
       const e = this.claimFoe();
       if (!e) break; // budget: skip spawns beyond the 24-entity cap
       const { x: ox, y: oy } = offsets[i]!;
+      e.spawnId = ++this.spawnSerial;
       e.type = w.enemyType;
       e.path = w.path;
       e.x = centerX + ox;
@@ -1184,7 +1344,26 @@ class ShooterGame implements GameInstance {
       this.hud.boss = { hp: Math.max(0, b.hp), maxHp: b.maxHp, name: this.spec.boss.name };
       return;
     }
-    b.x = W / 2 + Math.sin(b.t * 0.9) * 30;
+    this.opening = shooterBossOpening(b.t, this.spec.shooterStyle !== undefined);
+    if (!this.opening) b.x = W / 2 + Math.sin(b.t * 0.9) * 30;
+    if (this.spec.shooterStyle) {
+      const style = shooterPlayStyle(this.spec);
+      for (const [index, pod] of this.pods.entries()) {
+        const rank = Math.floor(index / 2);
+        const distance =
+          style === 'weaponSwitch'
+            ? this.opening
+              ? 24
+              : 65
+            : style === 'lockOnStriker'
+              ? this.opening
+                ? 84
+                : 48
+              : 48;
+        const target = (index % 2 === 0 ? -1 : 1) * (distance + rank * 22);
+        pod.ox += (target - pod.ox) * Math.min(1, dt * 4);
+      }
+    }
 
     // phases by hp fraction (equal fractions)
     const phases = this.spec.boss.phases;
@@ -1205,102 +1384,112 @@ class ShooterGame implements GameInstance {
     const cadenceS = shooterBossAttackCadenceS(phase.pattern, phase.fireIntervalMs);
     const telegraphS = shooterBossTelegraphDurationS(phase.pattern, phase.fireIntervalMs);
     const spd = BOSS_SHOT_SPEED * phase.bulletSpeed;
-    b.fireT += dt;
-    this.prepareBossTelegraph(b, phase.pattern, cadenceS, telegraphS);
+    if (!this.opening) {
+      b.fireT += dt;
+      this.prepareBossTelegraph(b, phase.pattern, cadenceS, telegraphS);
 
-    switch (phase.pattern) {
-      case 'fan': {
-        // 5-7 bullet arc aimed at the player
-        if (b.fireT >= cadenceS) {
-          const n = 5 + this.engine.rng.int(0, 2);
-          const aim = b.telegraphPrepared
-            ? b.telegraphAimAngle
-            : Math.atan2(this.py - b.y, this.px - b.x);
-          for (let i = 0; i < n; i++) {
-            const a = aim + ((i - (n - 1) / 2) * Math.PI) / 12;
-            this.fireEnemyShot(b.x, this.bossMuzzleY(b), Math.cos(a) * spd, Math.sin(a) * spd, 1);
+      switch (phase.pattern) {
+        case 'fan': {
+          // 5-7 bullet arc aimed at the player
+          if (b.fireT >= cadenceS) {
+            const n = 5 + this.engine.rng.int(0, 2);
+            const aim = b.telegraphPrepared
+              ? b.telegraphAimAngle
+              : Math.atan2(this.py - b.y, this.px - b.x);
+            for (let i = 0; i < n; i++) {
+              const a = aim + ((i - (n - 1) / 2) * Math.PI) / 12;
+              this.fireEnemyShot(b.x, this.bossMuzzleY(b), Math.cos(a) * spd, Math.sin(a) * spd, 1);
+            }
+            this.finishBossAttack(b, cadenceS);
+            this.engine.sfx.play('shoot');
           }
-          this.finishBossAttack(b, cadenceS);
-          this.engine.sfx.play('shoot');
+          break;
         }
-        break;
-      }
-      case 'spiral': {
-        // continuous rotating emitter: one bullet each interval/3, +25° each
-        if (b.fireT >= cadenceS) {
-          b.spiralAngle = b.telegraphPrepared
-            ? b.telegraphAimAngle
-            : b.spiralAngle + (25 * Math.PI) / 180;
-          this.fireEnemyShot(
-            b.x,
-            this.bossMuzzleY(b),
-            Math.cos(b.spiralAngle) * spd,
-            Math.sin(b.spiralAngle) * spd,
-            1,
-          );
-          this.finishBossAttack(b, cadenceS);
-          this.engine.sfx.play('shoot');
-        }
-        break;
-      }
-      case 'walls': {
-        // horizontal bullet row with a 48px random gap
-        if (b.fireT >= cadenceS) {
-          const gapX = b.telegraphPrepared ? b.telegraphGapX : this.engine.rng.range(30, W - 78);
-          for (let bx = 14; bx < W; bx += 26) {
-            if (bx > gapX && bx < gapX + 48) continue;
-            this.fireEnemyShot(bx, this.bossMuzzleY(b, 2), 0, spd, 1);
-          }
-          this.finishBossAttack(b, cadenceS);
-          this.engine.sfx.play('shoot');
-        }
-        break;
-      }
-      case 'aimed': {
-        // 3-shot burst straight at the player
-        if (b.burstLeft > 0) {
-          b.burstT += dt;
-          if (b.burstT >= 0.09) {
-            b.burstT -= 0.09;
-            b.burstLeft--;
-            const aim = Math.atan2(
-              b.telegraphTargetY - this.bossMuzzleY(b),
-              b.telegraphTargetX - b.x,
-            );
+        case 'spiral': {
+          // continuous rotating emitter: one bullet each interval/3, +25° each
+          if (b.fireT >= cadenceS) {
+            b.spiralAngle = b.telegraphPrepared
+              ? b.telegraphAimAngle
+              : b.spiralAngle + (25 * Math.PI) / 180;
             this.fireEnemyShot(
               b.x,
               this.bossMuzzleY(b),
-              Math.cos(aim) * spd * 1.15,
-              Math.sin(aim) * spd * 1.15,
+              Math.cos(b.spiralAngle) * spd,
+              Math.sin(b.spiralAngle) * spd,
               1,
             );
+            this.finishBossAttack(b, cadenceS);
+            this.engine.sfx.play('shoot');
           }
-        } else if (b.fireT >= cadenceS) {
-          b.burstLeft = 3;
-          b.burstT = 0.09;
-          this.finishBossAttack(b, cadenceS);
-          this.engine.sfx.play('shoot');
+          break;
         }
-        break;
+        case 'walls': {
+          // horizontal bullet row with a 48px random gap
+          if (b.fireT >= cadenceS) {
+            const gapX = b.telegraphPrepared ? b.telegraphGapX : this.engine.rng.range(30, W - 78);
+            for (let bx = 14; bx < W; bx += 26) {
+              if (bx > gapX && bx < gapX + 48) continue;
+              this.fireEnemyShot(bx, this.bossMuzzleY(b, 2), 0, spd, 1);
+            }
+            this.finishBossAttack(b, cadenceS);
+            this.engine.sfx.play('shoot');
+          }
+          break;
+        }
+        case 'aimed': {
+          // 3-shot burst straight at the player
+          if (b.burstLeft > 0) {
+            b.burstT += dt;
+            if (b.burstT >= 0.09) {
+              b.burstT -= 0.09;
+              b.burstLeft--;
+              const aim = Math.atan2(
+                b.telegraphTargetY - this.bossMuzzleY(b),
+                b.telegraphTargetX - b.x,
+              );
+              this.fireEnemyShot(
+                b.x,
+                this.bossMuzzleY(b),
+                Math.cos(aim) * spd * 1.15,
+                Math.sin(aim) * spd * 1.15,
+                1,
+              );
+            }
+          } else if (b.fireT >= cadenceS) {
+            b.burstLeft = 3;
+            b.burstT = 0.09;
+            this.finishBossAttack(b, cadenceS);
+            this.engine.sfx.play('shoot');
+          }
+          break;
+        }
       }
-    }
 
-    // pods: aimed shots every 1.6s until destroyed
-    for (const pod of this.pods) {
-      if (!pod.alive) continue;
-      pod.flashT = Math.max(0, pod.flashT - dt);
-      pod.fireT += dt;
-      if (pod.fireT >= POD_FIRE_INTERVAL) {
-        pod.fireT -= POD_FIRE_INTERVAL;
-        this.fireEnemyAimed(b.x + pod.ox, b.y + pod.oy + 6, ENEMY_SHOT_SPEED, 1);
-        this.engine.particles.burst(b.x + pod.ox, b.y + pod.oy + 6, 3, {
-          color: this.spec.palette[14],
-          speed: 38,
-          life: 0.2,
-          gravity: 0,
-          angle: Math.PI / 2,
-          spread: 0.5,
-        });
+      // pods: aimed shots every 1.6s until destroyed
+      for (const pod of this.pods) {
+        if (!pod.alive) continue;
+        pod.flashT = Math.max(0, pod.flashT - dt);
+        pod.fireT += dt;
+        if (pod.fireT >= POD_FIRE_INTERVAL) {
+          pod.fireT -= POD_FIRE_INTERVAL;
+          this.fireEnemyAimed(b.x + pod.ox, b.y + pod.oy + 6, ENEMY_SHOT_SPEED, 1);
+          this.engine.particles.burst(b.x + pod.ox, b.y + pod.oy + 6, 3, {
+            color: this.spec.palette[14],
+            speed: 38,
+            life: 0.2,
+            gravity: 0,
+            angle: Math.PI / 2,
+            spread: 0.5,
+          });
+        }
+      }
+    } else {
+      b.fireT = 0;
+      b.burstLeft = 0;
+      b.telegraphPrepared = false;
+      for (const pod of this.pods) {
+        pod.fireT = 0;
+        pod.flashT = Math.max(0, pod.flashT - dt);
       }
     }
 
@@ -1428,13 +1617,23 @@ class ShooterGame implements GameInstance {
   /** Autofire shot, capped at MAX_NORMAL_SHOTS in flight. */
   private fireNormalShot(x: number, y: number, vx: number, vy: number): boolean {
     let normal = 0;
-    for (const p of this.pshots) if (p.active && !p.pierce) normal++;
-    if (normal >= MAX_NORMAL_SHOTS) return false;
-    return this.claimPShot(x, y, vx, vy, 1, false, 0);
+    for (const p of this.pshots) if (p.active && !p.pierce && !p.missile) normal++;
+    const style = shooterPlayStyle(this.spec);
+    if (normal >= (style === 'lockOnStriker' ? 4 : MAX_NORMAL_SHOTS)) return false;
+    const damage = style === 'weaponSwitch' && this.weaponMode === 'focus' ? 2 : 1;
+    return this.claimPShot(x, y, vx, vy, damage, false, 0);
   }
 
   private fireChargeShot(x: number, y: number, vx: number, vy: number): boolean {
-    return this.claimPShot(x, y, vx, vy, CHARGE_DMG, true, this.chargeSeqCounter);
+    return this.claimPShot(
+      x,
+      y,
+      vx,
+      vy,
+      this.spec.shooterStyle === 'chargeSpecialist' ? 6 : CHARGE_DMG,
+      true,
+      this.chargeSeqCounter,
+    );
   }
 
   private claimPShot(
@@ -1445,6 +1644,7 @@ class ShooterGame implements GameInstance {
     dmg: number,
     pierce: boolean,
     seq: number,
+    targetKey: string | null = null,
   ): boolean {
     for (const p of this.pshots) {
       if (p.active) continue;
@@ -1453,6 +1653,8 @@ class ShooterGame implements GameInstance {
       p.y = y;
       p.vx = vx;
       p.vy = vy;
+      p.missile = targetKey !== null;
+      p.targetKey = targetKey;
       p.dmg = dmg;
       p.pierce = pierce;
       p.seq = seq;
@@ -1489,9 +1691,20 @@ class ShooterGame implements GameInstance {
     for (const p of this.pshots) {
       if (!p.active) continue;
       p.t += dt;
+      if (p.missile) {
+        const target = this.targets().find((candidate) => candidate.key === p.targetKey);
+        if (target) {
+          const dx = target.x - p.x,
+            dy = target.y - p.y;
+          const distance = Math.max(1, Math.hypot(dx, dy));
+          const turn = Math.min(1, dt * 9);
+          p.vx += ((dx / distance) * 260 - p.vx) * turn;
+          p.vy += ((dy / distance) * 260 - p.vy) * turn;
+        }
+      }
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      if (p.y < -16 || p.x < -16 || p.x > W + 16) {
+      if (p.y < -16 || p.y > H + 16 || p.x < -16 || p.x > W + 16 || (p.missile && p.t > 2.6)) {
         p.active = false;
         continue;
       }
@@ -1532,7 +1745,9 @@ class ShooterGame implements GameInstance {
           !(p.pierce && b.chargeSeq === p.seq) &&
           this.overlap(p.x, p.y, pw, ph, b.x, b.y, this.bossDims.w, this.bossDims.h)
         ) {
-          b.hp -= p.dmg;
+          b.hp -=
+            p.dmg *
+            (this.opening && p.pierce && this.spec.shooterStyle === 'chargeSpecialist' ? 2 : 1);
           b.flashT = 0.12;
           this.hud.score += this.spec.scoring.events.bossHit;
           this.engine.sfx.play('hit');
@@ -1583,7 +1798,8 @@ class ShooterGame implements GameInstance {
       this.hud.score += this.spec.scoring.events.pickup;
       switch (p.type) {
         case 'spread':
-          this.spread = true;
+          if (shooterPlayStyle(this.spec) === 'weaponSwitch') this.rapid = true;
+          else this.spread = true;
           this.engine.sfx.play('powerup');
           break;
         case 'rapid':
@@ -1646,6 +1862,9 @@ class ShooterGame implements GameInstance {
     for (const s of this.eshots) s.active = false;
     this.chargeT = 0;
     this.chargeReady = false;
+    this.locks.clear();
+    this.targeting = false;
+    this.salvoCd = 0;
 
     if (this.hud.lives < 0) {
       this.phase = 'cards';
@@ -1971,31 +2190,30 @@ class ShooterGame implements GameInstance {
   private drawPlayerCharge(): void {
     const muzzle = this.playerMuzzleAt();
     const progress = Math.min(1, this.chargeT / CHARGE_TIME);
-    const color = this.spec.palette[this.chargeReady ? 15 : 14] ?? '#f4f4f4';
     const ctx = this.engine.renderer.ctx;
+    const radius =
+      2 + Math.round(progress * 5 + (this.chargeReady ? Math.sin(this.animT * 24) : 0));
     ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    for (let lane = 0; lane < 10; lane++) {
-      const phase = this.animT * (2.8 + lane * 0.08) + lane * 0.63;
-      const radius = 20 + (lane % 3) * 6;
-      const travel = (phase - Math.floor(phase)) ** 1.4;
-      const x = muzzle.x + Math.cos(phase * Math.PI * 2) * radius * (1 - travel);
-      const y = muzzle.y + Math.sin(phase * Math.PI * 2) * radius * (1 - travel);
-      this.strokeLine(
-        x,
-        y,
-        muzzle.x,
-        muzzle.y,
-        color,
-        this.chargeReady ? 2 : 1,
-        0.16 + progress * 0.34,
+    for (let lane = 0; lane < 8; lane++) {
+      const angle = (lane * Math.PI) / 4 + this.animT;
+      const distance = 8 + ((lane / 8 + this.animT * 1.8) % 1) * 17 * (1 - progress * 0.5);
+      ctx.fillStyle = this.spec.palette[14] ?? '#8df5e5';
+      ctx.globalAlpha = 0.6;
+      ctx.fillRect(
+        Math.round(muzzle.x + Math.cos(angle) * distance),
+        Math.round(muzzle.y + Math.sin(angle) * distance),
+        2,
+        2,
       );
     }
-    ctx.fillStyle = color;
-    ctx.globalAlpha = 0.7 + progress * 0.3;
-    ctx.beginPath();
-    ctx.arc(muzzle.x, muzzle.y, 3 + progress * 6, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.globalAlpha = 1;
+    for (let y = -radius; y <= radius; y += 2)
+      for (let x = -radius; x <= radius; x += 2) {
+        const distance = Math.abs(x) + Math.abs(y);
+        if (distance > radius * 1.35) continue;
+        ctx.fillStyle = this.spec.palette[distance < radius * 0.55 ? 15 : 14] ?? '#e6ffff';
+        ctx.fillRect(Math.round(muzzle.x + x), Math.round(muzzle.y + y), 2, 2);
+      }
     ctx.restore();
   }
 
@@ -2059,16 +2277,24 @@ class ShooterGame implements GameInstance {
     for (const p of this.pshots) {
       if (!p.active) continue;
       const img = this.engine.sprites.frame(projSprite, 'idle', p.t);
-      this.drawVelocityTrail(
-        p.x,
-        p.y,
-        p.vx,
-        p.vy,
-        p.pierce ? 24 : 12,
-        this.spec.palette[p.pierce ? 15 : 14] ?? '#fff1a8',
-        p.pierce ? 4 : 2,
-        p.pierce ? 0.9 : 0.7,
-      );
+      if (p.missile || p.pierce) {
+        const ctx = this.engine.renderer.ctx;
+        ctx.save();
+        const speed = Math.max(1, Math.hypot(p.vx, p.vy));
+        const size = p.pierce ? 4 : 2;
+        for (let i = 0; i < 7; i++) {
+          ctx.fillStyle = this.spec.palette[i < 2 ? 15 : 14] ?? '#e6ffff';
+          ctx.globalAlpha = 1 - i * 0.1;
+          ctx.fillRect(
+            Math.round(p.x - (p.vx / speed) * i * 3 - size / 2),
+            Math.round(p.y - (p.vy / speed) * i * 3),
+            size,
+            size + 2,
+          );
+        }
+        ctx.restore();
+        if (p.missile) continue;
+      }
       if (p.pierce) {
         r.drawScaled(
           img,
@@ -2130,6 +2356,16 @@ class ShooterGame implements GameInstance {
         r.draw(img, b.x - sprite.w / 2, b.y - sprite.h / 2);
       }
       ctx.restore();
+      if (b.active && this.opening) {
+        const radius = 17 + Math.round(Math.sin(this.animT * 8));
+        for (const dx of [-1, 1])
+          for (const dy of [-1, 1]) {
+            const x = Math.round(b.x + dx * radius),
+              y = Math.round(b.y + dy * 22);
+            r.rect(x - (dx > 0 ? 4 : 0), y, 5, 2, this.spec.palette[15]!);
+            r.rect(x, y - (dy > 0 ? 4 : 0), 2, 5, this.spec.palette[14]!);
+          }
+      }
       const podSprite = this.sprites['pod']!;
       for (const pod of this.pods) {
         if (!pod.alive) continue;
@@ -2177,6 +2413,7 @@ class ShooterGame implements GameInstance {
         );
       }
       if (this.chargeT > 0.15) this.drawPlayerCharge();
+      this.drawTargetLocks();
     }
 
     if (this.bombFlashT > 0) {

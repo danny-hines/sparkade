@@ -29,10 +29,13 @@ function darken(hex: string, f: number): string {
   return `rgb(${r},${g},${b})`;
 }
 
-export function makeUiTheme(pal: readonly string[]): UiTheme {
+export function makeUiTheme(
+  pal: readonly string[],
+  family?: import('@sparkade/shared').PresentationFamily,
+): UiTheme {
   const g = (i: number, fallback: string): string => pal[i] ?? fallback;
   const bgDark = g(2, '#29366f');
-  return {
+  const theme = {
     heading: g(13, '#ffd75e'),
     text: g(15, '#f4f4f4'),
     dim: g(14, '#94b0c2'),
@@ -46,11 +49,41 @@ export function makeUiTheme(pal: readonly string[]): UiTheme {
     panelBorder: g(4, '#41a6f6'),
     screenBg: darken(bgDark, 0.3),
   };
+  if (family === 'storybook')
+    return {
+      ...theme,
+      heading: '#743c27',
+      text: '#332a22',
+      dim: '#66513b',
+      accent: '#96502d',
+      cursor: '#a63c29',
+      danger: '#ad302d',
+      bossName: '#743c27',
+      barBg: '#d4bb86',
+      barMid: '#b49969',
+      panelBg: '#f3e4bf',
+      panelBorder: '#b28243',
+      screenBg: '#30281f',
+    };
+  return theme;
 }
 
 /** Default (the original navy/gold) — used before a game's palette is set. */
 export const DEFAULT_THEME: UiTheme = makeUiTheme([
-  '#000000', '#1a1c2c', '#29366f', '#3b5dc9', '#41a6f6', '#38b764', '#a7f070',
-  '#ffcd75', '#b13e53', '#ef7d57', '#5d275d', '#e04040', '#ffa300', '#ffd75e',
-  '#94b0c2', '#f4f4f4',
+  '#000000',
+  '#1a1c2c',
+  '#29366f',
+  '#3b5dc9',
+  '#41a6f6',
+  '#38b764',
+  '#a7f070',
+  '#ffcd75',
+  '#b13e53',
+  '#ef7d57',
+  '#5d275d',
+  '#e04040',
+  '#ffa300',
+  '#ffd75e',
+  '#94b0c2',
+  '#f4f4f4',
 ]);

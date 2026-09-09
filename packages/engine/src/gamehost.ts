@@ -7,6 +7,8 @@ import {
   FEEL,
   INTERNAL_HEIGHT,
   INTERNAL_WIDTH,
+  gamePresentationFamily,
+  presentationSfx,
   type ControlLabel,
   type GameSpec,
 } from '@sparkade/shared';
@@ -165,7 +167,9 @@ export class GameHost {
     },
   ) {
     this.renderer = new Renderer(opts.canvas);
-    this.renderer.theme = makeUiTheme(opts.spec.palette); // per-game chrome
+    const family = gamePresentationFamily(opts.spec);
+    this.renderer.presentationFamily = family;
+    this.renderer.theme = makeUiTheme(opts.spec.palette, family);
     this.audio = new AudioSys();
     const fadeAttractMusic = !!opts.attract && (opts.attractMusicFadeInMs ?? 0) > 0;
     this.audio.setVolumes({
@@ -174,7 +178,11 @@ export class GameHost {
     });
     this.music = new ChiptunePlayer(this.audio, opts.spec.music);
     const rng = new Rng(opts.spec.seed);
-    this.sfx = new SfxSynth(this.audio, opts.spec.sfx ?? {}, rng.fork(7));
+    this.sfx = new SfxSynth(
+      this.audio,
+      { ...opts.spec.sfx, ...presentationSfx(family) },
+      rng.fork(7),
+    );
     this.sfx.bake();
     const sprites = new SpriteStore(
       opts.spec,
@@ -201,12 +209,16 @@ export class GameHost {
       particles: new ParticleSystem(),
       rng,
       camera: new Camera(),
-      cards: new StoryCards({
-        intro: opts.likeness?.storyIntro,
-        boss: opts.likeness?.storyBoss,
-        victory: opts.likeness?.storyVictory,
-        defeat: opts.likeness?.storyDefeat,
-      }),
+      cards: new StoryCards(
+        {
+          intro: opts.likeness?.storyIntro,
+          boss: opts.likeness?.storyBoss,
+          victory: opts.likeness?.storyVictory,
+          defeat: opts.likeness?.storyDefeat,
+        },
+        family,
+        family ? () => this.sfx.play('uiSelect') : undefined,
+      ),
       hud: new Hud(opts.spec.palette),
       portrait: opts.likeness?.portrait ?? null,
       portraitDefeat: opts.likeness?.portraitDefeat ?? opts.likeness?.portrait ?? null,
@@ -251,7 +263,7 @@ export class GameHost {
         this.sfx.play(k === 'move' ? 'uiMove' : k === 'select' ? 'uiSelect' : 'uiBack'),
     });
 
-    this.howto = new HowToPlayCard(opts.spec.meta.title, controlHelp);
+    this.howto = new HowToPlayCard(opts.spec.meta.title, controlHelp, family);
     this.weather = makeWeather(opts.spec.weather ?? 'none', opts.spec.palette, opts.spec.seed);
     this.renderer.juice = Math.max(0, Math.min(1.5, opts.spec.juice ?? 1));
     this.lightTint = LIGHTING_TINTS[opts.spec.lighting ?? 'none'] ?? null;
@@ -277,7 +289,9 @@ export class GameHost {
     this.audio.resume(); // autoplay fallback: resume on any tick after first gesture
 
     // Guaranteed shell escape: hold START ~2s anywhere in-game.
-    if (input.START.held) this.startHeldMs += dt * 1000;
+    // Pausing/advancing swallows START until release, but must not reset a
+    // continuous physical hold of the cabinet's guaranteed escape button.
+    if (this.opts.input.physicallyHeld('START')) this.startHeldMs += dt * 1000;
     else this.startHeldMs = 0;
     if (this.startHeldMs >= ESCAPE_HOLD_MS) {
       this.quit();
@@ -347,6 +361,7 @@ export class GameHost {
             result.timeBonusSeconds,
             this.opts.spec.scoring.timeBonusPerSecond,
             result.outcome === 'won',
+            this.playT,
           );
           this.state = 'tally';
           this.opts.input.swallow();
@@ -470,6 +485,7 @@ export class GameHost {
         this.engineCtx.particles.render(r, this.engineCtx.camera.x, this.engineCtx.camera.y);
         r.endWorld();
         this.engineCtx.hud.render(r, this.instance.hud, {
+          elapsedSeconds: this.playT,
           showKeys: this.opts.spec.archetype === 'adventure',
           showBombs:
             this.opts.spec.archetype === 'shooter' || this.opts.spec.archetype === 'hshooter',

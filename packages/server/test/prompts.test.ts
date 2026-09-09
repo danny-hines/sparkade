@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { DesignDoc } from '@sparkade/shared';
+import type { DesignDoc, MechanicalFingerprint } from '@sparkade/shared';
 import {
+  buildDesignPrompt,
   buildEntitiesPrompt,
   buildLevelRegenerationPrompt,
   buildLevelsPrompt,
@@ -211,5 +212,27 @@ describe('entities prompt likeness casting', () => {
     );
     expect((replacement.jsonSchema as { required: string[] }).required).toEqual(['level']);
     expect(replacement.system).toContain('replaces ONLY zero-based level 1');
+  });
+});
+
+describe('presentation selection prompt', () => {
+  it('keeps explicit aesthetics authoritative and uses cabinet history to suggest unused families', () => {
+    const prompt = buildDesignPrompt({
+      promptText: 'A storybook platformer with a laser and wall jumps',
+      hasPhoto: false,
+      describeInStory: false,
+      antiCollision: [],
+      recentMechanics: [
+        { archetype: 'platformer', presentationFamily: 'storybook' },
+        { archetype: 'platformer', presentationFamily: 'tech' },
+      ] as MechanicalFingerprint[],
+    });
+    expect(prompt.user).toContain('A storybook platformer with a laser and wall jumps');
+    expect(prompt.user).toContain(
+      'PLATFORMER PRESENTATION PREFERENCE (least recently used first): arcade, tech, storybook',
+    );
+    expect(prompt.user).toContain('explicit aesthetic requests take precedence');
+    expect(prompt.user).toContain('Choose independently of playStyle');
+    expect(prompt.system).toContain('presentationFamily');
   });
 });

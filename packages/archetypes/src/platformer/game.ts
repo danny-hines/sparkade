@@ -780,6 +780,8 @@ class PlatformerGame implements GameInstance {
       [
         {
           title: this.spec.levels[ix]!.name,
+          stage: { index: ix + 1, total: this.spec.levels.length },
+          illustration: this.generatedBackdrops?.[`level${ix + 1}`],
           lines: [this.spec.story.levelIntros[ix] ?? '...'],
           portrait: this.engine.portrait,
         },
@@ -793,6 +795,7 @@ class PlatformerGame implements GameInstance {
   }
 
   private loadLevel(ix: number): void {
+    this.hud.stage = { index: ix + 1, total: this.spec.levels.length };
     const level = this.spec.levels[ix]!;
     this.level = level;
     this.buildGrid(level.tiles, level.legend);

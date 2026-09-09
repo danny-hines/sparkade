@@ -1,13 +1,27 @@
 // Story-card screen renderer: letter-by-letter text, optional 64×64 portrait,
 // A/START to skip-complete then advance. A reusable widget driven by archetypes
 // and the host.
-import { INTERNAL_HEIGHT, INTERNAL_WIDTH } from '@sparkade/shared';
+import {
+  INTERNAL_HEIGHT,
+  INTERNAL_WIDTH,
+  PRESENTATION_CATALOG,
+  type PresentationFamily,
+} from '@sparkade/shared';
 import type { Renderer } from './renderer';
 import type { InputSnapshot } from './types';
+import {
+  familyBackdrop,
+  familyCardLayout,
+  familyCardPages,
+  familyHeading,
+  familyIllustration,
+} from './presentation';
 
 const CHARS_PER_SECOND = 40;
 
 export interface CardContent {
+  illustration?: CanvasImageSource | null;
+  stage?: { index: number; total: number };
   title?: string;
   lines: string[];
   portrait?: CanvasImageSource | null;
@@ -30,8 +44,14 @@ export class StoryCards {
   private fullyRevealedAt = -1;
   private t = 0;
   private onAllDone: (() => void) | null = null;
+  private page = 0;
+  private pages = new WeakMap<CardContent, string[][]>();
 
-  constructor(private art: StoryArt = {}) {}
+  constructor(
+    private art: StoryArt = {},
+    private family?: PresentationFamily,
+    private onAdvance?: () => void,
+  ) {}
 
   get active(): boolean {
     return this.queue.length > 0;
@@ -39,6 +59,8 @@ export class StoryCards {
 
   show(cards: CardContent[], onAllDone?: () => void): void {
     this.queue = [...cards];
+    this.pages = new WeakMap();
+    this.page = 0;
     this.revealed = 0;
     this.t = 0;
     this.fullyRevealedAt = -1;
@@ -68,6 +90,7 @@ export class StoryCards {
    *  immediately (no intro text to read in a library preview). */
   skip(): void {
     this.queue = [];
+    this.page = 0;
     this.revealed = 0;
     this.t = 0;
     this.fullyRevealedAt = -1;
@@ -77,7 +100,12 @@ export class StoryCards {
   }
 
   private advance(): void {
-    this.queue.shift();
+    this.onAdvance?.();
+    if (this.family && this.page + 1 < this.pagesFor(this.queue[0]!).length) this.page++;
+    else {
+      this.queue.shift();
+      this.page = 0;
+    }
     this.revealed = 0;
     this.t = 0;
     this.fullyRevealedAt = -1;
@@ -88,13 +116,71 @@ export class StoryCards {
     }
   }
 
+  private pagesFor(card: CardContent): string[][] {
+    let pages = this.pages.get(card);
+    if (!pages) {
+      pages = familyCardPages(card.lines, this.family!);
+      this.pages.set(card, pages);
+    }
+    return pages;
+  }
+
   private totalChars(card: CardContent): number {
+    if (this.family) return this.pagesFor(card)[this.page]!.reduce((n, line) => n + line.length, 0);
     return card.lines.reduce((n, l) => n + l.length, 0);
   }
 
   render(r: Renderer): void {
     const card = this.queue[0];
     if (!card) return;
+    if (this.family) {
+      const f = PRESENTATION_CATALOG[this.family];
+      const layout = familyCardLayout(this.family);
+      const pages = this.pagesFor(card);
+      familyBackdrop(r);
+      const kicker = card.stage
+        ? `${f.stage} ${card.stage.index} / ${card.stage.total}`
+        : card.artRole === 'boss'
+          ? f.boss
+          : card.artRole === 'victory'
+            ? f.won
+            : card.artRole === 'defeat'
+              ? f.lost
+              : f.intro;
+      r.text(kicker, 40, layout.kickerY, r.theme.dim);
+      familyHeading(r, card.title ?? '', layout.title.x, layout.title.y, layout.title.w);
+      const scene = card.artRole ? this.art[card.artRole] : null;
+      const picture = scene ?? card.illustration ?? card.portrait;
+      r.rect(layout.art.x, layout.art.y, layout.art.w, layout.art.h, r.theme.barBg);
+      if (picture) familyIllustration(r, picture, layout.art);
+      else {
+        // A small chapter path replaces missing art; it never implies a map or objective.
+        for (let i = 0; i < 5; i++) {
+          const x = layout.art.x + 24 + i * 34,
+            y = layout.art.y + layout.art.h / 2 + (i % 2 ? 8 : -8);
+          r.rect(x, y, 8, 8, r.theme.accent);
+          if (i < 4) r.rect(x + 8, y + 3, 26, 2, r.theme.panelBorder);
+        }
+      }
+      if (this.family === 'storybook') r.rect(250, 96, 2, 136, r.theme.panelBorder);
+      r.frame(layout.art.x, layout.art.y, layout.art.w, layout.art.h, r.theme.panelBorder);
+      let budget = Math.floor(this.revealed);
+      pages[this.page]!.forEach((line, i) => {
+        r.text(line, layout.text.x, layout.text.y + i * 12, r.theme.text, {
+          reveal: Math.max(0, budget),
+        });
+        budget -= line.length;
+      });
+      r.text(`${this.page + 1}/${pages.length}`, 42, 251, r.theme.dim);
+      r.text(
+        this.revealed >= this.totalChars(card) ? '(A) CONTINUE' : '(A) REVEAL',
+        468,
+        251,
+        r.theme.heading,
+        { align: 'right' },
+      );
+      return;
+    }
     r.dim(0.82);
     const hasPortrait = !!card.portrait;
     const panelW = 420;

@@ -493,6 +493,8 @@ export interface GameSpecBase {
 }
 
 export interface PlatformerSpec extends GameSpecBase {
+  /** Independent visual/audio family. Omission retains the original shell. */
+  presentationFamily?: import('./presentation').PresentationFamily;
   archetype: 'platformer';
   /** Bounded encounter composition and readable combat timing. Legacy games omit it. */
   encounterVersion?: 1;
@@ -562,6 +564,7 @@ export type GameSpec = PlatformerSpec | ShooterSpec | AdventureSpec | HShooterSp
 // ---------------------------------------------------------------------------
 
 export interface DesignDoc {
+  presentationFamily?: import('./presentation').PresentationFamily;
   chargeShot?: import('./platformer-weapons').PlatformerChargeShot;
   title: string;
   tagline: string;

@@ -4,6 +4,10 @@
   "title": "Sparkade design pass output",
   "type": "object",
   "properties": {
+    "presentationFamily": {
+      "description": "Platformer presentation, chosen independently of gameplay: storybook, tech, or arcade.",
+      "enum": ["storybook", "tech", "arcade"]
+    },
     "chargeShot": {
       "description": "Blaster weapon choice: none for conventional guns; plasma or arcane for a charged energy blast.",
       "enum": ["none", "plasma", "arcane"]
@@ -279,7 +283,8 @@
           "anyOf": [
             { "required": ["playStyle"] },
             { "required": ["mechanics"] },
-            { "required": ["chargeShot"] }
+            { "required": ["chargeShot"] },
+            { "required": ["presentationFamily"] }
           ]
         }
       }

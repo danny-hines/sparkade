@@ -156,6 +156,7 @@ export function platformerStyleDiagnostics(
 }
 
 export interface MechanicalFingerprint {
+  presentationFamily?: import('./presentation').PresentationFamily;
   version: 1;
   archetype: GameSpec['archetype'];
   playStyle: string;
@@ -177,6 +178,7 @@ export function mechanicalFingerprint(spec: GameSpec): MechanicalFingerprint {
       return {
         ...base,
         playStyle: style,
+        ...(spec.presentationFamily ? { presentationFamily: spec.presentationFamily } : {}),
         movement: `${spec.movementProfile ?? 'balanced'}${kit.traversal === 'wallJump' ? '+wallJump' : ''}`,
         weapons: [
           ...new Set([

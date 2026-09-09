@@ -250,6 +250,15 @@ export class MockProvider implements Provider {
           ...(archetype === 'platformer'
             ? {
                 playStyle: style ?? ('acrobat' as const),
+                presentationFamily: /storybook/i.test(requestText)
+                  ? ('storybook' as const)
+                  : /tech mission|presentationFamily[^\n]*tech/i.test(requestText)
+                    ? ('tech' as const)
+                    : /arcade action/i.test(requestText)
+                      ? ('arcade' as const)
+                      : ((/PLATFORMER PRESENTATION PREFERENCE[^:]*:\s*(storybook|tech|arcade)/.exec(
+                          req.user,
+                        )?.[1] ?? 'arcade') as 'storybook' | 'tech' | 'arcade'),
                 mechanics: platformerMechanics({ playStyle: style }),
                 movementProfile: 'precision' as const,
               }

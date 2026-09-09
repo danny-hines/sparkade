@@ -4,6 +4,7 @@ import { INTERNAL_WIDTH, type PlatformerAbilityKind, type SpriteData } from '@sp
 import { decodeSprite } from './sprites';
 import type { Renderer } from './renderer';
 import type { HudState } from './types';
+import { familyHud } from './presentation';
 
 const ICON_PALETTE = [
   '#000000',
@@ -132,11 +133,27 @@ export class Hud {
       showKeys?: boolean;
       showCollectibles?: boolean;
       showAbilities?: boolean;
+      elapsedSeconds?: number;
       healthIcon?: CanvasImageSource | null;
       collectibleIcon?: CanvasImageSource | null;
       abilityIcons?: Partial<Record<PlatformerAbilityKind, CanvasImageSource | null>>;
     } = {},
   ): void {
+    if (r.presentationFamily) {
+      familyHud(
+        r,
+        hud,
+        {
+          heart: this.icons['heart']!,
+          empty: this.icons['heartEmpty']!,
+          collectible: this.icons['collectible']!,
+          collectibleIcon: opts.collectibleIcon,
+          abilityIcons: opts.abilityIcons,
+        },
+        opts.elapsedSeconds,
+      );
+      return;
+    }
     // Top strip, translucent so gameplay stays visible beneath.
     r.rect(0, 0, INTERNAL_WIDTH, 20, 'rgba(6,7,20,0.75)');
 

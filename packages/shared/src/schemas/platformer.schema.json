@@ -4,6 +4,7 @@
   "title": "Sparkade platformer game spec (specVersion 1)",
   "type": "object",
   "properties": {
+    "presentationFamily": { "enum": ["storybook", "tech", "arcade"] },
     "chargeShot": {
       "description": "Blaster weapon choice: none for conventional guns; plasma or arcane for a charged energy blast.",
       "enum": ["none", "plasma", "arcane"]

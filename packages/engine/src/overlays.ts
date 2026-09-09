@@ -1,10 +1,17 @@
 // Substrate-owned overlays: pause menu (with controls card + audio volumes),
 // how-to-play card, score tally, initials entry, leaderboard view.
 // All fully d-pad operable; A confirms, B backs — regardless of gameplay bindings.
-import { INTERNAL_HEIGHT, INTERNAL_WIDTH, type ControlLabel } from '@sparkade/shared';
+import {
+  INTERNAL_HEIGHT,
+  INTERNAL_WIDTH,
+  PRESENTATION_CATALOG,
+  type ControlLabel,
+  type PresentationFamily,
+} from '@sparkade/shared';
 import { MenuRepeater } from './input';
 import type { Renderer } from './renderer';
 import type { InputSnapshot } from './types';
+import { familyBackdrop, familyControls, familyPause, familyTally } from './presentation';
 
 export type PauseAction = 'resume' | 'restart' | 'quit' | null;
 
@@ -101,6 +108,16 @@ export class PauseOverlay {
   }
 
   render(r: Renderer): void {
+    if (r.presentationFamily) {
+      familyPause(
+        r,
+        this.screen,
+        this.screen === 'audio' ? this.audioCursor : this.cursor,
+        this.hooks.controlHelp,
+        this.hooks.getVolumes(),
+      );
+      return;
+    }
     r.dim(0.7);
     const w = 240;
     const h = 170;
@@ -160,15 +177,17 @@ export class HowToPlayCard {
   constructor(
     private title: string,
     private controls: ControlLabel[],
+    private family?: PresentationFamily,
   ) {}
 
   update(dt: number, input: InputSnapshot): void {
     this.t += dt;
     if (this.t > 0.35 && (input.A.pressed || input.START.pressed)) this.done = true;
-    if (this.t >= 3) this.done = true;
+    if (!this.family && this.t >= 3) this.done = true;
   }
 
   render(r: Renderer): void {
+    if (r.presentationFamily) return familyControls(r, this.title, this.controls, '(A) BEGIN');
     r.clear(r.theme.screenBg);
     r.text('HOW TO PLAY', INTERNAL_WIDTH / 2, 40, r.theme.heading, { align: 'center', scale: 2 });
     r.text(this.title, INTERNAL_WIDTH / 2, 70, r.theme.dim, { align: 'center' });
@@ -180,7 +199,9 @@ export class HowToPlayCard {
     }
     r.text('START Pause', INTERNAL_WIDTH / 2 - 40, y + 4, r.theme.dim);
     if (Math.floor(this.t * 2) % 2 === 0)
-      r.text('(A) Skip', INTERNAL_WIDTH / 2, INTERNAL_HEIGHT - 30, r.theme.accent, { align: 'center' });
+      r.text('(A) Skip', INTERNAL_WIDTH / 2, INTERNAL_HEIGHT - 30, r.theme.accent, {
+        align: 'center',
+      });
   }
 }
 
@@ -196,6 +217,7 @@ export class ScoreTally {
     private timeBonusSeconds: number,
     private bonusPerSecond: number,
     private won: boolean,
+    private elapsedSeconds?: number,
   ) {
     this.total = score + Math.max(0, Math.round(timeBonusSeconds * bonusPerSecond));
   }
@@ -215,23 +237,58 @@ export class ScoreTally {
     const reveal = Math.min(1, Math.max(0, (this.t - 0.8) / 1.5));
     const shownBonus = Math.round(bonus * reveal);
     const shownTotal = this.score + shownBonus;
-    r.text(this.won ? 'STAGE CLEAR!' : 'GAME OVER', INTERNAL_WIDTH / 2, 60, this.won ? r.theme.heading : r.theme.bossName, {
-      align: 'center',
-      scale: 2,
-    });
-    r.text(`SCORE      ${String(this.score).padStart(7, '0')}`, INTERNAL_WIDTH / 2, 120, r.theme.text, {
-      align: 'center',
-    });
+    if (r.presentationFamily)
+      return familyTally(r, {
+        score: this.score,
+        shownBonus,
+        shownTotal,
+        won: this.won,
+        elapsedSeconds: this.elapsedSeconds,
+        ready: this.t > 2.5,
+      });
+    r.text(
+      this.won ? 'STAGE CLEAR!' : 'GAME OVER',
+      INTERNAL_WIDTH / 2,
+      60,
+      this.won ? r.theme.heading : r.theme.bossName,
+      {
+        align: 'center',
+        scale: 2,
+      },
+    );
+    r.text(
+      `SCORE      ${String(this.score).padStart(7, '0')}`,
+      INTERNAL_WIDTH / 2,
+      120,
+      r.theme.text,
+      {
+        align: 'center',
+      },
+    );
     if (this.won) {
-      r.text(`TIME BONUS ${String(shownBonus).padStart(7, '0')}`, INTERNAL_WIDTH / 2, 140, r.theme.dim, {
+      r.text(
+        `TIME BONUS ${String(shownBonus).padStart(7, '0')}`,
+        INTERNAL_WIDTH / 2,
+        140,
+        r.theme.dim,
+        {
+          align: 'center',
+        },
+      );
+    }
+    r.text(
+      `TOTAL      ${String(shownTotal).padStart(7, '0')}`,
+      INTERNAL_WIDTH / 2,
+      168,
+      r.theme.heading,
+      {
+        align: 'center',
+      },
+    );
+    if (this.t > 2.5 && Math.floor(this.t * 2) % 2 === 0)
+      r.text('(A) Continue', INTERNAL_WIDTH / 2, INTERNAL_HEIGHT - 40, r.theme.accent, {
         align: 'center',
       });
-    }
-    r.text(`TOTAL      ${String(shownTotal).padStart(7, '0')}`, INTERNAL_WIDTH / 2, 168, r.theme.heading, {
-      align: 'center',
-    });
-    if (this.t > 2.5 && Math.floor(this.t * 2) % 2 === 0)
-      r.text('(A) Continue', INTERNAL_WIDTH / 2, INTERNAL_HEIGHT - 40, r.theme.accent, { align: 'center' });
   }
 }
 
@@ -257,7 +314,8 @@ export class InitialsEntry {
   update(dt: number, input: InputSnapshot): void {
     this.t += dt;
     if (this.repeater.fires(input, 'UP')) {
-      this.slots[this.slot] = (this.slots[this.slot]! + INITIALS_CHARS.length - 1) % INITIALS_CHARS.length;
+      this.slots[this.slot] =
+        (this.slots[this.slot]! + INITIALS_CHARS.length - 1) % INITIALS_CHARS.length;
       this.uiBlip('move');
     }
     if (this.repeater.fires(input, 'DOWN')) {
@@ -290,9 +348,15 @@ export class InitialsEntry {
   }
 
   render(r: Renderer, score: number): void {
-    r.clear(r.theme.screenBg);
-    r.text('NEW HIGH SCORE!', INTERNAL_WIDTH / 2, 56, r.theme.heading, { align: 'center', scale: 2 });
-    r.text(String(score).padStart(7, '0'), INTERNAL_WIDTH / 2, 92, r.theme.text, { align: 'center' });
+    if (r.presentationFamily) familyBackdrop(r);
+    else r.clear(r.theme.screenBg);
+    r.text('NEW HIGH SCORE!', INTERNAL_WIDTH / 2, 56, r.theme.heading, {
+      align: 'center',
+      scale: 2,
+    });
+    r.text(String(score).padStart(7, '0'), INTERNAL_WIDTH / 2, 92, r.theme.text, {
+      align: 'center',
+    });
     r.text('ENTER YOUR INITIALS', INTERNAL_WIDTH / 2, 120, r.theme.dim, { align: 'center' });
     const cx = INTERNAL_WIDTH / 2 - 45;
     for (let i = 0; i < 3; i++) {
@@ -300,15 +364,24 @@ export class InitialsEntry {
       const ch = INITIALS_CHARS[this.slots[i]!]!;
       const x = cx + i * 34;
       r.panel(x, 140, 26, 34, r.theme.panelBg, active ? r.theme.cursor : r.theme.barMid);
-      r.text(ch, x + 13, 152, active ? r.theme.heading : r.theme.text, { align: 'center', scale: 2 });
+      r.text(ch, x + 13, 152, active ? r.theme.heading : r.theme.text, {
+        align: 'center',
+        scale: 2,
+      });
       if (active && Math.floor(this.t * 3) % 2 === 0) {
         r.text('^', x + 13, 130, r.theme.accent, { align: 'center' });
         r.text('v', x + 13, 180, r.theme.accent, { align: 'center' });
       }
     }
-    r.text('(A) Confirm  (B) Skip', INTERNAL_WIDTH / 2, INTERNAL_HEIGHT - 40, r.theme.dim, {
-      align: 'center',
-    });
+    r.text(
+      '(A) Confirm  (B) Skip',
+      INTERNAL_WIDTH / 2,
+      r.presentationFamily ? 249 : INTERNAL_HEIGHT - 40,
+      r.theme.dim,
+      {
+        align: 'center',
+      },
+    );
   }
 }
 
@@ -346,9 +419,16 @@ export class LeaderboardView {
   }
 
   render(r: Renderer): void {
-    r.clear(r.theme.screenBg);
-    r.text('HIGH SCORES', INTERNAL_WIDTH / 2, 24, r.theme.heading, { align: 'center', scale: 2 });
-    const top = 56;
+    if (r.presentationFamily) familyBackdrop(r);
+    else r.clear(r.theme.screenBg);
+    r.text(
+      r.presentationFamily ? PRESENTATION_CATALOG[r.presentationFamily].board : 'HIGH SCORES',
+      INTERNAL_WIDTH / 2,
+      r.presentationFamily ? 42 : 24,
+      r.theme.heading,
+      { align: 'center', scale: 2 },
+    );
+    const top = r.presentationFamily ? 68 : 56;
     for (let i = 0; i < 10; i++) {
       const row = this.rows[i];
       const y = top + i * 16;
@@ -357,16 +437,33 @@ export class LeaderboardView {
       if (row) {
         r.text(rank, INTERNAL_WIDTH / 2 - 90, y, hl ? r.theme.cursor : r.theme.dim);
         r.text(row.initials, INTERNAL_WIDTH / 2 - 50, y, hl ? r.theme.heading : r.theme.text);
-        r.text(String(row.score).padStart(7, '0'), INTERNAL_WIDTH / 2 + 90, y, hl ? r.theme.heading : r.theme.text, {
-          align: 'right',
-        });
+        r.text(
+          String(row.score).padStart(7, '0'),
+          INTERNAL_WIDTH / 2 + 90,
+          y,
+          hl ? r.theme.heading : r.theme.text,
+          {
+            align: 'right',
+          },
+        );
       } else {
-        r.text(rank, INTERNAL_WIDTH / 2 - 90, y, '#333c57');
-        r.text('---', INTERNAL_WIDTH / 2 - 50, y, '#333c57');
-        r.text('-------', INTERNAL_WIDTH / 2 + 90, y, '#333c57', { align: 'right' });
+        r.text(rank, INTERNAL_WIDTH / 2 - 90, y, r.presentationFamily ? r.theme.barMid : '#333c57');
+        r.text(
+          '---',
+          INTERNAL_WIDTH / 2 - 50,
+          y,
+          r.presentationFamily ? r.theme.barMid : '#333c57',
+        );
+        r.text(
+          '-------',
+          INTERNAL_WIDTH / 2 + 90,
+          y,
+          r.presentationFamily ? r.theme.barMid : '#333c57',
+          { align: 'right' },
+        );
       }
     }
-    const by = INTERNAL_HEIGHT - 28;
+    const by = r.presentationFamily ? 245 : INTERNAL_HEIGHT - 28;
     const options: [string, number][] = [
       ['PLAY AGAIN', INTERNAL_WIDTH / 2 - 90],
       ['EXIT', INTERNAL_WIDTH / 2 + 50],

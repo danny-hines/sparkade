@@ -2,6 +2,8 @@
 // packages/generation and fills their placeholders (schemas verbatim from
 // @sparkade/shared, golden few-shot excerpts, anti-collision block).
 import {
+  PRESENTATION_CATALOG,
+  presentationPreference,
   PLATFORMER_STYLE_CATALOG,
   platformerStylePreference,
   type MechanicalFingerprint,
@@ -111,6 +113,8 @@ export function buildDesignPrompt(opts: {
           `PLATFORMER STYLE PREFERENCE (least recently used first): ${platformerStylePreference(opts.recentMechanics).join(', ')}. This is a preference only: explicit requested mechanics take precedence.`,
         ]
       : []),
+    `PLATFORMER PRESENTATION PREFERENCE (least recently used first): ${presentationPreference(opts.recentMechanics ?? []).join(', ')}. Choose independently of playStyle; explicit aesthetic requests take precedence. Only platformer supports presentationFamily.`,
+    `PRESENTATION CATALOG: ${JSON.stringify(PRESENTATION_CATALOG)}`,
     ...(moodNote ? [moodNote] : []),
     ...(opts.extraNote ? [`IMPORTANT: ${opts.extraNote}`] : []),
     'Design the game now.',

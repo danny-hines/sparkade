@@ -122,6 +122,8 @@ export interface WorldZoom {
 
 /** Live HUD values the substrate draws every frame. */
 export interface HudState {
+  /** Real course progress, owned by the platformer runtime. */
+  stage?: { index: number; total: number };
   score: number;
   lives: number;
   health: number;

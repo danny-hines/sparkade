@@ -26,7 +26,8 @@ which requires at least one horizontal stage and one tower; pure horizontal or t
 also supported. Its fingerprint records both the blaster and wall jump.
 
 The HUD reports charge, melee readiness or ascent. New games generate five shared base frames
-(112×128) plus mechanic-specific actions (160×128, with extra horizontal room for arms and strides):
+(128 pixels high, with a shared width of 112, 160, 192 or 224 pixels) plus mechanic-specific
+actions (at least 160×128, with extra horizontal room for arms and strides):
 
 | Mechanics                      | Additional frames                                           | Total |
 | ------------------------------ | ----------------------------------------------------------- | ----- |
@@ -83,9 +84,8 @@ easy to compare. Real generation selects encounter compositions from the selecte
 Verification covers controller timing/damage, wall obstruction, physical tower completion, route
 validation, tall coordinates, style-preserving repair, prompt selection, and all five packages through
 the complete mock asset/publish pipeline. Browser checks use the real GameHost and loaded assets.
-Live action experiments use the production pipeline; broader character coverage and human difficulty balancing still need playtests. The broader
-presentation families, additional packages for other archetypes, and new archetypes remain roadmap
-work. The audit tables below describe the baseline before this milestone.
+Live action experiments use the production pipeline; broader character coverage and human difficulty balancing still need playtests. Additional packages for other archetypes and new archetypes remain roadmap work. Platformer
+presentation families are implemented below. The audit tables describe the earlier baseline.
 
 Live pose previews (local experiment files must be present):
 [armed climber](http://127.0.0.1:5173/?dev=playtest&style=armedClimber&actionRun=armed-climber-v2-live-20260907)
@@ -115,6 +115,30 @@ See the [accepted scope](platformer-encounters.md) and
 [live comparison report](../reports/platformer-encounters-20260908.md). Human combat balance and
 broader character shapes remain areas for playtesting; the comparison preserves artwork failures
 and records the limits of automated route checks.
+
+## Presentation milestone — September 8
+
+Platformers now choose `presentationFamily: storybook | tech | arcade` independently of play style.
+Every family covers the HUD, controls, introduction, illustrated chapter/boss/story cards, pause and
+audio menus, score tally, initials and records. Storybook uses warm paper, hearts and chapter wording;
+tech uses segmented health and mission panels; arcade prioritizes score and bold banners. All use
+the existing bitmap glyphs and pixel geometry. Additional typefaces remain future work.
+
+The design prompt includes a recency preference with explicit aesthetics taking precedence. The
+selection is preserved through assembly, repair and the final `mechanics.json`. Omitted fields in
+old saved games retain the previous shell; new assemblies from old cached designs default to arcade.
+The UI displays actual health, abilities, charge/strike readiness, ascent, score and elapsed play time.
+Conventional guns do not gain charge indicators. No mechanics or score rules are selected by a family.
+
+Story text now paginates within each layout. Family controls wait for A/START, so all eight bindings
+can be read before beginning. Menu sounds use family-specific chimes; the music brief receives the
+family direction. Existing artwork is reused and no additional image slots are required.
+
+Open the [same-game comparison](http://127.0.0.1:5173/?dev=presentation&game=g-hehhcnoczp)
+to switch families, saved games and screens. It starts muted; choose **play** for live gameplay.
+Its result/record screens use sample numbers and do not write scores or alter saved games. Append
+`&clean=1` for a full 1024×600 capture. See the [implementation report](../reports/platformer-presentation-families-20260908.md)
+for visual comparisons and verification.
 
 ## Recommendation
 
@@ -269,8 +293,8 @@ decisions without becoming a traversal gate.
 
 ## Branding and UI as authored design
 
-Expand the shared identity contract to include a presentation package. Start with three reviewed
-families, then add more based on whether players perceive a difference:
+Three platformer families are implemented above. The broader catalogue below remains a design
+direction; expedition and tournament are not released presentation choices:
 
 | Family              | Information hierarchy                                         | Visual and audio direction                                                           |
 | ------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------ |

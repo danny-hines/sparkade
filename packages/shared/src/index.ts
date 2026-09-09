@@ -7,3 +7,4 @@ export * from './play-styles';
 export * from './platformer-actions';
 export * from './platformer-weapons';
 export * from './platformer-encounters';
+export * from './presentation';

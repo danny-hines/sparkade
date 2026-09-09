@@ -2,7 +2,12 @@
 // art scales by the cabinet's 2× display factor; matching-density sources can
 // retain native pixels inside the same logical footprint. Runtime drawing is
 // drawImage and rect fills only — no per-frame pixel reads.
-import { DISPLAY_SCALE, INTERNAL_HEIGHT, INTERNAL_WIDTH } from '@sparkade/shared';
+import {
+  DISPLAY_SCALE,
+  INTERNAL_HEIGHT,
+  INTERNAL_WIDTH,
+  type PresentationFamily,
+} from '@sparkade/shared';
 import { drawText, textWidth, wrapText, type TextOpts } from './font';
 import type { SilhouetteAura, SilhouetteAuraBand } from './sprites';
 import { DEFAULT_THEME, type UiTheme } from './theme';
@@ -99,6 +104,7 @@ export class Renderer {
   private shakeMag = 0;
   /** Per-game chrome colors; set by the host from the game's palette. */
   theme: UiTheme = DEFAULT_THEME;
+  presentationFamily?: PresentationFamily;
   /** Per-game VFX intensity (screen-shake) multiplier; 1 = default feel. */
   juice = 1;
 

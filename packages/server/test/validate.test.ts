@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { archetypes } from '@sparkade/archetypes';
 import {
   LIB_BOSSES_PLATFORMER,
+  PRESENTATION_FAMILIES,
   type DesignDoc,
   type GameSpec,
   type HShooterSpec,
@@ -26,6 +27,7 @@ import {
   titleSimilarity,
   tooSimilar,
   validateGameSchema,
+  validateDesignSchema,
 } from '../src/pipeline/validate';
 import { repoRoot } from '../src/util';
 
@@ -997,5 +999,34 @@ describe('tile-grid normalization (LLMs miscount fixed-width rows)', () => {
     level.tiles[3] = level.tiles[3]! + '##'; // real terrain overhang — ambiguous, do not guess
     const fixed = normalizeTileGrids(spec) as typeof spec & { levels: { tiles: string[] }[] };
     expect(fixed.levels[0]!.tiles[3]!.endsWith('##')).toBe(true);
+  });
+});
+
+describe('platformer presentation schema compatibility', () => {
+  it('accepts released families in both design and saved specs, including legacy omission', () => {
+    for (const presentationFamily of [...PRESENTATION_FAMILIES, undefined]) {
+      expect(validateDesignSchema({ ...validPlatformerDesign(), presentationFamily })).toEqual([]);
+      expect(
+        validateGameSchema('platformer', { ...golden('platformer'), presentationFamily }),
+      ).toEqual([]);
+    }
+    expect(
+      validateDesignSchema({ ...validPlatformerDesign(), presentationFamily: 'neon' }),
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ path: '/presentationFamily' })]));
+    expect(
+      validateGameSchema('platformer', { ...golden('platformer'), presentationFamily: 'neon' }),
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ path: '/presentationFamily' })]));
+  });
+
+  it('does not allow presentation families to leak into other archetypes', () => {
+    const { abilityLoadout: _abilities, ...design } = validPlatformerDesign();
+    for (const presentationFamily of PRESENTATION_FAMILIES) {
+      expect(
+        validateDesignSchema({ ...design, archetype: 'shooter', presentationFamily }).length,
+      ).toBeGreaterThan(0);
+      expect(validateGameSchema('shooter', { ...golden('shooter'), presentationFamily })).toEqual(
+        expect.arrayContaining([expect.objectContaining({ path: '/presentationFamily' })]),
+      );
+    }
   });
 });

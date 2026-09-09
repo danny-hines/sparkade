@@ -2028,6 +2028,9 @@ export class GenerationRunner {
       }
 
       spec = ensurePlatformerImageCharacterFallbacks(spec, recentUse.bosses);
+      // Repairs may alter geometry, but the committed presentation remains design-owned.
+      if (spec.archetype === 'platformer')
+        spec.presentationFamily = design.presentationFamily ?? 'arcade';
       if (
         spec.archetype === 'platformer' &&
         (platformerPlayStyle(spec) !== (design.playStyle ?? 'acrobat') ||
@@ -7358,6 +7361,7 @@ export class GenerationRunner {
       ...(archetype === 'platformer'
         ? {
             playStyle: design.playStyle ?? ('acrobat' as const),
+            presentationFamily: design.presentationFamily ?? ('arcade' as const),
             mechanics: platformerMechanics(design),
             actionPoseVersion: 1 as const,
             ...((parts.levels as PlatformerSpec['levels'] | undefined)?.some(

@@ -58,6 +58,7 @@ export class InputBroker {
   /** Logical state from the previous poll, for edge detection. */
   private prevHeld = {} as Record<LogicalButton, boolean>;
   private snapshot: InputSnapshot = emptySnapshot();
+  private physicalHeld: Partial<Record<LogicalButton, boolean>> = {};
   /** Buttons swallowed across a screen transition until physically released. */
   private swallowed = new Set<LogicalButton>();
   private swallowedRaw = new Set<RawInputId>();
@@ -179,6 +180,7 @@ export class InputBroker {
       });
     }
 
+    this.physicalHeld = heldNow;
     // Release swallowed buttons once they are physically up.
     for (const b of [...this.swallowed]) if (!heldNow[b]) this.swallowed.delete(b);
     // Same for raw swallows (remap wizard).
@@ -210,6 +212,11 @@ export class InputBroker {
   /** Current snapshot without re-polling. */
   state(): InputSnapshot {
     return this.snapshot;
+  }
+
+  /** Last poll before transition suppression; only global hold-to-exit uses this. */
+  physicallyHeld(button: LogicalButton): boolean {
+    return this.physicalHeld[button] ?? false;
   }
 
   /**

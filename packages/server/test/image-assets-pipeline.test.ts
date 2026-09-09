@@ -391,17 +391,17 @@ describe('story art prompts', () => {
 
 describe.sequential('mock image asset pipeline', () => {
   it.each([
-    ['acrobat', 'A jumping platformer about a courier'],
-    ['runAndGun', 'A platformer with a permanent blaster'],
-    ['towerClimber', 'A wall-jumping tower platformer'],
-    ['meleeAction', 'A melee platformer with an energy strike'],
-    ['armedClimber', 'A platformer combining a blaster and wall jumps'],
+    ['acrobat', 'A jumping platformer about a courier', 'tech'],
+    ['runAndGun', 'A platformer with a permanent blaster', 'storybook'],
+    ['towerClimber', 'A wall-jumping tower platformer', 'arcade'],
+    ['meleeAction', 'A melee platformer with an energy strike', 'tech'],
+    ['armedClimber', 'A platformer combining a blaster and wall jumps', 'storybook'],
   ] as const)(
     'publishes the %s package and its final mechanical fingerprint',
-    async (style, promptText) => {
+    async (style, promptText, presentationFamily) => {
       const { db, files, runner } = createHarness();
       const { jobId, gameId } = runner.createJob({
-        promptText,
+        promptText: `${promptText}, presented as ${presentationFamily === 'tech' ? 'tech mission' : presentationFamily === 'arcade' ? 'arcade action' : 'storybook'}.`,
         sourceKind: 'surprise',
         requestedArchetype: 'platformer',
         idempotencyKey: `package-${style}`,
@@ -409,6 +409,7 @@ describe.sequential('mock image asset pipeline', () => {
       expect(await waitForTerminal(db, jobId, 45_000)).toMatchObject({ status: 'done' });
       const spec = files.readSpec(gameId) as PlatformerSpec;
       expect(spec.playStyle).toBe(style);
+      expect(spec.presentationFamily).toBe(presentationFamily);
       expect(spec.actionPoseVersion).toBe(1);
       for (const pose of requiredPlatformerActionPoses(spec)) {
         expect(

@@ -120,7 +120,7 @@ describe.each(PRESENTATION_FAMILIES)('%s presentation', (family) => {
       bombs: 0,
       collectibles: 17,
       mechanic: { label: 'WALL / CHARGE', value: '75%', progress: 0.75 },
-      boss: { name: 'A very long generated boss name that must fit', hp: 5, maxHp: 20 },
+      boss: { name: 'Clockwork Warden Supreme', hp: 5, maxHp: 20 },
     };
     familyHud(
       r,
@@ -135,6 +135,7 @@ describe.each(PRESENTATION_FAMILIES)('%s presentation', (family) => {
     expect(text.map((t) => t.value)).toEqual(
       expect.arrayContaining(['0004200', '05:12', 'X17', 'WALL / CHARGE 75%']),
     );
+    if (family === 'arcade') expect(text.map((t) => t.value)).toContain(hud.boss!.name);
     for (const line of text) {
       expect(line.x).toBeGreaterThanOrEqual(0);
       expect(line.x + line.w, line.value).toBeLessThanOrEqual(512);

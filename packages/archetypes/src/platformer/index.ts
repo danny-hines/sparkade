@@ -23,7 +23,9 @@ function platformerControlHelp(spec: PlatformerSpec) {
   const kit = platformerMechanics(spec);
   if (kit.combat !== 'stomp')
     return [
-      ...BASE_CONTROL_HELP.slice(0, 3),
+      ...BASE_CONTROL_HELP.slice(0, 2),
+      ...(kit.combat === 'blaster' ? [{ button: 'UP' as const, label: 'Aim upward' }] : []),
+      BASE_CONTROL_HELP[2],
       { button: 'A' as const, label: kit.traversal === 'wallJump' ? 'Jump / wall jump' : 'Jump' },
       { button: 'B' as const, label: 'Run' },
       {
@@ -37,7 +39,6 @@ function platformerControlHelp(spec: PlatformerSpec) {
               label:
                 platformerChargeShot(spec) === 'none' ? 'Fire (hold)' : 'Hold / release charge',
             },
-            { button: 'UP' as const, label: 'Aim upward' },
           ]
         : []),
     ];

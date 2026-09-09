@@ -279,8 +279,14 @@ export function familyHud(
       r.rect(13 + i * 10, 24, 8, 10, i < hud.health ? r.theme.heading : r.theme.barMid);
   } else {
     for (let i = 0; i < Math.min(8, hud.maxHealth); i++)
-      r.drawScaled(i < hud.health ? assets.heart : assets.empty, 13 + i * 10, 11, 8, 8);
-    r.text(`LIVES ${hud.lives}`, 13, 28, r.theme.text);
+      r.drawScaled(
+        i < hud.health ? assets.heart : assets.empty,
+        13 + i * 10,
+        f === 'storybook' ? 14 : 11,
+        8,
+        8,
+      );
+    r.text(`LIVES ${hud.lives}`, 13, f === 'storybook' ? 24 : 28, r.theme.text);
   }
   if (tech) r.text(`X${hud.lives}`, 126, 10, r.theme.text);
   for (const [i, ability] of (hud.abilities ?? []).entries()) {
@@ -309,14 +315,22 @@ export function familyHud(
     r.text(runClock(elapsedSeconds), 497, 27, r.theme.dim, { align: 'right' });
   }
   if (hud.boss) {
-    const x = arcade ? 182 : 176,
+    const x = arcade ? 166 : 176,
       y = arcade ? 29 : 12;
-    r.text(shortLabel(hud.boss.name, arcade ? 18 : 20), x, y, r.theme.heading);
-    const w = arcade ? 142 : 155;
-    r.rect(x, y + 12, w, 4, r.theme.barBg);
+    // The arcade second row has room to the right edge. Fit every allowed
+    // 24-character boss name; still bound oversized legacy/imported names.
+    const w = arcade ? 335 : 155;
+    const barY = y + (arcade ? 11 : 12);
+    r.text(
+      shortLabel(hud.boss.name, arcade ? Math.floor(w / r.textWidth('M')) : 20),
+      x,
+      y,
+      r.theme.heading,
+    );
+    r.rect(x, barY, w, 4, r.theme.barBg);
     r.rect(
       x,
-      y + 12,
+      barY,
       Math.round(w * Math.max(0, Math.min(1, hud.boss.hp / Math.max(1, hud.boss.maxHp)))),
       4,
       r.theme.danger,

@@ -12,8 +12,13 @@ The design document arrives in the user message.
 - Entities at tile coords (x 0–31, y 0–15): `walker`, `flyer` (crosses pits), `shooter`, `chaser`, `bruiser` (tanky), `npc` (props.dialog REQUIRED — one warm hint or lore line), `key`, `heart`, `item` (pedestal granting props.item — MUST equal items.secondary).
 - `items.secondary` MUST copy `combatKit.secondary.behavior` from the design exactly: `returning` (stuns + fetches) | `blast` (area damage) | `shot` (ranged).
 
+## Objective-specific rules
+
+The COMMITTED ADVENTURE OBJECTIVE in the user message overrides the baseline combat floors below. For puzzleQuest, bounded `puzzle:{pattern,variant}` rooms omit `tiles` and `legend`; the engine compiles them. The final chamber is a puzzle, so the boss arena geometry rules do not apply there. For rescueRaid mark captive NPCs with `props.rescue:true`, author `rescueTarget`, and reserve the entrance extraction area. Other rooms retain the baseline schema and geometry rules.
+
 ## Design rules that make it FUN (and pass validation)
 
+- For styled games use 2-4 locked gates. Every legal key-spending order must leave a route to the objective: put replacement keys on reachable branches before further locks, including optional branches. Keep every door approach and required pickup/NPC in each room connected by calm floor without having to push a block or cross a hazard.
 - DOORS MUST AGREE: if room A's east door is "locked", the room at gridPos x+1 must declare its west door "locked" too. Every door needs a room on the other side.
 - The dungeon graph must be fully connected, and solvable in play order: the validator walks from startRoom collecting keys — every `locked`/`boss` door needs a key REACHABLE BEFORE it. ≥2 locked gates (floor).
 - The hero starts with the design's named primary melee equipment, but the selected secondary item is required boss preparation, not optional treasure. Put its `item` pedestal on a route reachable before the finale. The pedestal's `props.item` MUST equal `combatKit.secondary.behavior`. Every connection into `bossRoom` must be a `boss` door; the runtime refuses to open that gate until the secondary item has been collected (and then consumes a key normally).

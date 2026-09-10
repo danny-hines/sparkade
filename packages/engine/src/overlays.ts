@@ -13,6 +13,19 @@ import type { Renderer } from './renderer';
 import type { InputSnapshot } from './types';
 import { familyBackdrop, familyControls, familyPause, familyTally } from './presentation';
 
+function controlRows(controls: ControlLabel[]): { button: string; label: string }[] {
+  const directions = controls.filter((c) => ['UP', 'DOWN', 'LEFT', 'RIGHT'].includes(c.button));
+  if (directions.length !== 4 || new Set(directions.map((c) => c.label)).size !== 1)
+    return controls;
+  let added = false;
+  return controls.flatMap((c) => {
+    if (!directions.includes(c)) return [c];
+    if (added) return [];
+    added = true;
+    return [{ button: 'D-PAD', label: c.label }];
+  });
+}
+
 export type PauseAction = 'resume' | 'restart' | 'quit' | null;
 
 interface PauseHooks {
@@ -119,17 +132,24 @@ export class PauseOverlay {
       return;
     }
     r.dim(0.7);
-    const w = 240;
-    const h = 170;
+    const controls = controlRows(this.hooks.controlHelp);
+    const w =
+      this.screen === 'controls'
+        ? Math.min(
+            INTERNAL_WIDTH - 40,
+            Math.max(300, ...controls.map((c) => r.textWidth(c.label) + 130)),
+          )
+        : 240;
+    const h = this.screen === 'controls' ? Math.max(170, 64 + controls.length * 14) : 170;
     const x = (INTERNAL_WIDTH - w) / 2;
     const y = (INTERNAL_HEIGHT - h) / 2;
     r.panel(x, y, w, h);
     if (this.screen === 'controls') {
       r.text('CONTROLS', INTERNAL_WIDTH / 2, y + 12, r.theme.heading, { align: 'center' });
       let cy = y + 34;
-      for (const c of this.hooks.controlHelp) {
+      for (const c of controls) {
         r.text(`(${c.button})`, x + 20, cy, r.theme.accent);
-        r.text(c.label, x + 84, cy, r.theme.text);
+        r.text(c.label, x + 100, cy, r.theme.text);
         cy += 14;
       }
       r.text('START Pause', x + 20, cy, r.theme.dim);
@@ -178,12 +198,13 @@ export class HowToPlayCard {
     private title: string,
     private controls: ControlLabel[],
     private family?: PresentationFamily,
+    private waitForConfirm = !!family,
   ) {}
 
   update(dt: number, input: InputSnapshot): void {
     this.t += dt;
     if (this.t > 0.35 && (input.A.pressed || input.START.pressed)) this.done = true;
-    if (!this.family && this.t >= 3) this.done = true;
+    if (!this.waitForConfirm && this.t >= 3) this.done = true;
   }
 
   render(r: Renderer): void {
@@ -191,17 +212,29 @@ export class HowToPlayCard {
     r.clear(r.theme.screenBg);
     r.text('HOW TO PLAY', INTERNAL_WIDTH / 2, 40, r.theme.heading, { align: 'center', scale: 2 });
     r.text(this.title, INTERNAL_WIDTH / 2, 70, r.theme.dim, { align: 'center' });
+    const controls = controlRows(this.controls);
+    const width = Math.min(
+      INTERNAL_WIDTH - 40,
+      Math.max(320, ...controls.map((c) => r.textWidth(c.label) + 100)),
+    );
+    const x = (INTERNAL_WIDTH - width) / 2;
     let y = 105;
-    for (const c of this.controls) {
-      r.text(`(${c.button})`, INTERNAL_WIDTH / 2 - 100, y, r.theme.accent);
-      r.text(c.label, INTERNAL_WIDTH / 2 - 40, y, r.theme.text);
+    for (const c of controls) {
+      r.text(`(${c.button})`, x, y, r.theme.accent);
+      r.text(c.label, x + 80, y, r.theme.text);
       y += 16;
     }
-    r.text('START Pause', INTERNAL_WIDTH / 2 - 40, y + 4, r.theme.dim);
+    r.text('START Pause', x + 80, y + 4, r.theme.dim);
     if (Math.floor(this.t * 2) % 2 === 0)
-      r.text('(A) Skip', INTERNAL_WIDTH / 2, INTERNAL_HEIGHT - 30, r.theme.accent, {
-        align: 'center',
-      });
+      r.text(
+        this.waitForConfirm ? '(A) Begin' : '(A) Skip',
+        INTERNAL_WIDTH / 2,
+        INTERNAL_HEIGHT - 30,
+        r.theme.accent,
+        {
+          align: 'center',
+        },
+      );
   }
 }
 

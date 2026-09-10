@@ -16,6 +16,7 @@ import {
 const golden = JSON.parse(
   readFileSync(join(__dirname, '../../generation/golden/golden-platformer.json'), 'utf8'),
 ) as PlatformerSpec;
+delete golden.presentationFamily; // Exercise saves from before the presentation migration.
 
 describe('independent presentation families', () => {
   it.each(PLATFORMER_PLAY_STYLES)('preserves the %s kit across all three families', (playStyle) => {

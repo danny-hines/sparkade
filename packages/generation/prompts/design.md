@@ -85,3 +85,7 @@ Story cards are shown on a 512×300 screen: keep every line under ~150 character
 Respond with RAW JSON ONLY — no markdown fences, no commentary — matching this JSON Schema exactly:
 
 {{SCHEMA}}
+
+## Adventure objectives
+
+For Adventure choose `adventureStyle`: `dungeonExpedition`, `puzzleQuest`, or `rescueRaid`. Use the committed objective catalogue in the user message. Puzzle quests culminate in a final block/plate seal, not a combat boss; rescue raids require rescuing captives, defeating the guardian, and returning to the entrance to extract. Story, equipment fiction, music, and the finale must describe the selected objective. Do not imply escort AI, arbitrary spells, or extra controls. Choose independently from the platformer and shooter fields.

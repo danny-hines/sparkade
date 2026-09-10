@@ -1,6 +1,7 @@
 {
  "specVersion": 1,
  "archetype": "platformer",
+  "presentationFamily": "storybook",
  "seed": 50958167,
  "meta": {
   "title": "Capital Quest",

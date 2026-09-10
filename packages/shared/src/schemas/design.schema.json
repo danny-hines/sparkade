@@ -4,6 +4,7 @@
   "title": "Sparkade design pass output",
   "type": "object",
   "properties": {
+    "adventureStyle": { "enum": ["dungeonExpedition", "puzzleQuest", "rescueRaid"] },
     "shooterStyle": { "enum": ["weaponSwitch", "chargeSpecialist", "lockOnStriker"] },
     "presentationFamily": {
       "description": "Platformer presentation, chosen independently of gameplay: storybook, tech, or arcade.",
@@ -305,7 +306,8 @@
     },
     {
       "if": { "properties": { "archetype": { "const": "adventure" } }, "required": ["archetype"] },
-      "then": { "required": ["combatKit"] }
+      "then": { "required": ["combatKit"] },
+      "else": { "not": { "required": ["adventureStyle"] } }
     },
     {
       "if": { "properties": { "archetype": { "const": "platformer" } }, "required": ["archetype"] },

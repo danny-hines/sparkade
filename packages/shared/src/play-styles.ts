@@ -1,4 +1,5 @@
 import { shooterEncounters, shooterPlayStyle } from './shooter-styles';
+import { adventurePlayStyle } from './adventure-styles';
 import type { GameSpec, LintError, PlatformerSpec } from './types';
 
 export const PLATFORMER_PLAY_STYLES = [
@@ -221,18 +222,33 @@ export function mechanicalFingerprint(spec: GameSpec): MechanicalFingerprint {
     case 'adventure':
       return {
         ...base,
-        playStyle: 'toolDungeon',
+        playStyle: adventurePlayStyle(spec),
         movement: 'topDown',
         weapons: [
           spec.combatKit?.primary?.profile ?? 'legacyPrimary',
           spec.combatKit?.secondary?.behavior ?? 'legacySecondary',
         ].sort(),
-        objective: 'unlockBoss',
+        objective:
+          spec.adventureStyle === 'puzzleQuest'
+            ? 'solveSeals'
+            : spec.adventureStyle === 'rescueRaid'
+              ? 'rescue+guardian+extract'
+              : 'unlockBoss',
         topology: 'roomGraph',
-        progression: 'keys+secondaryItem',
+        progression:
+          spec.adventureStyle === 'puzzleQuest'
+            ? 'keys+tool+puzzleSeals'
+            : spec.adventureStyle === 'rescueRaid'
+              ? 'keys+tool+rescueQuota'
+              : 'keys+secondaryItem',
         encounters: [
           ...new Set(
-            spec.levels.flatMap((d) => d.rooms.flatMap((r) => r.entities.map((e) => e.type))),
+            spec.levels.flatMap((d) =>
+              d.rooms.flatMap((r) => [
+                ...r.entities.map((e) => (e.props?.rescue ? 'captive' : e.type)),
+                ...(r.puzzle ? [`puzzle:${r.puzzle.pattern}:${r.puzzle.variant}`] : []),
+              ]),
+            ),
           ),
         ].sort(),
       };

@@ -20,6 +20,28 @@ export const adventure: Archetype = {
     { button: 'A', label: 'Interact / talk' },
     { button: 'SELECT', label: 'Map' },
   ],
+  controlHelpFor: (spec) => {
+    const adventureSpec = spec as AdventureSpec;
+    return [
+      { button: 'UP', label: 'Move' },
+      { button: 'DOWN', label: 'Move' },
+      { button: 'LEFT', label: 'Move' },
+      { button: 'RIGHT', label: 'Move' },
+      { button: 'B', label: adventureSpec.combatKit.primary.name },
+      { button: 'Y', label: adventureSpec.combatKit.secondary.name },
+      {
+        button: 'A',
+        label:
+          adventureSpec.adventureStyle === 'rescueRaid'
+            ? 'Rescue / extract / talk'
+            : 'Interact / talk',
+      },
+      ...(adventureSpec.adventureStyle === 'puzzleQuest'
+        ? [{ button: 'X' as const, label: 'Reset current puzzle' }]
+        : []),
+      { button: 'SELECT', label: 'Map' },
+    ];
+  },
   contentFloors: {
     levels: 1,
     enemyTypes: 4,

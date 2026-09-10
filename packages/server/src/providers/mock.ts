@@ -7,7 +7,11 @@ import { type ShooterPlayStyle } from '@sparkade/shared';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { mockEncounterLevels } from './mock-encounters';
-import { shooterStyleExample, platformerStyleExample } from '@sparkade/archetypes';
+import {
+  adventureStyleExample,
+  shooterStyleExample,
+  platformerStyleExample,
+} from '@sparkade/archetypes';
 import {
   PLATFORMER_PLAY_STYLES,
   platformerMechanics,
@@ -165,12 +169,27 @@ export class MockProvider implements Provider {
             req.user,
           )?.[1] ?? 'chargeSpecialist')
     ) as ShooterPlayStyle;
+    const adventureStyle = (
+      stage === 'design'
+        ? /puzzle.?quest|seals|block puzzles/i.test(requestText)
+          ? 'puzzleQuest'
+          : /rescue/i.test(requestText)
+            ? 'rescueRaid'
+            : (/ADVENTURE STYLE PREFERENCE[^:]*:\s*(dungeonExpedition|puzzleQuest|rescueRaid)/.exec(
+                req.user,
+              )?.[1] ?? 'dungeonExpedition')
+        : (/"adventureStyle"\s*:\s*"(dungeonExpedition|puzzleQuest|rescueRaid)"/.exec(
+            req.user,
+          )?.[1] ?? 'dungeonExpedition')
+    ) as import('@sparkade/shared').AdventurePlayStyle;
     const golden =
       source.archetype === 'platformer' && style
         ? platformerStyleExample(source, style)
         : source.archetype === 'shooter'
           ? shooterStyleExample(source, shooterStyle)
-          : source;
+          : source.archetype === 'adventure'
+            ? adventureStyleExample(source, adventureStyle)
+            : source;
     this.counter++;
 
     let payload: unknown;
@@ -201,7 +220,7 @@ export class MockProvider implements Provider {
               ? golden.player.visualConcept
               : 'An indigo expedition jacket with brass fasteners, sturdy tan trousers, and dark trail boots',
           ...(golden.archetype === 'adventure'
-            ? { combatKit: structuredClone(golden.combatKit) }
+            ? { combatKit: structuredClone(golden.combatKit), adventureStyle }
             : {}),
           ...(archetype === 'hshooter' || archetype === 'shooter'
             ? {

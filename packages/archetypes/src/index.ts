@@ -76,3 +76,4 @@ export {
 } from './adventure/encounters';
 
 export { shooterStyleExample } from './shooter/examples';
+export { adventureStyleExample } from './adventure/examples';

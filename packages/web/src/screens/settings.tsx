@@ -902,6 +902,10 @@ export function SettingsScreen(props: {
                 <span>{info.version}</span>
               </div>
               <div class="kv">
+                <span class="k">Build</span>
+                <span>{info.buildCommit?.slice(0, 7) ?? 'Unavailable'}</span>
+              </div>
+              <div class="kv">
                 <span class="k">IP address</span>
                 <span>{info.ip}</span>
               </div>

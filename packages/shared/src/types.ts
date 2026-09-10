@@ -431,6 +431,8 @@ export interface AdventureEntity {
   x: number;
   y: number;
   props?: {
+    /** Rescue-raid captive, interacted with once using A. Uses the generated NPC art. */
+    rescue?: boolean;
     dialog?: string;
     speed?: number;
     item?: AdventureSecondaryItem;
@@ -438,6 +440,7 @@ export interface AdventureEntity {
 }
 
 export interface AdventureRoom {
+  puzzle?: import('./adventure-styles').AdventurePuzzle;
   id: string;
   gridPos: Coord;
   tiles: string[];
@@ -447,6 +450,8 @@ export interface AdventureRoom {
 }
 
 export interface AdventureDungeon {
+  /** Rescue quota; additional marked NPCs are optional score opportunities. */
+  rescueTarget?: number;
   rooms: AdventureRoom[];
   items: { secondary: AdventureSecondaryItem };
   bossRoom: string;
@@ -537,6 +542,7 @@ export interface ShooterSpec extends GameSpecBase {
 }
 
 export interface AdventureSpec extends GameSpecBase {
+  adventureStyle?: import('./adventure-styles').AdventurePlayStyle;
   archetype: 'adventure';
   /** Story-specific presentation layered over bounded engine combat behaviors. */
   combatKit: AdventureCombatKit;
@@ -567,6 +573,7 @@ export type GameSpec = PlatformerSpec | ShooterSpec | AdventureSpec | HShooterSp
 // ---------------------------------------------------------------------------
 
 export interface DesignDoc {
+  adventureStyle?: import('./adventure-styles').AdventurePlayStyle;
   shooterStyle?: import('./shooter-styles').ShooterPlayStyle;
   presentationFamily?: import('./presentation').PresentationFamily;
   chargeShot?: import('./platformer-weapons').PlatformerChargeShot;
@@ -1026,6 +1033,8 @@ export interface ScoreRow {
 
 export interface SystemInfo {
   version: string;
+  /** Commit embedded in the running server build, not the current checkout. */
+  buildCommit?: string | null;
   /** Random per-server-process id; changes on every restart so the kiosk can
    *  hard-reload after an update (the version string alone is static). */
   instanceId: string;

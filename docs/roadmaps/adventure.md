@@ -18,6 +18,40 @@ semantic validation. Its largest gap is presentation. Gameplay still depends on 
 and sprite art, one repeated decoration per theme, a mostly obscured parallax backdrop, and fixed
 render layers that cannot support larger overlapping actors convincingly.
 
+## Objective styles: expedition, puzzle quest, and rescue raid
+
+Status: implemented September 10, 2026. The design pass selects one `adventureStyle` before
+room layout and art; levels, entities, repair, runtime controls, and the mechanical fingerprint
+retain that choice. Older Adventure specs default to dungeon expedition.
+
+| Style               | Core loop                                                                                   | Completion                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `dungeonExpedition` | Explore branching rooms, collect keys and a secondary tool, fight varied enemies            | Unlock and defeat the guardian                                                            |
+| `puzzleQuest`       | Solve block-and-plate seals, with no enemies in puzzle rooms and at most two in other rooms | Solve all preliminary seals, then the final chamber's puzzle                              |
+| `rescueRaid`        | Find captive NPCs and press A to rescue; at least one extra captive offers route choice     | Meet the rescue quota, defeat the guardian, return to the entrance and press A to extract |
+
+Puzzle generation chooses from three engine-compiled patterns: a straight push lane, a corner turn,
+and split plates. Each supports its original orientation or a horizontal/vertical mirror. Every
+quest includes all three patterns and at least four seals, with an early teaching room. X resets
+an unsolved room without restoring health or awarding points. Solved block positions and rescued
+NPCs persist through room changes and death; completed seals cannot be moved or scored again.
+The final puzzle replaces the guardian fight, while rescue explicitly requires the return trip.
+
+Validation checks every legal key-spending order for stranded routes, safe walking connections
+between doorways and required interactions, accessible pre-finale objectives, puzzle geometry,
+enemy pressure, and a clear extraction area. Repair must preserve the chosen style. The objective
+HUD and map report seal/rescue progress; the controls card waits for confirmation.
+
+Authored comparisons reuse the golden Adventure artwork:
+[dungeon expedition](http://127.0.0.1:5173/?dev=playtest&adventureStyle=dungeonExpedition),
+[puzzle quest](http://127.0.0.1:5173/?dev=playtest&adventureStyle=puzzleQuest), and
+[rescue raid](http://127.0.0.1:5173/?dev=playtest&adventureStyle=rescueRaid).
+These are bounded initial styles. Rescue does not yet move escort companions, and puzzle variety
+is limited to the three tested block patterns rather than arbitrary model-authored puzzles.
+
+The [implementation report](../reports/adventure-styles-20260910.md) records live-generation and
+controller verification separately from human difficulty testing.
+
 ## Slice 1: semantic top-down terrain and depth
 
 Status: the structural baseline is implemented. Adventure now uses connected density-four walls,
@@ -140,6 +174,9 @@ and [fixed 3×2 pose-sheet contract](assets/adventure-player-sheet-study.png).
   wider 34%-opacity hard-edged contact shadow under the player. Author and review the source poses
   over mixed light, dark, saturated, and noisy floor samples so the renderer reinforces an already
   readable silhouette rather than rescuing an unusable one.
+- If the complete pose set fails only its height-consistency check, identify at most three outliers
+  around the immutable idle anchor and repaint those poses once, retaining the same ten-pixel
+  height tolerance. Retrying a failed job preserves the other healthy pose checkpoints.
 - Fail local pose processing when a broken green-screen edit leaves an opaque rectangular panel or
   edge bars behind the hero. Those panels otherwise masquerade as the subject bounds and shrink the
   actual character. Route the failed cell through isolated-pose recovery, then mechanically validate

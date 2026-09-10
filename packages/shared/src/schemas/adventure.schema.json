@@ -6,6 +6,7 @@
   "properties": {
     "specVersion": { "const": 1 },
     "archetype": { "const": "adventure" },
+    "adventureStyle": { "enum": ["dungeonExpedition", "puzzleQuest", "rescueRaid"] },
     "seed": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
     "meta": { "$ref": "#/$defs/meta" },
     "palette": { "$ref": "#/$defs/palette" },
@@ -451,6 +452,10 @@
         "props": {
           "type": "object",
           "properties": {
+            "rescue": {
+              "type": "boolean",
+              "description": "Rescue-raid NPC only: press A nearby to rescue once."
+            },
             "dialog": {
               "description": "NPC dialog line (npc entities only).",
               "type": "string",
@@ -477,6 +482,16 @@
     "room": {
       "type": "object",
       "properties": {
+        "puzzle": {
+          "type": "object",
+          "properties": {
+            "pattern": { "enum": ["pushLane", "cornerTurn", "splitPlates"] },
+            "variant": { "enum": [0, 1, 2] }
+          },
+          "required": ["pattern", "variant"],
+          "additionalProperties": false,
+          "description": "Bounded puzzle geometry compiled by the engine; puzzleQuest only. Omit authored tiles/legend in level-stage output for these rooms."
+        },
         "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,23}$" },
         "gridPos": {
           "description": "Position on the dungeon grid. Adjacent rooms with facing doors connect.",
@@ -526,6 +541,7 @@
     "dungeon": {
       "type": "object",
       "properties": {
+        "rescueTarget": { "type": "integer", "minimum": 3, "maximum": 8 },
         "rooms": {
           "type": "array",
           "minItems": 8,

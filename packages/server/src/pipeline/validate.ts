@@ -1350,6 +1350,8 @@ function normalizeAdventureContent(out: GameSpec, fixes: NormalizationFix[]): vo
   }
   dungeon.rooms.forEach((room, ri) => {
     const roomPath = `/levels/0/rooms/${ri}`;
+    if (out.adventureStyle === 'puzzleQuest' && room.puzzle)
+      Object.assign(room, adventurePuzzleGeometry(room.puzzle));
     room.tiles = normalizeGrid(
       room.tiles,
       room.legend,
@@ -1372,7 +1374,7 @@ function normalizeAdventureContent(out: GameSpec, fixes: NormalizationFix[]): vo
         );
       }
 
-      if (room.id === dungeon.bossRoom) {
+      if (room.id === dungeon.bossRoom && out.adventureStyle !== 'puzzleQuest') {
         const patterns = out.boss.phases.map((phase) => phase.pattern);
         const requirements = adventureBossArenaRequirements(room, patterns);
         const clearedArena = clearAdventureCells(room, requirements.all);
@@ -1804,3 +1806,4 @@ export function tooSimilar(title: string, existingTitles: string[]): string | nu
   }
   return null;
 }
+import { adventurePuzzleGeometry } from '@sparkade/shared';

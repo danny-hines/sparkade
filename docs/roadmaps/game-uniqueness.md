@@ -75,6 +75,13 @@ piercing charge, and lock-on missile salvos. Each has required matching encounte
 controls and HUD state. The [shooter roadmap](shooter.md#kiosk-slice-distinct-weapon-styles) records
 the runtime and generation contracts and links to the three authored references.
 
+Adventure now offers three objective styles: dungeon expedition, puzzle quest, and rescue raid.
+They share the directional combat and tool kit while changing room composition, progression,
+objective HUD, and victory conditions. Puzzle quests finish with a block-and-plate seal; rescue
+raids finish only after rescuing captives, defeating the guardian, and returning to extract.
+The [Adventure roadmap](adventure.md#objective-styles-expedition-puzzle-quest-and-rescue-raid)
+describes the generator contracts, validation limits, and playable references.
+
 All five archetypes now have a mechanical fingerprint derived from the final spec. New games save
 it in `mechanics.json`; generation also derives it from recent saved specs, so old games participate
 without a migration. The platformer catalogue uses a recency preference, with explicit player requests

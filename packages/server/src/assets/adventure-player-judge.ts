@@ -441,6 +441,42 @@ export async function bestScaleConsistentAdventurePlayerCandidateIds(
   return best?.ids ?? null;
 }
 
+/** Find a small geometric repair around the immutable identity pose. Keep the
+ * same height tolerance as final validation; never shrink the whole cast to fit
+ * one unusually wide action silhouette. */
+export async function adventurePlayerScaleRetryPoses(
+  candidates: readonly AdventurePlayerCandidateAsset[],
+  max = 3,
+): Promise<Array<{ pose: Exclude<GeneratedAdventurePlayerPose, 'downIdle'>; guidance: string }>> {
+  const measured = await Promise.all(
+    candidates.map(async (candidate) => ({
+      pose: candidate.pose,
+      height: await footAnchoredOpaqueHeight(candidate.processed),
+    })),
+  );
+  let best: Set<GeneratedAdventurePlayerPose> | null = null;
+  for (const { height: minimum } of measured) {
+    if (minimum === null) continue;
+    const covered = new Set(
+      measured
+        .filter(({ height }) => height !== null && height >= minimum && height <= minimum + 10)
+        .map(({ pose }) => pose),
+    );
+    if (covered.has('downIdle') && (!best || covered.size > best.size)) best = covered;
+  }
+  if (!best) return [];
+  const missing = GENERATED_ADVENTURE_PLAYER_POSES.filter(
+    (pose): pose is Exclude<GeneratedAdventurePlayerPose, 'downIdle'> =>
+      pose !== 'downIdle' && !best.has(pose),
+  );
+  if (missing.length > max) return [];
+  return missing.map((pose) => ({
+    pose,
+    guidance:
+      'Match the idle reference body height and proportions. Keep the arms and equipment close enough to the body that the entire action fits without shrinking the character. No detached projectiles, long trails, or oversized effects. Keep the feet on the same ground line.',
+  }));
+}
+
 export function adventurePlayerPosesNeedingRetry(
   decision: AdventurePlayerSetJudgeDecision,
   max = 3,

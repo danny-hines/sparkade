@@ -32,6 +32,8 @@ import {
   INTERNAL_WIDTH,
   TILE_SIZE,
   difficultyScale,
+  adventurePlayStyle,
+  ADVENTURE_STYLE_CATALOG,
   type AdventureDoor,
   type AdventureCombatKit,
   type AdventureDungeon,
@@ -692,6 +694,8 @@ class AdventureGame implements GameInstance {
   private keys = 0;
   private hasItem = false;
   private bossDefeated = false;
+  private rescued = new Set<string>();
+  private solvedPuzzles = new Map<number, { tx: number; ty: number }[]>();
   private bossIntroShown = false;
   private beat1Shown = false;
   private beat2Shown = false;
@@ -954,6 +958,7 @@ class AdventureGame implements GameInstance {
           title: this.spec.meta.title,
           lines: [
             this.spec.story.levelIntros[0] ?? '...',
+            ADVENTURE_STYLE_CATALOG[adventurePlayStyle(this.spec)].objective,
             `(B) ${this.spec.combatKit.primary.name.toUpperCase()}`,
             `(Y) ${this.spec.combatKit.secondary.name.toUpperCase()}  (A) INTERACT`,
           ],
@@ -981,6 +986,16 @@ class AdventureGame implements GameInstance {
     this.resetTransient();
     this.engine.camera.snap(-VIEW_X, -VIEW_Y);
     this.visited.add(ix);
+
+    if (ix === this.bossIx && adventurePlayStyle(this.spec) === 'puzzleQuest') {
+      this.sealed = false;
+      this.boss.active = false;
+      this.hud.boss = undefined;
+      this.engine.music.playSong('boss');
+      this.phase = 'play';
+      this.showFloat('FINAL SEAL - HOLD EVERY PLATE WITH BLOCKS', 3);
+      return;
+    }
 
     if (ix === this.bossIx && !this.bossDefeated) {
       this.sealed = true;
@@ -1160,12 +1175,30 @@ class AdventureGame implements GameInstance {
     // Entities (respawn on re-entry except collected keys/hearts/items).
     for (const e of this.ents) e.active = false;
     room.entities.forEach((es, i) => {
+      if (es.type === 'npc' && this.rescued.has(`${ix}:${i}`)) return;
       const persistent = es.type === 'key' || es.type === 'heart' || es.type === 'item';
       if (persistent && this.collected.has(`${ix}:${i}`)) return;
       this.spawnEnt(es.type, es.x * TILE_SIZE + 8, es.y * TILE_SIZE + 8, i, es.props ?? {});
     });
 
-    this.hazardsActive = true;
+    const solved = this.solvedPuzzles.get(ix);
+    if (solved) {
+      this.blocks
+        .filter((b) => b.active)
+        .forEach((b, i) => {
+          const cell = solved[i];
+          if (!cell) return;
+          b.tx = b.toTx = cell.tx;
+          b.ty = b.toTy = cell.ty;
+          b.x = cell.tx * TILE_SIZE;
+          b.y = cell.ty * TILE_SIZE;
+          b.sliding = false;
+        });
+      this.switchCells.forEach((s) => {
+        s.pressed = true;
+      });
+    }
+    this.hazardsActive = !solved;
   }
 
   private resetTransient(): void {
@@ -1308,6 +1341,12 @@ class AdventureGame implements GameInstance {
       this.engine.sfx.play('uiSelect');
       return;
     }
+    if (input.X.pressed && this.room.puzzle && !this.solvedPuzzles.has(this.roomIx)) {
+      this.enterRoom(this.roomIx, this.checkpoint.x, this.checkpoint.y);
+      this.showFloat('PUZZLE RESET', 1.5);
+      this.engine.sfx.play('uiBack');
+      return;
+    }
 
     this.playT += dt;
     this.animT += dt;
@@ -1318,6 +1357,7 @@ class AdventureGame implements GameInstance {
     if (this.phase !== 'play' || epoch !== this.roomEpoch) return;
     this.updateBlocks(dt);
     this.updateSwitches();
+    if (this.phase !== 'play') return;
     this.updateEnemies(dt);
     if (this.phase !== 'play' || epoch !== this.roomEpoch) return;
     if (this.boss.active) this.updateBoss(dt);
@@ -1377,6 +1417,7 @@ class AdventureGame implements GameInstance {
       if (input.Y.pressed && this.useSecondary()) this.secondaryT = 0.24;
       if (input.A.pressed) this.tryInteract();
     }
+    if (this.phase !== 'play') return;
 
     this.pbox.x = this.px;
     this.pbox.y = this.py;
@@ -1497,6 +1538,26 @@ class AdventureGame implements GameInstance {
         k === 'doorBoss'
           ? adventureBossGateHint(this.hasItem, this.spec.combatKit.secondary.name)
           : null;
+      if (k === 'doorBoss') {
+        const style = adventurePlayStyle(this.spec);
+        const needed =
+          style === 'puzzleQuest'
+            ? this.dungeon.rooms.filter((room) => room.puzzle && room.id !== this.dungeon.bossRoom)
+                .length - this.solvedPuzzles.size
+            : style === 'rescueRaid'
+              ? (this.dungeon.rescueTarget ?? 3) - this.rescued.size
+              : 0;
+        if (needed > 0) {
+          this.showFloat(
+            style === 'puzzleQuest'
+              ? `SOLVE ${needed} MORE SEALS`
+              : `RESCUE ${needed} MORE CAPTIVES`,
+            1.8,
+          );
+          this.engine.sfx.play('uiBack');
+          return;
+        }
+      }
       if (itemGateHint) {
         this.showFloat(itemGateHint, 1.8);
         this.engine.sfx.play('uiBack');
@@ -1523,6 +1584,7 @@ class AdventureGame implements GameInstance {
   }
 
   private tryPushBlock(b: BlockObj, dx: number, dy: number): void {
+    if (this.solvedPuzzles.has(this.roomIx)) return;
     const nx = b.tx + dx;
     const ny = b.ty + dy;
     if (nx < 1 || nx > COLS - 2 || ny < 1 || ny > ROWS - 2) return;
@@ -1564,6 +1626,7 @@ class AdventureGame implements GameInstance {
   }
 
   private updateSwitches(): void {
+    if (this.solvedPuzzles.has(this.roomIx)) return;
     if (this.switchCells.length === 0) {
       this.hazardsActive = true;
       return;
@@ -1595,6 +1658,30 @@ class AdventureGame implements GameInstance {
       if (on) pressed++;
     }
     this.hazardsActive = pressed < this.switchCells.length;
+    if (
+      this.room.puzzle &&
+      this.switchCells.every((s) =>
+        this.blocks.some((b) => b.active && !b.sliding && b.tx === s.tx && b.ty === s.ty),
+      )
+    ) {
+      this.solvedPuzzles.set(
+        this.roomIx,
+        this.blocks.filter((b) => b.active).map((b) => ({ tx: b.tx, ty: b.ty })),
+      );
+      this.hazardsActive = false;
+      this.hud.score += this.spec.scoring.events.levelClear;
+      this.engine.sfx.play('powerup');
+      this.showFloat(
+        `SEAL SOLVED ${this.solvedPuzzles.size}/${this.dungeon.rooms.filter((room) => room.puzzle).length}`,
+        2,
+      );
+      if (
+        this.roomIx === this.bossIx &&
+        this.solvedPuzzles.size === this.dungeon.rooms.filter((room) => room.puzzle).length
+      )
+        this.finishQuest();
+      return;
+    }
     if (hazardsWereActive !== this.hazardsActive) {
       this.showFloat(this.hazardsActive ? 'HAZARDS REARMED' : 'HAZARDS RETRACTED', 1.4);
     } else if (newlyPressed) {
@@ -1710,11 +1797,36 @@ class AdventureGame implements GameInstance {
   private tryInteract(): void {
     const cx = this.px + PLAYER_W / 2;
     const cy = this.py + PLAYER_H / 2;
+    if (
+      adventurePlayStyle(this.spec) === 'rescueRaid' &&
+      this.roomIx === this.startIx &&
+      Math.hypot(cx - ROOM_W / 2, cy - ROOM_H / 2) <= 28
+    ) {
+      if (this.rescued.size >= (this.dungeon.rescueTarget ?? 3) && this.bossDefeated)
+        this.finishQuest();
+      else
+        this.showFloat(
+          this.bossDefeated ? 'RESCUE MORE CAPTIVES' : 'RESCUE CAPTIVES AND DEFEAT THE GUARDIAN',
+          2,
+        );
+      return;
+    }
     for (const e of this.ents) {
       if (!e.active || e.type !== 'npc') continue;
       const dx = e.x + e.w / 2 - cx;
       const dy = e.y + e.h / 2 - cy;
       if (Math.hypot(dx, dy) > 20) continue;
+      if (adventurePlayStyle(this.spec) === 'rescueRaid' && e.props.rescue) {
+        this.rescued.add(`${this.roomIx}:${e.specIx}`);
+        e.active = false;
+        this.hud.score += this.spec.scoring.events.pickup * 5;
+        this.engine.sfx.play('powerup');
+        this.showFloat(`RESCUED ${this.rescued.size}/${this.dungeon.rescueTarget ?? 3}`, 2);
+        this.engine.cards.show([
+          { title: 'RESCUED', lines: [e.props.dialog ?? 'Thank you!'], portrait: null },
+        ]);
+        return;
+      }
       this.engine.cards.show([
         { title: 'KEEPER', lines: [e.props.dialog ?? '...'], portrait: null },
       ]);
@@ -2219,6 +2331,17 @@ class AdventureGame implements GameInstance {
       life: 1,
     });
     this.engine.shake(500, 5);
+    if (adventurePlayStyle(this.spec) === 'rescueRaid') {
+      this.resetTransient();
+      this.engine.music.playSong('theme');
+      this.showFloat('RETURN TO THE ENTRANCE - (A) EXTRACT', 4);
+      return;
+    }
+    this.finishQuest();
+  }
+
+  private finishQuest(): void {
+    if (this.phase !== 'play' || this.result) return;
     this.engine.music.stopSong();
     this.phase = 'cards';
     this.engine.cards.show(
@@ -2884,6 +3007,33 @@ class AdventureGame implements GameInstance {
       });
     }
 
+    if (this.spec.adventureStyle) {
+      const style = adventurePlayStyle(this.spec);
+      const label =
+        style === 'puzzleQuest'
+          ? `SEALS ${this.solvedPuzzles.size}/${this.dungeon.rooms.filter((room) => room.puzzle).length}  ${this.room.puzzle ? (this.solvedPuzzles.has(this.roomIx) ? 'SEAL COMPLETE' : '(X) RESET PUZZLE') : 'FIND THE NEXT SEAL'}`
+          : style === 'rescueRaid'
+            ? `RESCUED ${this.rescued.size}/${this.dungeon.rescueTarget ?? 3}  ${this.bossDefeated ? 'RETURN TO ENTRANCE - (A) EXTRACT' : this.rescued.size >= (this.dungeon.rescueTarget ?? 3) ? 'DEFEAT THE GUARDIAN' : '(A) RESCUE CAPTIVES'}`
+            : `EXPLORED ${this.visited.size}/${this.dungeon.rooms.length}  ${this.hasItem ? 'UNLOCK THE GUARDIAN' : 'FIND THE SECONDARY TOOL'}`;
+      r.rect(0, INTERNAL_HEIGHT - 20, INTERNAL_WIDTH, 20, '#090c18');
+      r.text(label, 8, INTERNAL_HEIGHT - 14, '#ffd75e');
+      for (const e of this.ents) {
+        if (e.active && e.type === 'npc' && e.props.rescue) {
+          const x = Math.round(e.x + e.w / 2 - cam.x);
+          const y = Math.round(e.y + e.h - GENERATED_OBJECT_DRAW_SIZE.npc.height - cam.y - 12);
+          r.rect(x - 6, y - 2, 12, 12, '#090c18');
+          r.text('A', x, y, '#ffd75e', { align: 'center' });
+        }
+      }
+      if (style === 'rescueRaid' && this.roomIx === this.startIx) {
+        const x = ROOM_W / 2 - cam.x,
+          y = ROOM_H / 2 - cam.y;
+        r.frame(x - 18, y - 18, 36, 36, this.bossDefeated ? '#a7f070' : '#94b0c2');
+        const labelWidth = r.textWidth('EXTRACT') + 8;
+        r.rect(x - labelWidth / 2, y + 20, labelWidth, 12, '#090c18');
+        r.text('EXTRACT', x, y + 22, '#ffd75e', { align: 'center' });
+      }
+    }
     if (this.mapOpen) this.renderMap();
   }
 
@@ -2924,8 +3074,20 @@ class AdventureGame implements GameInstance {
         r.rect(x, y, cw, ch, '#181a2a');
         r.frame(x, y, cw, ch, '#2a2c44');
       }
-      if (i === this.bossIx)
-        r.text('B', x + cw / 2, y + ch / 2 - 4, '#e04040', { align: 'center' });
+      const marker =
+        i === this.startIx && adventurePlayStyle(this.spec) === 'rescueRaid'
+          ? 'E'
+          : room.puzzle
+            ? this.solvedPuzzles.has(i)
+              ? '+'
+              : '?'
+            : i === this.bossIx
+              ? 'B'
+              : visited &&
+                  room.entities.some((e, ei) => e.props?.rescue && !this.rescued.has(`${i}:${ei}`))
+                ? 'R'
+                : '';
+      if (marker) r.text(marker, x + cw / 2, y + ch / 2 - 4, '#ffd75e', { align: 'center' });
       if (i === this.roomIx && Math.floor(this.mapT * 2) % 2 === 0) {
         r.frame(x - 2, y - 2, cw + 4, ch + 4, '#f4f4f4');
       }

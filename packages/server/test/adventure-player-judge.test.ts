@@ -2,6 +2,7 @@ import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 import {
   adventurePlayerPosesNeedingRetry,
+  adventurePlayerScaleRetryPoses,
   bestAdventurePlayerCandidateIds,
   bestScaleConsistentAdventurePlayerCandidateIds,
   buildAdventurePlayerSetJudgeBoard,
@@ -137,6 +138,37 @@ describe('Adventure player set judge', () => {
       sideIdle: 'sideIdle-A',
       sideWalk: 'sideWalk-B',
     });
+  });
+
+  it('targets one undersized action while preserving eleven usable pose checkpoints', async () => {
+    const assets = await Promise.all(
+      GENERATED_ADVENTURE_PLAYER_POSES.map(async (pose) => {
+        const height = pose === 'sideSecondary' ? 110 : pose === 'downSecondary' ? 112 : 122;
+        const subject = await sharp({
+          create: { width: 36, height, channels: 4, background: '#31598c' },
+        })
+          .png()
+          .toBuffer();
+        const processed = await sharp({
+          create: { width: 112, height: 128, channels: 4, background: '#00000000' },
+        })
+          .composite([{ input: subject, left: 38, top: 128 - height }])
+          .png()
+          .toBuffer();
+        return { id: pose, pose, processed };
+      }),
+    );
+    expect(
+      await bestScaleConsistentAdventurePlayerCandidateIds(acceptedDecision(), assets),
+    ).toBeNull();
+    expect((await adventurePlayerScaleRetryPoses(assets)).map(({ pose }) => pose)).toEqual([
+      'sideSecondary',
+    ]);
+    assets.find(({ pose }) => pose === 'sideSecondary')!.processed = assets[0]!.processed;
+    expect(await adventurePlayerScaleRetryPoses(assets)).toEqual([]);
+    expect(
+      await bestScaleConsistentAdventurePlayerCandidateIds(acceptedDecision(), assets),
+    ).not.toBeNull();
   });
 
   it('rejects a nominally accepted set with a missing or weak pose and targets it', () => {

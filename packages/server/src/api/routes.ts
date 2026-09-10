@@ -49,6 +49,7 @@ export interface ApiContext {
   hub: SseHub;
   publicGames?: PublicGamePublisher | null;
   version: string;
+  buildCommit?: string | null;
   instanceId: string;
   port: number;
 }
@@ -605,6 +606,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     const c = configStore.get();
     return {
       version: ctx.version,
+      buildCommit: ctx.buildCommit ?? null,
       instanceId: ctx.instanceId,
       ip: primaryIp(),
       diskFreeBytes,

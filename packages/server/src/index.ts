@@ -15,6 +15,8 @@ import { Db } from './storage/db';
 import { GameFiles, reconcileGames, seedGoldenGames } from './storage/files';
 import { dataDir, ensureDir, repoRoot } from './util';
 import { createPublicGamePublisher } from './cloud/public-games';
+import { migratePlatformerPresentations } from './storage/presentation-migration';
+import { readBuildCommit } from './system/build';
 
 // Load .env in dev (tiny parser; no dotenv dependency). Pi uses systemd EnvironmentFile.
 function loadDotEnv(): void {
@@ -32,6 +34,7 @@ async function main(): Promise<void> {
   loadDotEnv();
   const dir = ensureDir(dataDir());
   const version = readVersion();
+  const buildCommit = readBuildCommit();
   const port = Number(process.env.SPARKADE_PORT) || DEFAULT_PORT;
   const bind = process.env.SPARKADE_BIND || DEFAULT_BIND;
 
@@ -55,6 +58,9 @@ async function main(): Promise<void> {
     Object.fromEntries(Object.values(archetypes).map((a) => [a.id, a.version])),
   );
   reconcileGames(files, db);
+  const presentationMigration = migratePlatformerPresentations(files, db.listGames());
+  if (presentationMigration.failed.length)
+    console.warn(`Could not upgrade presentation for: ${presentationMigration.failed.join(', ')}`);
   runner.reconcile();
 
   // Log level defaults to warn: request lines (info) never appear, so photos
@@ -78,6 +84,7 @@ async function main(): Promise<void> {
     hub,
     publicGames,
     version,
+    buildCommit,
     instanceId,
     port,
   });

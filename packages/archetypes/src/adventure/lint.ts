@@ -8,6 +8,7 @@ import type {
   AdventureSpec,
   LintError,
 } from '@sparkade/shared';
+import { adventurePuzzleGeometry } from '@sparkade/shared';
 import {
   err,
   lintDuration,
@@ -269,7 +270,7 @@ export function safelyReachableRoomCells(room: AdventureRoom): Set<string> {
  * active until the goal, so neither the player nor a block may cross them.
  * This catches dead corners, blocked pushing sides, and ordering failures that
  * a simple block/plate count cannot detect. */
-function pressurePlatePuzzleSolvable(room: AdventureRoom): boolean {
+export function pressurePlatePuzzleSolvable(room: AdventureRoom): boolean {
   const height = room.tiles.length;
   const width = room.tiles[0]?.length ?? 0;
   const switches = roomCellsOfKind(room, 'switch');
@@ -807,7 +808,7 @@ export function lintAdventure(spec: AdventureSpec): LintError[] {
         ),
       );
     }
-    if (room.id === dungeon.bossRoom) {
+    if (room.id === dungeon.bossRoom && spec.adventureStyle !== 'puzzleQuest') {
       const patterns = spec.boss.phases.map((phase) => phase.pattern);
       const arena = analyzeAdventureBossArena(room, patterns);
       if (!arena.dodgeRouteClear) {
@@ -868,12 +869,13 @@ export function lintAdventure(spec: AdventureSpec): LintError[] {
       ),
     );
   }
-  if (enemyTypes.size < 4) {
+  const enemyFloor = spec.adventureStyle === 'puzzleQuest' ? 2 : 4;
+  if (enemyTypes.size < enemyFloor) {
     out.push(
       err(
         'ADV_FLOOR_ENEMY_TYPES',
         '/levels/0/rooms',
-        `uses ${enemyTypes.size} enemy types; the floor is 4`,
+        `uses ${enemyTypes.size} enemy types; the floor is ${enemyFloor}`,
       ),
     );
   }
@@ -892,7 +894,7 @@ export function lintAdventure(spec: AdventureSpec): LintError[] {
     );
   }
 
-  out.push(...lintDuration(estimateAdventureDurationS(spec)));
+  out.push(...lintAdventureStyle(spec), ...lintDuration(estimateAdventureDurationS(spec)));
   return out;
 }
 
@@ -908,6 +910,299 @@ export function estimateAdventureDurationS(spec: AdventureSpec): number {
       if (e.type === 'key') total += 8; // find + backtrack
     }
   }
-  total += spec.boss.phases.length * 35 + Math.min(50, spec.boss.hp);
+  if (spec.adventureStyle === 'puzzleQuest')
+    total += dungeon.rooms.filter((room) => room.puzzle).length * 35;
+  else total += spec.boss.phases.length * 35 + Math.min(50, spec.boss.hp);
+  if (spec.adventureStyle === 'rescueRaid') total += dungeon.rooms.length * 8;
   return total;
+}
+
+function lintAdventureStyle(spec: AdventureSpec): LintError[] {
+  const out: LintError[] = [];
+  const dungeon = spec.levels[0]!;
+  const { edges } = buildGraph(dungeon);
+  if (spec.adventureStyle) {
+    if (!adventureGateChoicesSafe(spec))
+      out.push(
+        err(
+          'ADV_GATE_CHOICE_TRAP',
+          '/levels/0/rooms',
+          'a legal key-spending choice can strand the objective; put enough keys on reachable branches before dependent gates (use at most 12 locked edges)',
+        ),
+      );
+    dungeon.rooms.forEach((room, ri) => {
+      const landings = roomDoorLandings(room);
+      const start = landings[0];
+      if (!start) return;
+      const queue = [start];
+      const reached = new Set([`${start.x},${start.y}`]);
+      for (let i = 0; i < queue.length; i++) {
+        const cell = queue[i]!;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ]) {
+          const x = cell.x + dx!,
+            y = cell.y + dy!,
+            key = `${x},${y}`;
+          if (
+            x < 1 ||
+            x > 30 ||
+            y < 1 ||
+            y > 14 ||
+            reached.has(key) ||
+            ['wall', 'pit', 'hazard', 'block'].includes(roomTileKind(room, x, y))
+          )
+            continue;
+          reached.add(key);
+          queue.push({ x, y });
+        }
+      }
+      const required = [
+        ...landings,
+        ...room.entities.filter((e) => ['key', 'item', 'npc'].includes(e.type)),
+      ];
+      if (required.some((cell) => !reached.has(`${cell.x},${cell.y}`)))
+        out.push(
+          err(
+            'ADV_ROOM_ROUTE_SPLIT',
+            `/levels/0/rooms/${ri}/tiles`,
+            'all door approaches and required interactions must share a calm walking route without pushing blocks or crossing hazards',
+          ),
+        );
+    });
+  }
+  const beforeBoss = new Set([dungeon.startRoom]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const edge of edges) {
+      if (edge.from === dungeon.bossRoom || edge.to === dungeon.bossRoom) continue;
+      for (const [a, b] of [
+        [edge.from, edge.to],
+        [edge.to, edge.from],
+      ]) {
+        if (beforeBoss.has(a!) && !beforeBoss.has(b!)) {
+          beforeBoss.add(b!);
+          changed = true;
+        }
+      }
+    }
+  }
+  const early = new Set([dungeon.startRoom]);
+  changed = true;
+  while (changed) {
+    changed = false;
+    for (const edge of edges.filter((edge) => !edge.locked)) {
+      for (const [a, b] of [
+        [edge.from, edge.to],
+        [edge.to, edge.from],
+      ]) {
+        if (early.has(a!) && !early.has(b!)) {
+          early.add(b!);
+          changed = true;
+        }
+      }
+    }
+  }
+  const puzzles = dungeon.rooms.filter((room) => room.puzzle);
+  const captives = dungeon.rooms.flatMap((room) =>
+    room.entities.filter((e) => e.props?.rescue).map((entity) => ({ room, entity })),
+  );
+  if (spec.adventureStyle !== 'puzzleQuest' && puzzles.length)
+    out.push(
+      err(
+        'ADV_STYLE_PUZZLE',
+        '/levels/0/rooms',
+        'puzzle metadata is reserved for puzzleQuest; do not silently change its win rules',
+      ),
+    );
+  if (
+    spec.adventureStyle !== 'rescueRaid' &&
+    (captives.length || dungeon.rescueTarget !== undefined)
+  )
+    out.push(
+      err('ADV_STYLE_RESCUE', '/levels/0', 'rescue targets and captive NPCs require rescueRaid'),
+    );
+  if (spec.adventureStyle === 'puzzleQuest') {
+    if (puzzles.length < 4 || !puzzles.some((room) => room.id === dungeon.bossRoom))
+      out.push(
+        err(
+          'ADV_PUZZLE_FLOOR',
+          '/levels/0/rooms',
+          'puzzleQuest needs at least four puzzle rooms, including bossRoom as the final puzzle',
+        ),
+      );
+    if (new Set(puzzles.map((room) => room.puzzle!.pattern)).size < 3)
+      out.push(
+        err(
+          'ADV_PUZZLE_VARIETY',
+          '/levels/0/rooms',
+          'use pushLane, cornerTurn, and splitPlates; introduce a puzzle before any locked gate',
+        ),
+      );
+    if (!puzzles.some((room) => early.has(room.id)))
+      out.push(
+        err(
+          'ADV_PUZZLE_EARLY',
+          '/levels/0/rooms',
+          'place a teaching puzzle in the entrance or its open-door component',
+        ),
+      );
+    if (puzzles.some((room) => room.id !== dungeon.bossRoom && !beforeBoss.has(room.id)))
+      out.push(
+        err(
+          'ADV_PUZZLE_AFTER_GATE',
+          '/levels/0/rooms',
+          'all preliminary seals must be reachable without passing through the final chamber',
+        ),
+      );
+    dungeon.rooms.forEach((room, ri) => {
+      const enemyCount = room.entities.filter((e) =>
+        (ENEMY_TYPES as readonly string[]).includes(e.type),
+      ).length;
+      if (enemyCount > (room.puzzle ? 0 : 2))
+        out.push(
+          err(
+            'ADV_PUZZLE_PRESSURE',
+            `/levels/0/rooms/${ri}/entities`,
+            'puzzle rooms must be enemy-free; other puzzleQuest rooms allow at most two enemies',
+          ),
+        );
+      if (!room.puzzle) return;
+      const canonical = adventurePuzzleGeometry(room.puzzle);
+      if (
+        JSON.stringify(room.tiles) !== JSON.stringify(canonical.tiles) ||
+        room.tiles.some((row) =>
+          [...row].some((ch) => ch !== '.' && room.legend[ch] !== canonical.legend[ch]),
+        )
+      )
+        out.push(
+          err(
+            'ADV_PUZZLE_GEOMETRY',
+            `/levels/0/rooms/${ri}`,
+            'puzzle pattern/variant must match its compiled geometry',
+          ),
+        );
+      if (room.entities.some((e) => e.x >= 6 && e.x <= 25 && e.y >= 4 && e.y <= 11))
+        out.push(
+          err(
+            'ADV_PUZZLE_INTERFERENCE',
+            `/levels/0/rooms/${ri}/entities`,
+            'keep entities outside the puzzle work area (x 6..25, y 4..11) so block routes remain usable',
+          ),
+        );
+    });
+  }
+  if (spec.adventureStyle === 'rescueRaid') {
+    const target = dungeon.rescueTarget ?? 0;
+    const reachable = captives.filter(
+      ({ room, entity }) => beforeBoss.has(room.id) && entity.type === 'npc',
+    );
+    if (
+      target < 3 ||
+      reachable.length < target + 1 ||
+      new Set(reachable.map(({ room }) => room.id)).size < 3
+    )
+      out.push(
+        err(
+          'ADV_RESCUE_FLOOR',
+          '/levels/0',
+          'rescueRaid needs rescueTarget >= 3, at least one extra optional captive, and captives in three or more pre-guardian rooms',
+        ),
+      );
+    if (captives.some(({ entity }) => entity.type !== 'npc'))
+      out.push(err('ADV_RESCUE_NPC', '/levels/0/rooms', 'only NPC entities can be rescue targets'));
+    if (!captives.some(({ room }) => early.has(room.id)))
+      out.push(
+        err(
+          'ADV_RESCUE_EARLY',
+          '/levels/0/rooms',
+          'teach rescue in the entrance or an open connected room before the first key gate',
+        ),
+      );
+    const start = dungeon.rooms.find((room) => room.id === dungeon.startRoom);
+    if (start) {
+      const safe = safelyReachableRoomCells(start);
+      const blocked = [15, 16, 17].some((x) =>
+        [7, 8, 9].some((y) => roomTileKind(start, x, y) !== 'floor' || !safe.has(`${x},${y}`)),
+      );
+      if (blocked || start.entities.some((e) => Math.abs(e.x - 16) <= 2 && Math.abs(e.y - 8) <= 2))
+        out.push(
+          err(
+            'ADV_EXTRACTION_SPACE',
+            '/levels/0/startRoom',
+            'keep the entrance center (x15..17,y7..9) calm, connected floor and leave entities outside x14..18,y6..10 for extraction',
+          ),
+        );
+    }
+  }
+  return out;
+}
+
+/** Explore every legal key-spending order, including redundant loop doors.
+ * Reachable open regions include all recoverable keys/tools/objectives in that region. */
+export function adventureGateChoicesSafe(spec: AdventureSpec): boolean {
+  const dungeon = spec.levels[0];
+  if (!dungeon) return false;
+  const { edges, errors } = buildGraph(dungeon);
+  if (errors.length) return false;
+  const locks = edges.filter((e) => e.locked);
+  if (locks.length > 12) return false;
+  const queue = [0],
+    seen = new Set([0]);
+  for (let index = 0; index < queue.length; index++) {
+    const mask = queue[index]!,
+      reached = new Set([dungeon.startRoom]);
+    const open = edges.filter((e) => !e.locked || !!(mask & (1 << locks.indexOf(e))));
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const e of open) {
+        if (reached.has(e.from) && !reached.has(e.to)) {
+          reached.add(e.to);
+          changed = true;
+        }
+        if (reached.has(e.to) && !reached.has(e.from)) {
+          reached.add(e.from);
+          changed = true;
+        }
+      }
+    }
+    if (reached.size === dungeon.rooms.length) continue;
+    const rooms = dungeon.rooms.filter((r) => reached.has(r.id));
+    const entities = rooms.flatMap((r) => r.entities);
+    const spent = locks.reduce((n, _, i) => n + ((mask >> i) & 1), 0);
+    const keys = entities.filter((e) => e.type === 'key').length - spent;
+    const tool = entities.some(
+      (e) => e.type === 'item' && e.props?.item === dungeon.items.secondary,
+    );
+    const objective =
+      spec.adventureStyle === 'puzzleQuest'
+        ? dungeon.rooms.every((r) => !r.puzzle || r.id === dungeon.bossRoom || reached.has(r.id))
+        : spec.adventureStyle === 'rescueRaid'
+          ? entities.filter((e) => e.type === 'npc' && e.props?.rescue).length >=
+            (dungeon.rescueTarget ?? 3)
+          : true;
+    let choices = 0;
+    if (keys > 0)
+      locks.forEach((e, i) => {
+        if (
+          mask & (1 << i) ||
+          (!reached.has(e.from) && !reached.has(e.to)) ||
+          (e.kind === 'boss' && (!tool || !objective))
+        )
+          return;
+        choices++;
+        const next = mask | (1 << i);
+        if (!seen.has(next)) {
+          seen.add(next);
+          queue.push(next);
+        }
+      });
+    if (!choices) return false;
+  }
+  return true;
 }

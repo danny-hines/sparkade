@@ -118,6 +118,8 @@ export function buildDesignPrompt(opts: {
     `PLATFORMER PRESENTATION PREFERENCE (least recently used first): ${presentationPreference(opts.recentMechanics ?? []).join(', ')}. Choose independently of playStyle; explicit aesthetic requests take precedence. Only platformer supports presentationFamily.`,
     `VERTICAL SHOOTER STYLE PREFERENCE (least recently used first): ${shooterStylePreference(opts.recentMechanics ?? []).join(', ')}. Explicit requested mechanics take precedence.`,
     `SHOOTER STYLE CATALOG: ${JSON.stringify(SHOOTER_STYLE_CATALOG)}`,
+    `ADVENTURE STYLE PREFERENCE (least recently used first): ${adventureStylePreference(opts.recentMechanics ?? []).join(', ')}. Explicit objective requests take precedence.`,
+    `ADVENTURE STYLE CATALOG: ${JSON.stringify(ADVENTURE_STYLE_CATALOG)}. Select adventureStyle for Adventure only.`,
     `PRESENTATION CATALOG: ${JSON.stringify(PRESENTATION_CATALOG)}`,
     ...(moodNote ? [moodNote] : []),
     ...(opts.extraNote ? [`IMPORTANT: ${opts.extraNote}`] : []),
@@ -207,6 +209,7 @@ export function buildLevelsPrompt(
     user: [
       `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}`,
       ...(archetype === 'shooter' ? [shooterStyleBrief(design)] : []),
+      ...(archetype === 'adventure' ? [adventureStyleBrief(design)] : []),
       ...(archetype === 'platformer'
         ? [platformerStyleBrief(design), encounterGuidance(design, recentMechanics)]
         : []),
@@ -234,6 +237,18 @@ export function buildLevelsPrompt(
 export function shooterStyleBrief(design: Pick<DesignDoc, 'shooterStyle'>): string {
   const style = design.shooterStyle ?? 'chargeSpecialist';
   return `COMMITTED SHOOTER KIT: ${style}. ${SHOOTER_STYLE_CATALOG[style].summary} Preserve shooterStyle through every repair. Every level needs two signature waves including one by 20s: weaponSwitch needs BOTH wideSwarm (line/vee/arc, count>=4, hp<=2) AND armorColumn (column, count>=2, hp>=3, dive); chargeSpecialist needs armorColumn; lockOnStriker needs lockScreen (non-column formation, count>=3, hold). Author centerX lanes. Switching and lock-on bosses require at least two pods. weaponSwitch rewards use rapid/shield/bomb, never spread. The engine owns weapon balance and the 4.8s attack / 2.4s boss opening cycle; do not invent numeric weapon fields or additional abilities.`;
+}
+
+export function adventureStyleBrief(design: Pick<DesignDoc, 'adventureStyle'>): string {
+  const style = design.adventureStyle ?? 'dungeonExpedition';
+  return (
+    `COMMITTED ADVENTURE OBJECTIVE: ${style}. ${ADVENTURE_STYLE_CATALOG[style].objective} Preserve adventureStyle through every repair. ` +
+    (style === 'puzzleQuest'
+      ? 'Author at least four puzzle rooms including bossRoom as the final chamber. Use all three puzzle patterns: pushLane, cornerTurn, splitPlates; each has variant 0, 1, or 2 for mirrored approaches. In puzzle rooms provide puzzle:{pattern,variant} instead of tiles/legend; the engine compiles safe complete 32x16 geometry. Put no enemies there; pickups/NPCs must be outside x6..25,y4..11 and clear of doorway reaction zones. Non-puzzle rooms have at most two enemies; at least two enemy types overall. A teaching puzzle must be reachable before the first locked gate. All preliminary puzzles must be reachable without entering bossRoom. The final chamber is a puzzle, with no boss combat; describe its generated guardian as the seal keeper. At least two keyed gates and the secondary tool remain required, but final entry also requires every preliminary seal solved. X resets only the current unsolved room without restoring health or score.'
+      : style === 'rescueRaid'
+        ? 'Set levels[0].rescueTarget to 3..8. Place at least target+1 NPCs with props.rescue:true and short rescue dialog across at least three rooms reachable before bossRoom. Extras are optional score opportunities. Teach rescue in the entrance or an openly connected room before any locked gate. The boss gate requires the quota, secondary tool, and a key. Defeating the guardian does not end play: the player must return to the entrance center and press A to extract. Keep x15..17,y7..9 in startRoom connected calm floor and keep entities outside x14..18,y6..10. There is no escort pathfinding: rescued NPCs leave immediately and stay rescued after death/re-entry. Give the room graph a branch for optional rescues. Use the existing NPC atlas role for captives; no extra image roles.'
+        : 'Keep the tool-and-key dungeon progression, four enemy types, two keyed gates, readable combat encounters, and the guardian duel. Do not add captive markers, rescueTarget, or puzzle-pattern metadata. Ordinary switch puzzles remain available.')
+  );
 }
 
 export function platformerStyleBrief(
@@ -547,6 +562,7 @@ export function buildEntitiesPrompt(
     user: [
       `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}`,
       ...(archetype === 'shooter' ? [shooterStyleBrief(design)] : []),
+      ...(archetype === 'adventure' ? [adventureStyleBrief(design)] : []),
       `Photo for likeness: ${hasPhoto ? 'yes' : 'no'}.${likenessBodyNote}${recentNote}`,
       ...(archetype === 'platformer'
         ? [
@@ -629,6 +645,9 @@ export function buildRepairPrompt(
   });
   const context = repairContext(invalidJson, diagnostics, owner);
   const user = [
+    ...(archetype === 'adventure'
+      ? [adventureStyleBrief(invalidJson as Pick<DesignDoc, 'adventureStyle'>)]
+      : []),
     ...(archetype === 'shooter'
       ? [shooterStyleBrief(invalidJson as Pick<DesignDoc, 'shooterStyle'>)]
       : []),
@@ -692,6 +711,7 @@ export function buildLevelRegenerationPrompt(
     user: [
       `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}`,
       ...(archetype === 'shooter' ? [shooterStyleBrief(design)] : []),
+      ...(archetype === 'adventure' ? [adventureStyleBrief(design)] : []),
       ...(archetype === 'platformer'
         ? [
             platformerStyleBrief(design),
@@ -914,3 +934,4 @@ export function parseModelJson(text: string): unknown {
   }
   throw new Error('model output was not parseable JSON');
 }
+import { ADVENTURE_STYLE_CATALOG, adventureStylePreference } from '@sparkade/shared';

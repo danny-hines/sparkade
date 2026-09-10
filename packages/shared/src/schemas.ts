@@ -25,7 +25,10 @@ export type SpecStage = 'levels' | 'entities' | 'music';
 /** Which top-level game.json properties each spec stage produces. */
 export const STAGE_PROPERTIES: Record<SpecStage, { required: string[]; optional: string[] }> = {
   levels: { required: ['levels'], optional: [] },
-  entities: { required: ['sprites', 'boss'], optional: ['sfx', 'backdrop', 'weather', 'lighting', 'juice'] },
+  entities: {
+    required: ['sprites', 'boss'],
+    optional: ['sfx', 'backdrop', 'weather', 'lighting', 'juice'],
+  },
   music: { required: ['music'], optional: [] },
 };
 
@@ -58,6 +61,14 @@ export function stageSchema(archetype: ArchetypeId, stage: SpecStage): Record<st
     string,
     { required?: string[]; properties?: Record<string, unknown> } | undefined
   >;
+  if (archetype === 'adventure' && stage === 'levels') {
+    // Authored puzzle patterns replace the literal room grid in generation only.
+    const room = defs['room'];
+    if (room) {
+      room.required = room.required?.filter((key) => key !== 'tiles' && key !== 'legend');
+      Object.assign(room, { anyOf: [{ required: ['puzzle'] }, { required: ['tiles', 'legend'] }] });
+    }
+  }
   if (archetype === 'fighter' && stage === 'entities') {
     const boss = defs['boss'];
     if (boss?.properties) {

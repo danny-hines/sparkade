@@ -285,6 +285,7 @@ import {
 import {
   ADVENTURE_PLAYER_SET_JUDGE_PROMPT_VERSION,
   adventurePlayerPosesNeedingRetry,
+  adventurePlayerScaleRetryPoses,
   bestAdventurePlayerCandidateIds,
   bestScaleConsistentAdventurePlayerCandidateIds,
   buildAdventurePlayerSetJudgeBoard,
@@ -686,6 +687,29 @@ function compileGeneratedLevels(
   output: unknown,
   requireCompact = false,
 ): unknown {
+  if (archetype === 'adventure') {
+    const result = structuredClone(output);
+    const levels = Array.isArray(result) ? result : isRecord(result) ? result['levels'] : null;
+    if (Array.isArray(levels))
+      for (const dungeon of levels) {
+        if (!isRecord(dungeon) || !Array.isArray(dungeon['rooms'])) continue;
+        for (const room of dungeon['rooms'])
+          if (isRecord(room) && isRecord(room['puzzle'])) {
+            const puzzle = room['puzzle'];
+            if (
+              ['pushLane', 'cornerTurn', 'splitPlates'].includes(String(puzzle['pattern'])) &&
+              [0, 1, 2].includes(Number(puzzle['variant']))
+            )
+              Object.assign(
+                room,
+                adventurePuzzleGeometry(
+                  puzzle as unknown as import('@sparkade/shared').AdventurePuzzle,
+                ),
+              );
+          }
+      }
+    return result;
+  }
   if (archetype !== 'platformer' && archetype !== 'hshooter') return output;
   if (requireCompact) {
     const levels = Array.isArray(output) ? output : isRecord(output) ? output['levels'] : null;
@@ -2050,6 +2074,16 @@ export class GenerationRunner {
           'validating',
         );
       }
+      if (
+        spec.archetype === 'adventure' &&
+        spec.adventureStyle !== (design.adventureStyle ?? 'dungeonExpedition')
+      ) {
+        throw new PipelineError(
+          'validation-failed',
+          'The validated game must preserve the design-selected Adventure objective.',
+          'validating',
+        );
+      }
 
       try {
         this.files.writeValidatedSpecCheckpoint(jobId, job.attempt, {
@@ -2632,6 +2666,7 @@ export class GenerationRunner {
                     ),
                   ]),
                 ) as Record<GeneratedAdventurePlayerPose, Buffer | null>;
+                const cachedScaleGuidance = new Map<GeneratedAdventurePlayerPose, string>();
                 if (GENERATED_ADVENTURE_PLAYER_POSES.every((pose) => cached[pose])) {
                   const restored = cached as Record<GeneratedAdventurePlayerPose, Buffer>;
                   try {
@@ -2640,11 +2675,28 @@ export class GenerationRunner {
                     emit('building-assets', 'Restored the generated Adventure player');
                     return restored.downIdle;
                   } catch (error) {
-                    await assetWorkspace.discard(Object.values(ADVENTURE_PLAYER_ASSET_ROLES));
-                    for (const pose of GENERATED_ADVENTURE_PLAYER_POSES) cached[pose] = null;
+                    const repairs =
+                      error instanceof Error && error.message.includes('change character height')
+                        ? await adventurePlayerScaleRetryPoses(
+                            GENERATED_ADVENTURE_PLAYER_POSES.map((pose) => ({
+                              id: pose,
+                              pose,
+                              processed: restored[pose],
+                            })),
+                          )
+                        : [];
+                    const discarded = repairs.length
+                      ? repairs.map(({ pose }) => pose)
+                      : GENERATED_ADVENTURE_PLAYER_POSES;
+                    await assetWorkspace.discard(
+                      discarded.map((pose) => ADVENTURE_PLAYER_ASSET_ROLES[pose]),
+                    );
+                    for (const pose of discarded) cached[pose] = null;
+                    for (const { pose, guidance } of repairs)
+                      cachedScaleGuidance.set(pose, guidance);
                     emit(
                       'building-assets',
-                      `Discarded an inconsistent cached Adventure player set (${error instanceof Error ? error.message.slice(0, 140) : 'set validation failed'})`,
+                      `Discarded ${discarded.length} inconsistent Adventure pose checkpoints (${error instanceof Error ? error.message.slice(0, 140) : 'set validation failed'})`,
                     );
                   }
                 }
@@ -2961,7 +3013,8 @@ export class GenerationRunner {
                         const candidate = await generateIsolatedPose(
                           pose,
                           `sheet-recovery-${attempt}`,
-                          'Both grouped-sheet cells failed extraction. Return one complete uncropped silhouette on perfectly flat #00ff00 and make the requested direction and motion unmistakable',
+                          cachedScaleGuidance.get(pose) ??
+                            'Both grouped-sheet cells failed extraction. Return one complete uncropped silhouette on perfectly flat #00ff00 and make the requested direction and motion unmistakable',
                           downReference,
                         );
                         if (candidate) return candidate;
@@ -3106,10 +3159,47 @@ export class GenerationRunner {
                     'Spark selected the best locally valid Adventure pose combination below the ideal quality bar',
                   );
                 }
-                const selectedIds = await bestScaleConsistentAdventurePlayerCandidateIds(
+                let selectedIds = await bestScaleConsistentAdventurePlayerCandidateIds(
                   setDecision,
                   poseCandidates.map(({ id, pose, png }) => ({ id, pose, processed: png })),
                 );
+                if (!selectedIds) {
+                  const repairs = await adventurePlayerScaleRetryPoses(
+                    poseCandidates.map(({ id, pose, png }) => ({ id, pose, processed: png })),
+                  );
+                  if (repairs.length) {
+                    emit(
+                      'building-assets',
+                      `Repainting ${repairs.length} Adventure poses to match the hero's scale…`,
+                    );
+                    const alternatives = await Promise.all(
+                      repairs.map(async ({ pose, guidance }) => {
+                        const anchorPose = pose.startsWith('side')
+                          ? 'sideIdle'
+                          : pose.startsWith('up')
+                            ? 'upIdle'
+                            : 'downIdle';
+                        const anchor = poseCandidates.find(
+                          (candidate) => candidate.pose === anchorPose,
+                        );
+                        const reference = anchor
+                          ? await prepareGeneratedAdventurePlayerReference(anchor.reference)
+                          : downReference;
+                        return generateIsolatedPose(pose, 'scale-recovery', guidance, reference);
+                      }),
+                    );
+                    poseCandidates.push(
+                      ...alternatives.filter(
+                        (candidate): candidate is PoseCandidate => candidate !== null,
+                      ),
+                    );
+                    setDecision = await reviewPoseSet(poseCandidates);
+                    selectedIds = await bestScaleConsistentAdventurePlayerCandidateIds(
+                      setDecision,
+                      poseCandidates.map(({ id, pose, png }) => ({ id, pose, processed: png })),
+                    );
+                  }
+                }
                 if (!selectedIds) {
                   throw new Error('no scale-consistent Adventure player combination was available');
                 }
@@ -7339,6 +7429,9 @@ export class GenerationRunner {
       ...(archetype === 'adventure' && design.combatKit
         ? { combatKit: structuredClone(design.combatKit) }
         : {}),
+      ...(archetype === 'adventure'
+        ? { adventureStyle: design.adventureStyle ?? 'dungeonExpedition' }
+        : {}),
       ...((archetype === 'hshooter' || archetype === 'shooter') && design.vehicleConcept
         ? { playerCraft: { visualConcept: design.vehicleConcept } }
         : {}),
@@ -7993,3 +8086,4 @@ export class GenerationRunner {
     );
   }
 }
+import { adventurePuzzleGeometry } from '@sparkade/shared';

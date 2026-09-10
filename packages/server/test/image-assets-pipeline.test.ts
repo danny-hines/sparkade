@@ -390,6 +390,36 @@ describe('story art prompts', () => {
 });
 
 describe.sequential('mock image asset pipeline', () => {
+  it.each(['dungeonExpedition', 'puzzleQuest', 'rescueRaid'] as const)(
+    'publishes the Adventure objective %s with complete art and a matching fingerprint',
+    async (style) => {
+      const { db, files, runner } = createHarness();
+      const { jobId, gameId } = runner.createJob({
+        promptText: `An adventure using ${style}.`,
+        sourceKind: 'surprise',
+        requestedArchetype: 'adventure',
+        idempotencyKey: `adventure-objective-${style}`,
+      });
+      expect(await waitForTerminal(db, jobId, 45_000)).toMatchObject({ status: 'done' });
+      const spec = files.readSpec(gameId) as AdventureSpec;
+      expect(spec.adventureStyle).toBe(style);
+      expect(
+        JSON.parse(readFileSync(join(files.gameDir(gameId), 'mechanics.json'), 'utf8')),
+      ).toEqual(mechanicalFingerprint(spec));
+      for (const role of [
+        'adventurePlayerDownIdle',
+        'adventurePlayerSideMelee',
+        'adventureObjectAtlas',
+        'adventureEnemyAtlas',
+        'adventureBoss',
+      ] as const)
+        expect(
+          generatedAssetForRole(join(files.gameDir(gameId), 'assets'), role),
+          role,
+        ).toBeTruthy();
+    },
+    60_000,
+  );
   it.each([
     ['acrobat', 'A jumping platformer about a courier', 'tech'],
     ['runAndGun', 'A platformer with a permanent blaster', 'storybook'],
@@ -1108,3 +1138,4 @@ describe.sequential('mock image asset pipeline', () => {
     }
   });
 });
+import type { AdventureSpec } from '@sparkade/shared';

@@ -263,7 +263,12 @@ export class GameHost {
         this.sfx.play(k === 'move' ? 'uiMove' : k === 'select' ? 'uiSelect' : 'uiBack'),
     });
 
-    this.howto = new HowToPlayCard(opts.spec.meta.title, controlHelp, family);
+    this.howto = new HowToPlayCard(
+      opts.spec.meta.title,
+      controlHelp,
+      family,
+      !!family || (opts.spec.archetype === 'adventure' && !!opts.spec.adventureStyle),
+    );
     this.weather = makeWeather(opts.spec.weather ?? 'none', opts.spec.palette, opts.spec.seed);
     this.renderer.juice = Math.max(0, Math.min(1.5, opts.spec.juice ?? 1));
     this.lightTint = LIGHTING_TINTS[opts.spec.lighting ?? 'none'] ?? null;

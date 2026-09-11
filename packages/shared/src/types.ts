@@ -336,6 +336,7 @@ export interface FighterArtDirection {
 }
 
 export interface FighterCharacter {
+  combatProfile?: import('./fighter-styles').FighterCombatProfile;
   name: string;
   /** Concrete head-to-toe art direction used to establish generated identity. */
   visualConcept: string;
@@ -363,6 +364,7 @@ export interface FighterPhase {
 }
 
 export interface FighterBoss {
+  combatProfile?: import('./fighter-styles').FighterCombatProfile;
   name: string;
   /** Concrete head-to-toe art direction used to establish generated identity. */
   visualConcept: string;
@@ -378,6 +380,7 @@ export interface FighterBoss {
 
 export interface FighterSpec extends GameSpecBase {
   archetype: 'fighter';
+  fighterStyle?: import('./fighter-styles').FighterCombatProfile;
   /** Roster-wide visual language authored once during the story/design pass. */
   artDirection: FighterArtDirection;
   /** Backdrop behind the arena (horizontal scene); omitted → seed pick. */
@@ -591,8 +594,9 @@ export interface DesignDoc {
   combatKit?: AdventureCombatKit;
   /** Shooter vehicle identity, authored independently from player likeness. */
   vehicleConcept?: string;
-  /** Fighter-only roster-wide visual language. Required by the design schema
-   * when the selected archetype is Fighter. */
+  /** Fighter-only player kit, required for new generation. */
+  fighterStyle?: import('./fighter-styles').FighterCombatProfile;
+  /** Fighter-only roster-wide visual language. Required by the design schema. */
   fighterArtDirection?: FighterArtDirection;
   story: StoryBlock;
   levelPlan: { name: string; summary: string }[];

@@ -4,6 +4,7 @@
   "title": "Sparkade design pass output",
   "type": "object",
   "properties": {
+    "fighterStyle": { "enum": ["rushdown", "counter", "rangedControl"] },
     "adventureStyle": { "enum": ["dungeonExpedition", "puzzleQuest", "rescueRaid"] },
     "shooterStyle": { "enum": ["weaponSwitch", "chargeSpecialist", "lockOnStriker"] },
     "presentationFamily": {
@@ -302,7 +303,8 @@
     },
     {
       "if": { "properties": { "archetype": { "const": "fighter" } }, "required": ["archetype"] },
-      "then": { "required": ["fighterArtDirection"] }
+      "then": { "required": ["fighterArtDirection", "fighterStyle"] },
+      "else": { "not": { "required": ["fighterStyle"] } }
     },
     {
       "if": { "properties": { "archetype": { "const": "adventure" } }, "required": ["archetype"] },

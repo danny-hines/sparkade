@@ -278,6 +278,7 @@ describe('security scan', () => {
           rendering:
             'Crisp dark outlines, compact pixel clusters, and restrained three-step cel shading',
         },
+        fighterStyle: 'rushdown',
       }),
     ).toEqual([]);
     expect(designOutputDiagnostics({ ...design, title: 'Visit www.bad.example' })).toEqual([

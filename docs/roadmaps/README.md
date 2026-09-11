@@ -16,6 +16,7 @@ well-defined implementation tasks still belong in [`../BACKLOG.md`](../BACKLOG.m
 - [Adventure](adventure.md)
 - [Vertical Shooter](shooter.md)
 - [H-Scroll Shooter](hshooter.md)
+- [Fighter](fighter.md)
 
 Add another `<archetype>.md` file when there is enough archetype-specific direction to preserve,
 then link it here. Prefer reusable systems and authorable data over lists of hard-coded special

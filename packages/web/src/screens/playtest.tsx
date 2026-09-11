@@ -13,6 +13,10 @@ import {
   platformerStyleExample,
 } from '@sparkade/archetypes';
 import {
+  FIGHTER_COMBAT_PROFILES,
+  FIGHTER_STYLE_CATALOG,
+  fighterStyleExample,
+  type FighterCombatProfile,
   SHOOTER_PLAY_STYLES,
   ADVENTURE_PLAY_STYLES,
   ADVENTURE_STYLE_CATALOG,
@@ -31,10 +35,14 @@ import goldenHshooter from '../../../generation/golden/golden-hshooter.json';
 const GOLDENS: Record<string, unknown> = { hshooter: goldenHshooter };
 
 export function PlaytestScreen(): ComponentChildren {
+  const fighterComparison = new URLSearchParams(location.search).has('fighterStyle');
   const adventureComparison = new URLSearchParams(location.search).has('adventureStyle');
   const shooterComparison = new URLSearchParams(location.search).has('shooterStyle');
   const comparison =
-    adventureComparison || shooterComparison || new URLSearchParams(location.search).has('style');
+    fighterComparison ||
+    adventureComparison ||
+    shooterComparison ||
+    new URLSearchParams(location.search).has('style');
   const ref = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState('');
   const [artNote, setArtNote] = useState('');
@@ -49,6 +57,9 @@ export function PlaytestScreen(): ComponentChildren {
 
     void (async () => {
       try {
+        const fighterStyle = params.get('fighterStyle');
+        if (fighterStyle && !FIGHTER_COMBAT_PROFILES.includes(fighterStyle as FighterCombatProfile))
+          throw new Error('Unknown Fighter style');
         const style = params.get('style');
         const shooterStyle = params.get('shooterStyle');
         const adventureStyle = params.get('adventureStyle');
@@ -60,18 +71,24 @@ export function PlaytestScreen(): ComponentChildren {
           throw new Error('Unknown platformer play style');
         const gameId =
           params.get('game') ??
-          (adventureStyle
-            ? 'golden-adventure'
-            : shooterStyle
-              ? 'golden-shooter'
-              : style
-                ? 'golden-platformer'
-                : null);
+          (fighterStyle
+            ? 'golden-fighter'
+            : adventureStyle
+              ? 'golden-adventure'
+              : shooterStyle
+                ? 'golden-shooter'
+                : style
+                  ? 'golden-platformer'
+                  : null);
         const detail = gameId ? await api.getGame(gameId) : null;
         const arch = params.get('arch') ?? 'hshooter';
         if (gameId && !detail?.spec) throw new Error('This game is not ready to play yet.');
         let spec = (detail?.spec ?? GOLDENS[arch]) as GameSpec | undefined;
         if (!spec) throw new Error(`Unknown playtest game or archetype: ${gameId ?? arch}`);
+        if (fighterStyle) {
+          if (spec.archetype !== 'fighter') throw new Error('Fighter comparison requires Fighter');
+          spec = fighterStyleExample(spec, fighterStyle as FighterCombatProfile);
+        }
         if (style && spec.archetype === 'platformer')
           spec = platformerStyleExample(spec, style as PlatformerPlayStyle);
         if (shooterStyle) {
@@ -118,11 +135,13 @@ export function PlaytestScreen(): ComponentChildren {
           }
         } else if (comparison)
           setArtNote(
-            adventureComparison
-              ? 'Authored Adventure comparisons with shared artwork. Arrows move, Z attacks, S uses the tool, X interacts, A resets puzzles, Right Shift opens the map.'
-              : shooterComparison
-                ? 'Authored shooter comparisons with shared craft artwork. X selects the signature weapon; Y fires, B bombs, A changes speed.'
-                : 'Controller comparison with shared base artwork. New games generate mechanic-specific action poses.',
+            fighterComparison
+              ? 'Shared roster artwork. Confirm hits to chain; counter and pulse kits reuse combat poses.'
+              : adventureComparison
+                ? 'Authored Adventure comparisons with shared artwork. Arrows move, Z attacks, S uses the tool, X interacts, A resets puzzles, Right Shift opens the map.'
+                : shooterComparison
+                  ? 'Authored shooter comparisons with shared craft artwork. X selects the signature weapon; Y fires, B bombs, A changes speed.'
+                  : 'Controller comparison with shared base artwork. New games generate mechanic-specific action poses.',
           );
         if (disposed) return;
         host = new GameHost({
@@ -157,6 +176,18 @@ export function PlaytestScreen(): ComponentChildren {
   }, []);
   return (
     <div style="display:flex;flex-direction:column;align-items:center;min-height:600px;background:#000">
+      {fighterComparison && (
+        <nav
+          style="display:flex;gap:20px;padding:12px;font:14px monospace"
+          aria-label="Fighter play styles"
+        >
+          {FIGHTER_COMBAT_PROFILES.map((style) => (
+            <a key={style} style="color:#aee9f1" href={`/?dev=playtest&fighterStyle=${style}`}>
+              {FIGHTER_STYLE_CATALOG[style].name}
+            </a>
+          ))}
+        </nav>
+      )}
       {adventureComparison && (
         <nav
           style="display:flex;gap:20px;padding:12px;font:14px monospace"
@@ -181,7 +212,7 @@ export function PlaytestScreen(): ComponentChildren {
           ))}
         </nav>
       )}
-      {comparison && !shooterComparison && !adventureComparison && (
+      {comparison && !fighterComparison && !shooterComparison && !adventureComparison && (
         <nav
           style="display:flex;gap:20px;padding:12px;color:white;font:14px monospace"
           aria-label="Platformer play styles"

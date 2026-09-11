@@ -5,7 +5,7 @@ import { createFighterGame } from './game';
 
 export const fighter: Archetype = {
   id: 'fighter',
-  version: '1.1.0',
+  version: '1.2.0',
   schema: ARCHETYPE_SCHEMAS.fighter,
   lint: (spec: GameSpec) => lintFighter(spec as FighterSpec),
   estimateDurationS: (spec: GameSpec) => estimateFighterDurationS(spec as FighterSpec),
@@ -22,6 +22,27 @@ export const fighter: Archetype = {
     { button: 'L', label: 'Block' },
     { button: 'R', label: 'Block' },
   ],
+  controlHelpFor: (spec) => {
+    const style = (spec as FighterSpec).fighterStyle;
+    if (!style) return fighter.controlHelp;
+    return [
+      { button: 'LEFT', label: 'Move / jump / crouch' },
+      { button: 'RIGHT', label: 'Move / jump / crouch' },
+      { button: 'UP', label: 'Move / jump / crouch' },
+      { button: 'DOWN', label: 'Move / jump / crouch' },
+      { button: 'B', label: 'Low punch - chain opener' },
+      {
+        button: 'Y',
+        label:
+          style === 'rangedControl'
+            ? 'High punch / guard + Y pulse'
+            : 'High punch - chain follow-up',
+      },
+      { button: 'X', label: style === 'rushdown' ? 'High kick - chain finisher' : 'High kick' },
+      { button: 'A', label: 'Low kick / sweep' },
+      { button: 'L', label: style === 'counter' ? 'L/R timed guard, then strike' : 'L/R guard' },
+    ];
+  },
   contentFloors: {
     levels: 3,
     enemyTypes: 4,

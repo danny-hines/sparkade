@@ -18,6 +18,9 @@ import {
 } from '@sparkade/engine';
 import {
   FEEL,
+  fighterProfile,
+  FIGHTER_STYLE_CATALOG,
+  type FighterCombatProfile,
   FIGHTER_POSES,
   GENERATED_FIGHTER_ARENA_BRIGHTNESS,
   GENERATED_FIGHTER_ARENA_HEIGHT,
@@ -44,6 +47,9 @@ const STAGE_MIN = 26;
 const STAGE_MAX = W - 26;
 const GRAVITY = 900;
 const JUMP_V = 330;
+// Clear hand-height pulses with the full generated sprite. Legacy ladders
+// retain their original jump; profiled fighters reach an approximately 90px apex.
+const PROFILE_JUMP_V = 410;
 const WALK = 78;
 const BODY_HALF = 12; // torso half-width for body collision + range
 const ROUND_TIME = 60;
@@ -66,7 +72,7 @@ const PLAYER_ATTACK_BUFFER_S = 0.14;
 const AI_COUNTER_WINDOW_S = 0.2;
 const AI_WHIFF_OPENING_S = 0.16;
 
-type MoveId = 'punchHigh' | 'punchLow' | 'kickHigh' | 'kickLow' | 'airPunch' | 'airKick';
+type MoveId = 'punchHigh' | 'punchLow' | 'kickHigh' | 'kickLow' | 'airPunch' | 'airKick' | 'pulse';
 type Height = 'high' | 'low' | 'overhead';
 
 interface Move {
@@ -85,6 +91,19 @@ interface Move {
 }
 
 const MOVES: Record<MoveId, Move> = {
+  pulse: {
+    pose: 'punchHigh',
+    startup: 0.28,
+    active: 0.05,
+    recovery: 0.42,
+    dmg: 10,
+    reach: 27,
+    hitY: -62,
+    height: 'high',
+    knockback: 55,
+    hitstun: 0.22,
+    blockstun: 0.12,
+  },
   punchLow: {
     pose: 'punchLow',
     startup: 0.05,
@@ -169,7 +188,28 @@ const MOVES: Record<MoveId, Move> = {
 type State =
   'idle' | 'walk' | 'crouch' | 'jump' | 'attack' | 'block' | 'hitstun' | 'blockstun' | 'ko';
 
+interface Pulse {
+  owner: Actor;
+  x: number;
+  y: number;
+  vx: number;
+  life: number;
+}
 interface Actor {
+  profile: FighterCombatProfile | null;
+  chain: number;
+  chainT: number;
+  confirmed: boolean;
+  receivedChain: number;
+  escapeT: number;
+  guardHeld: boolean;
+  guardWindow: number;
+  guardCooldown: number;
+  counterT: number;
+  counterStrike: boolean;
+  pulseCooldown: number;
+  feedback: string;
+  feedbackT: number;
   x: number;
   y: number; // feet y (FLOOR_Y on ground; < FLOOR_Y airborne)
   vx: number;
@@ -338,6 +378,7 @@ export function createFighterGame(engine: EngineContext, spec: FighterSpec): Gam
 }
 
 class FighterGame implements GameInstance {
+  private pulses: Pulse[] = [];
   hud: HudState = { score: 0, lives: 2, health: 0, maxHealth: 0, keys: 0, bombs: 0 };
   result: GameResult | null = null;
 
@@ -389,7 +430,22 @@ class FighterGame implements GameInstance {
     identitySlot: number,
   ): Actor {
     const build = c.build;
+    const profile = fighterProfile(c);
     return {
+      profile,
+      chain: 0,
+      chainT: 0,
+      confirmed: false,
+      receivedChain: 0,
+      escapeT: 0,
+      guardHeld: false,
+      guardWindow: 0,
+      guardCooldown: 0,
+      counterT: 0,
+      counterStrike: false,
+      pulseCooldown: 0,
+      feedback: '',
+      feedbackT: 0,
       x: ai ? STAGE_MAX - 80 : STAGE_MIN + 80,
       y: FLOOR_Y,
       vx: 0,
@@ -412,7 +468,8 @@ class FighterGame implements GameInstance {
       bufferT: 0,
       scale: fighterScaleForBuild(build),
       identitySlot,
-      speedScale: Math.max(0.85, Math.min(1.15, c.speedScale ?? 1)),
+      speedScale:
+        Math.max(0.85, Math.min(1.15, c.speedScale ?? 1)) * (profile === 'rushdown' ? 1.12 : 1),
       powerScale: Math.max(0.85, Math.min(1.15, c.powerScale ?? 1)),
       ai,
       aiT: 0,
@@ -440,6 +497,7 @@ class FighterGame implements GameInstance {
         outfit: boss.outfit,
         speedScale: boss.speedScale,
         powerScale: boss.powerScale,
+        combatProfile: boss.combatProfile,
       };
     }
     return this.spec.levels[this.bout]!.opponent;
@@ -503,6 +561,17 @@ class FighterGame implements GameInstance {
           portrait: this.engine.portrait,
           ...(boss ? { artRole: 'boss' as const } : {}),
         },
+        ...(this.spec.fighterStyle
+          ? [
+              {
+                title: `${this.opponentChar().name}: ${FIGHTER_STYLE_CATALOG[this.opponentChar().combatProfile!].name}`,
+                lines: [
+                  FIGHTER_STYLE_CATALOG[this.spec.fighterStyle].signature,
+                  `Opponent: ${FIGHTER_STYLE_CATALOG[this.opponentChar().combatProfile!].counterplay}`,
+                ],
+              },
+            ]
+          : []),
       ],
       () => {
         this.engine.music.playSong(boss ? 'boss' : this.spec.levels[ix]!.musicSong);
@@ -513,6 +582,7 @@ class FighterGame implements GameInstance {
   }
 
   private startRound(fresh: boolean): void {
+    this.pulses = [];
     if (fresh) {
       this.p = this.makeActor(this.playerChar(), false, 0, 0);
       this.o = this.makeActor(
@@ -533,6 +603,18 @@ class FighterGame implements GameInstance {
   }
 
   private resetActor(a: Actor, ai: boolean): void {
+    a.chain =
+      a.chainT =
+      a.receivedChain =
+      a.escapeT =
+      a.guardWindow =
+      a.guardCooldown =
+      a.counterT =
+      a.pulseCooldown =
+      a.feedbackT =
+        0;
+    a.confirmed = a.guardHeld = a.counterStrike = false;
+    a.feedback = '';
     a.x = ai ? STAGE_MAX - 80 : STAGE_MIN + 80;
     a.y = FLOOR_Y;
     a.vx = 0;
@@ -587,6 +669,8 @@ class FighterGame implements GameInstance {
     // live round
     this.timer = Math.max(0, this.timer - dt);
     this.faceOff();
+    this.tickKit(this.p, dt);
+    this.tickKit(this.o, dt);
     // In a library demo both fighters run on AI so the match plays itself.
     if (this.engine.attract) this.aiControl(this.p, this.o, dt);
     else this.control(this.p, dt, input);
@@ -595,6 +679,7 @@ class FighterGame implements GameInstance {
     this.stepActor(this.o, dt);
     this.resolveHits(this.p, this.o);
     this.resolveHits(this.o, this.p);
+    this.updatePulses(dt);
     this.bodyPush();
 
     if (this.p.hp <= 0 || this.o.hp <= 0 || this.timer <= 0) this.endRound();
@@ -628,6 +713,9 @@ class FighterGame implements GameInstance {
       a.bufferT = Math.max(0, a.bufferT - dt);
       if (a.bufferT === 0) a.bufferedMove = null;
     }
+    const holdGuard = input.L.held || input.R.held;
+    const freshGuard = holdGuard && !a.guardHeld;
+    a.guardHeld = holdGuard;
     const requestedMove = this.requestedMove(input, input.DOWN.held);
     if ((a.state === 'hitstun' || a.state === 'blockstun') && requestedMove) {
       a.bufferedMove = requestedMove;
@@ -638,15 +726,24 @@ class FighterGame implements GameInstance {
 
     const airborne = a.y < FLOOR_Y - 0.5;
     a.block = false;
-    if (a.state === 'attack') return; // committed to the move; physics in stepActor
+    if (a.state === 'attack') {
+      if (requestedMove) this.tryChain(a, requestedMove);
+      return;
+    }
 
     if (!airborne) {
-      const holdBlock = input.L.held || input.R.held;
+      const holdBlock = holdGuard;
+      if (a.profile === 'rangedControl' && holdGuard && input.Y.pressed && this.canAct(a)) {
+        if (a.pulseCooldown <= 0 && !this.pulses.some((p) => p.owner === a))
+          this.startMove(a, 'pulse');
+        return;
+      }
       a.crouch = input.DOWN.held;
       // block only when holding back is not required here — hold L/R to guard
       if (holdBlock && this.canAct(a)) {
         a.block = true;
         a.state = 'block';
+        if (freshGuard) this.openGuardWindow(a);
         a.vx = 0;
       } else {
         // movement
@@ -662,7 +759,7 @@ class FighterGame implements GameInstance {
           a.vx = 0;
         }
         if (input.UP.pressed) {
-          a.vy = -JUMP_V;
+          a.vy = -(a.profile ? PROFILE_JUMP_V : JUMP_V);
           a.state = 'jump';
           a.airMove = false;
           a.vx = mv * WALK * a.speedScale;
@@ -690,7 +787,15 @@ class FighterGame implements GameInstance {
     }
   }
 
-  private startMove(a: Actor, id: MoveId): void {
+  private startMove(a: Actor, id: MoveId, chain = false): void {
+    if (!chain) a.chain = 0;
+    a.chainT = 0;
+    a.confirmed = false;
+    a.block = false;
+    a.guardWindow = 0;
+    a.counterStrike = a.counterT > 0 && id !== 'pulse';
+    a.counterT = 0;
+    if (id === 'pulse') a.pulseCooldown = 2;
     a.move = id;
     a.moveT = 0;
     a.moveSerial += 1;
@@ -711,13 +816,19 @@ class FighterGame implements GameInstance {
     if (a.state === 'ko') return;
     if (a.aiRecoveryT > 0) a.aiRecoveryT = Math.max(0, a.aiRecoveryT - dt);
     this.tickStun(a, dt);
-    if (a.state === 'hitstun' || a.state === 'blockstun' || a.state === 'attack') return;
+    if (a.state === 'hitstun' || a.state === 'blockstun') return;
+    if (a.state === 'attack') {
+      if (a.profile === 'rushdown' && a.confirmed && a.moveT > 0.1)
+        this.tryChain(a, a.move === 'punchLow' ? 'punchHigh' : 'kickHigh');
+      return;
+    }
 
     const dist = Math.abs(foe.x - a.x);
     const dir = foe.x >= a.x ? 1 : -1;
-    const inRange = dist < 46;
+    const inRange = dist < (a.profile === 'rangedControl' ? 52 : 46);
     const foeAttacking = foe.state === 'attack' && foe.move !== null;
     const foeAirborne = foe.y < FLOOR_Y - 6;
+    const wasGuarding = a.block;
     a.block = false;
     a.crouch = false;
 
@@ -738,11 +849,38 @@ class FighterGame implements GameInstance {
       if (this.engine.rng.chance(guard)) a.aiGuardingFoeMove = foe.moveSerial;
     }
     if (foeAttacking && a.aiGuardingFoeMove === foe.moveSerial) {
-      const mv = MOVES[foe.move!];
+      const mv = this.moveFor(foe, foe.move!);
       a.state = 'block';
       a.block = true;
+      if (!wasGuarding && a.profile === 'counter') this.openGuardWindow(a);
       a.crouch = mv.height === 'low';
       a.vx = 0;
+      return;
+    }
+    if (
+      a.profile === 'rangedControl' &&
+      !foeAirborne &&
+      dist > 95 &&
+      a.pulseCooldown <= 0 &&
+      !this.pulses.some((p) => p.owner === a)
+    ) {
+      a.facing = dir;
+      this.startMove(a, 'pulse');
+      return;
+    }
+    if (
+      a.profile === 'rangedControl' &&
+      dist < 85 &&
+      a.x > STAGE_MIN + 25 &&
+      a.x < STAGE_MAX - 25
+    ) {
+      a.state = 'walk';
+      a.vx = -dir * WALK * a.speedScale * 0.8;
+      return;
+    }
+    if (a.profile === 'counter' && a.counterT > 0 && inRange) {
+      a.facing = dir;
+      this.startMove(a, 'punchHigh');
       return;
     }
     // Anti-air: foe jumping in close → poke up.
@@ -785,7 +923,7 @@ class FighterGame implements GameInstance {
           const roll = this.engine.rng.range(0, 1);
           this.startMove(
             a,
-            roll < 0.35
+            a.profile === 'rushdown' || roll < 0.35
               ? 'punchLow'
               : roll < 0.6
                 ? 'punchHigh'
@@ -805,7 +943,7 @@ class FighterGame implements GameInstance {
         break;
       case 'jump':
         if (a.y >= FLOOR_Y - 0.5) {
-          a.vy = -JUMP_V;
+          a.vy = -(a.profile ? PROFILE_JUMP_V : JUMP_V);
           a.state = 'jump';
           a.airMove = false;
           a.vx = dir * WALK * a.speedScale;
@@ -836,7 +974,17 @@ class FighterGame implements GameInstance {
     }
     if (a.state === 'attack' && a.move) {
       a.moveT += dt;
-      const m = MOVES[a.move];
+      const m = this.moveFor(a, a.move);
+      if (a.move === 'pulse' && !a.hitDone && a.moveT >= m.startup) {
+        a.hitDone = true;
+        this.pulses.push({
+          owner: a,
+          x: a.x + a.facing * m.reach * a.scale,
+          y: a.y + m.hitY * a.scale,
+          vx: a.facing * 190,
+          life: 2.5,
+        });
+      }
       if (a.moveT >= m.startup + m.active + m.recovery) {
         a.move = null;
         a.state = a.y < FLOOR_Y - 0.5 ? 'jump' : 'idle';
@@ -883,7 +1031,8 @@ class FighterGame implements GameInstance {
 
   private resolveHits(att: Actor, def: Actor): void {
     if (att.state !== 'attack' || !att.move || att.hitDone) return;
-    const m = MOVES[att.move];
+    if (att.move === 'pulse' || def.escapeT > 0) return;
+    const m = this.moveFor(att, att.move);
     if (att.moveT < m.startup || att.moveT > m.startup + m.active) return;
     // hitbox: a point out in front at the strike's reach + height
     const hx = att.x + att.facing * m.reach * att.scale;
@@ -896,38 +1045,119 @@ class FighterGame implements GameInstance {
     if (def.state === 'ko') return;
 
     att.hitDone = true;
+    this.applyHit(att, def, m, hx, hy, false);
+  }
+
+  private moveFor(a: Actor, id: MoveId): Move {
+    const m = MOVES[id];
+    if (id === 'pulse' || !a.profile) return m;
+    if (a.profile === 'rangedControl')
+      return { ...m, startup: m.startup * 1.2, recovery: m.recovery * 1.2, reach: m.reach * 1.1 };
+    return m;
+  }
+
+  private tickKit(a: Actor, dt: number): void {
+    for (const key of [
+      'chainT',
+      'escapeT',
+      'guardWindow',
+      'guardCooldown',
+      'counterT',
+      'pulseCooldown',
+      'feedbackT',
+    ] as const)
+      a[key] = Math.max(0, a[key] - dt);
+    if (a.state !== 'hitstun' && a.state !== 'blockstun') a.receivedChain = 0;
+    if (a.chainT <= 0) a.confirmed = false;
+  }
+
+  private openGuardWindow(a: Actor): void {
+    if (a.profile !== 'counter' || a.guardCooldown > 0) return;
+    a.guardWindow = 0.16;
+    a.guardCooldown = 0.65;
+  }
+
+  private tryChain(a: Actor, move: MoveId): boolean {
+    if (!a.profile || !a.confirmed || a.chainT <= 0) return false;
+    const next =
+      a.move === 'punchLow' && a.chain === 1
+        ? 'punchHigh'
+        : a.profile === 'rushdown' && a.move === 'punchHigh' && a.chain === 2
+          ? 'kickHigh'
+          : null;
+    if (move !== next) return false;
+    this.startMove(a, move, true);
+    return true;
+  }
+
+  private applyHit(
+    att: Actor,
+    def: Actor,
+    m: Move,
+    hx: number,
+    hy: number,
+    projectile: boolean,
+    direction = att.facing,
+  ): void {
+    if (def.state === 'ko' || def.escapeT > 0) return;
     const blockingRight =
       def.block &&
-      // The cabinet presents one Block button, so human guard is universal.
-      // AI still has to choose the correct standing/crouching defense.
       (!def.ai || (m.height === 'low' && def.crouch) || (m.height !== 'low' && !def.crouch));
-    const dmg = m.dmg * att.powerScale;
-    const kbDir = att.facing;
-    if (att.ai) {
-      const defenderStun = blockingRight ? m.blockstun : m.hitstun;
-      // This timer runs in parallel with defender stun; what remains afterward
-      // is therefore a guaranteed human-scale counter opportunity.
-      att.aiRecoveryT = Math.max(att.aiRecoveryT, defenderStun + AI_COUNTER_WINDOW_S);
+    if (blockingRight && def.profile === 'counter' && def.guardWindow > 0) {
+      def.guardWindow = 0;
+      def.counterT = 0.9;
+      def.feedback = 'COUNTER READY';
+      def.feedbackT = 0.9;
+      if (!projectile) {
+        att.confirmed = false;
+        att.move = null;
+        att.state = 'hitstun';
+        att.stunT = 0.3;
+        att.vx = -att.facing * 30;
+        att.aiRecoveryT = Math.max(att.aiRecoveryT, 0.5);
+      }
+      this.engine.sfx.play('powerup');
+      return;
     }
+    const chain = blockingRight ? 0 : def.state === 'hitstun' ? def.receivedChain + 1 : 1;
+    const scale = att.profile ? [1, 1, 0.75, 0.55][Math.min(3, chain)]! : 1;
+    const dmg = m.dmg * att.powerScale * scale * (att.counterStrike && !projectile ? 1.65 : 1);
+    if (att.ai)
+      att.aiRecoveryT = Math.max(
+        att.aiRecoveryT,
+        (blockingRight ? m.blockstun : m.hitstun) + AI_COUNTER_WINDOW_S,
+      );
+    def.move = null;
+    def.confirmed = false;
+    def.counterStrike = false;
     if (blockingRight) {
       def.hp -= Math.max(1, dmg * 0.12);
       def.state = 'blockstun';
       def.stunT = m.blockstun;
-      def.vx = kbDir * 40;
-      def.move = null;
+      def.vx = direction * 40;
+      att.confirmed = false;
       this.engine.sfx.play('uiBack');
-      this.engine.particles.burst(hx, hy, 3, {
-        color: this.spec.palette[14],
-        speed: 40,
-        life: 0.2,
-      });
     } else {
       def.hp -= dmg;
+      def.block = false;
+      def.guardWindow = 0;
+      def.receivedChain = chain;
       def.state = 'hitstun';
       def.stunT = m.hitstun;
-      def.move = null;
       def.flashT = 0.12;
-      def.vx = kbDir * m.knockback;
+      if (!projectile) {
+        att.chain++;
+        att.confirmed = true;
+        att.chainT = 0.22;
+        if (att.chain > 1) {
+          att.feedback = `${att.chain} HIT`;
+          att.feedbackT = 0.75;
+        }
+      }
+      const finisher = att.profile && chain >= 3;
+      def.vx =
+        direction * (finisher ? 110 : att.profile === 'rushdown' && !projectile ? 12 : m.knockback);
+      if (finisher) def.escapeT = m.hitstun + 0.2;
       if (m.knockdown || def.hp <= 0) {
         def.vy = -160;
         def.y = Math.min(def.y, FLOOR_Y - 0.6);
@@ -935,13 +1165,13 @@ class FighterGame implements GameInstance {
       this.engine.sfx.play('hit');
       this.engine.shake(FEEL.screenShakeMs, 3);
       this.engine.hitStop(FEEL.hitStopMs);
-      this.engine.particles.burst(hx, hy, 8, {
-        color: this.spec.palette[11],
-        speed: 90,
-        life: 0.35,
-      });
-      this.hud.score += 20;
+      if (att === this.p) this.hud.score += 20;
     }
+    this.engine.particles.burst(hx, hy, blockingRight ? 3 : 8, {
+      color: this.spec.palette[blockingRight ? 14 : 11],
+      speed: 70,
+      life: 0.25,
+    });
     if (def.hp <= 0) {
       def.hp = 0;
       def.state = 'ko';
@@ -949,11 +1179,36 @@ class FighterGame implements GameInstance {
     }
   }
 
+  private updatePulses(dt: number): void {
+    this.pulses = this.pulses.filter((pulse) => {
+      const def = pulse.owner === this.p ? this.o : this.p;
+      const before = pulse.x;
+      pulse.x += pulse.vx * dt;
+      pulse.life -= dt;
+      if (pulse.life <= 0 || pulse.x < 0 || pulse.x > W || pulse.owner.state === 'ko') return false;
+      // Generated fighters occupy roughly 80 px of the 96 px foot-anchored
+      // cell. Pulses travel at the extended high-punch fist, not the old
+      // procedural fighter's waist. Keep duck clearance across all builds.
+      const top = def.y + (def.crouch ? -48 : -80) * def.scale;
+      if (
+        Math.max(before, pulse.x) >= def.x - BODY_HALF * def.scale &&
+        Math.min(before, pulse.x) <= def.x + BODY_HALF * def.scale &&
+        pulse.y >= top &&
+        pulse.y <= def.y - 2
+      ) {
+        this.applyHit(pulse.owner, def, MOVES.pulse, pulse.x, pulse.y, true, pulse.vx > 0 ? 1 : -1);
+        return false;
+      }
+      return true;
+    });
+  }
+
   // ------------------------------------------------------------- round flow
 
   private endRound(): void {
     if (this.roundPhase !== 'fight') return;
     this.roundPhase = 'over';
+    this.pulses = [];
     this.phaseT = 0;
     let pW = this.p.hp > 0;
     let oW = this.o.hp > 0;
@@ -1114,6 +1369,26 @@ class FighterGame implements GameInstance {
       this.drawGeneratedFighter(a, pose, flash);
     }
 
+    for (const pulse of this.pulses) {
+      const x = Math.round(pulse.x),
+        y = Math.round(pulse.y);
+      r.rect(x - Math.sign(pulse.vx) * 7 - 2, y - 1, 4, 2, '#7065bf');
+      r.rect(x - 3, y - 2, 6, 4, '#41cfff');
+      r.rect(x - 1, y - 1, 2, 2, '#ffffff');
+    }
+    for (const a of [this.p, this.o]) {
+      if (a.guardWindow > 0 || a.counterT > 0) {
+        const x = Math.round(a.x + a.facing * 22),
+          y = Math.round(a.y - 65);
+        for (let i = 0; i < 3; i++) r.rect(x, y + i * 7, 3, 4, '#a7f070');
+      }
+      if (a.move === 'pulse' && a.moveT < MOVES.pulse.startup) {
+        const x = Math.round(a.x + a.facing * 27 * a.scale),
+          y = Math.round(a.y + MOVES.pulse.hitY * a.scale);
+        const spread = Math.ceil(10 * (1 - a.moveT / MOVES.pulse.startup));
+        for (const sign of [-1, 1]) r.rect(x + sign * spread, y + sign * spread, 2, 2, '#41cfff');
+      }
+    }
     this.renderUi(r);
   }
 
@@ -1133,6 +1408,27 @@ class FighterGame implements GameInstance {
     bar(W - 8 - barW, this.o.hp / this.o.maxHp, true);
     r.text(this.playerChar().name, 10, y + 11, r.theme.text);
     r.text(this.opponentChar().name, W - 10, y + 11, r.theme.text, { align: 'right' });
+
+    for (const [a, x, align] of [
+      [this.p, 10, 'left'],
+      [this.o, W - 10, 'right'],
+    ] as const) {
+      if (!a.profile) continue;
+      const status =
+        a.feedbackT > 0
+          ? a.feedback
+          : a.profile === 'rushdown'
+            ? 'CHAIN B > Y > X'
+            : a.profile === 'counter'
+              ? a.guardCooldown > 0
+                ? 'GUARD RECOVERING'
+                : 'TIMED GUARD READY'
+              : a.pulseCooldown > 0
+                ? `PULSE ${a.pulseCooldown.toFixed(1)}`
+                : 'GUARD + Y: PULSE';
+      r.text(FIGHTER_STYLE_CATALOG[a.profile].name, x, 51, r.theme.dim, { align });
+      r.text(status, x, 63, '#ffd75e', { align });
+    }
 
     // round-win pips
     for (let i = 0; i < ROUNDS_TO_WIN; i++) {

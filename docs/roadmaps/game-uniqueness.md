@@ -361,6 +361,9 @@ because two games can share a signature mechanic while having meaningfully diffe
 Priorities are dependency-oriented, not a schedule. Presentation work can accompany the first
 mechanics. Within priority 5, Fighter deserves particular attention if repeat Fighter generation is
 common: shared moves impose a direct ceiling on gameplay differentiation.
+The [first Fighter combat-profile slice](fighter.md) now implements rushdown,
+counter and ranged-control kits with mixed opponent ladders; see the
+[verification report](../reports/fighter-styles-20260911.md).
 
 Defer large interconnected adventures, arbitrary copied enemy abilities, unrestricted grappling,
 multiple controllable heroes, long RPG campaigns and mixed-runtime campaigns until simpler packages

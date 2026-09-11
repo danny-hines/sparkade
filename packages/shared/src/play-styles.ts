@@ -255,13 +255,24 @@ export function mechanicalFingerprint(spec: GameSpec): MechanicalFingerprint {
     case 'fighter':
       return {
         ...base,
-        playStyle: 'arcadeLadder',
+        playStyle: spec.fighterStyle ?? 'arcadeLadder',
         movement: spec.player.build,
-        weapons: ['sharedNormals'],
+        weapons: spec.fighterStyle
+          ? ['normals', 'shortChains', spec.fighterStyle]
+          : ['sharedNormals'],
         objective: 'winBouts',
         topology: 'duelArena',
         progression: 'bestOfThree',
-        encounters: [...new Set(spec.levels.map((l) => l.opponent.build))].sort(),
+        encounters: spec.fighterStyle
+          ? [
+              ...new Set([
+                ...spec.levels.map(
+                  (l) => `${l.opponent.combatProfile ?? 'shared'}:${l.opponent.build}`,
+                ),
+                `boss:${spec.boss.combatProfile ?? 'shared'}`,
+              ]),
+            ].sort()
+          : [...new Set(spec.levels.map((l) => l.opponent.build))].sort(),
       };
     case 'shooter':
       return {

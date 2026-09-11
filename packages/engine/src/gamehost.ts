@@ -267,7 +267,9 @@ export class GameHost {
       opts.spec.meta.title,
       controlHelp,
       family,
-      !!family || (opts.spec.archetype === 'adventure' && !!opts.spec.adventureStyle),
+      !!family ||
+        (opts.spec.archetype === 'adventure' && !!opts.spec.adventureStyle) ||
+        (opts.spec.archetype === 'fighter' && !!opts.spec.fighterStyle),
     );
     this.weather = makeWeather(opts.spec.weather ?? 'none', opts.spec.palette, opts.spec.seed);
     this.renderer.juice = Math.max(0, Math.min(1.5, opts.spec.juice ?? 1));

@@ -4,6 +4,7 @@
   "title": "Sparkade fighting game spec (specVersion 1)",
   "type": "object",
   "properties": {
+    "fighterStyle": { "enum": ["rushdown", "counter", "rangedControl"] },
     "specVersion": { "const": 1 },
     "archetype": { "const": "fighter" },
     "seed": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
@@ -427,9 +428,10 @@
       "additionalProperties": false
     },
     "fighter": {
-      "description": "A generated fighter identity plus round HP and optional light stat leans. The move set and frame data are the same for everyone because the engine owns balance.",
+      "description": "A generated fighter identity, tested combat profile, round HP and optional light stat leans. Profile move sets and frame data are engine-owned.",
       "type": "object",
       "properties": {
+        "combatProfile": { "enum": ["rushdown", "counter", "rangedControl"] },
         "name": { "$ref": "#/$defs/shortName" },
         "visualConcept": {
           "description": "Concrete, identity-defining head-to-toe art direction for generated character art: apparent adult age, face/hair silhouette, signature costume details, footwear, and one memorable motif. Never invent facial traits for a photographed player.",
@@ -480,6 +482,7 @@
       "description": "The final ladder bout — a distinct, tougher fighter with rage phases.",
       "type": "object",
       "properties": {
+        "combatProfile": { "enum": ["rushdown", "counter", "rangedControl"] },
         "name": { "$ref": "#/$defs/shortName" },
         "visualConcept": {
           "description": "Concrete, identity-defining head-to-toe art direction for the generated final opponent.",

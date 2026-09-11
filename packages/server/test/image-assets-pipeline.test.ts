@@ -5,6 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import sharp from 'sharp';
 import {
   mechanicalFingerprint,
+  FIGHTER_COMBAT_PROFILES,
   requiredPlatformerActionPoses,
   PLATFORMER_ACTION_ASSET_ROLES,
   GENERATED_GAME_ASSET_FILES,
@@ -12,6 +13,7 @@ import {
   type GeneratedGameAssetRole,
   type JobRecord,
   type PlatformerSpec,
+  type FighterSpec,
 } from '@sparkade/shared';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
@@ -987,6 +989,33 @@ describe.sequential('mock image asset pipeline', () => {
       generatedAssetForRole(join(files.gameDir(gameId), 'assets'), 'hshooterEnemyAtlas'),
     ).toMatchObject({ width: 480, height: 96 });
   });
+
+  it.each(FIGHTER_COMBAT_PROFILES)(
+    'publishes the %s fighter kit through the complete mock pipeline',
+    async (style) => {
+      const { db, files, runner } = createHarness();
+      const { jobId, gameId } = runner.createJob({
+        promptText: `A rooftop tournament featuring a ${style === 'counter' ? 'counter fighter with timed guard' : style} hero`,
+        sourceKind: 'surprise',
+        requestedArchetype: 'fighter',
+        idempotencyKey: `mock-fighter-profile-${style}`,
+      });
+      expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done' });
+      const spec = files.readSpec(gameId) as FighterSpec;
+      expect(spec.fighterStyle).toBe(style);
+      expect(spec.player.combatProfile).toBe(style);
+      expect(new Set(spec.levels.map((l) => l.opponent.combatProfile))).toEqual(
+        new Set(FIGHTER_COMBAT_PROFILES),
+      );
+      expect(FIGHTER_COMBAT_PROFILES).toContain(spec.boss.combatProfile);
+      expect(mechanicalFingerprint(spec).playStyle).toBe(style);
+      await expectPublishedPngs(files, gameId, [
+        ...FIGHTER_ROLES,
+        ...FIGHTER_ARENA_ROLES,
+        ...PRESENTATION_ROLES,
+      ]);
+    },
+  );
 
   it('publishes a distinct 13-state atlas for every fighter in the five-character roster', async () => {
     const { db, files, runner } = createHarness();

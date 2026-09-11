@@ -80,6 +80,14 @@ export function stageSchema(archetype: ArchetypeId, stage: SpecStage): Record<st
       };
     }
   }
+  if (archetype === 'fighter') {
+    // New generation requires a complete kit; the saved-game schema remains
+    // optional so existing arcade ladders retain their original controls.
+    for (const name of stage === 'levels' ? ['fighter'] : stage === 'entities' ? ['boss'] : []) {
+      const def = defs[name];
+      if (def?.required) def.required = [...def.required, 'combatProfile'];
+    }
+  }
   return {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     title: `Sparkade ${archetype} — ${stage} stage output`,

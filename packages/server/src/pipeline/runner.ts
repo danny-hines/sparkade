@@ -2125,6 +2125,16 @@ export class GenerationRunner {
         );
       }
 
+      if (
+        spec.archetype === 'fighter' &&
+        (spec.fighterStyle !== design.fighterStyle ||
+          spec.player.combatProfile !== design.fighterStyle)
+      )
+        throw new PipelineError(
+          'validation-failed',
+          'Repair changed the committed Fighter kit',
+          'validating',
+        );
       if (spec.archetype === 'shooter' && spec.shooterStyle !== design.shooterStyle) {
         throw new PipelineError(
           'validation-failed',
@@ -6014,6 +6024,7 @@ export class GenerationRunner {
                 hp: fighterSpec.boss.hp,
                 speedScale: fighterSpec.boss.speedScale,
                 powerScale: fighterSpec.boss.powerScale,
+                combatProfile: fighterSpec.boss.combatProfile,
               };
               interface RosterEntry {
                 slot: FighterRosterSlot;
@@ -6052,7 +6063,19 @@ export class GenerationRunner {
                 throw new Error('fighter roster does not match the five-slot atlas contract');
               }
 
-              const conceptFor = (character: FighterCharacter): string => character.visualConcept;
+              const conceptFor = (character: FighterCharacter): string =>
+                [
+                  character.visualConcept,
+                  character.combatProfile === 'rushdown'
+                    ? 'Combat kit: crisp compact low-punch, high-punch and high-kick silhouettes form a readable short chain.'
+                    : character.combatProfile === 'counter'
+                      ? 'Combat kit: a clearly braced blocking pose and decisive high-punch retaliation.'
+                      : character.combatProfile === 'rangedControl'
+                        ? 'Combat kit: the high-punch pose also releases an engine-drawn energy pulse from the forward fist. Keep that fist visible and uncropped. Paint only the fighter, with no projectile, glow or particles.'
+                        : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ');
               const colorsFor = (character: FighterCharacter): string =>
                 [
                   fighterSpec.palette[character.colorSlot],
@@ -7549,6 +7572,7 @@ export class GenerationRunner {
       ...((archetype === 'hshooter' || archetype === 'shooter') && design.vehicleConcept
         ? { playerCraft: { visualConcept: design.vehicleConcept } }
         : {}),
+      ...(archetype === 'fighter' ? { fighterStyle: design.fighterStyle ?? 'rushdown' } : {}),
       ...(archetype === 'fighter' && design.fighterArtDirection
         ? { artDirection: design.fighterArtDirection }
         : {}),

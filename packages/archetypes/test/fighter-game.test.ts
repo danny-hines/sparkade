@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   LOGICAL_BUTTONS,
+  fighterStyleExample,
+  type FighterCombatProfile,
   type FighterPose,
   type FighterSpec,
   type LogicalButton,
@@ -21,11 +23,23 @@ vi.mock('@sparkade/engine', async (importOriginal) => {
   };
 });
 
-type MoveId = 'punchHigh' | 'punchLow' | 'kickHigh' | 'kickLow' | 'airPunch' | 'airKick';
+type MoveId = 'punchHigh' | 'punchLow' | 'kickHigh' | 'kickLow' | 'airPunch' | 'airKick' | 'pulse';
 type ActorState =
   'idle' | 'walk' | 'crouch' | 'jump' | 'attack' | 'block' | 'hitstun' | 'blockstun' | 'ko';
 
 interface TestActor {
+  profile: FighterCombatProfile | null;
+  ai: boolean;
+  confirmed: boolean;
+  chain: number;
+  chainT: number;
+  escapeT: number;
+  guardWindow: number;
+  guardCooldown: number;
+  counterT: number;
+  pulseCooldown: number;
+  receivedChain: number;
+  scale: number;
   x: number;
   y: number;
   vx: number;
@@ -50,6 +64,13 @@ interface TestActor {
 }
 
 interface FighterHarness extends GameInstance {
+  pulses: { x: number; y: number; owner: TestActor; vx: number; life: number }[];
+  control(a: TestActor, dt: number, input: InputSnapshot): void;
+  resolveHits(a: TestActor, b: TestActor): void;
+  tickKit(a: TestActor, dt: number): void;
+  tryChain(a: TestActor, move: MoveId): boolean;
+  updatePulses(dt: number): void;
+  startRound(fresh: boolean): void;
   phase: 'cards' | 'fight';
   roundPhase: 'ready' | 'fight' | 'over';
   p: TestActor;
@@ -70,6 +91,7 @@ interface FighterHarness extends GameInstance {
 }
 
 interface HarnessOptions {
+  profile?: FighterCombatProfile;
   chance?: boolean | ((probability: number) => boolean);
   fighterAtlases?: readonly CanvasImageSource[] | null;
   fighterArenaAtlas?: CanvasImageSource | null;
@@ -151,7 +173,7 @@ function makeHarness(options: HarnessOptions = {}): {
   generatedDraws: GeneratedDrawEvent[];
   transforms: Array<readonly ['translate' | 'scale', number, number]>;
 } {
-  const spec = loadSpec();
+  const spec = options.profile ? fighterStyleExample(loadSpec(), options.profile) : loadSpec();
   const sfxEvents: string[] = [];
   const chanceEvents: number[] = [];
   const generatedDraws: GeneratedDrawEvent[] = [];
@@ -483,5 +505,185 @@ describe('generated fighter art', () => {
         filter: 'none',
       },
     ]);
+  });
+});
+
+describe('Fighter combat identities', () => {
+  const positioned = (profile: FighterCombatProfile) => {
+    const { game } = makeHarness({ profile, chance: false });
+    game.p.x = 100;
+    game.o.x = 130;
+    game.p.facing = 1;
+    game.o.facing = -1;
+    game.o.aiRecoveryT = 1000;
+    return game;
+  };
+  const confirm = (game: FighterHarness, button: LogicalButton) => {
+    game.update(STEP, snapshot({ press: button }));
+    for (let i = 0; i < 20 && !game.p.confirmed; i++) game.update(STEP, snapshot());
+    expect(game.p.confirmed).toBe(true);
+  };
+  it('chains three distinct rushdown strikes, scales damage, and grants an escape after the third', () => {
+    const game = positioned('rushdown');
+    const hp = game.o.hp;
+    confirm(game, 'B');
+    confirm(game, 'Y');
+    confirm(game, 'X');
+    expect(game.p.chain).toBe(3);
+    expect(hp - game.o.hp).toBeCloseTo(5 + 8 * 0.75 + 12 * 0.55);
+    expect(game.o.escapeT).toBeGreaterThan(0);
+    expect(game.tryChain(game.p, 'punchLow')).toBe(false);
+    const after = game.o.hp;
+    game.startMove(game.p, 'punchLow');
+    game.stepActor(game.p, 0.05);
+    game.resolveHits(game.p, game.o);
+    expect(game.o.hp).toBe(after);
+  });
+  it('cannot cancel a miss or a blocked attack into a chain', () => {
+    const game = positioned('rushdown');
+    game.startMove(game.p, 'punchLow');
+    game.stepActor(game.p, 0.05);
+    game.o.x = 400;
+    game.resolveHits(game.p, game.o);
+    expect(game.tryChain(game.p, 'punchHigh')).toBe(false);
+    game.o.x = 130;
+    game.o.block = true;
+    game.o.crouch = true;
+    game.resolveHits(game.p, game.o);
+    expect(game.tryChain(game.p, 'punchHigh')).toBe(false);
+    expect(game.p.chain).toBe(0);
+  });
+  it('rewards a fresh timed guard but holding guard does not continually reopen the window', () => {
+    const game = positioned('counter');
+    game.o.ai = false;
+    game.control(game.p, STEP, snapshot({ block: true }));
+    game.startMove(game.o, 'punchHigh');
+    game.stepActor(game.o, 0.07);
+    const hp = game.p.hp;
+    game.resolveHits(game.o, game.p);
+    expect(game.p.hp).toBe(hp);
+    expect(game.p.counterT).toBeGreaterThan(0);
+    expect(game.o.state).toBe('hitstun');
+    game.tickKit(game.p, 1);
+    game.control(game.p, STEP, snapshot({ block: true }));
+    expect(game.p.guardWindow).toBe(0);
+    game.startMove(game.o, 'punchHigh');
+    game.stepActor(game.o, 0.07);
+    game.resolveHits(game.o, game.p);
+    expect(game.p.hp).toBeLessThan(hp);
+  });
+  it('limits non-rushdown characters to two-hit chains', () => {
+    const game = positioned('counter');
+    confirm(game, 'B');
+    confirm(game, 'Y');
+    expect(game.tryChain(game.p, 'kickHigh')).toBe(false);
+  });
+  it('telegraphs a finite pulse, consumes its charge and lets a crouching fighter duck it', () => {
+    const game = positioned('rangedControl');
+    game.o.x = 220;
+    game.control(game.p, STEP, snapshot({ block: true, press: 'Y' }));
+    expect(game.p.move).toBe('pulse');
+    expect(game.p.pulseCooldown).toBe(2);
+    game.stepActor(game.p, 0.27);
+    expect(game.pulses).toHaveLength(0);
+    game.stepActor(game.p, 0.02);
+    expect(game.pulses).toHaveLength(1);
+    game.o.crouch = true;
+    const hp = game.o.hp;
+    for (let i = 0; i < 160; i++) game.updatePulses(STEP);
+    expect(game.o.hp).toBe(hp);
+    expect(game.pulses).toHaveLength(0);
+    game.startRound(false);
+    expect(game.p.pulseCooldown).toBe(0);
+    expect(game.p.counterT).toBe(0);
+  });
+  it('interrupts a pulse windup before it can emit', () => {
+    const game = positioned('rangedControl');
+    game.startMove(game.p, 'pulse');
+    game.startMove(game.o, 'punchHigh');
+    game.stepActor(game.o, 0.1);
+    game.resolveHits(game.o, game.p);
+    expect(game.p.state).toBe('hitstun');
+    game.stepActor(game.p, 0.5);
+    expect(game.pulses).toHaveLength(0);
+  });
+  it.each(['stand', 'guard', 'duck', 'jump'] as const)(
+    'pulses respect %s across all nine body-size matchups',
+    (defense) => {
+      for (const attackerScale of [0.94, 1.05, 1.16])
+        for (const defenderScale of [0.94, 1.05, 1.16]) {
+          const game = positioned('rangedControl');
+          game.p.scale = attackerScale;
+          game.o.scale = defenderScale;
+          game.o.x = 230;
+          game.o.profile = 'rushdown';
+          game.o.block = defense === 'guard';
+          game.o.crouch = defense === 'duck';
+          if (defense === 'jump') game.o.y -= 85;
+          const hp = game.o.hp;
+          game.startMove(game.p, 'pulse');
+          game.stepActor(game.p, 0.29);
+          for (let i = 0; i < 160; i++) game.updatePulses(STEP);
+          expect(hp - game.o.hp, `${attackerScale} -> ${defenderScale}`).toBeCloseTo(
+            defense === 'stand' ? 10 : defense === 'guard' ? 1.2 : 0,
+          );
+          expect(game.pulses).toHaveLength(0);
+        }
+    },
+  );
+  it('spends the counter bonus on one retaliatory attack and expires unused readiness', () => {
+    const game = positioned('counter');
+    game.p.counterT = 0.9;
+    const hp = game.o.hp;
+    confirm(game, 'B');
+    expect(hp - game.o.hp).toBeCloseTo(5 * 1.65);
+    expect(game.p.counterT).toBe(0);
+    game.p.counterT = 0.9;
+    game.tickKit(game.p, 1);
+    expect(game.p.counterT).toBe(0);
+    game.startRound(false);
+    expect(game.p.guardWindow).toBe(0);
+    expect(game.p.chain).toBe(0);
+    expect(game.p.escapeT).toBe(0);
+  });
+  it('keeps projectile knockback aligned with travel after its owner turns around', () => {
+    const game = positioned('rangedControl');
+    game.o.x = 230;
+    game.startMove(game.p, 'pulse');
+    game.stepActor(game.p, 0.29);
+    game.p.facing = -1;
+    for (let i = 0; i < 50 && game.pulses.length; i++) game.updatePulses(STEP);
+    expect(game.o.hp).toBeLessThan(game.o.maxHp);
+    expect(game.o.vx).toBeGreaterThan(0);
+  });
+  it.each(['rushdown', 'counter', 'rangedControl'] as const)(
+    '%s can physically jump above the highest pulse lane',
+    (profile) => {
+      const game = positioned(profile);
+      const floor = game.p.y;
+      game.control(game.p, STEP, snapshot({ press: 'UP' }));
+      let apex = floor;
+      for (let i = 0; i < 80; i++) {
+        game.stepActor(game.p, STEP);
+        apex = Math.min(apex, game.p.y);
+      }
+      expect(floor - apex).toBeGreaterThan(85);
+      expect(game.p.y).toBe(floor);
+    },
+  );
+  it('makes ranged AI fire at distance and rushdown AI select a chain opener', () => {
+    const ranged = positioned('rangedControl');
+    ranged.o.profile = 'rangedControl';
+    ranged.o.aiRecoveryT = 0;
+    ranged.p.x = 60;
+    ranged.o.x = 350;
+    ranged.aiControl(ranged.o, ranged.p, STEP);
+    expect(ranged.o.move).toBe('pulse');
+    const rush = positioned('rushdown');
+    rush.o.aiRecoveryT = 0;
+    rush.o.aiIntent = 'attack';
+    rush.o.aiT = 1;
+    rush.aiControl(rush.o, rush.p, STEP);
+    expect(rush.o.move).toBe('punchLow');
   });
 });

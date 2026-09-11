@@ -1,3 +1,4 @@
+import { FIGHTER_STYLE_CATALOG, fighterStylePreference } from '@sparkade/shared';
 // Server-side prompt assembly: loads the .md templates from
 // packages/generation and fills their placeholders (schemas verbatim from
 // @sparkade/shared, golden few-shot excerpts, anti-collision block).
@@ -119,6 +120,7 @@ export function buildDesignPrompt(opts: {
     `VERTICAL SHOOTER STYLE PREFERENCE (least recently used first): ${shooterStylePreference(opts.recentMechanics ?? []).join(', ')}. Explicit requested mechanics take precedence.`,
     `SHOOTER STYLE CATALOG: ${JSON.stringify(SHOOTER_STYLE_CATALOG)}`,
     `ADVENTURE STYLE PREFERENCE (least recently used first): ${adventureStylePreference(opts.recentMechanics ?? []).join(', ')}. Explicit objective requests take precedence.`,
+    `FIGHTER STYLE PREFERENCE (least recently used first): ${fighterStylePreference(opts.recentMechanics ?? []).join(', ')}. Explicit requests take precedence. Choose fighterStyle for Fighter only. CATALOG: ${JSON.stringify(FIGHTER_STYLE_CATALOG)}`,
     `ADVENTURE STYLE CATALOG: ${JSON.stringify(ADVENTURE_STYLE_CATALOG)}. Select adventureStyle for Adventure only.`,
     `PRESENTATION CATALOG: ${JSON.stringify(PRESENTATION_CATALOG)}`,
     ...(moodNote ? [moodNote] : []),
@@ -210,6 +212,7 @@ export function buildLevelsPrompt(
       `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}`,
       ...(archetype === 'shooter' ? [shooterStyleBrief(design)] : []),
       ...(archetype === 'adventure' ? [adventureStyleBrief(design)] : []),
+      ...(archetype === 'fighter' ? [fighterStyleBrief(design)] : []),
       ...(archetype === 'platformer'
         ? [platformerStyleBrief(design), encounterGuidance(design, recentMechanics)]
         : []),
@@ -237,6 +240,10 @@ export function buildLevelsPrompt(
 export function shooterStyleBrief(design: Pick<DesignDoc, 'shooterStyle'>): string {
   const style = design.shooterStyle ?? 'chargeSpecialist';
   return `COMMITTED SHOOTER KIT: ${style}. ${SHOOTER_STYLE_CATALOG[style].summary} Preserve shooterStyle through every repair. Every level needs two signature waves including one by 20s: weaponSwitch needs BOTH wideSwarm (line/vee/arc, count>=4, hp<=2) AND armorColumn (column, count>=2, hp>=3, dive); chargeSpecialist needs armorColumn; lockOnStriker needs lockScreen (non-column formation, count>=3, hold). Author centerX lanes. Switching and lock-on bosses require at least two pods. weaponSwitch rewards use rapid/shield/bomb, never spread. The engine owns weapon balance and the 4.8s attack / 2.4s boss opening cycle; do not invent numeric weapon fields or additional abilities.`;
+}
+
+export function fighterStyleBrief(design: Pick<DesignDoc, 'fighterStyle'>): string {
+  return `COMMITTED FIGHTER STYLE: ${design.fighterStyle ?? 'rushdown'}. Preserve this fighterStyle and player.combatProfile through repair. All five characters need combatProfile: rushdown, counter, or rangedControl. The three ladder opponents must use all three profiles; the boss gets one profile. Rushdown confirms low punch > high punch > high kick. Counter uses a fresh timed guard then retaliation. Ranged control uses guard + high punch for a limited, telegraphed energy pulse which can be jumped or ducked. All profiles have a short low-punch > high-punch chain. Frame data, damage scaling, guard windows, cooldowns, and escape rules belong to the engine; do not invent moves. Keep the signature plausible in each character's theme. Existing punch, kick, and block poses animate these mechanics; pulse energy is drawn by the runtime, never baked into the hero atlas. Teach the current opponent's counterplay in stage introductions. Do not change the chosen player style during repairs.`;
 }
 
 export function adventureStyleBrief(design: Pick<DesignDoc, 'adventureStyle'>): string {
@@ -563,6 +570,7 @@ export function buildEntitiesPrompt(
       `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}`,
       ...(archetype === 'shooter' ? [shooterStyleBrief(design)] : []),
       ...(archetype === 'adventure' ? [adventureStyleBrief(design)] : []),
+      ...(archetype === 'fighter' ? [fighterStyleBrief(design)] : []),
       `Photo for likeness: ${hasPhoto ? 'yes' : 'no'}.${likenessBodyNote}${recentNote}`,
       ...(archetype === 'platformer'
         ? [
@@ -645,6 +653,9 @@ export function buildRepairPrompt(
   });
   const context = repairContext(invalidJson, diagnostics, owner);
   const user = [
+    ...(archetype === 'fighter'
+      ? [fighterStyleBrief(invalidJson as Pick<DesignDoc, 'fighterStyle'>)]
+      : []),
     ...(archetype === 'adventure'
       ? [adventureStyleBrief(invalidJson as Pick<DesignDoc, 'adventureStyle'>)]
       : []),
@@ -712,6 +723,7 @@ export function buildLevelRegenerationPrompt(
       `DESIGN DOCUMENT:\n${JSON.stringify(design, null, 1)}`,
       ...(archetype === 'shooter' ? [shooterStyleBrief(design)] : []),
       ...(archetype === 'adventure' ? [adventureStyleBrief(design)] : []),
+      ...(archetype === 'fighter' ? [fighterStyleBrief(design)] : []),
       ...(archetype === 'platformer'
         ? [
             platformerStyleBrief(design),

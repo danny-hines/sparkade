@@ -1,3 +1,4 @@
+import { fighterStyleExample, type FighterCombatProfile } from '@sparkade/shared';
 import { type ShooterPlayStyle } from '@sparkade/shared';
 // Mock provider: returns golden-game fixtures with artificial stage delays and
 // fake usage numbers, traveling through the SAME durable pipeline, validators,
@@ -182,14 +183,30 @@ export class MockProvider implements Provider {
             req.user,
           )?.[1] ?? 'dungeonExpedition')
     ) as import('@sparkade/shared').AdventurePlayStyle;
+    const fighterStyle = (
+      stage === 'design'
+        ? /ranged.?control|projectile fighter/i.test(requestText)
+          ? 'rangedControl'
+          : /counter fighter|timed guard/i.test(requestText)
+            ? 'counter'
+            : /rushdown/i.test(requestText)
+              ? 'rushdown'
+              : (/FIGHTER STYLE PREFERENCE[^:]*:\s*(rushdown|counter|rangedControl)/.exec(
+                  req.user,
+                )?.[1] ?? 'rushdown')
+        : (/"fighterStyle"\s*:\s*"(rushdown|counter|rangedControl)"/.exec(req.user)?.[1] ??
+          'rushdown')
+    ) as FighterCombatProfile;
     const golden =
-      source.archetype === 'platformer' && style
-        ? platformerStyleExample(source, style)
-        : source.archetype === 'shooter'
-          ? shooterStyleExample(source, shooterStyle)
-          : source.archetype === 'adventure'
-            ? adventureStyleExample(source, adventureStyle)
-            : source;
+      source.archetype === 'fighter'
+        ? fighterStyleExample(source, fighterStyle)
+        : source.archetype === 'platformer' && style
+          ? platformerStyleExample(source, style)
+          : source.archetype === 'shooter'
+            ? shooterStyleExample(source, shooterStyle)
+            : source.archetype === 'adventure'
+              ? adventureStyleExample(source, adventureStyle)
+              : source;
     this.counter++;
 
     let payload: unknown;
@@ -232,7 +249,7 @@ export class MockProvider implements Provider {
               }
             : {}),
           ...(golden.archetype === 'fighter'
-            ? { fighterArtDirection: structuredClone(golden.artDirection) }
+            ? { fighterArtDirection: structuredClone(golden.artDirection), fighterStyle }
             : {}),
           story: structuredClone(golden.story),
           levelPlan: [

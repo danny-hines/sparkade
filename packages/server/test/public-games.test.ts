@@ -298,7 +298,7 @@ describe('PublicGamePublisher', () => {
       sourceId: 'g-one',
       status: 'failed',
       stage: 'building-assets',
-      message: 'Generation paused on the cabinet. This link will update after a retry.',
+      message: 'Generation paused. This link will update after a retry.',
     });
   });
 });

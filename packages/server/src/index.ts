@@ -17,6 +17,7 @@ import { dataDir, ensureDir, repoRoot } from './util';
 import { createPublicGamePublisher } from './cloud/public-games';
 import { migratePlatformerPresentations } from './storage/presentation-migration';
 import { readBuildCommit } from './system/build';
+import { CloudGenerationClient } from './cloud/generation-client';
 
 // Load .env in dev (tiny parser; no dotenv dependency). Pi uses systemd EnvironmentFile.
 function loadDotEnv(): void {
@@ -50,6 +51,16 @@ async function main(): Promise<void> {
     (gameId) => files.readPublicAssets(gameId),
     dir,
   );
+  const cloudGeneration =
+    process.env.SPARKADE_GENERATION_MODE === 'cloud'
+      ? new CloudGenerationClient(
+          process.env.SPARKADE_PUBLIC_ORIGIN || 'https://sparkade.dev',
+          () => publicGames?.authorizationToken() ?? null,
+          db,
+          files,
+          hub,
+        )
+      : null;
 
   // Boot-time recovery: seed goldens, reconcile DB<->filesystem, fail interrupted jobs.
   seedGoldenGames(
@@ -83,11 +94,14 @@ async function main(): Promise<void> {
     runner,
     hub,
     publicGames,
+    cloudGeneration,
     version,
     buildCommit,
     instanceId,
     port,
   });
+  cloudGeneration?.start();
+  app.addHook('onClose', async () => cloudGeneration?.stop());
 
   // Serve the built shell (production / demo). Vite serves it in dev.
   const webDist = join(repoRoot(), 'packages', 'web', 'dist');

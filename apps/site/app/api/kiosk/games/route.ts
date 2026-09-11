@@ -7,7 +7,7 @@ export const runtime = 'nodejs';
 
 const SOURCE_ID_PATTERN = /^[a-zA-Z0-9_-]{3,64}$/;
 export async function POST(request: NextRequest) {
-  const principal = await authorizeKioskRequest(request);
+  const principal = await authorizeKioskRequest(request, true);
   if (!principal) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }

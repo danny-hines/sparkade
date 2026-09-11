@@ -57,7 +57,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isGeneratedGameAsset(value: unknown): value is GeneratedGameAsset {
+export function isGeneratedGameAsset(value: unknown): value is GeneratedGameAsset {
   if (!isRecord(value) || typeof value.role !== 'string') return false;
   if (!Object.prototype.hasOwnProperty.call(GENERATED_GAME_ASSET_FILES, value.role)) return false;
   const role = value.role as GeneratedGameAssetRole;

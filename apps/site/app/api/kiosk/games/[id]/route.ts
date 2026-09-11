@@ -12,7 +12,7 @@ const PUBLIC_ASSET_FILENAMES = new Set<string>(Object.values(GENERATED_GAME_ASSE
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
-  const principal = await authorizeKioskRequest(request);
+  const principal = await authorizeKioskRequest(request, true);
   if (!principal) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }

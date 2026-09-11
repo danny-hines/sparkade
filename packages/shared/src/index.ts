@@ -10,3 +10,4 @@ export * from './platformer-encounters';
 export * from './presentation';
 export * from './shooter-styles';
 export * from './adventure-styles';
+export * from './cloud-generation';

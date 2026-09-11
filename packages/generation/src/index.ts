@@ -8,15 +8,24 @@ import type { ArchetypeId, GameSpec, MusicBlock, SpecStage } from '@sparkade/sha
 
 /** packages/generation root (works from source via tsx and from the server bundle via cwd fallback). */
 function generationRoot(): string {
-  // When bundled into the server, import.meta.url points at the bundle; walk
-  // from the repo root instead (the service runs with cwd=/opt/sparkade).
   const fromModule = join(dirname(fileURLToPath(import.meta.url)), '..');
-  try {
-    readdirSync(join(fromModule, 'prompts'));
-    return fromModule;
-  } catch {
-    return join(process.cwd(), 'packages', 'generation');
+  const candidates = [fromModule];
+  let dir = process.cwd();
+  for (let i = 0; i < 6; i++) {
+    candidates.push(join(dir, 'packages', 'generation'));
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
   }
+  for (const candidate of candidates) {
+    try {
+      readdirSync(join(candidate, 'prompts'));
+      return candidate;
+    } catch {
+      /* try parent */
+    }
+  }
+  throw new Error('Generation prompt templates are missing from the deployment');
 }
 
 export type TemplateName =

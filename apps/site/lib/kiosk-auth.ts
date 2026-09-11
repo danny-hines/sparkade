@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { NextRequest } from 'next/server';
 import { authenticateKioskToken, type KioskPrincipal } from './kiosks';
+import { verifyGenerationToken } from '@sparkade/generation/service-auth';
 
 export interface AuthorizedKiosk {
   kind: 'registered' | 'legacy';
@@ -33,9 +34,27 @@ export function kioskBearerToken(request: NextRequest): string | null {
   return supplied || null;
 }
 
-export async function authorizeKioskRequest(request: NextRequest): Promise<AuthorizedKiosk | null> {
+export async function authorizeKioskRequest(
+  request: NextRequest,
+  allowWorker = false,
+): Promise<AuthorizedKiosk | null> {
   const token = kioskBearerToken(request);
   if (!token) return null;
+  if (allowWorker && token.startsWith('spk_worker_')) {
+    const principal = verifyGenerationToken(
+      token,
+      'publication',
+      process.env.SPARKADE_GENERATION_SECRET ?? '',
+    );
+    if (!principal) return null;
+    return {
+      kind: 'registered',
+      kioskId: principal.kioskId,
+      credentialId: null,
+      name: principal.name,
+      defaultFeedVisibility: principal.defaultFeedVisibility,
+    };
+  }
   const legacy = legacyKiosk(token);
   if (legacy) return legacy;
   const registered: KioskPrincipal | null = await authenticateKioskToken(token);

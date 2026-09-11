@@ -56,6 +56,11 @@ export class PublicGamePublisher {
     return this.publicationsByGameId.get(gameId)?.link ?? null;
   }
 
+  /** Device credential stays in the local server; never sent to the browser. */
+  authorizationToken(): string | null {
+    return this.resolveApiKey();
+  }
+
   publicationForGame(gameId: string): PublicGamePublication | null {
     return this.publicationsByGameId.get(gameId) ?? null;
   }
@@ -303,7 +308,7 @@ export class PublicGamePublisher {
       return {
         status: 'failed',
         stage: event.stage,
-        message: 'Generation paused on the cabinet. This link will update after a retry.',
+        message: 'Generation paused. This link will update after a retry.',
       };
     }
     return {

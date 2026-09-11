@@ -10,9 +10,9 @@ export function needsWavTranscode(mime: string): boolean {
 }
 
 /** Transcode any ffmpeg-readable audio to 16 kHz mono WAV via stdin/stdout. */
-export function transcodeToWav(input: Buffer): Promise<Buffer> {
+export function transcodeToWav(input: Buffer, executable = 'ffmpeg'): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const ff = spawn('ffmpeg', ['-i', 'pipe:0', '-f', 'wav', '-ar', '16000', '-ac', '1', 'pipe:1'], {
+    const ff = spawn(executable, ['-i', 'pipe:0', '-f', 'wav', '-ar', '16000', '-ac', '1', 'pipe:1'], {
       stdio: ['pipe', 'pipe', 'ignore'],
     });
     const chunks: Buffer[] = [];

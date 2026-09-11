@@ -31,3 +31,8 @@ headshots/
 .env*
 !.env.example
 !apps/site/.env.example
+
+apps/site/app/.well-known/workflow/
+.workflow-data/
+
+packages/server/dist-worker/

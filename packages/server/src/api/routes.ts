@@ -8,7 +8,6 @@ import type { MultipartFile } from '@fastify/multipart';
 import {
   ARCHETYPE_IDS,
   GENERATED_GAME_ASSET_FILES,
-  GENERATION,
   type ArchetypeId,
   type GeneratedGameAssetRole,
   type JobEvent,
@@ -21,7 +20,8 @@ import {
   generatedAssetForRole,
 } from '../assets/manifest';
 import { fighterArenaPresentationIsBaked } from '../assets/fighter-arena';
-import { costOf, estimateGenerationCost, estimateImageCount, formatUsd } from '../pipeline/cost';
+import { costOf } from '../pipeline/cost';
+import { generationEstimate } from '../pipeline/generation-estimate';
 import { ProviderHttpError, ProviderNetworkError, stageProvider } from '../providers/index';
 import type { GenerationRunner } from '../pipeline/runner';
 import type { SseHub } from '../pipeline/sse';
@@ -40,6 +40,8 @@ import { registerDevPlatformerPoseRoutes } from './dev-platformer-poses';
 import { registerDevPlatformerLevelRoutes } from './dev-platformer-levels';
 import { isSameHttpOrigin } from './origin';
 import type { PublicGamePublisher } from '../cloud/public-games';
+import { CloudGenerationError, type CloudGenerationClient } from '../cloud/generation-client';
+import { Readable } from 'node:stream';
 
 export interface ApiContext {
   db: Db;
@@ -48,6 +50,7 @@ export interface ApiContext {
   runner: GenerationRunner;
   hub: SseHub;
   publicGames?: PublicGamePublisher | null;
+  cloudGeneration?: CloudGenerationClient | null;
   version: string;
   buildCommit?: string | null;
   instanceId: string;
@@ -61,7 +64,17 @@ const isArchetypeId = (value: string): value is ArchetypeId =>
   (ARCHETYPE_IDS as readonly string[]).includes(value);
 
 export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
-  const { db, files, configStore, runner, hub, publicGames } = ctx;
+  const { db, files, configStore, runner, hub, publicGames, cloudGeneration } = ctx;
+  const cloudForGame = (id: string) => {
+    if (!cloudGeneration) return null;
+    const job = db.getJobForGame(id);
+    return job && cloudGeneration?.owns(job.id) ? cloudGeneration.state(job.id) : null;
+  };
+  app.setErrorHandler((error, _req, reply) => {
+    if (error instanceof CloudGenerationError)
+      return reply.code(error.status).send({ error: error.message });
+    return reply.send(error);
+  });
 
   // Dev-only asset review gallery + likeness lab (never registered in kiosk/production).
   if (process.env.SPARKADE_DEV === '1') {
@@ -125,6 +138,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     if (!file) return reply.code(400).send({ error: 'no audio uploaded' });
     const audio = await file.toBuffer();
     if (audio.length > MAX_AUDIO_BYTES) return reply.code(413).send({ error: 'audio too large' });
+    if (cloudGeneration) return cloudGeneration.transcribe(audio, file.mimetype || 'audio/webm');
     const config = configStore.get();
     const { provider, providerName, model } = stageProvider(config, 'stt');
     if (!provider.transcribe || !provider.capabilities.audioIn) {
@@ -218,7 +232,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       cleanDetails ||
       (sourceKind !== 'voice' ? promptText.trim().slice(0, 1200) || undefined : undefined);
     const hasCreationBrief = !!(requestedArchetype || cleanHeroName || briefDetails);
-    const res = runner.createJob({
+    const inputs = {
       promptText: promptText.slice(0, 1200),
       sourceKind,
       ...(requestedArchetype ? { requestedArchetype } : {}),
@@ -235,7 +249,9 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
       ...(presetId ? { presetId } : {}),
       ...(photo ? { photo } : {}),
       idempotencyKey,
-    });
+    };
+    if (cloudGeneration) return reply.code(202).send(await cloudGeneration.createJob(inputs));
+    const res = runner.createJob(inputs);
     const publicGame = await publicGames?.reserveAndTrack(res.jobId, res.gameId);
     return reply.code(202).send({ ...res, ...(publicGame ? { publicGame } : {}) });
   });
@@ -243,7 +259,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
   app.get('/api/games', async () => {
     return db.listGames().map((row) => {
       const item = db.listItem(row);
-      const publication = publicGames?.publicationForGame(row.id);
+      const publication =
+        cloudForGame(row.id)?.publication ?? publicGames?.publicationForGame(row.id);
       return publication ? { ...item, publication } : item;
     });
   });
@@ -290,15 +307,15 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
         fighterArenaAsset !== null &&
         fighterArenaPresentationIsBaked(fighterArenaAsset.promptVersion),
     };
-    const publicGame = publicGames?.linkForGame(id);
-    const publication = publicGames?.publicationForGame(id);
+    const publicGame = cloudForGame(id)?.publicGame ?? publicGames?.linkForGame(id);
+    const publication = cloudForGame(id)?.publication ?? publicGames?.publicationForGame(id);
     return {
       item: publication ? { ...db.listItem(row), publication } : db.listItem(row),
       spec,
       meta,
       job,
       assets,
-      usage: db.usageForGame(id),
+      usage: cloudForGame(id) && meta ? meta.costBreakdown : db.usageForGame(id),
       ...(publicGame ? { publicGame } : {}),
       ...(publication ? { publication } : {}),
     };
@@ -310,6 +327,11 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     if (!row) return reply.code(404).send({ error: 'unknown game' });
     if (row.golden) return reply.code(409).send({ error: 'built-in games cannot be published' });
     if (row.status !== 'ready') return reply.code(409).send({ error: 'game is not ready' });
+    const remote = cloudForGame(id);
+    if (remote)
+      return reply.code(202).send({
+        publication: remote.publication ?? { status: 'publishing', link: remote.publicGame },
+      });
     if (!publicGames) return reply.code(503).send({ error: 'cloud publishing is not configured' });
     try {
       const publication = await publicGames.publishExisting(id);
@@ -326,6 +348,11 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     const { id } = req.params as { id: string };
     const row = db.getGame(id);
     if (!row) return reply.code(404).send({ error: 'unknown game' });
+    if (row.jobId && cloudGeneration?.owns(row.jobId) && row.status !== 'ready') {
+      return (
+        await cloudGeneration.request(`/v1/jobs/${encodeURIComponent(row.jobId)}/partial`)
+      ).json();
+    }
     return { partial: row.jobId ? files.readPartial(row.jobId) : null };
   });
 
@@ -349,7 +376,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     const { id } = req.params as { id: string };
     const row = db.getGame(id);
     if (!row) return reply.code(404).send({ error: 'unknown game' });
-    runner.cancelForGame(id); // cancels a running job first, discards staging
+    if (row.jobId && cloudGeneration?.owns(row.jobId)) await cloudGeneration.cancelForGame(id);
+    else runner.cancelForGame(id);
     files.deleteGame(id);
     db.deleteGame(id);
     return { ok: true };
@@ -359,6 +387,10 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     const { id } = req.params as { id: string };
     const row = db.getGame(id);
     if (!row) return reply.code(404).send({ error: 'unknown game' });
+    if (row.jobId && cloudGeneration?.owns(row.jobId)) {
+      const res = await cloudGeneration.retryJob(id);
+      return reply.code(202).send(res);
+    }
     const res = runner.retryJob(id);
     if (!res) return reply.code(409).send({ error: 'this game has no failed job to retry' });
     const publicGame = await publicGames?.reserveAndTrack(res.jobId, id);
@@ -376,6 +408,14 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
     const { jobId, name } = req.params as { jobId: string; name: string };
     const job = db.getJob(jobId);
     if (!job) return reply.code(404).send({ error: 'unknown job' });
+    if (cloudGeneration?.owns(jobId) && job.status !== 'done') {
+      const response = await cloudGeneration.request(
+        `/v1/jobs/${encodeURIComponent(jobId)}/assets/${encodeURIComponent(name)}`,
+      );
+      return reply
+        .type('image/png')
+        .send(Readable.fromWeb(response.body as import('node:stream/web').ReadableStream));
+    }
     const assetsDir =
       job.status === 'done'
         ? join(files.gameDir(job.gameId), 'assets')
@@ -531,41 +571,16 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
 
   // ---- generation cost estimate (review screen) --------------------------------
   app.get('/api/generation/estimate', async (req) => {
+    if (cloudGeneration) {
+      const query = new URLSearchParams(req.query as Record<string, string>);
+      return (await cloudGeneration.request(`/v1/estimate?${query}`)).json();
+    }
     const c = configStore.get();
-    const model = c.stages.design.model;
     const query = (req.query ?? {}) as { photo?: string; archetype?: string };
     const hasPhoto = query.photo === '1';
     const archetype =
       query.archetype && isArchetypeId(query.archetype) ? query.archetype : undefined;
-    const textUsd = estimateGenerationCost(model, c.pricing, {
-      platformerPoseJudges: hasPhoto && (archetype === undefined || archetype === 'platformer'),
-      platformerBossJudge: archetype === undefined || archetype === 'platformer',
-      hshooterBossJudge: archetype === undefined || archetype === 'hshooter',
-      hshooterEnemyJudge: archetype === undefined || archetype === 'hshooter',
-      shooterBossJudge: archetype === undefined || archetype === 'shooter',
-      shooterEnemyJudge: archetype === undefined || archetype === 'shooter',
-      platformerEnemyJudge: archetype === undefined || archetype === 'platformer',
-      adventurePlayerIdentityJudge: hasPhoto && archetype === 'adventure',
-      adventurePlayerSetJudge: archetype === 'adventure',
-      adventureBossJudge: archetype === 'adventure',
-      adventureEnemyJudge: archetype === 'adventure',
-      adventureObjectJudge: archetype === 'adventure',
-    });
-    const conservativeUpperBound = hasPhoto && archetype === undefined;
-    const happyPathImages = estimateImageCount(hasPhoto, archetype);
-    const imageUsd = happyPathImages * Math.max(0, c.imageGeneration.pricePerImageUsd);
-    const usd = textUsd === null ? null : textUsd + imageUsd;
-    return {
-      usd,
-      label:
-        usd === null
-          ? 'cost unavailable'
-          : `${conservativeUpperBound ? 'up to' : 'about'} ${formatUsd(usd)} (estimate)`,
-      model,
-      imageModel: c.imageGeneration.model,
-      busy: runner.isBusy(),
-      maxRecordingSeconds: GENERATION.maxRecordingSeconds,
-    };
+    return generationEstimate(c, hasPhoto, archetype, runner.isBusy());
   });
 
   // ---- cloud registration ------------------------------------------------------

@@ -13,8 +13,10 @@ headshots/
 install/
 node_modules/
 packages/cli/
-packages/generation/
-packages/server/
+packages/generation/test/
+packages/server/test/
+packages/server/dist/
+packages/server/dist-worker/
 packages/web/dist/
 packages/web/node_modules/
 packages/web/test/
@@ -23,3 +25,5 @@ scratch/
 scripts/
 test-results/
 tests/
+
+apps/site/app/.well-known/workflow/

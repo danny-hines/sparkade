@@ -4,3 +4,4 @@
 *.tsbuildinfo
 .agents/
 skills-lock.json
+/.swc

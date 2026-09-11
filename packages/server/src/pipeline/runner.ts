@@ -4,6 +4,7 @@
 // On boot the server reconciles: interrupted jobs become failed-retryable.
 import { generatePlatformerActions } from '../assets/platformer-actions';
 import { randomInt } from 'node:crypto';
+import type { DurablePipelineCalls, PipelineStore } from './durable';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { nanoid } from 'nanoid';
@@ -409,7 +410,7 @@ import {
   type PrivateGeneratedAssetRole,
 } from '../assets/manifest';
 import type { ConfigStore } from '../storage/config';
-import type { Db } from '../storage/db';
+import type { GameRow } from '../storage/db';
 import type { GameFiles, RawStageName } from '../storage/files';
 import {
   detectIncidentRuntime,
@@ -894,10 +895,12 @@ export class GenerationRunner {
   private readonly incidents: IncidentStore | null;
 
   constructor(
-    private db: Db,
+    private db: PipelineStore,
     private files: GameFiles,
-    private configStore: ConfigStore,
+    private configStore: Pick<ConfigStore, 'get'>,
     private hub: SseHub,
+    private readonly historyForJob?: (jobId: string) => GameRow[],
+    private readonly durable?: DurablePipelineCalls,
   ) {
     // A few pure semaphore tests intentionally provide a minimal file-store
     // double. Incident capture is best-effort telemetry, never a prerequisite
@@ -933,7 +936,10 @@ export class GenerationRunner {
     }
   }
 
-  createJob(inputs: NewJobInputs): { jobId: string; gameId: string } {
+  createJob(
+    inputs: NewJobInputs,
+    options: { defer?: boolean } = {},
+  ): { jobId: string; gameId: string } {
     const existing = this.db.getJobByIdempotencyKey(inputs.idempotencyKey);
     if (existing) return { jobId: existing.id, gameId: existing.gameId };
 
@@ -1010,8 +1016,35 @@ export class GenerationRunner {
           }
         : {}),
     });
-    this.enqueue(jobId);
+    if (!options.defer) this.enqueue(jobId);
     return { jobId, gameId };
+  }
+
+  /** Cloud ownership and job rows commit together before execution starts. */
+  startJob(jobId: string): void {
+    if (this.db.getJob(jobId)?.status === 'queued' && !this.active.has(jobId)) this.enqueue(jobId);
+  }
+
+  /** A persistent cloud worker recovers queued work and bounded interrupted
+   * attempts. Ordinary failed jobs still require an explicit retry. */
+  recoverCloudJobs(): void {
+    const interrupted = this.db
+      .listJobs()
+      .filter((job) => ['running', 'waiting-network'].includes(job.status));
+    for (const job of interrupted) {
+      this.db.updateJob(job.id, {
+        status: 'failed',
+        stage: 'failed',
+        error: {
+          code: 'interrupted',
+          message: 'The generation worker restarted. Retry to continue.',
+          stage: job.stage,
+        },
+      });
+      this.db.setGameStatus(job.gameId, 'failed');
+      if (job.attempt < 3) this.retryJob(job.gameId);
+    }
+    for (const job of this.db.listJobs()) if (job.status === 'queued') this.startJob(job.id);
   }
 
   /** Re-run failed generation from stored inputs; cost history is preserved. */
@@ -1144,7 +1177,8 @@ export class GenerationRunner {
 
   // ------------------------------------------------------------------ execute
 
-  private async execute(jobId: string): Promise<void> {
+  /** Await one execution pass; cloud callers persist its state between steps. */
+  async execute(jobId: string): Promise<void> {
     const job = this.db.getJob(jobId);
     if (!job || this.canceled.has(jobId)) return;
     const gameId = job.gameId;
@@ -1156,7 +1190,7 @@ export class GenerationRunner {
         ? Math.max(0, config.imageGeneration.pricePerImageUsd)
         : null,
     };
-    const abort = new AbortController();
+    const abort = this.durable?.abort ?? new AbortController();
     this.aborts.set(jobId, abort);
     const startedAt = Date.now();
     let slow = false;
@@ -1164,6 +1198,10 @@ export class GenerationRunner {
       slow = true;
     }, GENERATION.softBudgetMs);
     const hardTimer = setTimeout(() => abort.abort(), GENERATION.hardBudgetMs);
+    const throwIfSuspended = () => {
+      if (this.durable?.suspended() && abort.signal.aborted)
+        throw new PipelineError('suspended', 'Waiting for cloud steps');
+    };
     let lastFeedProgress = '';
 
     const feed = (
@@ -1222,7 +1260,11 @@ export class GenerationRunner {
           throw new PipelineError('timeout', 'generation hit the time limit', opts.stage);
         try {
           const stageCfg = config.stages[stageName];
-          const res = await provider.complete(
+          const complete: typeof provider.complete = this.durable
+            ? (request, options) =>
+                this.durable!.complete(stageName, request, options?.model ?? model)
+            : provider.complete.bind(provider);
+          const res = await complete(
             {
               system: activePrompt.system,
               user: activePrompt.user,
@@ -1248,6 +1290,7 @@ export class GenerationRunner {
             stage: stageName,
             model: servedModel,
             provider: providerName,
+            requestId: (res as { durableRequestId?: string }).durableRequestId,
             inputTokens: res.usage.input,
             outputTokens: res.usage.output,
             cachedTokens: res.usage.cachedInput ?? 0,
@@ -1268,6 +1311,7 @@ export class GenerationRunner {
           }
           return parsed;
         } catch (e) {
+          throwIfSuspended();
           if (abort.signal.aborted)
             throw new PipelineError('timeout', 'generation hit the time limit', opts.stage);
           if (e instanceof ProviderAuthError) {
@@ -1358,38 +1402,43 @@ export class GenerationRunner {
         }
         try {
           const adapter = getImageAdapter();
-          const result = await this.withImageCallSlot(abort.signal, async () =>
-            adapter
-              ? opts.reference
-                ? adapter.edit(
-                    {
-                      prompt: opts.prompt,
-                      image: opts.reference,
-                      imageMimeType: 'image/png',
-                      imageFilename: 'reference.png',
-                      outputFormat: 'png',
-                      size: opts.size ?? imageConfig.size,
-                      user: gameId,
-                    },
-                    { signal: abort.signal },
-                  )
-                : adapter.generate(
-                    {
-                      prompt: opts.prompt,
-                      outputFormat: 'png',
-                      size: opts.size ?? imageConfig.size,
-                      user: gameId,
-                    },
-                    { signal: abort.signal },
-                  )
-              : Promise.resolve({
-                  image: await mockGeneratedImage(opts.prompt),
-                  imageCount: 1,
-                }),
-          );
+          const localImageCall = () =>
+            this.withImageCallSlot(abort.signal, async () =>
+              adapter
+                ? opts.reference
+                  ? adapter.edit(
+                      {
+                        prompt: opts.prompt,
+                        image: opts.reference,
+                        imageMimeType: 'image/png',
+                        imageFilename: 'reference.png',
+                        outputFormat: 'png',
+                        size: opts.size ?? imageConfig.size,
+                        user: gameId,
+                      },
+                      { signal: abort.signal },
+                    )
+                  : adapter.generate(
+                      {
+                        prompt: opts.prompt,
+                        outputFormat: 'png',
+                        size: opts.size ?? imageConfig.size,
+                        user: gameId,
+                      },
+                      { signal: abort.signal },
+                    )
+                : Promise.resolve({
+                    image: await mockGeneratedImage(opts.prompt),
+                    imageCount: 1,
+                  }),
+            );
+          const result = this.durable
+            ? await this.durable.image({ ...opts, size: opts.size ?? imageConfig.size })
+            : await localImageCall();
           this.db.insertUsage({
             jobId,
             gameId,
+            requestId: (result as { durableRequestId?: string }).durableRequestId,
             stage: `image:${opts.role}`,
             model: imageModel,
             provider: mockImages ? 'mock' : 'meta-image',
@@ -1407,6 +1456,7 @@ export class GenerationRunner {
           emit('building-assets', opts.label);
           return result.image;
         } catch (error) {
+          throwIfSuspended();
           if (abort.signal.aborted) {
             throw new PipelineError('timeout', 'generation hit the time limit', 'building-assets');
           }
@@ -1564,21 +1614,26 @@ export class GenerationRunner {
           cumulativeCostUsd: this.db.gameCost(gameId),
         });
       } catch (error) {
+        throwIfSuspended();
         console.warn('could not capture generation incident:', error);
         return null;
       }
     };
 
     try {
-      this.db.updateJob(jobId, { status: 'running', startedAt: nowIso() });
+      this.db.updateJob(jobId, {
+        status: 'running',
+        startedAt: this.durable ? (job.startedAt ?? nowIso()) : nowIso(),
+      });
       this.db.setGameStatus(gameId, 'generating');
 
       // Muse Image is mandatory for every newly generated game. Validate its
       // local configuration and credential before incurring any text-model cost.
-      if (!mockImages) {
+      if (!mockImages && !this.durable) {
         try {
           getImageAdapter();
         } catch (error) {
+          throwIfSuspended();
           throw new PipelineError(
             'image-config',
             error instanceof Error ? error.message : String(error),
@@ -1602,8 +1657,7 @@ export class GenerationRunner {
       const describeInStory = config.likeness.describeInStory;
 
       // ---- Design pass ---------------------------------------------------
-      const recentGames = this.db
-        .listGames()
+      const recentGames = (this.historyForJob?.(jobId) ?? this.db.listGames())
         .filter((g) => g.status === 'ready' && g.id !== gameId)
         .slice(0, GENERATION.antiCollisionGames);
       const existingGames = recentGames.map((g) => ({ title: g.title, tagline: g.tagline }));
@@ -1646,7 +1700,7 @@ export class GenerationRunner {
           after.length ? 'failed' : 'fixed',
         );
 
-      const priorAttempt = job.attempt > 1 ? job.attempt - 1 : null;
+      const priorAttempt = this.durable ? job.attempt : job.attempt > 1 ? job.attempt - 1 : null;
       const failedOwnersByAttempt = new Map<number, Set<string>>();
       for (const event of priorAttempt ? this.db.repairEventsForJob(jobId) : []) {
         if (
@@ -1934,6 +1988,7 @@ export class GenerationRunner {
           try {
             return compileGeneratedLevels(archetype, raw, true);
           } catch (error) {
+            throwIfSuspended();
             if (!(error instanceof TileRunsError)) throw error;
             const diagnostic = tileRunsDiagnostic(error);
             const retryStarted = Date.now();
@@ -1952,6 +2007,7 @@ export class GenerationRunner {
               try {
                 compiled = compileGeneratedLevels(archetype, retryRaw, true);
               } catch (retryError) {
+                throwIfSuspended();
                 if (!(retryError instanceof TileRunsError)) throw retryError;
                 compiled = canonicalLevelsFallback(archetype, retryRaw, retryError);
               }
@@ -1965,6 +2021,7 @@ export class GenerationRunner {
               );
               return compiled;
             } catch (retryError) {
+              throwIfSuspended();
               const after =
                 retryError instanceof TileRunsError
                   ? [tileRunsDiagnostic(retryError)]
@@ -2052,6 +2109,7 @@ export class GenerationRunner {
       }
 
       spec = ensurePlatformerImageCharacterFallbacks(spec, recentUse.bosses);
+      if (this.durable?.suspended()) return;
       // Repairs may alter geometry, but the committed presentation remains design-owned.
       if (spec.archetype === 'platformer')
         spec.presentationFamily = design.presentationFamily ?? 'arcade';
@@ -2245,6 +2303,7 @@ export class GenerationRunner {
             await assetWorkspace.store(opts.role, normalized, opts.promptVersion, promptSha);
             return companion ? { image: normalized, companion } : normalized;
           } catch (error) {
+            throwIfSuspended();
             if (error instanceof PipelineError) {
               if (
                 error.code === 'image-content-policy' &&
@@ -2357,6 +2416,7 @@ export class GenerationRunner {
                   size: horizontal ? '1536x1024' : '1024x1536',
                 });
               } catch (error) {
+                throwIfSuspended();
                 if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                 validationFailure(`${horizontal ? 'hshooter' : 'shooter'}-player-craft-${id}`);
                 emit(
@@ -2376,6 +2436,7 @@ export class GenerationRunner {
                 ]);
                 return { id, gameplay, presentation };
               } catch (_error) {
+                throwIfSuspended();
                 validationFailure(`${horizontal ? 'hshooter' : 'shooter'}-player-craft-${id}`);
                 emit('building-assets', `Player craft candidate ${id} was unusable; continuing…`);
                 return null;
@@ -2544,6 +2605,7 @@ export class GenerationRunner {
                     },
                   );
                 } catch (error) {
+                  throwIfSuspended();
                   if (error instanceof PipelineError) throw error;
                   lastError = error;
                   validationFailure('portrait');
@@ -2603,6 +2665,7 @@ export class GenerationRunner {
                     },
                   );
                 } catch (error) {
+                  throwIfSuspended();
                   if (error instanceof PipelineError) throw error;
                   lastError = error;
                   validationFailure('portrait-defeat');
@@ -2675,6 +2738,7 @@ export class GenerationRunner {
                     emit('building-assets', 'Restored the generated Adventure player');
                     return restored.downIdle;
                   } catch (error) {
+                    throwIfSuspended();
                     const repairs =
                       error instanceof Error && error.message.includes('change character height')
                         ? await adventurePlayerScaleRetryPoses(
@@ -2739,6 +2803,7 @@ export class GenerationRunner {
                       size: '1024x1024',
                     });
                   } catch (error) {
+                    throwIfSuspended();
                     if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                     validationFailure(`adventure-player-${id}`);
                     emit('building-assets', `${label} was rejected; continuing…`);
@@ -2750,6 +2815,7 @@ export class GenerationRunner {
                     try {
                       png = await processGeneratedAdventurePlayerPose(raw);
                     } catch (initialError) {
+                      throwIfSuspended();
                       const recovery = await recoverGeneratedPlatformerGreenPanel(raw);
                       if (!recovery.recovered) throw initialError;
                       normalizedReference = recovery.image;
@@ -2757,6 +2823,7 @@ export class GenerationRunner {
                     }
                     return { id, reference: normalizedReference, png };
                   } catch (error) {
+                    throwIfSuspended();
                     validationFailure(`adventure-player-${id}`);
                     const reason =
                       error instanceof Error
@@ -2906,6 +2973,7 @@ export class GenerationRunner {
                       size: '1024x1024',
                     });
                   } catch (error) {
+                    throwIfSuspended();
                     if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                     validationFailure(`adventure-player-sheet-${group.id}`);
                     emit(
@@ -2918,6 +2986,7 @@ export class GenerationRunner {
                   try {
                     cells = await splitGeneratedAdventurePlayerSheet(raw, group);
                   } catch (_error) {
+                    throwIfSuspended();
                     validationFailure(`adventure-player-sheet-${group.id}`);
                     emit(
                       'building-assets',
@@ -3225,6 +3294,7 @@ export class GenerationRunner {
                 emit('building-assets', 'Finished the generated Adventure player');
                 return generated.downIdle;
               } catch (error) {
+                throwIfSuspended();
                 if (abort.signal.aborted) throw error;
                 const reason =
                   error instanceof Error
@@ -3357,6 +3427,7 @@ export class GenerationRunner {
                     });
                     generated.add(role);
                   } catch (error) {
+                    throwIfSuspended();
                     if (
                       abort.signal.aborted ||
                       error instanceof GeneratedAssetStorageError ||
@@ -3466,6 +3537,7 @@ export class GenerationRunner {
                     });
                     generated.add(role);
                   } catch (error) {
+                    throwIfSuspended();
                     if (
                       abort.signal.aborted ||
                       error instanceof GeneratedAssetStorageError ||
@@ -3574,6 +3646,7 @@ export class GenerationRunner {
                     });
                     generated.add(role);
                   } catch (error) {
+                    throwIfSuspended();
                     if (
                       abort.signal.aborted ||
                       error instanceof GeneratedAssetStorageError ||
@@ -3656,6 +3729,7 @@ export class GenerationRunner {
                 adventureRoomPlateArtStatus = { mode: 'generated', attempted: true };
                 emit('building-assets', 'Finished the Adventure room surfaces');
               } catch (error) {
+                throwIfSuspended();
                 if (
                   abort.signal.aborted ||
                   error instanceof GeneratedAssetStorageError ||
@@ -3879,6 +3953,7 @@ export class GenerationRunner {
                 };
                 emit('building-assets', 'Finished the generated Adventure enemy cast');
               } catch (error) {
+                throwIfSuspended();
                 if (
                   abort.signal.aborted ||
                   error instanceof PipelineError ||
@@ -4071,6 +4146,7 @@ export class GenerationRunner {
                 };
                 emit('building-assets', 'Finished the themed Adventure gameplay objects');
               } catch (error) {
+                throwIfSuspended();
                 if (
                   abort.signal.aborted ||
                   error instanceof PipelineError ||
@@ -4151,6 +4227,7 @@ export class GenerationRunner {
                   candidates = split.candidates;
                   failures = split.failures;
                 } catch (error) {
+                  throwIfSuspended();
                   failures = [
                     {
                       id: 'B1',
@@ -4182,12 +4259,14 @@ export class GenerationRunner {
                     try {
                       processed = await processGeneratedAdventureBoss(retryRaw);
                     } catch (initialError) {
+                      throwIfSuspended();
                       const recovery = await recoverGeneratedPlatformerGreenPanel(retryRaw);
                       if (!recovery.recovered) throw initialError;
                       processed = await processGeneratedAdventureBoss(recovery.image);
                     }
                     candidates.push({ id: 'R1', png: processed.png, metrics: processed.metrics });
                   } catch (error) {
+                    throwIfSuspended();
                     validationFailure('adventure-boss-retry');
                     throw new Error(
                       `isolated Adventure boss retry failed validation: ${error instanceof Error ? error.message : String(error)}`,
@@ -4239,6 +4318,7 @@ export class GenerationRunner {
                       },
                     );
                   } catch (error) {
+                    throwIfSuspended();
                     if (abort.signal.aborted) throw error;
                     throw new Error(
                       `Adventure boss art review failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -4261,6 +4341,7 @@ export class GenerationRunner {
                   `Spark selected ${selected.id} as the Adventure finale boss`,
                 );
               } catch (error) {
+                throwIfSuspended();
                 if (
                   abort.signal.aborted ||
                   error instanceof GeneratedAssetStorageError ||
@@ -4355,6 +4436,7 @@ export class GenerationRunner {
                       size: '1536x1024',
                     });
                   } catch (error) {
+                    throwIfSuspended();
                     if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                     validationFailure(`hshooter-boss-${id}`);
                     emit(
@@ -4446,6 +4528,7 @@ export class GenerationRunner {
                       },
                     );
                   } catch (error) {
+                    throwIfSuspended();
                     if (abort.signal.aborted) throw error;
                     throw new Error(
                       `H-scroll boss art review failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -4465,6 +4548,7 @@ export class GenerationRunner {
                 hshooterBossArtStatus = { mode: 'generated', attempted: true };
                 emit('building-assets', `Spark selected ${selected.id} as the H-scroll boss`);
               } catch (error) {
+                throwIfSuspended();
                 if (
                   abort.signal.aborted ||
                   error instanceof GeneratedAssetStorageError ||
@@ -4637,6 +4721,7 @@ export class GenerationRunner {
                       metrics: processed.metrics,
                     });
                   } catch (error) {
+                    throwIfSuspended();
                     validationFailure(`hshooter-enemy-replacement-${role}`);
                     await assetWorkspace.discardPrivate(privateRole);
                     throw new PipelineError(
@@ -4736,6 +4821,7 @@ export class GenerationRunner {
                 };
                 emit('building-assets', 'Finished the generated H-scroll enemy cast');
               } catch (error) {
+                throwIfSuspended();
                 if (
                   abort.signal.aborted ||
                   error instanceof PipelineError ||
@@ -4811,6 +4897,7 @@ export class GenerationRunner {
                       size: '1024x1536',
                     });
                   } catch (error) {
+                    throwIfSuspended();
                     if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                     validationFailure(`shooter-boss-${id}`);
                     emit(
@@ -4914,6 +5001,7 @@ export class GenerationRunner {
                 shooterBossArtStatus = { mode: 'generated', attempted: true };
                 emit('building-assets', `Spark selected ${selected.id} as the vertical boss`);
               } catch (error) {
+                throwIfSuspended();
                 if (
                   abort.signal.aborted ||
                   error instanceof GeneratedAssetStorageError ||
@@ -5080,6 +5168,7 @@ export class GenerationRunner {
                       metrics: processed.metrics,
                     });
                   } catch (error) {
+                    throwIfSuspended();
                     validationFailure(`shooter-enemy-replacement-${role}`);
                     await assetWorkspace.discardPrivate(privateRole);
                     throw new PipelineError(
@@ -5178,6 +5267,7 @@ export class GenerationRunner {
                 };
                 emit('building-assets', 'Finished the generated vertical enemy cast');
               } catch (error) {
+                throwIfSuspended();
                 if (
                   abort.signal.aborted ||
                   error instanceof PipelineError ||
@@ -5260,6 +5350,7 @@ export class GenerationRunner {
                           size: '1024x1024',
                         });
                       } catch (error) {
+                        throwIfSuspended();
                         if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                         validationFailure(`platformer-boss-${id}`);
                         emit(
@@ -5273,6 +5364,7 @@ export class GenerationRunner {
                         try {
                           processed = await processGeneratedPlatformerBoss(raw);
                         } catch (initialError) {
+                          throwIfSuspended();
                           const recovery = await recoverGeneratedPlatformerGreenPanel(raw);
                           if (!recovery.recovered) throw initialError;
                           processed = await processGeneratedPlatformerBoss(recovery.image);
@@ -5339,6 +5431,7 @@ export class GenerationRunner {
                       },
                     );
                   } catch (error) {
+                    throwIfSuspended();
                     if (abort.signal.aborted) throw error;
                     throw new Error(
                       `platformer boss art review failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -5358,6 +5451,7 @@ export class GenerationRunner {
                 platformerBossArtStatus = { mode: 'generated', attempted: true };
                 emit('building-assets', `Spark selected ${selected.id} as the signature boss`);
               } catch (error) {
+                throwIfSuspended();
                 if (
                   abort.signal.aborted ||
                   error instanceof GeneratedAssetStorageError ||
@@ -5496,6 +5590,7 @@ export class GenerationRunner {
                             size: '1024x1024',
                           });
                         } catch (error) {
+                          throwIfSuspended();
                           if (abort.signal.aborted) throw error;
                           if (!(error instanceof PipelineError)) throw error;
                           validationFailure(`platformer-enemy-${role}-${id}`);
@@ -5510,6 +5605,7 @@ export class GenerationRunner {
                           try {
                             processed = await processGeneratedPlatformerEnemy(raw, role);
                           } catch (initialError) {
+                            throwIfSuspended();
                             const recovery = await recoverGeneratedPlatformerGreenPanel(raw);
                             if (!recovery.recovered) throw initialError;
                             processed = await processGeneratedPlatformerEnemy(recovery.image, role);
@@ -5596,6 +5692,7 @@ export class GenerationRunner {
                         },
                       );
                     } catch (error) {
+                      throwIfSuspended();
                       if (abort.signal.aborted) throw error;
                       emit(
                         'building-assets',
@@ -5661,6 +5758,7 @@ export class GenerationRunner {
                   `Using stable library art for ${missingRoles.join(', ')}; the remaining enemies are generated`,
                 );
               } catch (error) {
+                throwIfSuspended();
                 if (
                   abort.signal.aborted ||
                   error instanceof GeneratedAssetStorageError ||
@@ -5789,6 +5887,7 @@ export class GenerationRunner {
                     try {
                       processed = await processGeneratedPlatformerProp(raw, role);
                     } catch (initialError) {
+                      throwIfSuspended();
                       const recovery = await recoverGeneratedPlatformerGreenPanel(raw);
                       if (!recovery.recovered) throw initialError;
                       processed = await processGeneratedPlatformerProp(recovery.image, role);
@@ -5801,6 +5900,7 @@ export class GenerationRunner {
                     );
                     generated.add(role);
                   } catch (error) {
+                    throwIfSuspended();
                     if (
                       abort.signal.aborted ||
                       error instanceof GeneratedAssetStorageError ||
@@ -5877,6 +5977,7 @@ export class GenerationRunner {
                 fighterArenaArtStatus = { mode: 'generated', attempted: true };
                 emit('building-assets', 'Finished the generated ladder and boss arenas');
               } catch (error) {
+                throwIfSuspended();
                 if (
                   abort.signal.aborted ||
                   error instanceof GeneratedAssetStorageError ||
@@ -6046,6 +6147,7 @@ export class GenerationRunner {
                     size: '1024x1024',
                   });
                 } catch (error) {
+                  throwIfSuspended();
                   if (abort.signal.aborted) throw error;
                   if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                   validationFailure(opts.role);
@@ -6244,6 +6346,7 @@ export class GenerationRunner {
                         size: '1024x1024',
                       });
                     } catch (error) {
+                      throwIfSuspended();
                       if (abort.signal.aborted) throw error;
                       if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                       validationFailure(`fighter-${id}`);
@@ -6553,6 +6656,7 @@ export class GenerationRunner {
                       size: '1024x1024',
                     });
                   } catch (error) {
+                    throwIfSuspended();
                     if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                     validationFailure(`platformer-${id}`);
                     emit(
@@ -6567,6 +6671,7 @@ export class GenerationRunner {
                     try {
                       processed = await processGeneratedPlatformerPose(raw);
                     } catch (initialError) {
+                      throwIfSuspended();
                       const recovery = await recoverGeneratedPlatformerGreenPanel(raw);
                       if (!recovery.recovered) throw initialError;
                       normalizedReference = recovery.image;
@@ -6574,6 +6679,7 @@ export class GenerationRunner {
                     }
                     return { id, kind, reference: normalizedReference, png: processed.png };
                   } catch (error) {
+                    throwIfSuspended();
                     validationFailure(`platformer-${id}`);
                     feed(
                       'decision',
@@ -6619,6 +6725,7 @@ export class GenerationRunner {
                       },
                     );
                   } catch (error) {
+                    throwIfSuspended();
                     if (abort.signal.aborted) throw error;
                     throw new Error(
                       `platformer art review failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -7026,6 +7133,7 @@ export class GenerationRunner {
                 );
                 platformerPlayerArtStatus = { mode: 'generated', attempted: true };
               } catch (error) {
+                throwIfSuspended();
                 if (abort.signal.aborted) throw error;
                 await Promise.all([
                   assetWorkspace.discard(Object.values(PLATFORMER_ASSET_ROLES)),
@@ -7105,6 +7213,7 @@ export class GenerationRunner {
                   rejected: (pose) => validationFailure(`platformer-action-${pose}`),
                 });
               } catch (error) {
+                throwIfSuspended();
                 if (
                   abort.signal.aborted ||
                   error instanceof PipelineError ||
@@ -7145,6 +7254,7 @@ export class GenerationRunner {
         portraitDefeatTask,
         playerCraftTask,
       ]);
+      if (this.durable?.suspended()) return;
       const finishingFailure = finishingAssets.find(
         (result): result is PromiseRejectedResult => result.status === 'rejected',
       );
@@ -7260,6 +7370,7 @@ export class GenerationRunner {
             recoveredIncident?.id,
           );
         } catch (error) {
+          throwIfSuspended();
           console.warn('could not update generation incident retry outcome:', error);
         }
       }
@@ -7278,6 +7389,8 @@ export class GenerationRunner {
         costUsd: meta.costUsd,
       });
     } catch (e) {
+      // Suspending for a durable provider step is not a failed attempt.
+      if (this.durable?.suspended()) return;
       if (this.canceled.has(jobId)) {
         this.db.updateJob(jobId, { status: 'canceled', finishedAt: nowIso() });
         return;
@@ -7312,6 +7425,7 @@ export class GenerationRunner {
             failedIncident?.id,
           );
         } catch (error) {
+          throwIfSuspended();
           console.warn('could not update generation incident retry outcome:', error);
         }
       }
@@ -7709,6 +7823,7 @@ export class GenerationRunner {
             return;
           }
         } catch (e) {
+          if (this.durable?.suspended() && this.durable.abort.signal.aborted) throw e;
           const recoverableProviderFailure =
             e instanceof PipelineError && ['provider-error', 'call-timeout'].includes(e.code);
           if (e instanceof PatchError || recoverableProviderFailure) {
@@ -7825,6 +7940,7 @@ export class GenerationRunner {
                   const level = isRecord(raw) ? (raw['level'] ?? raw) : raw;
                   return [index, compileGeneratedLevel(archetype, level)] as const;
                 } catch (error) {
+                  if (this.durable?.suspended() && this.durable.abort.signal.aborted) throw error;
                   if (!(error instanceof TileRunsError)) throw error;
                   const compileDiagnostic = tileRunsDiagnostic(error, index);
                   const retryStarted = Date.now();
@@ -7838,6 +7954,8 @@ export class GenerationRunner {
                   try {
                     replacement = compileGeneratedLevel(archetype, level);
                   } catch (retryError) {
+                    if (this.durable?.suspended() && this.durable.abort.signal.aborted)
+                      throw retryError;
                     if (!(retryError instanceof TileRunsError)) throw retryError;
                     replacement = canonicalLevelFallback(level, retryError);
                   }
@@ -7887,6 +8005,7 @@ export class GenerationRunner {
             try {
               canonical = compileGeneratedLevels(archetype, raw, true);
             } catch (error) {
+              if (this.durable?.suspended() && this.durable.abort.signal.aborted) throw error;
               if (!(error instanceof TileRunsError)) throw error;
               const compileDiagnostic = tileRunsDiagnostic(error);
               const retryStarted = Date.now();
@@ -7908,6 +8027,8 @@ export class GenerationRunner {
               try {
                 canonical = compileGeneratedLevels(archetype, raw, true);
               } catch (retryError) {
+                if (this.durable?.suspended() && this.durable.abort.signal.aborted)
+                  throw retryError;
                 if (!(retryError instanceof TileRunsError)) throw retryError;
                 canonical = canonicalLevelsFallback(archetype, raw, retryError);
               }
@@ -7984,6 +8105,7 @@ export class GenerationRunner {
         );
         stalledRepairOwners.delete(owner);
       } catch (error) {
+        if (this.durable?.suspended() && this.durable.abort.signal.aborted) throw error;
         record(
           owner,
           'regenerate',

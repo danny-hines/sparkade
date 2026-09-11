@@ -424,6 +424,7 @@ export class Db {
       )
       .all() as { id: string; game_id: string }[];
     for (const r of rows) {
+      if (this.getSetting(`cloud-mirror:${r.id}`)) continue;
       this.updateJob(r.id, {
         status: 'failed',
         stage: 'failed',
@@ -445,6 +446,7 @@ export class Db {
   // ------------------------------------------------------------ cost ledger
 
   insertUsage(ev: {
+    requestId?: string;
     jobId: string;
     gameId: string;
     stage: string;
@@ -458,13 +460,15 @@ export class Db {
     failed: boolean;
     repair: boolean;
   }): void {
+    const localEvent = { ...ev };
+    delete localEvent.requestId;
     this.db
       .prepare(
         `INSERT INTO usage_events (job_id, game_id, stage, model, provider, input_tokens, output_tokens, cached_tokens, audio_seconds, cost_usd, failed, repair, at)
          VALUES (@jobId, @gameId, @stage, @model, @provider, @inputTokens, @outputTokens, @cachedTokens, @audioSeconds, @costUsd, @failed, @repair, @at)`,
       )
       .run({
-        ...ev,
+        ...localEvent,
         cachedTokens: ev.cachedTokens ?? 0,
         audioSeconds: ev.audioSeconds ?? null,
         failed: ev.failed ? 1 : 0,
@@ -475,6 +479,8 @@ export class Db {
 
   /** Sum for a job. null if ANY event has unknown cost (never pretend $0.00). */
   jobCost(jobId: string): number | null {
+    const mirror = this.getSetting<{ costUsd: number | null }>(`cloud-mirror:${jobId}`);
+    if (mirror) return mirror.costUsd;
     const rows = this.db.prepare(`SELECT cost_usd FROM usage_events WHERE job_id=?`).all(jobId) as {
       cost_usd: number | null;
     }[];
@@ -489,6 +495,12 @@ export class Db {
 
   /** Total cost across every attempt for a game (failed + repair calls included). */
   gameCost(gameId: string): number | null {
+    const cloudJob = this.db.prepare('SELECT id FROM jobs WHERE game_id=? LIMIT 1').get(gameId) as
+      { id: string } | undefined;
+    if (cloudJob) {
+      const mirror = this.getSetting<{ costUsd: number | null }>(`cloud-mirror:${cloudJob.id}`);
+      if (mirror) return mirror.costUsd;
+    }
     const rows = this.db
       .prepare(`SELECT cost_usd FROM usage_events WHERE game_id=?`)
       .all(gameId) as { cost_usd: number | null }[];

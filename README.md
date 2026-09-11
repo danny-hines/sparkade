@@ -159,6 +159,14 @@ assets; and Clerk for `/admin` authentication. `SPARKADE_ADMIN_EMAILS` is a comm
 allowlist applied after sign-in. Keep `DATABASE_URL`, `BLOB_READ_WRITE_TOKEN`, `CLERK_SECRET_KEY`, and
 the admin allowlist server-only; only `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` belongs in browser code.
 
+## Cloud generation (opt-in)
+
+The cabinet can offload transcription and generation to Vercel Workflows in the existing
+website project. Neon stores jobs and usage; a separate private Blob store holds source media
+and checkpoints. Completed games download once and play locally, including offline.
+See the [cloud rollout guide](docs/roadmaps/cloud-generation.md) for configuration and recovery.
+Enable `SPARKADE_GENERATION_MODE=cloud` on a registered cabinet after deploying the site.
+
 ## Architecture
 
 ```

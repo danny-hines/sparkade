@@ -19,6 +19,8 @@ import {
 import {
   FEEL,
   fighterProfile,
+  fighterProjectile,
+  type FighterProjectile,
   FIGHTER_STYLE_CATALOG,
   type FighterCombatProfile,
   FIGHTER_POSES,
@@ -39,6 +41,11 @@ import {
   type FighterSpec,
 } from '@sparkade/shared';
 import { estimateFighterDurationS } from './lint';
+import {
+  drawFighterProjectile,
+  drawFighterProjectileWindup,
+  drawFighterProjectileImpact,
+} from './projectile-effects';
 
 const W = INTERNAL_WIDTH;
 const H = INTERNAL_HEIGHT;
@@ -189,6 +196,7 @@ type State =
   'idle' | 'walk' | 'crouch' | 'jump' | 'attack' | 'block' | 'hitstun' | 'blockstun' | 'ko';
 
 interface Pulse {
+  id: number;
   owner: Actor;
   x: number;
   y: number;
@@ -196,6 +204,7 @@ interface Pulse {
   life: number;
 }
 interface Actor {
+  projectile: FighterProjectile;
   profile: FighterCombatProfile | null;
   chain: number;
   chainT: number;
@@ -244,6 +253,15 @@ interface Actor {
   aiRecoveryT: number;
   aiSeenFoeMove: number;
   aiGuardingFoeMove: number;
+  aiReactionT: number;
+  aiAirSeen: boolean;
+  aiAirT: number;
+  aiAntiAir: boolean;
+  aiPulseId: number;
+  aiPulseT: number;
+  aiPulseResponse: 'guard' | 'duck' | 'jump' | null;
+  aiDefense: 'guard' | 'duck' | 'jump' | null;
+  aiDefenseT: number;
 }
 
 interface PreparedFighterPose {
@@ -379,6 +397,14 @@ export function createFighterGame(engine: EngineContext, spec: FighterSpec): Gam
 
 class FighterGame implements GameInstance {
   private pulses: Pulse[] = [];
+  private nextPulseId = 1;
+  private pulseImpacts: {
+    x: number;
+    y: number;
+    age: number;
+    kind: FighterProjectile['kind'];
+    guarded: boolean;
+  }[] = [];
   hud: HudState = { score: 0, lives: 2, health: 0, maxHealth: 0, keys: 0, bombs: 0 };
   result: GameResult | null = null;
 
@@ -433,6 +459,7 @@ class FighterGame implements GameInstance {
     const profile = fighterProfile(c);
     return {
       profile,
+      projectile: fighterProjectile(c),
       chain: 0,
       chainT: 0,
       confirmed: false,
@@ -478,6 +505,15 @@ class FighterGame implements GameInstance {
       aiRecoveryT: 0,
       aiSeenFoeMove: -1,
       aiGuardingFoeMove: -1,
+      aiReactionT: 0,
+      aiAirSeen: false,
+      aiAirT: 0,
+      aiAntiAir: false,
+      aiPulseId: -1,
+      aiPulseT: 0,
+      aiPulseResponse: null,
+      aiDefense: null,
+      aiDefenseT: 0,
     };
   }
 
@@ -498,6 +534,7 @@ class FighterGame implements GameInstance {
         speedScale: boss.speedScale,
         powerScale: boss.powerScale,
         combatProfile: boss.combatProfile,
+        projectile: boss.projectile,
       };
     }
     return this.spec.levels[this.bout]!.opponent;
@@ -566,8 +603,12 @@ class FighterGame implements GameInstance {
               {
                 title: `${this.opponentChar().name}: ${FIGHTER_STYLE_CATALOG[this.opponentChar().combatProfile!].name}`,
                 lines: [
-                  FIGHTER_STYLE_CATALOG[this.spec.fighterStyle].signature,
-                  `Opponent: ${FIGHTER_STYLE_CATALOG[this.opponentChar().combatProfile!].counterplay}`,
+                  this.spec.fighterStyle === 'rangedControl'
+                    ? `Hold guard and press high punch to cast ${fighterProjectile(this.playerChar()).name}. Each cast needs time to recharge.`
+                    : FIGHTER_STYLE_CATALOG[this.spec.fighterStyle].signature,
+                  this.opponentChar().combatProfile === 'rangedControl'
+                    ? `Opponent: Jump or duck ${fighterProjectile(this.opponentChar()).name}, then close in during recovery.`
+                    : `Opponent: ${FIGHTER_STYLE_CATALOG[this.opponentChar().combatProfile!].counterplay}`,
                 ],
               },
             ]
@@ -583,6 +624,7 @@ class FighterGame implements GameInstance {
 
   private startRound(fresh: boolean): void {
     this.pulses = [];
+    this.pulseImpacts = [];
     if (fresh) {
       this.p = this.makeActor(this.playerChar(), false, 0, 0);
       this.o = this.makeActor(
@@ -638,12 +680,17 @@ class FighterGame implements GameInstance {
     a.aiRecoveryT = 0;
     a.aiSeenFoeMove = -1;
     a.aiGuardingFoeMove = -1;
+    a.aiReactionT = a.aiAirT = a.aiPulseT = a.aiDefenseT = 0;
+    a.aiAirSeen = a.aiAntiAir = false;
+    a.aiPulseId = -1;
+    a.aiPulseResponse = a.aiDefense = null;
     if (ai) a.aggression = this.opponentAggression();
   }
 
   // ----------------------------------------------------------------- update
 
   update(dt: number, input: InputSnapshot): void {
+    this.pulseImpacts = this.pulseImpacts.filter((impact) => (impact.age += dt) < 0.28);
     if (this.phase !== 'fight') return;
     this.phaseT += dt;
     this.o.aggression = this.opponentAggression();
@@ -812,9 +859,66 @@ class FighterGame implements GameInstance {
 
   // --------------------------------------------------------------------- AI
 
+  private aiReactionDelay(): number {
+    return this.spec.difficulty === 'chill' ? 0.24 : this.spec.difficulty === 'spicy' ? 0.14 : 0.19;
+  }
+
+  /** Observe an emitted projectile once. Decisions never read the player's
+   * button state, cancel an attack, or bypass contact/whiff recovery. */
+  private reactToPulse(a: Actor, dt: number): boolean {
+    const pulse = this.pulses.find((p) => p.owner !== a && (a.x - p.x) * p.vx > 0);
+    if (!pulse) {
+      a.aiPulseResponse = null;
+      return false;
+    }
+    if (a.aiPulseId !== pulse.id) {
+      a.aiPulseId = pulse.id;
+      a.aiPulseT = this.aiReactionDelay();
+      const chance =
+        this.spec.difficulty === 'chill' ? 0.4 : this.spec.difficulty === 'spicy' ? 0.7 : 0.55;
+      a.aiPulseResponse = this.engine.rng.chance(chance)
+        ? a.profile === 'counter'
+          ? 'guard'
+          : a.profile === 'rangedControl'
+            ? 'duck'
+            : 'jump'
+        : null;
+      return false;
+    }
+    a.aiPulseT = Math.max(0, a.aiPulseT - dt);
+    if (a.aiPulseT > 0 || !a.aiPulseResponse) return false;
+    const eta = Math.max(0, (Math.abs(pulse.x - a.x) - BODY_HALF * a.scale) / Math.abs(pulse.vx));
+    const response = a.aiPulseResponse;
+    if (eta > (response === 'jump' ? 0.46 : response === 'duck' ? 0.3 : 0.12)) return false;
+    a.aiPulseResponse = null;
+    a.aiDefense = response;
+    a.aiDefenseT = response === 'jump' ? 0.9 : 0.48;
+    a.facing = pulse.vx > 0 ? -1 : 1;
+    a.vx = 0;
+    if (response === 'jump') {
+      a.vy = -PROFILE_JUMP_V;
+      a.vx = a.facing * WALK * a.speedScale * 0.6;
+      a.state = 'jump';
+      a.airMove = false;
+    } else {
+      a.block = response === 'guard';
+      a.crouch = response === 'duck';
+      a.state = a.block ? 'block' : 'crouch';
+      if (a.block) this.openGuardWindow(a);
+    }
+    return true;
+  }
+
   private aiControl(a: Actor, foe: Actor, dt: number): void {
     if (a.state === 'ko') return;
     if (a.aiRecoveryT > 0) a.aiRecoveryT = Math.max(0, a.aiRecoveryT - dt);
+    if (a.aiDefenseT > 0) {
+      a.aiDefenseT = Math.max(0, a.aiDefenseT - dt);
+      if (a.aiDefenseT === 0) {
+        a.aiDefense = null;
+        a.aiRecoveryT = Math.max(a.aiRecoveryT, 0.18);
+      }
+    }
     this.tickStun(a, dt);
     if (a.state === 'hitstun' || a.state === 'blockstun') return;
     if (a.state === 'attack') {
@@ -832,6 +936,18 @@ class FighterGame implements GameInstance {
     a.block = false;
     a.crouch = false;
 
+    if (a.profile && a.aiDefenseT > 0) {
+      a.block = a.aiDefense === 'guard';
+      a.crouch = a.aiDefense === 'duck';
+      a.state = a.aiDefense === 'jump' ? 'jump' : a.block ? 'block' : 'crouch';
+      return;
+    }
+    // Do not turn a projectile-dodging jump into a midair guard or ground shot.
+    if (a.profile && a.y < FLOOR_Y - 0.5) {
+      a.state = 'jump';
+      return;
+    }
+
     // Contact recovery is a genuine opening: no instant guard or anti-air read
     // is allowed until the player's stun plus counter window has elapsed.
     if (a.aiRecoveryT > 0) {
@@ -839,16 +955,19 @@ class FighterGame implements GameInstance {
       a.vx = 0;
       return;
     }
+    if (a.profile && this.reactToPulse(a, dt)) return;
 
     // Roll reactive guard once per enemy move and then hold that decision. The
     // previous per-frame reroll made even a nominal 70% guard virtually certain.
     if (!foeAttacking) a.aiGuardingFoeMove = -1;
     if (foeAttacking && dist < 52 && a.aiSeenFoeMove !== foe.moveSerial) {
       a.aiSeenFoeMove = foe.moveSerial;
+      a.aiReactionT = a.profile ? this.aiReactionDelay() : 0;
       const guard = Math.min(0.72, 0.28 + a.aggression * 0.16);
       if (this.engine.rng.chance(guard)) a.aiGuardingFoeMove = foe.moveSerial;
     }
-    if (foeAttacking && a.aiGuardingFoeMove === foe.moveSerial) {
+    a.aiReactionT = Math.max(0, a.aiReactionT - dt);
+    if (foeAttacking && a.aiGuardingFoeMove === foe.moveSerial && a.aiReactionT <= 0) {
       const mv = this.moveFor(foe, foe.move!);
       a.state = 'block';
       a.block = true;
@@ -861,6 +980,7 @@ class FighterGame implements GameInstance {
       a.profile === 'rangedControl' &&
       !foeAirborne &&
       dist > 95 &&
+      !a.aiPulseResponse &&
       a.pulseCooldown <= 0 &&
       !this.pulses.some((p) => p.owner === a)
     ) {
@@ -875,7 +995,7 @@ class FighterGame implements GameInstance {
       a.x < STAGE_MAX - 25
     ) {
       a.state = 'walk';
-      a.vx = -dir * WALK * a.speedScale * 0.8;
+      a.vx = -dir * WALK * a.speedScale * 0.65;
       return;
     }
     if (a.profile === 'counter' && a.counterT > 0 && inRange) {
@@ -885,7 +1005,21 @@ class FighterGame implements GameInstance {
     }
     // Anti-air: foe jumping in close → poke up.
     const antiAirChance = Math.min(0.82, 0.42 + a.aggression * 0.18);
-    if (foeAirborne && dist < 60 && this.engine.rng.chance(antiAirChance)) {
+    if (a.profile) {
+      if (!foeAirborne) a.aiAirSeen = a.aiAntiAir = false;
+      else if (!a.aiAirSeen) {
+        a.aiAirSeen = true;
+        a.aiAirT = this.aiReactionDelay();
+        a.aiAntiAir = this.engine.rng.chance(antiAirChance);
+      }
+      a.aiAirT = Math.max(0, a.aiAirT - dt);
+    }
+    if (
+      foeAirborne &&
+      dist < 60 &&
+      (a.profile ? a.aiAntiAir && a.aiAirT <= 0 : this.engine.rng.chance(antiAirChance))
+    ) {
+      a.aiAntiAir = false;
       a.facing = dir;
       this.startMove(a, 'kickHigh');
       return;
@@ -893,7 +1027,10 @@ class FighterGame implements GameInstance {
 
     a.aiT -= dt;
     if (a.aiT <= 0) {
-      a.aiT = Math.max(0.14, this.engine.rng.range(0.18, 0.5) / Math.max(0.6, a.aggression));
+      a.aiT = Math.max(
+        a.profile ? this.aiReactionDelay() + 0.05 : 0.14,
+        this.engine.rng.range(0.18, 0.5) / Math.max(0.6, a.aggression),
+      );
       if (inRange) {
         const attackChance = Math.min(0.82, 0.15 + a.aggression * 0.4);
         a.aiIntent = this.engine.rng.chance(attackChance)
@@ -939,6 +1076,7 @@ class FighterGame implements GameInstance {
       case 'block':
         a.state = 'block';
         a.block = true;
+        if (a.profile === 'counter' && !wasGuarding) this.openGuardWindow(a);
         a.vx = 0;
         break;
       case 'jump':
@@ -978,6 +1116,7 @@ class FighterGame implements GameInstance {
       if (a.move === 'pulse' && !a.hitDone && a.moveT >= m.startup) {
         a.hitDone = true;
         this.pulses.push({
+          id: this.nextPulseId++,
           owner: a,
           x: a.x + a.facing * m.reach * a.scale,
           y: a.y + m.hitY * a.scale,
@@ -1196,6 +1335,16 @@ class FighterGame implements GameInstance {
         pulse.y >= top &&
         pulse.y <= def.y - 2
       ) {
+        this.pulseImpacts.push({
+          x: Math.max(
+            def.x - BODY_HALF * def.scale,
+            Math.min(def.x + BODY_HALF * def.scale, pulse.x),
+          ),
+          y: pulse.y,
+          age: 0,
+          kind: pulse.owner.projectile.kind,
+          guarded: def.block || def.escapeT > 0,
+        });
         this.applyHit(pulse.owner, def, MOVES.pulse, pulse.x, pulse.y, true, pulse.vx > 0 ? 1 : -1);
         return false;
       }
@@ -1369,13 +1518,17 @@ class FighterGame implements GameInstance {
       this.drawGeneratedFighter(a, pose, flash);
     }
 
-    for (const pulse of this.pulses) {
-      const x = Math.round(pulse.x),
-        y = Math.round(pulse.y);
-      r.rect(x - Math.sign(pulse.vx) * 7 - 2, y - 1, 4, 2, '#7065bf');
-      r.rect(x - 3, y - 2, 6, 4, '#41cfff');
-      r.rect(x - 1, y - 1, 2, 2, '#ffffff');
-    }
+    for (const pulse of this.pulses)
+      drawFighterProjectile(
+        r,
+        pulse.owner.projectile.kind,
+        Math.round(pulse.x),
+        Math.round(pulse.y),
+        Math.sign(pulse.vx),
+        2.5 - pulse.life,
+      );
+    for (const impact of this.pulseImpacts)
+      drawFighterProjectileImpact(r, impact.kind, impact.x, impact.y, impact.age, impact.guarded);
     for (const a of [this.p, this.o]) {
       if (a.guardWindow > 0 || a.counterT > 0) {
         const x = Math.round(a.x + a.facing * 22),
@@ -1385,8 +1538,7 @@ class FighterGame implements GameInstance {
       if (a.move === 'pulse' && a.moveT < MOVES.pulse.startup) {
         const x = Math.round(a.x + a.facing * 27 * a.scale),
           y = Math.round(a.y + MOVES.pulse.hitY * a.scale);
-        const spread = Math.ceil(10 * (1 - a.moveT / MOVES.pulse.startup));
-        for (const sign of [-1, 1]) r.rect(x + sign * spread, y + sign * spread, 2, 2, '#41cfff');
+        drawFighterProjectileWindup(r, a.projectile.kind, x, y, a.moveT / MOVES.pulse.startup);
       }
     }
     this.renderUi(r);
@@ -1424,9 +1576,15 @@ class FighterGame implements GameInstance {
                 ? 'GUARD RECOVERING'
                 : 'TIMED GUARD READY'
               : a.pulseCooldown > 0
-                ? `PULSE ${a.pulseCooldown.toFixed(1)}`
-                : 'GUARD + Y: PULSE';
-      r.text(FIGHTER_STYLE_CATALOG[a.profile].name, x, 51, r.theme.dim, { align });
+                ? `${a.pulseCooldown.toFixed(1)}s RECHARGE`
+                : 'GUARD + Y: CAST';
+      r.text(
+        a.profile === 'rangedControl' ? a.projectile.name : FIGHTER_STYLE_CATALOG[a.profile].name,
+        x,
+        51,
+        r.theme.dim,
+        { align },
+      );
       r.text(status, x, 63, '#ffd75e', { align });
     }
 

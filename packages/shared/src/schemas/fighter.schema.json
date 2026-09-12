@@ -427,11 +427,22 @@
       "required": ["aesthetic", "proportions", "rendering"],
       "additionalProperties": false
     },
+    "fighterProjectile": {
+      "type": "object",
+      "description": "A named, plot-appropriate ranged attack. The engine owns damage and timing; kind chooses its animated pixel windup, body, trail and impact.",
+      "properties": {
+        "kind": { "enum": ["energyBlast", "fireball", "frostShard", "arcBolt", "spiritOrb"] },
+        "name": { "type": "string", "minLength": 1, "maxLength": 18, "pattern": "^[ -~]+$" }
+      },
+      "required": ["kind", "name"],
+      "additionalProperties": false
+    },
     "fighter": {
       "description": "A generated fighter identity, tested combat profile, round HP and optional light stat leans. Profile move sets and frame data are engine-owned.",
       "type": "object",
       "properties": {
         "combatProfile": { "enum": ["rushdown", "counter", "rangedControl"] },
+        "projectile": { "$ref": "#/$defs/fighterProjectile" },
         "name": { "$ref": "#/$defs/shortName" },
         "visualConcept": {
           "description": "Concrete, identity-defining head-to-toe art direction for generated character art: apparent adult age, face/hair silhouette, signature costume details, footwear, and one memorable motif. Never invent facial traits for a photographed player.",
@@ -483,6 +494,7 @@
       "type": "object",
       "properties": {
         "combatProfile": { "enum": ["rushdown", "counter", "rangedControl"] },
+        "projectile": { "$ref": "#/$defs/fighterProjectile" },
         "name": { "$ref": "#/$defs/shortName" },
         "visualConcept": {
           "description": "Concrete, identity-defining head-to-toe art direction for the generated final opponent.",

@@ -85,7 +85,21 @@ export function stageSchema(archetype: ArchetypeId, stage: SpecStage): Record<st
     // optional so existing arcade ladders retain their original controls.
     for (const name of stage === 'levels' ? ['fighter'] : stage === 'entities' ? ['boss'] : []) {
       const def = defs[name];
-      if (def?.required) def.required = [...def.required, 'combatProfile'];
+      if (def?.required) {
+        def.required = [...def.required, 'combatProfile'];
+        Object.assign(def, {
+          allOf: [
+            {
+              if: {
+                properties: { combatProfile: { const: 'rangedControl' } },
+                required: ['combatProfile'],
+              },
+              then: { required: ['projectile'] },
+              else: { not: { required: ['projectile'] } },
+            },
+          ],
+        });
+      }
     }
   }
   return {

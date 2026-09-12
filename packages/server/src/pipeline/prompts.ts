@@ -1,4 +1,8 @@
-import { FIGHTER_STYLE_CATALOG, fighterStylePreference } from '@sparkade/shared';
+import {
+  FIGHTER_STYLE_CATALOG,
+  FIGHTER_PROJECTILE_CATALOG,
+  fighterStylePreference,
+} from '@sparkade/shared';
 // Server-side prompt assembly: loads the .md templates from
 // packages/generation and fills their placeholders (schemas verbatim from
 // @sparkade/shared, golden few-shot excerpts, anti-collision block).
@@ -243,7 +247,7 @@ export function shooterStyleBrief(design: Pick<DesignDoc, 'shooterStyle'>): stri
 }
 
 export function fighterStyleBrief(design: Pick<DesignDoc, 'fighterStyle'>): string {
-  return `COMMITTED FIGHTER STYLE: ${design.fighterStyle ?? 'rushdown'}. Preserve this fighterStyle and player.combatProfile through repair. All five characters need combatProfile: rushdown, counter, or rangedControl. The three ladder opponents must use all three profiles; the boss gets one profile. Rushdown confirms low punch > high punch > high kick. Counter uses a fresh timed guard then retaliation. Ranged control uses guard + high punch for a limited, telegraphed energy pulse which can be jumped or ducked. All profiles have a short low-punch > high-punch chain. Frame data, damage scaling, guard windows, cooldowns, and escape rules belong to the engine; do not invent moves. Keep the signature plausible in each character's theme. Existing punch, kick, and block poses animate these mechanics; pulse energy is drawn by the runtime, never baked into the hero atlas. Teach the current opponent's counterplay in stage introductions. Do not change the chosen player style during repairs.`;
+  return `COMMITTED FIGHTER STYLE: ${design.fighterStyle ?? 'rushdown'}. Preserve this fighterStyle and player.combatProfile through repair. All five characters need combatProfile: rushdown, counter, or rangedControl. The three ladder opponents must use all three profiles; the boss gets one profile. Rushdown confirms low punch > high punch > high kick. Counter uses a fresh timed guard then retaliation. Ranged control uses guard + high punch for a limited, telegraphed energy pulse which can be jumped or ducked. All profiles have a short low-punch > high-punch chain. Frame data, damage scaling, guard windows, cooldowns, and escape rules belong to the engine; do not invent moves. Keep the signature plausible in each character's theme. Each rangedControl character MUST author projectile {kind, name}: choose from ${JSON.stringify(FIGHTER_PROJECTILE_CATALOG)}. Give it a short in-world name (18 ASCII characters maximum) and explain its power source in visualConcept and the story. A furnace champion should cast fireball, an electric engineer arcBolt, an ice guardian frostShard, a mystic spiritOrb; choose energyBlast for chi or plasma. Never assign a generic pellet or an arbitrary element disconnected from the plot. Non-ranged characters omit projectile. These are distinct animated pixel effects, not new damage/speed values. Existing punch, kick, and block poses animate these mechanics; pulse energy is drawn by the runtime, never baked into the hero atlas. Teach the current opponent's counterplay in stage introductions. Do not change the chosen player style during repairs.`;
 }
 
 export function adventureStyleBrief(design: Pick<DesignDoc, 'adventureStyle'>): string {

@@ -47,10 +47,35 @@ distance. They verify completion, not human difficulty or controller feel.
 Physical-cabinet playtesting should focus on chain timing, counter readability,
 fair openings against each opponent, and the ranged fighter's corner behavior.
 
-Next candidates, after that feedback:
+## Fairness and themed projectiles
 
-- Give AI explicit, bounded responses to incoming projectiles and measured
-  reaction delays; tune difficulty from recorded human sessions.
+Profiled opponents now wait 240/190/140 ms (chill/standard/spicy) before reactive
+guards and anti-air decisions. Anti-air rolls happen once per jump. Boss
+aggression cannot bypass that reaction floor or the recovery after contact and
+misses. Ranged retreat speed is low enough for the slowest player to close in.
+
+An emitted projectile gets one response decision, with a chance of making a
+mistake. Rushdown jumps toward the shooter, counter guards, and ranged control
+ducks. The response cannot cancel a committed attack or override recovery, and
+it leaves an opening afterward. Ordinary-health regression scenarios cover
+these responses, corner guard recovery, approach and retaliation against a
+boss in its last rage phase.
+
+New ranged roster members author `projectile: { kind, name }`. The model chooses
+`energyBlast`, `fireball`, `frostShard`, `arcBolt` or `spiritOrb` to fit the
+character and story, with an 18-character move name. Each has a distinct pixel
+silhouette, animated trail, gathering effect and impact burst. Damage, speed,
+cooldown and collision stay engine-owned. Existing ranged specs without this
+field receive an energy blast. No additional character-art poses are needed.
+
+Use `?dev=playtest&fighterProjectile=fireball` (or another kind), optionally with
+`game=<id>`, to compare effects. The control card, matchup introduction and HUD
+show the named attack. See the
+[fairness verification report](../reports/fighter-fairness-20260911.md).
+
+Next candidates, after physical-cabinet feedback:
+
+- Tune difficulty and response probabilities from recorded human sessions.
 - Add a fourth grappler profile only with a clear throw tell, escape rule and
   matching throw/received-throw artwork. Avoid invisible new hit rules.
 - Consider roster selection or branching rival order as a separate progression

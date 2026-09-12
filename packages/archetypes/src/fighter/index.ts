@@ -1,4 +1,9 @@
-import { ARCHETYPE_SCHEMAS, type FighterSpec, type GameSpec } from '@sparkade/shared';
+import {
+  ARCHETYPE_SCHEMAS,
+  fighterProjectile,
+  type FighterSpec,
+  type GameSpec,
+} from '@sparkade/shared';
 import type { Archetype } from '../types';
 import { estimateFighterDurationS, lintFighter } from './lint';
 import { createFighterGame } from './game';
@@ -35,7 +40,7 @@ export const fighter: Archetype = {
         button: 'Y',
         label:
           style === 'rangedControl'
-            ? 'High punch / guard + Y pulse'
+            ? `High punch / guard+Y: ${fighterProjectile((spec as FighterSpec).player).name}`
             : 'High punch - chain follow-up',
       },
       { button: 'X', label: style === 'rushdown' ? 'High kick - chain finisher' : 'High kick' },

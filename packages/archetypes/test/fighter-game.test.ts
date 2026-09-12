@@ -61,6 +61,10 @@ interface TestActor {
   aggression: number;
   aiRecoveryT: number;
   identitySlot: number;
+  speedScale: number;
+  aiPulseId: number;
+  aiDefense: 'guard' | 'duck' | 'jump' | null;
+  aiDefenseT: number;
 }
 
 interface FighterHarness extends GameInstance {
@@ -71,6 +75,7 @@ interface FighterHarness extends GameInstance {
   tryChain(a: TestActor, move: MoveId): boolean;
   updatePulses(dt: number): void;
   startRound(fresh: boolean): void;
+  enterBout(index: number): void;
   phase: 'cards' | 'fight';
   roundPhase: 'ready' | 'fight' | 'over';
   p: TestActor;
@@ -91,6 +96,7 @@ interface FighterHarness extends GameInstance {
 }
 
 interface HarnessOptions {
+  difficulty?: 'chill' | 'standard' | 'spicy';
   profile?: FighterCombatProfile;
   chance?: boolean | ((probability: number) => boolean);
   fighterAtlases?: readonly CanvasImageSource[] | null;
@@ -174,6 +180,7 @@ function makeHarness(options: HarnessOptions = {}): {
   transforms: Array<readonly ['translate' | 'scale', number, number]>;
 } {
   const spec = options.profile ? fighterStyleExample(loadSpec(), options.profile) : loadSpec();
+  if (options.difficulty) spec.difficulty = options.difficulty;
   const sfxEvents: string[] = [];
   const chanceEvents: number[] = [];
   const generatedDraws: GeneratedDrawEvent[] = [];
@@ -686,4 +693,156 @@ describe('Fighter combat identities', () => {
     rush.aiControl(rush.o, rush.p, STEP);
     expect(rush.o.move).toBe('punchLow');
   });
+});
+
+describe('Fighter fairness with ordinary health', () => {
+  it.each(['chill', 'standard', 'spicy'] as const)(
+    '%s guards wait for a visible reaction even at boss aggression',
+    (difficulty) => {
+      const { game } = makeHarness({ profile: 'counter', difficulty, chance: true });
+      game.p.x = 100;
+      game.o.x = 132;
+      game.o.aggression = 100;
+      game.o.aiIntent = 'wait';
+      game.o.aiT = 5;
+      game.startMove(game.p, 'kickHigh');
+      for (let i = 0; i < 6; i++) {
+        game.aiControl(game.o, game.p, STEP);
+        expect(game.o.block).toBe(false);
+      }
+      for (let i = 0; i < 20; i++) game.aiControl(game.o, game.p, STEP);
+      expect(game.o.block).toBe(true);
+    },
+  );
+
+  it('rolls a declined anti-air once for an entire jump', () => {
+    const { game, chanceEvents } = makeHarness({ profile: 'counter', chance: false });
+    game.p.x = 100;
+    game.o.x = 132;
+    game.p.y -= 30;
+    game.o.aiIntent = 'wait';
+    game.o.aiT = 5;
+    for (let i = 0; i < 60; i++) game.aiControl(game.o, game.p, STEP);
+    expect(chanceEvents).toHaveLength(1);
+    expect(game.o.move).toBeNull();
+  });
+
+  it.each(['rushdown', 'counter', 'rangedControl'] as const)(
+    '%s responds to an emitted projectile and survives without healing',
+    (profile) => {
+      const { game } = makeHarness({ profile: 'rangedControl', chance: true });
+      game.p.x = 80;
+      game.o.x = 310;
+      game.p.facing = 1;
+      game.o.profile = profile;
+      game.o.pulseCooldown = 2; // Exercise defense while its own shot is recharging.
+      game.o.aiIntent = 'wait';
+      game.o.aiT = 5;
+      game.startMove(game.p, 'pulse');
+      game.aiControl(game.o, game.p, STEP);
+      expect(game.o.aiPulseId).toBe(-1); // Windup alone grants no projectile read.
+      game.stepActor(game.p, 0.29);
+      let defended = false,
+        recovered = false;
+      for (let i = 0; i < 120; i++) {
+        game.aiControl(game.o, game.p, STEP);
+        game.stepActor(game.o, STEP);
+        game.updatePulses(STEP);
+        if (i < 6) expect(game.o.aiDefense).toBeNull();
+        defended ||= game.o.aiDefense !== null;
+        recovered ||= defended && game.o.aiDefense === null && game.o.aiRecoveryT > 0;
+      }
+      expect(defended).toBe(true);
+      expect(recovered).toBe(true);
+      expect(game.o.hp).toBe(game.o.maxHp);
+    },
+  );
+
+  it('a missed projectile response remains a mistake rather than rerolling into immunity', () => {
+    const { game, chanceEvents } = makeHarness({ profile: 'counter', chance: false });
+    game.p.x = 80;
+    game.o.x = 310;
+    game.p.facing = 1;
+    game.o.aiIntent = 'wait';
+    game.o.aiT = 5;
+    game.startMove(game.p, 'pulse');
+    game.stepActor(game.p, 0.29);
+    for (let i = 0; i < 90; i++) {
+      game.aiControl(game.o, game.p, STEP);
+      game.stepActor(game.o, STEP);
+      game.updatePulses(STEP);
+    }
+    expect(chanceEvents).toHaveLength(1);
+    expect(game.o.hp).toBeLessThan(game.o.maxHp);
+    expect(game.o.hp).toBeGreaterThan(0);
+  });
+
+  it.each(['rushdown', 'counter', 'rangedControl'] as const)(
+    '%s can regain guard after corner pressure without a health reset',
+    (profile) => {
+      const { game } = makeHarness({ profile, chance: true, rangeUnit: 0 });
+      putAtLeftWall(game);
+      game.o.profile = 'rushdown';
+      game.o.aiIntent = 'attack';
+      game.o.aiT = 0.5;
+      let firstHit = false,
+        guarded = false;
+      for (let i = 0; i < 180; i++) {
+        game.update(STEP, snapshot({ block: firstHit }));
+        firstHit ||= game.p.hp < game.p.maxHp;
+        if (firstHit && game.p.block) {
+          guarded = true;
+          break;
+        }
+      }
+      expect(firstHit).toBe(true);
+      expect(guarded).toBe(true);
+      expect(game.p.hp).toBeGreaterThan(game.p.maxHp / 2);
+    },
+  );
+
+  it.each(['rushdown', 'counter', 'rangedControl'] as const)(
+    '%s can approach a retreating ranged opponent while ducking shots',
+    (profile) => {
+      const { game } = makeHarness({ profile, chance: true });
+      game.p.x = 80;
+      game.o.x = 350;
+      game.p.speedScale = 0.85;
+      game.o.speedScale = 1.15;
+      game.o.profile = 'rangedControl';
+      let frames = 0;
+      for (; frames < 900 && Math.abs(game.p.x - game.o.x) > 60; frames++) {
+        const incoming = game.pulses.some(
+          (p) => p.owner === game.o && p.x > game.p.x && p.x - game.p.x < 95,
+        );
+        game.update(STEP, snapshot({ press: incoming ? 'DOWN' : 'RIGHT' }));
+      }
+      expect(frames).toBeLessThan(900);
+      expect(Math.abs(game.p.x - game.o.x)).toBeLessThanOrEqual(60);
+      expect(game.p.hp).toBeGreaterThan(0);
+    },
+  );
+
+  it.each(['rushdown', 'counter', 'rangedControl'] as const)(
+    'a missed %s boss strike leaves a real player punish window',
+    (profile) => {
+      const { game } = makeHarness({ profile, chance: true });
+      game.enterBout(3);
+      game.roundPhase = 'fight';
+      game.o.profile = profile;
+      game.o.hp = game.o.maxHp * 0.2; // Start in the real boss's last rage phase.
+      const bossHp = game.o.hp;
+      game.p.x = 100;
+      game.o.x = 132;
+      game.p.facing = 1;
+      game.o.facing = 1; // Player has crossed behind the committed strike.
+      game.startMove(game.o, 'kickHigh');
+      for (let i = 0; i < 50 && game.o.move; i++) game.update(STEP, snapshot());
+      expect(game.p.hp).toBe(game.p.maxHp);
+      expect(game.o.aiRecoveryT).toBeGreaterThan(0);
+      game.update(STEP, snapshot({ press: 'B' }));
+      for (let i = 0; i < 8; i++) game.update(STEP, snapshot());
+      expect(game.o.hp).toBeLessThan(bossHp);
+    },
+  );
 });

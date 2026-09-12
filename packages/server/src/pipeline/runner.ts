@@ -2135,6 +2135,17 @@ export class GenerationRunner {
           'Repair changed the committed Fighter kit',
           'validating',
         );
+      if (
+        spec.archetype === 'fighter' &&
+        [spec.player, ...spec.levels.map((l) => l.opponent), spec.boss].some(
+          (c) => c.combatProfile === 'rangedControl' && !c.projectile,
+        )
+      )
+        throw new PipelineError(
+          'validation-failed',
+          'A newly generated ranged fighter lost its named projectile theme during repair',
+          'validating',
+        );
       if (spec.archetype === 'shooter' && spec.shooterStyle !== design.shooterStyle) {
         throw new PipelineError(
           'validation-failed',
@@ -6025,6 +6036,7 @@ export class GenerationRunner {
                 speedScale: fighterSpec.boss.speedScale,
                 powerScale: fighterSpec.boss.powerScale,
                 combatProfile: fighterSpec.boss.combatProfile,
+                projectile: fighterSpec.boss.projectile,
               };
               interface RosterEntry {
                 slot: FighterRosterSlot;
@@ -6066,6 +6078,11 @@ export class GenerationRunner {
               const conceptFor = (character: FighterCharacter): string =>
                 [
                   character.visualConcept,
+                  ...(character.projectile
+                    ? [
+                        `The character releases ${character.projectile.name} (${character.projectile.kind}); its power source fits the costume and story, but the blast itself is drawn by the runtime.`,
+                      ]
+                    : []),
                   character.combatProfile === 'rushdown'
                     ? 'Combat kit: crisp compact low-punch, high-punch and high-kick silhouettes form a readable short chain.'
                     : character.combatProfile === 'counter'

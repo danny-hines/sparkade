@@ -15,6 +15,9 @@ import {
 import {
   FIGHTER_COMBAT_PROFILES,
   FIGHTER_STYLE_CATALOG,
+  FIGHTER_PROJECTILE_KINDS,
+  FIGHTER_PROJECTILE_CATALOG,
+  type FighterProjectileKind,
   fighterStyleExample,
   type FighterCombatProfile,
   SHOOTER_PLAY_STYLES,
@@ -35,7 +38,16 @@ import goldenHshooter from '../../../generation/golden/golden-hshooter.json';
 const GOLDENS: Record<string, unknown> = { hshooter: goldenHshooter };
 
 export function PlaytestScreen(): ComponentChildren {
-  const fighterComparison = new URLSearchParams(location.search).has('fighterStyle');
+  const fighterComparison =
+    new URLSearchParams(location.search).has('fighterStyle') ||
+    new URLSearchParams(location.search).has('fighterProjectile');
+  const fighterLink = (style: string, projectile?: string): string => {
+    const params = new URLSearchParams({ dev: 'playtest', fighterStyle: style });
+    const game = new URLSearchParams(location.search).get('game');
+    if (game) params.set('game', game);
+    if (projectile) params.set('fighterProjectile', projectile);
+    return `/?${params}`;
+  };
   const adventureComparison = new URLSearchParams(location.search).has('adventureStyle');
   const shooterComparison = new URLSearchParams(location.search).has('shooterStyle');
   const comparison =
@@ -57,7 +69,14 @@ export function PlaytestScreen(): ComponentChildren {
 
     void (async () => {
       try {
-        const fighterStyle = params.get('fighterStyle');
+        const projectileKind = params.get('fighterProjectile');
+        if (
+          projectileKind &&
+          !FIGHTER_PROJECTILE_KINDS.includes(projectileKind as FighterProjectileKind)
+        )
+          throw new Error('Unknown Fighter projectile');
+        const fighterStyle =
+          params.get('fighterStyle') ?? (projectileKind ? 'rangedControl' : null);
         if (fighterStyle && !FIGHTER_COMBAT_PROFILES.includes(fighterStyle as FighterCombatProfile))
           throw new Error('Unknown Fighter style');
         const style = params.get('style');
@@ -88,6 +107,14 @@ export function PlaytestScreen(): ComponentChildren {
         if (fighterStyle) {
           if (spec.archetype !== 'fighter') throw new Error('Fighter comparison requires Fighter');
           spec = fighterStyleExample(spec, fighterStyle as FighterCombatProfile);
+          if (projectileKind) {
+            spec.player.combatProfile = 'rangedControl';
+            spec.fighterStyle = 'rangedControl';
+            spec.player.projectile = {
+              kind: projectileKind as FighterProjectileKind,
+              name: FIGHTER_PROJECTILE_CATALOG[projectileKind as FighterProjectileKind].name,
+            };
+          }
         }
         if (style && spec.archetype === 'platformer')
           spec = platformerStyleExample(spec, style as PlatformerPlayStyle);
@@ -182,8 +209,20 @@ export function PlaytestScreen(): ComponentChildren {
           aria-label="Fighter play styles"
         >
           {FIGHTER_COMBAT_PROFILES.map((style) => (
-            <a key={style} style="color:#aee9f1" href={`/?dev=playtest&fighterStyle=${style}`}>
+            <a key={style} style="color:#aee9f1" href={fighterLink(style)}>
               {FIGHTER_STYLE_CATALOG[style].name}
+            </a>
+          ))}
+        </nav>
+      )}
+      {fighterComparison && (
+        <nav
+          aria-label="Fighter projectiles"
+          style="display:flex;gap:18px;padding:4px 12px 12px;font:13px monospace"
+        >
+          {FIGHTER_PROJECTILE_KINDS.map((kind) => (
+            <a key={kind} style="color:#ffc77a" href={fighterLink('rangedControl', kind)}>
+              {FIGHTER_PROJECTILE_CATALOG[kind].name}
             </a>
           ))}
         </nav>
@@ -236,7 +275,7 @@ export function PlaytestScreen(): ComponentChildren {
           ref={ref}
           style={
             comparison
-              ? 'image-rendering:pixelated;width:min(1024px,100vw,calc((100vh - 64px) * 1.706667));height:auto;aspect-ratio:1024/600'
+              ? `image-rendering:pixelated;width:min(1024px,100vw,calc((100vh - ${fighterComparison ? 104 : 64}px) * 1.706667));height:auto;aspect-ratio:1024/600`
               : 'image-rendering:pixelated;width:1024px;height:600px'
           }
           tabIndex={0}

@@ -2,6 +2,37 @@ import type { FighterCharacter, FighterSpec } from './types';
 
 export const FIGHTER_COMBAT_PROFILES = ['rushdown', 'counter', 'rangedControl'] as const;
 export type FighterCombatProfile = (typeof FIGHTER_COMBAT_PROFILES)[number];
+export const FIGHTER_PROJECTILE_KINDS = [
+  'energyBlast',
+  'fireball',
+  'frostShard',
+  'arcBolt',
+  'spiritOrb',
+] as const;
+export type FighterProjectileKind = (typeof FIGHTER_PROJECTILE_KINDS)[number];
+export interface FighterProjectile {
+  kind: FighterProjectileKind;
+  /** Short in-world move name, shown in the HUD and matchup introduction. */
+  name: string;
+}
+export const FIGHTER_PROJECTILE_CATALOG = {
+  energyBlast: {
+    name: 'Energy blast',
+    fiction: 'Focused chi, plasma gauntlets or futuristic energy weapons',
+  },
+  fireball: { name: 'Fireball', fiction: 'Fire magic, furnace champions or volcanic power' },
+  frostShard: {
+    name: 'Frost shard',
+    fiction: 'Ice magic, winter guardians or cryogenic technology',
+  },
+  arcBolt: { name: 'Arc bolt', fiction: 'Electric coils, storm power or an arcane engineer' },
+  spiritOrb: { name: 'Spirit orb', fiction: 'Ghosts, ancestral magic or a mystic guardian' },
+} as const;
+export function fighterProjectile(
+  character: Pick<FighterCharacter, 'projectile'>,
+): FighterProjectile {
+  return character.projectile ?? { kind: 'energyBlast', name: 'Energy blast' };
+}
 export const FIGHTER_STYLE_CATALOG = {
   rushdown: {
     name: 'Rushdown',
@@ -44,5 +75,10 @@ export function fighterStyleExample(base: FighterSpec, style: FighterCombatProfi
     level.opponent.combatProfile = FIGHTER_COMBAT_PROFILES[(offset + i) % 3]!;
   });
   spec.boss.combatProfile = FIGHTER_COMBAT_PROFILES[(offset + 1) % 3]!;
+  for (const character of [spec.player, ...spec.levels.map((l) => l.opponent), spec.boss]) {
+    if (character.combatProfile === 'rangedControl')
+      character.projectile ??= { kind: 'energyBlast', name: 'Energy blast' };
+    else delete character.projectile;
+  }
   return spec;
 }

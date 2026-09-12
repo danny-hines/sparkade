@@ -337,6 +337,7 @@ export interface FighterArtDirection {
 
 export interface FighterCharacter {
   combatProfile?: import('./fighter-styles').FighterCombatProfile;
+  projectile?: import('./fighter-styles').FighterProjectile;
   name: string;
   /** Concrete head-to-toe art direction used to establish generated identity. */
   visualConcept: string;
@@ -365,6 +366,7 @@ export interface FighterPhase {
 
 export interface FighterBoss {
   combatProfile?: import('./fighter-styles').FighterCombatProfile;
+  projectile?: import('./fighter-styles').FighterProjectile;
   name: string;
   /** Concrete head-to-toe art direction used to establish generated identity. */
   visualConcept: string;

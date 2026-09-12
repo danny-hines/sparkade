@@ -6,6 +6,20 @@ import { err, lintDuration, lintMusic, lintSongRef, lintSpriteRefs } from '../co
 export function lintFighter(spec: FighterSpec): LintError[] {
   const out: LintError[] = [];
   out.push(...lintMusic(spec), ...lintSpriteRefs(spec));
+  for (const [character, path] of [
+    [spec.player, '/player'],
+    ...spec.levels.map((l, i) => [l.opponent, `/levels/${i}/opponent`] as const),
+    [spec.boss, '/boss'],
+  ] as const) {
+    if (character.projectile && character.combatProfile !== 'rangedControl')
+      out.push(
+        err(
+          'FIGHT_PROJECTILE_KIT',
+          `${path}/projectile`,
+          'only rangedControl characters release projectiles',
+        ),
+      );
+  }
 
   if (spec.fighterStyle) {
     if (spec.player.combatProfile !== spec.fighterStyle)

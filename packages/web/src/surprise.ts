@@ -44,7 +44,7 @@ function shuffledArchetypes(random: () => number, last: ArchetypeId | null): Arc
   return bag;
 }
 
-/** Pure draw used by the UI and tests. Every five draws contain one of each archetype. */
+/** Pure draw used by the UI and tests. Every cycle contains one of each archetype. */
 export function drawSurpriseArchetype(
   previous: unknown,
   random: () => number = Math.random,

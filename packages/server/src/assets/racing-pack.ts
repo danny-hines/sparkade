@@ -5,22 +5,27 @@ import sharp from 'sharp';
 import {
   RACING_CRAFT_ROLES,
   RACING_PANORAMA_ROLES,
+  resolveTraversal,
   type GeneratedGameAssetRole,
   type RacingCraftRole,
   type RacingPanoramaRole,
   type RacingSpec,
+  type RacingTraversal,
 } from '@sparkade/shared';
 import {
   RACING_CRAFT_STRIP_PROMPT_VERSION,
   RACING_JETSKI_STRIP_PROMPT_VERSION,
+  RACING_TRAVERSAL_STRIP_PROMPT_VERSION,
   buildRacingCraftStripPrompt,
   type RacingStripDiscipline,
 } from './racing-craft';
 import {
   RACING_JETSKI_PANORAMA_PROMPT_VERSION,
   RACING_PANORAMA_PROMPT_VERSION,
+  RACING_TRAVERSAL_PANORAMA_PROMPT_VERSION,
   buildRacingPanoramaPrompt,
 } from './racing-scenery';
+import { racingArtSubject, racingTraversalCameraLock } from './racing-traversal-art';
 import {
   RACING_JETSKI_MATERIAL_TILES_VERSION,
   RACING_MATERIALS_PROMPT_VERSION,
@@ -36,12 +41,14 @@ import {
 export const RACING_JUDGE_PROMPT_VERSION = 'racing-roster-judge-v1';
 /** Jetski roster-judge fingerprint; hover keeps v1 byte-identical. */
 export const RACING_JETSKI_JUDGE_PROMPT_VERSION = 'racing-jetski-judge-v1';
+/** Traversal roster-judge fingerprint; legacy judges keep their versions. */
+export const RACING_TRAVERSAL_JUDGE_PROMPT_VERSION = 'racing-traversal-judge-v1';
 
 export type RacingPackDiscipline = 'hover' | 'jetski';
 
 /** Discipline for a spec: omitted identity discipline means hover (legacy). */
 export function racingPackDiscipline(spec: RacingSpec): RacingPackDiscipline {
-  return spec.identity?.discipline === 'jetski' ? 'jetski' : 'hover';
+  return racingArtSubject(spec.identity).water ? 'jetski' : 'hover';
 }
 
 /** The ten runtime files in manifest order: 3 panoramas, 5 strips, scenery, materials. */
@@ -104,26 +111,39 @@ function colorsOf(spec: RacingSpec): string {
 export function buildRacingPackPlan(spec: RacingSpec): RacingPackPlan {
   const identity = spec.identity!;
   const colors = colorsOf(spec);
-  const discipline: RacingStripDiscipline =
-    identity.discipline === 'jetski' ? 'jetski' : 'hover';
-  const stripVersion =
-    discipline === 'jetski' ? RACING_JETSKI_STRIP_PROMPT_VERSION : RACING_CRAFT_STRIP_PROMPT_VERSION;
-  const panoramaVersion =
-    discipline === 'jetski' ? RACING_JETSKI_PANORAMA_PROMPT_VERSION : RACING_PANORAMA_PROMPT_VERSION;
-  const sceneryVersion =
-    discipline === 'jetski' ? RACING_JETSKI_SCENERY_OBJECTS_VERSION : RACING_SCENERY_OBJECTS_VERSION;
+  const subject = racingArtSubject(identity);
+  const traversal = subject.traversal;
+  const discipline: RacingStripDiscipline = identity.discipline === 'jetski' ? 'jetski' : 'hover';
+  // Water follows the surface axis when a traversal exists (even with the
+  // legacy discipline omitted), else the legacy discipline. Only enum axes
+  // drive this routing — never the label.
+  const water = subject.water;
+  const stripVersion = subject.hasTraversal
+    ? RACING_TRAVERSAL_STRIP_PROMPT_VERSION
+    : discipline === 'jetski'
+      ? RACING_JETSKI_STRIP_PROMPT_VERSION
+      : RACING_CRAFT_STRIP_PROMPT_VERSION;
+  const panoramaVersion = subject.hasTraversal
+    ? RACING_TRAVERSAL_PANORAMA_PROMPT_VERSION
+    : discipline === 'jetski'
+      ? RACING_JETSKI_PANORAMA_PROMPT_VERSION
+      : RACING_PANORAMA_PROMPT_VERSION;
+  const sceneryVersion = water
+    ? RACING_JETSKI_SCENERY_OBJECTS_VERSION
+    : RACING_SCENERY_OBJECTS_VERSION;
   // Single source of truth shared with the generator: the plan advertises
   // the exact prompts generateRacingSceneryPack will issue — and, for
-  // jetski, the exact tile prompts generateRacingJetskiMaterialsPack will
+  // water, the exact tile prompts generateRacingJetskiMaterialsPack will
   // issue (the single-sheet prompt cannot be trusted to honor a 2x2 grid).
   const objectPrompts = racingSceneryObjectPrompts(spec);
-  const tilePrompts =
-    discipline === 'jetski' ? racingJetskiMaterialTilePrompts(spec) : [];
-  const materialsVersion =
-    discipline === 'jetski' ? RACING_JETSKI_MATERIAL_TILES_VERSION : RACING_MATERIALS_PROMPT_VERSION;
+  const tilePrompts = water ? racingJetskiMaterialTilePrompts(spec) : [];
+  const materialsVersion = water
+    ? RACING_JETSKI_MATERIAL_TILES_VERSION
+    : RACING_MATERIALS_PROMPT_VERSION;
   const craftRole = (index: number): RacingCraftRole => RACING_CRAFT_ROLES[index]!;
-  const cameraLock =
-    discipline === 'jetski'
+  const cameraLock = subject.hasTraversal
+    ? racingTraversalCameraLock(subject.rider)
+    : discipline === 'jetski'
       ? ' CAMERA LOCK: all three views show the rider back and the watercraft stern with the jet nozzle facing the viewer, with the bow farthest away. Banking is ROLL of rider and craft together, never yaw to a side view. Cell 2 lowers the screen-left edge and raises the screen-right edge; cell 3 does the exact opposite. Keep the rider, hull length, handlebars and livery unchanged. The two bank poses must tilt in visibly opposite directions.'
       : ' CAMERA LOCK: all three views show the REAR bumper and exhaust facing the viewer, with the nose farthest away. Banking is ROLL, never yaw to a side view. Cell 2 lowers the screen-left edge and raises the screen-right edge; cell 3 does the exact opposite. Keep the canopy, body length, wing count and livery unchanged. The two bank poses must tilt in visibly opposite directions.';
   const stripEntry = (
@@ -141,6 +161,7 @@ export function buildRacingPackPlan(spec: RacingSpec): RacingPackPlan {
         artDirection: identity.artDirection,
         colors,
         discipline,
+        ...(traversal ? { traversal } : {}),
       }) + cameraLock,
     label,
     size: '1536x1024',
@@ -167,12 +188,13 @@ export function buildRacingPackPlan(spec: RacingSpec): RacingPackPlan {
           envConcept: level.envConcept ?? `Cup course ${k + 1} in the shared world`,
           colors,
           discipline,
+          ...(traversal ? { traversal } : {}),
         }),
         label: `${level.name} panorama`,
         size: '1792x1024',
         // A watercourse story image carries foreground docks and buoys;
         // use the authored world/style text for the distant horizon plate.
-        ...(discipline === 'jetski' ? {} : { reference: 'keyArt' as const }),
+        ...(water ? {} : { reference: 'keyArt' as const }),
       };
     }),
     scenery: {
@@ -192,38 +214,42 @@ export function buildRacingPackPlan(spec: RacingSpec): RacingPackPlan {
       size: '1024x1024',
       reference: 'keyArt',
     })),
-    materials:
-      discipline === 'jetski'
-        ? {
-            role: 'racingMaterialAtlas',
-            promptVersion: materialsVersion,
-            prompt: tilePrompts.join('\n'),
-            label: 'Water material atlas (4 generated tiles)',
-            size: '1024x1024',
-          }
-        : {
-            role: 'racingMaterialAtlas',
-            promptVersion: materialsVersion,
-            prompt: buildRacingMaterialsPrompt({
-              artDirection: identity.artDirection,
-              worldConcept: identity.worldConcept,
-              envContext: spec.levels
-                .map((level, k) => `course ${k + 1} ${level.name}: ${level.envConcept ?? 'shared world'}`)
-                .join('; '),
-              materials: spec.levels[0]!.materials ?? {
-                road: '#5c5e6e',
-                ground: '#2f4a26',
-                curb: '#d8d8cc',
-                edge: '#35e0ff',
-                pad: '#35e0ff',
-              },
-              boostMode: identity.boost.mode,
-              colors,
-              discipline,
-            }),
-            label: 'Track material atlas',
-            size: '1024x1024',
-          },
+    materials: water
+      ? {
+          role: 'racingMaterialAtlas',
+          promptVersion: materialsVersion,
+          prompt: tilePrompts.join('\n'),
+          label: 'Water material atlas (4 generated tiles)',
+          size: '1024x1024',
+        }
+      : {
+          role: 'racingMaterialAtlas',
+          promptVersion: materialsVersion,
+          prompt: buildRacingMaterialsPrompt({
+            artDirection: identity.artDirection,
+            worldConcept: identity.worldConcept,
+            envContext: spec.levels
+              .map(
+                (level, k) =>
+                  `course ${k + 1} ${level.name}: ${level.envConcept ?? 'shared world'}`,
+              )
+              .join('; '),
+            materials: spec.levels[0]!.materials ?? {
+              road: '#5c5e6e',
+              ground: '#2f4a26',
+              curb: '#d8d8cc',
+              edge: '#35e0ff',
+              pad: '#35e0ff',
+            },
+            boostMode: identity.boost.mode,
+            colors,
+            // Legacy cups keep their discipline-flavored sheet; traversal
+            // ground cups take the generic ground sheet (same hover text).
+            discipline: subject.hasTraversal ? undefined : discipline,
+          }),
+          label: 'Track material atlas',
+          size: '1024x1024',
+        },
     materialTiles: tilePrompts.map((prompt, index): RacingPackEntry => ({
       // Informational role: all four compose the single public atlas.
       role: 'racingMaterialAtlas',
@@ -263,12 +289,17 @@ export function buildRacingRosterJudgePrompt(
   slots: readonly RacingRosterSlotDescriptor[],
   references: readonly RacingRosterSlotDescriptor[] = [],
   discipline: RacingPackDiscipline = 'hover',
+  traversal?: RacingTraversal,
 ): {
   system: string;
   user: string;
 } {
+  const resolved = resolveTraversal(traversal);
+  if (resolved) return buildTraversalRacingRosterJudgePrompt(slots, references, resolved);
   const subject =
-    discipline === 'jetski' ? 'rear-view jetski (rider plus watercraft) strips' : 'rear-view hovercraft strips';
+    discipline === 'jetski'
+      ? 'rear-view jetski (rider plus watercraft) strips'
+      : 'rear-view hovercraft strips';
   const required =
     discipline === 'jetski'
       ? 'Required: true rear camera (behind and slightly above, craft pointing away), the SAME watercraft plus its SAME seated adult rider across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent hulls across rows, readable rear camera, no green panels, no text, no cropping. Every row must show exactly one seated rider astride the hull: a missing rider, a standing or detached rider, or a face pasted into the hull is fatal.'
@@ -277,6 +308,67 @@ export function buildRacingRosterJudgePrompt(
     discipline === 'jetski'
       ? 'Score concept fidelity, exact rear orientation, same rider-plus-hull coherence, small gameplay readability, and technical pixel-art quality from 1 to 5. A fatal issue is a wrong camera direction, mismatched poses within a row, same-direction banks, duplicated hulls across rows, a missing or doubled rider, a detached rider, a face pasted into the hull, cropped/multiple craft, or broken transparency.'
       : 'Score concept fidelity, exact rear orientation, same-vehicle coherence, small gameplay readability, and technical pixel-art quality from 1 to 5. A fatal issue is a wrong camera direction, mismatched poses within a row, same-direction banks, duplicated vehicles across rows, cropped/multiple craft, a person, or broken transparency.';
+  return {
+    system:
+      'You are Muse Spark, the art director selecting gameplay vehicle art. Judge only the labeled TARGET rows; REFERENCE rows are frozen prior approvals shown for distinctness comparison. Return strict JSON.',
+    user: [
+      `Review the ${slots.length} TARGET ${subject} in order: ${slots.map((s) => `${s.id} (${s.name})`).join(', ')}.`,
+      ...slots.map((s) => `${s.id} concept: ${s.vehicleConcept}.`),
+      references.length
+        ? `Frozen REFERENCE rows (already approved, never judge, never list in slotReviews or rejectedIds): ${references.map((s) => `${s.id} (${s.name})`).join(', ')}. Compare every target against the references for distinctness — a target duplicating a reference vehicle is fatal.`
+        : '',
+      required,
+      'Banking is opposite ROLL, never yaw and never a mirrored livery: the banking-left cell leans left (left side low, right side high) and the banking-right cell leans right (right side low, left side high). Two banks yawing the same way, yawed side profiles, or mirrored asymmetric markings are fatal.',
+      fatal,
+      'accepted should be true only when every target row has no fatal issue and is production quality. Even when accepted is false, retryGuidance must describe the single most important correction for the rejected rows.',
+      'For EACH target row, set correction to "banking" ONLY when its neutral-rear cell is accepted as the right vehicle, rear camera, and concept and only the bank rolls are wrong; otherwise — bad neutral camera or concept, a duplicate of another vehicle, or any doubt — set "vehicle". Give the per-row fix in guidance.',
+    ]
+      .filter(Boolean)
+      .join(' '),
+  };
+}
+
+/**
+ * Full roster review for a validated traversal cup. Same gate strength as
+ * the legacy judges (per-row 1-5 scores, fatal issues, banking-vs-vehicle
+ * correction categories): the rider axis sets the required subject and the
+ * propulsion axis adds its exhaust rule. Never loosened to make a job pass.
+ */
+function buildTraversalRacingRosterJudgePrompt(
+  slots: readonly RacingRosterSlotDescriptor[],
+  references: readonly RacingRosterSlotDescriptor[],
+  traversal: RacingTraversal,
+): {
+  system: string;
+  user: string;
+} {
+  const rider = traversal.rider;
+  const subject =
+    rider === 'none'
+      ? 'rear-view vehicle strips'
+      : rider === 'onFoot'
+        ? 'rear-view runner strips'
+        : 'rear-view rider-plus-conveyance strips';
+  const plural =
+    rider === 'none' ? 'vehicles' : rider === 'onFoot' ? 'runners' : 'rider-plus-conveyance pairs';
+  const required =
+    rider === 'none'
+      ? 'Required: true rear camera (behind and slightly above, conveyance pointing away), the SAME vehicle across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent vehicles across rows, no green panels, no people, no text, no cropping.'
+      : rider === 'onFoot'
+        ? 'Required: true rear camera (behind and slightly above, runner pointing away), the SAME runner mid-stride across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent runners across rows, readable rear camera, no green panels, no text, no cropping. Every row must show exactly one runner and no conveyance: a missing or doubled runner, a conveyance, or a face-on view is fatal.'
+        : rider === 'standing'
+          ? 'Required: true rear camera (behind and slightly above, conveyance pointing away), the SAME conveyance plus its SAME standing adult rider across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent pairs across rows, readable rear camera, no green panels, no text, no cropping. Every row must show exactly one rider standing on the conveyance: a missing, seated, or detached rider, or a face pasted into the conveyance is fatal.'
+          : 'Required: true rear camera (behind and slightly above, conveyance pointing away), the SAME conveyance plus its SAME seated adult rider across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent pairs across rows, readable rear camera, no green panels, no text, no cropping. Every row must show exactly one rider seated astride the conveyance: a missing rider, a standing or detached rider, or a face pasted into the conveyance is fatal.';
+  const exhaustFatal =
+    traversal.propulsion === 'human'
+      ? ' A human-powered conveyance showing motor exhaust flames or engine plumes is fatal.'
+      : traversal.propulsion === 'magic'
+        ? ' A magic conveyance showing mechanical exhaust or engine plumes is fatal.'
+        : '';
+  const fatal =
+    rider === 'none'
+      ? `Score concept fidelity, exact rear orientation, same-vehicle coherence, small gameplay readability, and technical pixel-art quality from 1 to 5. A fatal issue is a wrong camera direction, mismatched poses within a row, same-direction banks, duplicated vehicles across rows, cropped/multiple craft, a person, or broken transparency.${exhaustFatal}`
+      : `Score concept fidelity, exact rear orientation, same-rider coherence, small gameplay readability, and technical pixel-art quality from 1 to 5. A fatal issue is a wrong camera direction, mismatched poses within a row, same-direction banks, duplicated ${plural} across rows, cropped/multiple subjects, or broken transparency.${exhaustFatal}`;
   return {
     system:
       'You are Muse Spark, the art director selecting gameplay vehicle art. Judge only the labeled TARGET rows; REFERENCE rows are frozen prior approvals shown for distinctness comparison. Return strict JSON.',
@@ -458,7 +550,11 @@ export function normalizeRacingRosterJudgeDecision(
   return {
     accepted: accepted === true && rejectedList.length === 0,
     rejectedIds:
-      accepted === true && rejectedList.length === 0 ? [] : rejectedList.length ? rejectedList : [...ids],
+      accepted === true && rejectedList.length === 0
+        ? []
+        : rejectedList.length
+          ? rejectedList
+          : [...ids],
     retryGuidance: typeof retryGuidance === 'string' && retryGuidance ? retryGuidance : '',
     correctionKinds,
     slotGuidance,
@@ -489,14 +585,23 @@ export async function reviewPendingRacingStrips(options: {
   const rows = options.slots.map((slot, index) => ({ slot, png: options.buffers[index]! }));
   const targets = rows.filter(({ slot }) => !options.approvedIds.has(slot.id));
   if (!targets.length) {
-    return { accepted: true, rejectedIds: [], retryGuidance: '', correctionKinds: {}, slotGuidance: {} };
+    return {
+      accepted: true,
+      rejectedIds: [],
+      retryGuidance: '',
+      correctionKinds: {},
+      slotGuidance: {},
+    };
   }
   const decision = await options.review(
     targets.map(({ png }) => png),
     targets.map(({ slot }) => slot),
     rows.filter(({ slot }) => options.approvedIds.has(slot.id)),
   );
-  const accepted = acceptedReviewIds(targets.map(({ slot }) => slot.id), decision.rejectedIds);
+  const accepted = acceptedReviewIds(
+    targets.map(({ slot }) => slot.id),
+    decision.rejectedIds,
+  );
   for (const { slot, png } of targets) {
     if (accepted.includes(slot.id)) await options.approve(slot.id, png);
   }

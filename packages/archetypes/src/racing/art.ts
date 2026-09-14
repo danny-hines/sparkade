@@ -131,13 +131,25 @@ export function packResidualLean(smoothedSteer: number, pose: RacingCraftPose): 
 }
 
 /**
- * Panorama source offset for a heading: smooth, bounded, periodic, and
- * DIRECTIONAL — left and right turns slide the view opposite ways (sine),
- * unlike the old even cosine which mirrored them. Sine matches at ±π, so
- * angle wrap and the lap seam stay continuous (up to float epsilon).
+ * Panorama source offset for a camera heading: truly turn-proportional
+ * cyclic scroll. A heading delta always maps to a same-direction
+ * proportional displacement (period per 2π), so full rotations and lap
+ * wraps stay seamless with no reversal at sine extrema. Sine is gone on
+ * purpose: it bunched motion at the center and reversed at the edges.
+ * sin(π) equals sin(-π) only by accident of symmetry; the cyclic map meets
+ * at ±π by construction (both land on period/2).
  */
-export function panoramaSourceX(heading: number, maxOffset: number): number {
-  return ((Math.sin(heading) + 1) / 2) * maxOffset;
+export function panoramaSourceX(heading: number, period: number, repeats = 1): number {
+  if (!(period > 0) || !Number.isFinite(heading)) return 0;
+  // Integer repeats preserve the heading/lap seam. Five at the runtime
+  // crop width gives ~429 screen px/rad, close to the road camera's 468.
+  const turns = (heading * Math.max(1, Math.round(repeats))) / (Math.PI * 2);
+  let x = (turns - Math.floor(turns)) * period;
+  // Normalize -0 and float dust at the wrap point.
+  if (x < 0) x += period;
+  if (x >= period) x -= period;
+  if (Object.is(x, -0)) return 0;
+  return x;
 }
 
 /**
@@ -151,6 +163,71 @@ export const PANORAMA_SOURCE_HEIGHT = 280;
 export const PANORAMA_SOURCE_Y = 200;
 export function panoramaMaxOffset(): number {
   return RACING_PANORAMA_WIDTH - PANORAMA_SOURCE_WIDTH;
+}
+/**
+ * Blend width for the once-per-image periodic strip. The generated plates
+ * are valid art but not tileable, so the cached strip crossfades the last
+ * OVERLAP pixels (tail) with the first OVERLAP pixels (head) over this
+ * width. 256px hides the seam while keeping period (1280px)
+ * comfortably wider than the 1216px view, so every frame draws at most
+ * two slices. Never mirrored: the core pixels are copied in order.
+ */
+export const PANORAMA_BLEND_OVERLAP = 256;
+/** Periodic strip width: full plate minus the blend overlap. */
+export function panoramaPeriodWidth(): number {
+  return RACING_PANORAMA_WIDTH - PANORAMA_BLEND_OVERLAP;
+}
+/** Blend weight of the head pixel at seam column j in [0, overlap). */
+export function panoramaBlendWeight(j: number, overlap: number): number {
+  if (!(overlap > 1)) return 1;
+  const t = Math.max(0, Math.min(1, j / (overlap - 1)));
+  return t * t * (3 - 2 * t);
+}
+/** One horizon slice drawn from the periodic strip (source + dest). */
+export interface PanoramaSlice {
+  sx: number;
+  sw: number;
+  dx: number;
+  dw: number;
+}
+/**
+ * Horizon slices covering a viewWidth window starting at srcX on a
+ * periodic strip of width period, mapped to dest [0, destW). Writes into
+ * out (preallocated capacity 2, no per-frame allocation) and returns the
+ * span count (1 when the window fits, 2 when it wraps). Every span stays
+ * inside [0, period); dest tiles are contiguous and gapless.
+ */
+export function panoramaSliceSpans(
+  srcX: number,
+  viewWidth: number,
+  period: number,
+  destW: number,
+  out: PanoramaSlice[],
+): number {
+  if (!(period > 0) || !(viewWidth > 0) || !(destW > 0)) return 0;
+  let x = srcX % period;
+  if (x < 0) x += period;
+  const first = Math.min(viewWidth, period - x);
+  let a = out[0];
+  if (!a) {
+    a = { sx: 0, sw: 0, dx: 0, dw: 0 };
+    out[0] = a;
+  }
+  a.sx = x;
+  a.sw = first;
+  a.dx = 0;
+  a.dw = (first / viewWidth) * destW;
+  if (first >= viewWidth - 1e-9) return 1;
+  let b = out[1];
+  if (!b) {
+    b = { sx: 0, sw: 0, dx: 0, dw: 0 };
+    out[1] = b;
+  }
+  b.sx = 0;
+  b.sw = viewWidth - first;
+  b.dx = a.dw;
+  b.dw = destW - a.dw;
+  return 2;
 }
 export function panoramaPlateHeight(): number {
   return RACING_PANORAMA_HEIGHT;

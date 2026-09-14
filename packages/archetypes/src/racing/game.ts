@@ -16,9 +16,12 @@ import type {
 import {
   INTERNAL_HEIGHT,
   INTERNAL_WIDTH,
+  RACING_PANORAMA_WIDTH,
+  resolveTraversal,
   type LogicalButton,
   type RacingCraftPose,
   type RacingCraftShape,
+  type RacingDiscipline,
   type RacingSpec,
 } from '@sparkade/shared';
 import {
@@ -33,6 +36,17 @@ import {
   type RaceCircuit,
 } from './track';
 import type { HoverEngineCaps } from './audio';
+import { resolveElevation } from './elevation';
+import { resolveJumps } from './jumps';
+import { resolveForks, forkCrossSection } from './forks';
+import {
+  buildElevationFrame,
+  createElevationFrame,
+  elevationClipFor,
+  elevationGroundY,
+  projectElevatedAtZ,
+  type ElevationFrame,
+} from './elevation-projection';
 import { RaceEngineAudio, type RivalSound } from './rival-audio';
 import {
   PANORAMA_SOURCE_HEIGHT,
@@ -43,15 +57,17 @@ import {
   authoredPalette,
   craftPoseSourceX,
   depthShade,
-  exhaustFlame,
   fitTileWorld,
   groundSourceSpans,
   makeArtSpriteQueue,
   materialTileRect,
+  PANORAMA_BLEND_OVERLAP,
   perspectiveZ,
   rowAtlasRow,
   sampleStripRow,
-  panoramaMaxOffset,
+  panoramaBlendWeight,
+  panoramaPeriodWidth,
+  panoramaSliceSpans,
   panoramaSourceX,
   resolveRaceArt,
   scaleRgb,
@@ -65,6 +81,7 @@ import {
   withAlpha,
   type ArtSprite,
   type GroundSpan,
+  type PanoramaSlice,
   type RaceArtRefs,
 } from './art';
 import {
@@ -112,6 +129,17 @@ import {
   type RacerInput,
 } from './simulation';
 import { resolveDiscipline } from './movement';
+import {
+  flameForPresentation,
+  helpControlsLineFor,
+  isWaterCircuit,
+  resolveRacePresentation,
+  riderBobFor,
+  speedTextFor,
+  surfaceDisciplineFor,
+  titleLabelFor,
+  trailForPresentation,
+} from './presentation';
 
 const W = INTERNAL_WIDTH;
 const H = INTERNAL_HEIGHT;
@@ -223,6 +251,13 @@ export function projectRoad(
   const camS = s - RACING_CAM_BACK;
   const behind = RACING_CAM_BACK - RACING_Z_NEAR;
   const localCurve = track.curvatureAt(s) * CURVE_GAIN;
+  // Bounded elevation: the camera rides the player's track height plus the
+  // legacy hover height, and every strip drops by its own ground height.
+  // Lateral curve projection below is untouched. Absent heightAt (every
+  // legacy/flat track) keeps the exact legacy strip arithmetic; zero
+  // heights at any strip do the same through the identical formula.
+  const heightAt = track.heightAt;
+  const camHWorld = RACING_CAM_H + (heightAt === undefined ? 0 : heightAt(s));
   let heading = -localCurve * behind;
   let lat = 0.5 * localCurve * behind * behind;
   for (let i = 0; i <= SEGMENTS; i++) {
@@ -243,7 +278,8 @@ export function projectRoad(
     const ppu = RACING_FOCAL / z;
     const half = ROAD_HALF * ppu;
     const strip = strips[i]!;
-    strip.y = HORIZON + (RACING_CAM_H * RACING_FOCAL) / z;
+    strip.y =
+      HORIZON + ((camHWorld - (heightAt === undefined ? 0 : heightAt(camS + z))) * RACING_FOCAL) / z;
     strip.cx = W / 2 + (lat - camX) * ppu;
     strip.half = half;
     strip.ppu = ppu;
@@ -254,9 +290,9 @@ export function projectRoad(
   // This removes tiny local integration/interpolation errors, not bends.
   const f = Math.sqrt((RACING_CAM_BACK - RACING_Z_NEAR) / RACING_Z_SPAN) * SEGMENTS;
   const i = Math.floor(f);
-  const t = f - i;
   const a = strips[i]!;
   const b = strips[i + 1]!;
+  const t = heightAt === undefined ? f - i : (1 / RACING_CAM_BACK - 1 / a.z) / (1 / b.z - 1 / a.z);
   const anchorPpu = a.ppu + (b.ppu - a.ppu) * t;
   const anchorX = a.cx + (b.cx - a.cx) * t;
   const correction = (anchorX - W / 2) / anchorPpu + camX;
@@ -269,7 +305,7 @@ export function projectRoad(
  * Returns null when z is outside the visible range. Craft at any z share
  * the road's exact depth law, so player, rivals, pads and finish art agree.
  */
-export function projectAtZ(strips: Projected[], z: number): Projected | null {
+export function projectAtZ(strips: readonly Projected[], z: number): Projected | null {
   if (z < RACING_Z_NEAR) return null;
   const f = Math.sqrt((z - RACING_Z_NEAR) / RACING_Z_SPAN) * SEGMENTS;
   if (f > SEGMENTS - 0.001) return null;
@@ -553,6 +589,10 @@ export interface RacingDevSnapshot {
     latV: number;
     /** Movement discipline of the current circuit. */
     discipline: string;
+    air?: { height: number; velocity: number; cooldown: number; landingT: number };
+    elevation: number;
+    grade: number;
+    forkSide?: number;
     /**
      * Residual rotation (rad) applied to the generated player blit:
      * desired smoothed lean minus the shown pose's baked lean. Zero at
@@ -698,17 +738,40 @@ export function resolveCupRaces(spec?: RacingSpec): ResolvedCupRace[] {
   // compiled pads, pickups keep the compiled cell layout, none keeps
   // neither — the simulation gates triggers by this same mode.
   const mode = spec.identity?.boost.mode ?? 'pads';
-  // Movement discipline for the whole cup (omitted → hover, legacy).
-  // Invalid values throw here rather than silently racing the wrong physics.
-  const discipline = resolveDiscipline(spec.identity?.discipline);
+  // Composable traversal contract for the whole cup (omitted → legacy
+  // hover/jetski behavior exactly). Invalid values throw here rather than
+  // silently racing the wrong physics.
+  const traversal = resolveTraversal(spec.identity?.traversal);
+  // Effective legacy discipline derives from the traversal surface when one
+  // is authored (water → jetski, ground → hover); otherwise the explicit
+  // discipline, omission → hover.
+  const discipline =
+    traversal === undefined
+      ? resolveDiscipline(spec.identity?.discipline)
+      : surfaceDisciplineFor(traversal, null);
   return spec.levels.map((level) => {
     const base = RACE_CIRCUITS.find((c) => c.id === level.template) ?? RACE_CIRCUITS[0]!;
     // Bounded geometry variation recompiles the template (same renderer and
     // physics: pads, gates, and timing all derive from the compiled track).
+    // A non-flat elevation always recompiles, even at an unchanged length,
+    // because the height profile lives on the compiled track; omission or
+    // 'flat' reuses the legacy template object untouched. Unknown values
+    // throw here rather than racing the wrong profile.
+    const elevation = resolveElevation(level.elevation);
+    const jumps = resolveJumps(level.jumps);
+    const forks = resolveForks(level.forks);
     const length = Math.min(3600, Math.max(2800, Math.round(level.length ?? base.track.length)));
     const template =
-      length !== Math.round(base.track.length) || level.mirror === true
-        ? compileTrackVariant(base.id, { length, mirror: level.mirror === true, discipline })
+      length !== Math.round(base.track.length) || level.mirror === true || elevation !== undefined || jumps !== undefined || forks !== undefined
+        ? compileTrackVariant(base.id, {
+            length,
+            mirror: level.mirror === true,
+            discipline,
+            traversal,
+            elevation,
+            jumps,
+            forks,
+          })
         : base;
     const circuit: RaceCircuit = {
       ...template,
@@ -725,6 +788,9 @@ export function resolveCupRaces(spec?: RacingSpec): ResolvedCupRace[] {
       theme: { ...template.theme, ...level.theme },
       craftShape: level.craftShape ?? template.craftShape,
       discipline,
+      // Cup-wide traversal rides on every circuit when authored; omitted on
+      // every legacy circuit (the key stays absent, preserving old shape).
+      ...(traversal === undefined ? {} : { traversal }),
       boostMode: mode,
       pads: mode === 'pads' ? template.pads : [],
       pickups: mode === 'pickups' ? template.pickups : [],
@@ -766,13 +832,22 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
   // Continuous engine and surface sound, guarded like sfx (DEV harnesses have no audio),
   // and never in attract/library previews. Created lazily on the first
   // racing update; driven from update only, never from render.
+  // Cup-wide traversal for the soundscape contract (validated once here;
+  // resolveCupRaces validates again for the circuits). Omission keeps the
+  // exact legacy mix on every voice.
+  const cupTraversal = resolveTraversal(spec?.identity?.traversal);
+  const cupAudioDiscipline = surfaceDisciplineFor(
+    cupTraversal ?? null,
+    (spec?.identity?.discipline ?? null) as RacingDiscipline | null,
+  );
   const hover = new RaceEngineAudio();
   if ((engine as unknown as { attract?: boolean }).attract !== true) {
     hover.attach((engine as unknown as { audio?: HoverEngineCaps }).audio ?? null);
     hover.setProfile(
       spec?.identity?.sound?.engine ?? null,
       undefined,
-      spec?.identity?.discipline ?? null,
+      cupAudioDiscipline,
+      cupTraversal ?? null,
     );
   }
   const cup: CupState = createCup();
@@ -923,6 +998,96 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
   let paletteCache: ReturnType<typeof authoredPalette> = null;
   /** Player pose selected this frame (readonly DEV/art diagnostic). */
   let lastPlayerPose: RacingCraftPose = 'rear';
+  // Periodic horizon strip: deterministic once-per-image overlap blend of
+  // the 1536px plate into a tileable period (width-overlap) canvas, so a
+  // heading delta always scrolls proportionally with no seam and no sine
+  // reversal. Single-entry cache (current panorama only); the 1px-slice
+  // crossfade runs once per image, never per frame, and the frame path
+  // reuses panoSlices with at most two drawImages. Falls back to the raw
+  // plate (cyclic wrap, visible seam) when canvas build is unavailable.
+  const panoStripDesc: { img: CanvasImageSource; period: number; sy: number } = {
+    img: null as unknown as CanvasImageSource,
+    period: 0,
+    sy: 0,
+  };
+  let panoStripSrc: unknown = null;
+  const panoSlices: PanoramaSlice[] = [
+    { sx: 0, sw: 0, dx: 0, dw: 0 },
+    { sx: 0, sw: 0, dx: 0, dw: 0 },
+  ];
+  function buildPanoramaStrip(src: CanvasImageSource, scenery: CanvasImageSource): boolean {
+    const period = panoramaPeriodWidth();
+    const overlap = PANORAMA_BLEND_OVERLAP;
+    const viewH = PANORAMA_SOURCE_HEIGHT;
+    const viewY = PANORAMA_SOURCE_Y;
+    const doc = (globalThis as unknown as { document?: Document }).document;
+    if (!doc) return false;
+    const canvas = doc.createElement('canvas');
+    canvas.width = period;
+    canvas.height = viewH;
+    const bctx = canvas.getContext('2d');
+    if (!bctx) return false;
+    const prevAlpha = bctx.globalAlpha;
+    try {
+      // Core: original [overlap, period) copied in order to strip [overlap, period).
+      bctx.globalAlpha = 1;
+      bctx.drawImage(src, overlap, viewY, period - overlap, viewH, overlap, 0, period - overlap, viewH);
+      // Seam base: tail [width-overlap, width) opaque at strip [0, overlap).
+      bctx.drawImage(
+        src,
+        period,
+        viewY,
+        overlap,
+        viewH,
+        0,
+        0,
+        overlap,
+        viewH,
+      );
+      // Crossfade head [0, overlap) over the tail base, 1px columns.
+      for (let j = 0; j < overlap; j++) {
+        bctx.globalAlpha = panoramaBlendWeight(j, overlap);
+        if (bctx.globalAlpha <= 0) continue;
+        bctx.drawImage(src, j, viewY, 1, viewH, j, 0, 1, viewH);
+      }
+      // A generated world landmark masks the busiest part of the join. It
+      // shares the panorama's yaw (no floating screen-space cover) and is
+      // composed once into the strip, using the existing themed art atlas.
+      bctx.globalAlpha = 1;
+      const landmark = sceneryAtlasCell('landmarkFar');
+      bctx.drawImage(scenery, landmark.sx, landmark.sy, landmark.size, landmark.size,
+        0, viewH - overlap, overlap, overlap);
+    } catch {
+      return false;
+    } finally {
+      bctx.globalAlpha = prevAlpha === undefined ? 1 : prevAlpha;
+      if (bctx.globalAlpha !== 1) bctx.globalAlpha = 1;
+    }
+    panoStripDesc.img = canvas as unknown as CanvasImageSource;
+    panoStripDesc.period = period;
+    panoStripDesc.sy = 0;
+    return true;
+  }
+  function panoramaStripFor(src: CanvasImageSource, scenery: CanvasImageSource): { img: CanvasImageSource; period: number; sy: number } {
+    // Single-entry cache per image, success OR failure: a failed build (no
+    // document/canvas in the harness, or a dead context) parks the fallback
+    // descriptor and never retries the allocation until the image changes.
+    // The good path is untouched — same image keeps returning the strip.
+    if (panoStripSrc === src) return panoStripDesc;
+    panoStripSrc = src;
+    try {
+      if (buildPanoramaStrip(src, scenery)) {
+        return panoStripDesc;
+      }
+    } catch {
+      // Fall through to the parked fallback below.
+    }
+    // Fallback: raw plate with full-width cyclic wrap (no blend, no alloc).
+    panoStripDesc.img = src;
+    panoStripDesc.period = RACING_PANORAMA_WIDTH;
+    panoStripDesc.sy = PANORAMA_SOURCE_Y;
+    return panoStripDesc;
+  }
   // Combined far-to-near sprite queue: 64 markers x 2 sides + cells + rivals
   // + player, preallocated once. Legacy path never touches it.
   const spriteQueue: ArtSprite[] = makeArtSpriteQueue(144);
@@ -975,6 +1140,17 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
   /** Reusable row geometry and ground-span array. */
   const groundSpans: GroundSpan[] = [];
   const surfaceRow = { cx: 0, half: 0, ppu: 0 };
+  const forkRow = forkCrossSection({ start: 0, length: 1 }, -1, ROAD_HALF);
+  const forkMarker = forkCrossSection({ start: 0, length: 1 }, -1, ROAD_HALF);
+  // Elevation scratch: dense forward samples + one entry per integer screen
+  // row, allocated once and rewritten per frame (never per-frame canvas or
+  // array builds, so pause stays deterministic and allocation-free).
+  const elevFrame: ElevationFrame = createElevationFrame(H);
+  // Procedural band visibility (1-based by far strip index): visible screen
+  // span per band after crest clipping; all-visible on flat tracks.
+  const bandTop = new Float64Array(SEGMENTS + 1);
+  const bandBot = new Float64Array(SEGMENTS + 1);
+  const bandHide = new Uint8Array(SEGMENTS + 1);
   /**
    * Procedural ground effects under a generated vehicle: shadow always, plus
    * a throttle flame — full boost burn (2) or a subtle cruise flicker (1).
@@ -1060,6 +1236,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     flick = 1,
     lean: CraftLean = { tilt: 0, shift: 0, squash: 1 },
     water = false,
+    liftPx = 0,
   ): void {
     if (w < 2) return;
     // Banking roll around the craft top: lean into steered turns, harder
@@ -1105,6 +1282,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       ctx.ellipse(x, y + h * 0.36, w * 0.42, h * 0.13, 0, 0, Math.PI * 2);
       ctx.fill();
     }
+    if (liftPx > 0) ctx.translate(0, -liftPx);
     // Boost flame (hover only — watercraft vent spray through sparks, never
     // a flame). Flicker is race-clock derived (frozen under pause).
     if (boosting && !water) {
@@ -1277,6 +1455,25 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       else ctx.lineTo(px, py);
     }
     ctx.stroke();
+    if (race.circuit.fork !== undefined) {
+      const fork = race.circuit.fork;
+      ctx.strokeStyle = race.circuit.theme.accent;
+      ctx.lineWidth = 1;
+      for (const side of [-1, 1]) {
+        ctx.beginPath();
+        for (let k = 0; k <= 24; k++) {
+          const s = fork.start + fork.length * k / 24;
+          const p = race.circuit.track.pointAt(s);
+          const heading = race.circuit.track.headingAt(s);
+          const sec = forkCrossSection(fork, s, ROAD_HALF, forkMarker);
+          const offset = (side < 0 ? sec.leftCenter : sec.rightCenter) * 3;
+          const x = ox + (p.x - Math.sin(heading) * offset) * sc;
+          const y = oy + (p.y + Math.cos(heading) * offset) * sc;
+          if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    }
     const start = outline[0]!;
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(ox + start.x * sc - 2, oy + start.y * sc - 2, 4, 4);
@@ -1326,9 +1523,14 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     ctx.fillText(`POS ${pos}/${RACER_COUNT}`, 232, 6);
     ctx.fillStyle = '#ffffff';
     ctx.fillText(`TIME ${fmtTime(race.t)}`, 292, 6);
-    const kmh = Math.round(Math.abs(player.speed) * 2.4);
+    // Presentation-only speed scale (never physics): legacy motor cups keep
+    // the exact 2.4 KM/H readout; human cups read cadence pace instead.
     ctx.textAlign = 'right';
-    ctx.fillText(`${kmh} KM/H`, W - 76, 6);
+    ctx.fillText(
+      speedTextFor(resolveRacePresentation(race.circuit.traversal), player.speed),
+      W - 76,
+      6,
+    );
     ctx.fillStyle = '#aee9f1';
     ctx.fillText(`PTS ${cup.points[PLAYER_INDEX] ?? 0}`, W - 8, 6);
     ctx.textAlign = 'left';
@@ -1348,10 +1550,15 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     const circuit = race.circuit;
     const theme = circuit.theme;
     const player = race.racers[PLAYER_INDEX]!;
-    // Water presentation (buoys, wake, hull contact) keys off the compiled
-    // circuit discipline; hover renders exactly the legacy asphalt course.
-    const water = (circuit.discipline ?? 'hover') === 'jetski';
-    const bankThreshold = poseBankThreshold(circuit.discipline);
+    // Water presentation (buoys, wake, hull contact) keys off the effective
+    // riding surface: traversal surface when compiled in, otherwise the
+    // legacy discipline. Ground/motor cups render exactly the legacy course.
+    const water = isWaterCircuit(circuit);
+    const surfaceDiscipline = surfaceDisciplineFor(circuit.traversal, circuit.discipline);
+    const bankThreshold = poseBankThreshold(surfaceDiscipline);
+    // Cup-wide traversal presentation (flames, bob, trail, words): the
+    // shared legacy object when no traversal is compiled in.
+    const cupPresentation = resolveRacePresentation(circuit.traversal);
     // Pose-switch memory belongs to one race: a fresh grid re-arms neutral
     // so the first bank reads cleanly on either renderer.
     if (poseRace !== race) {
@@ -1384,21 +1591,30 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     const palette = paletteCache;
     const heading = circuit.track.headingAt(player.s);
     if (art !== null) {
-      // Generated panorama fully replaces the generic skyline: a 2x
-      // supersampled band sliding with heading (smooth periodic parallax,
-      // wrap- and seam-safe by construction in panoramaSourceX).
-      const srcX = panoramaSourceX(heading, panoramaMaxOffset());
-      ctx.drawImage(
-        art.panorama,
-        srcX,
-        PANORAMA_SOURCE_Y,
-        PANORAMA_SOURCE_WIDTH,
-        PANORAMA_SOURCE_HEIGHT,
-        0,
-        0,
-        W,
-        HORIZON,
-      );
+      // Generated panorama fully replaces the generic skyline: the cached
+      // periodic strip (once-per-image tail/head crossfade) scrolls purely
+      // with camera heading — one heading delta always yields the same
+      // proportional displacement, full rotations and lap wraps included.
+      // Never steering input, never forward progress; never mirrored.
+      const strip = panoramaStripFor(art.panorama, art.scenery);
+      const srcX = panoramaSourceX(heading, strip.period, 5);
+      const spans = panoramaSliceSpans(srcX, PANORAMA_SOURCE_WIDTH, strip.period, W, panoSlices);
+      ctx.globalAlpha = 1;
+      for (let k = 0; k < spans; k++) {
+        const sp = panoSlices[k]!;
+        ctx.drawImage(
+          strip.img,
+          sp.sx,
+          strip.sy,
+          sp.sw,
+          PANORAMA_SOURCE_HEIGHT,
+          sp.dx,
+          0,
+          sp.dw,
+          HORIZON,
+        );
+      }
+      ctx.globalAlpha = 1;
     } else {
       // Sky from the circuit theme.
       const sky = ctx.createLinearGradient(0, 0, 0, HORIZON);
@@ -1446,6 +1662,72 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     projectRoad(player.s, player.x, strips, circuit.track);
     const camS = player.s - RACING_CAM_BACK;
     const camW = circuit.track.wrap(camS);
+    // Bounded elevation for this frame. Absent heightAt (every legacy/flat
+    // track) leaves every path below on its exact legacy arithmetic: the
+    // flag gates all elevation code, and zero heights reproduce the flat
+    // projection through the same formula projectRoad already used.
+    const elevHeightAt = circuit.track.heightAt;
+    const elevActive = elevHeightAt !== undefined;
+    const elevCamHWorld = elevActive ? RACING_CAM_H + elevHeightAt(player.s) : RACING_CAM_H;
+    if (elevActive) {
+      buildElevationFrame(
+        elevFrame,
+        strips,
+        elevHeightAt,
+        camS,
+        elevCamHWorld,
+        RACING_Z_NEAR,
+        RACING_Z_SPAN,
+        HORIZON,
+        RACING_FOCAL,
+      );
+    }
+    // One depth projection for road, sprites, and gates: identical cx/half/
+    // ppu to projectAtZ in all cases (elevation never moves the road
+    // sideways); screen Y follows the terrain exactly when elevated.
+    const projAt = (z: number): Projected | null =>
+      elevActive
+        ? projectElevatedAtZ(strips, projectAtZ, z, camS, elevCamHWorld, elevHeightAt, HORIZON, RACING_FOCAL)
+        : projectAtZ(strips, z);
+    // Terrain clips apply to entire sprites, preserving tops above crests.
+    const beginTerrainClip = (z: number): void => {
+      ctx.save();
+      if (!elevActive) return;
+      const clip = elevationClipFor(elevFrame, z);
+      if (clip.blocked) {
+        ctx.beginPath();
+        ctx.rect(0, 0, W, clip.clipY);
+        ctx.clip();
+      }
+    };
+    const groundVisible = (z: number): boolean => !elevActive || !elevationClipFor(elevFrame, z).blocked;
+    // Procedural band visibility, near-to-far: each band keeps only rows no
+    // nearer surface claimed (rear slopes clip against nearer crests,
+    // hidden/inverted bands drop). Flat tracks keep full bands in the same
+    // far-to-near draw order as before.
+    if (!elevActive) {
+      for (let bi = 1; bi <= SEGMENTS; bi++) {
+        bandTop[bi] = strips[bi]!.y;
+        bandBot[bi] = strips[bi - 1]!.y;
+        bandHide[bi] = 0;
+      }
+    } else {
+      let floor = H;
+      for (let bi = 1; bi <= SEGMENTS; bi++) {
+        const ny = strips[bi - 1]!.y;
+        const fy = strips[bi]!.y;
+        if (!(fy < ny) || fy >= floor) {
+          bandHide[bi] = 1;
+          bandTop[bi] = 0;
+          bandBot[bi] = 0;
+        } else {
+          bandHide[bi] = 0;
+          bandTop[bi] = fy;
+          bandBot[bi] = Math.min(ny, floor);
+          floor = fy;
+        }
+      }
+    }
     const grassA: [number, number, number] = [62, 96, 48];
     const grassB: [number, number, number] = [54, 86, 42];
     const roadA = theme.roadA;
@@ -1467,6 +1749,18 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     const shoB: [number, number, number] = [189, 169, 121];
     if (art === null) {
       for (let i = SEGMENTS; i >= 1; i--) {
+        // Crest-clipped bands never paint over nearer road: hidden bands
+        // drop, partially visible rear slopes clip to their unclaimed rows.
+        // Flat tracks keep full bands (clipBand always false there).
+        if (bandHide[i] === 1) continue;
+        const clipBand =
+          elevActive && (bandTop[i]! > strips[i]!.y || bandBot[i]! < strips[i - 1]!.y);
+        if (clipBand) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(0, bandTop[i]!, W, bandBot[i]! - bandTop[i]!);
+          ctx.clip();
+        }
         const near = strips[i - 1]!;
         const far = strips[i]!;
         const band = Math.floor((camS + far.z) / SEG_LEN) % 2 === 0;
@@ -1614,7 +1908,12 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
             if (rel >= nearZ && rel < farZ) {
               const ft = (rel - nearZ) / Math.max(1e-6, farZ - nearZ);
               const gx = near.cx + (far.cx - near.cx) * ft;
-              const gy = near.y + (far.y - near.y) * ft;
+              // Same elevation the road uses: exact terrain height at the
+              // gate's own depth (band-clip above keeps it off hidden rows).
+              let gy = near.y + (far.y - near.y) * ft;
+              if (elevActive) {
+                gy = elevationGroundY(elevHeightAt, camS, elevCamHWorld, rel, HORIZON, RACING_FOCAL);
+              }
               const gh = Math.max(2, far.half * 0.5);
               if (water) {
                 // Gate buoys mark the checkpoint line on water.
@@ -1636,6 +1935,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
             }
           }
         }
+        if (clipBand) ctx.restore();
       }
     } else {
       // Generated surfaces: bounded integer-row projection. Every logical row
@@ -1656,13 +1956,34 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       const mats = art.materials;
       const curbW = (ROAD_HALF + CURB_WIDTH) / ROAD_HALF;
       const yTop = Math.ceil(strips[SEGMENTS]!.y - 0.5);
-      for (let y = yTop; y < H; y++) {
-        const zRaw = perspectiveZ(y + 0.5, HORIZON, RACING_CAM_H, RACING_FOCAL);
-        const z = Math.max(RACING_Z_NEAR, Math.min(zFarMax, zRaw));
-        const sRow = camS + z;
-        const wrapped = circuit.track.wrap(sRow);
-        const row = sampleStripRow(strips, z, RACING_Z_NEAR, RACING_Z_SPAN, surfaceRow);
-        if (row === null) continue;
+      // Elevated hills reuse the same per-row paint below, fed by the
+      // nearest-surface row table (one world-anchored atlas row per y, no
+      // segment seams; crests keep their rows, hidden rear slopes paint
+      // nothing). Unclaimed rows keep the background: sky above the
+      // horizon, the ground base below it.
+      const yStart = elevActive ? Math.max(0, elevFrame.minRow) : yTop;
+      for (let y = yStart; y < H; y++) {
+        let z: number;
+        let sRow: number;
+        let wrapped: number;
+        let row: { cx: number; half: number; ppu: number } | null;
+        if (!elevActive) {
+          const zRaw = perspectiveZ(y + 0.5, HORIZON, RACING_CAM_H, RACING_FOCAL);
+          z = Math.max(RACING_Z_NEAR, Math.min(zFarMax, zRaw));
+          sRow = camS + z;
+          wrapped = circuit.track.wrap(sRow);
+          row = sampleStripRow(strips, z, RACING_Z_NEAR, RACING_Z_SPAN, surfaceRow);
+          if (row === null) continue;
+        } else {
+          if (elevFrame.rowHit[y] === 0) continue;
+          z = elevFrame.rowZ[y]!;
+          sRow = elevFrame.rowS[y]!;
+          wrapped = circuit.track.wrap(sRow);
+          surfaceRow.cx = elevFrame.rowCx[y]!;
+          surfaceRow.half = elevFrame.rowHalf[y]!;
+          surfaceRow.ppu = elevFrame.rowPpu[y]!;
+          row = surfaceRow;
+        }
         const depthF = Math.max(0, Math.min(1, 1 - (z - RACING_Z_NEAR) / RACING_Z_SPAN));
         const dim = depthShade(z, RACING_Z_NEAR, RACING_Z_SPAN);
         const half = row.half;
@@ -1810,12 +2131,14 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         const gateW = CHECKPOINT_FRACTIONS[gi]! * packLen;
         let rel = (gateW - packCamW) % packLen;
         if (rel < 0) rel += packLen;
-        const proj = projectAtZ(strips, rel);
+        const proj = projAt(rel);
         if (proj === null || proj.half <= 4) continue;
+        beginTerrainClip(rel);
         const gh = Math.max(2, proj.half * 0.5);
         if (water) {
           drawBuoy(ctx, proj.cx - proj.half * 1.35, proj.y, gh * 0.55);
           drawBuoy(ctx, proj.cx + proj.half * 1.35, proj.y, gh * 0.55);
+          ctx.restore();
           continue;
         }
         ctx.fillStyle = '#f2f4ff';
@@ -1828,7 +2151,134 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           proj.half * 2.7 + 2,
           Math.max(1.5, gh * 0.22),
         );
+        ctx.restore();
       }
+    }
+
+    // Both branches use the same perspective rows as the original surface.
+    // Repaint the affected span so old center stripes/curbs cannot remain
+    // inside the wider fork. The island is the same interval physics blocks.
+    const fork = circuit.fork;
+    if (fork !== undefined) {
+      const rq = materialTileRect('road'), gq = materialTileRect('ground');
+      const bq = materialTileRect('boost');
+      const yStart = elevActive ? elevFrame.minRow : Math.max(0, Math.ceil(strips[SEGMENTS]!.y - 0.5));
+      for (let y = yStart; y < H; y++) {
+        const z = elevActive ? elevFrame.rowZ[y]! : perspectiveZ(y + 0.5, HORIZON, RACING_CAM_H, RACING_FOCAL);
+        if (elevActive && !elevFrame.rowHit[y]) continue;
+        const w = circuit.track.wrap(camS + z);
+        const sec = forkCrossSection(fork, w, ROAD_HALF, forkRow);
+        if (sec.blend <= 0) continue;
+        if (elevActive) {
+          surfaceRow.cx = elevFrame.rowCx[y]!;
+          surfaceRow.half = elevFrame.rowHalf[y]!;
+          surfaceRow.ppu = elevFrame.rowPpu[y]!;
+        }
+        const row = elevActive ? surfaceRow : sampleStripRow(strips, z, RACING_Z_NEAR, RACING_Z_SPAN, surfaceRow);
+        if (row === null) continue;
+        const dim = depthShade(z, RACING_Z_NEAR, RACING_Z_SPAN);
+        const x0 = row.cx + Math.min(sec.roadLo - 0.8, -ROAD_HALF * 1.2) * row.ppu;
+        const x1 = row.cx + Math.max(sec.roadHi + 0.8, ROAD_HALF * 1.2) * row.ppu;
+        ctx.fillStyle = shade(water && art === null ? shoA : gA, dim);
+        ctx.fillRect(x0, y, x1 - x0, 1);
+        if (art !== null) {
+          const spans = groundSourceSpans(x0, x1, row.cx, row.ppu, tileWorldEff, gq.sx, gq.size, groundSpans);
+          ctx.globalAlpha = 0.5 * dim;
+          const ar = rowAtlasRow(w, tileWorldEff, gq.size);
+          for (const sp of spans) ctx.drawImage(art.materials, sp.sx, gq.sy + ar, sp.sw, 1, sp.dx, y, sp.dw, 1);
+          ctx.globalAlpha = 1;
+        }
+        for (let side = 0; side < 2; side++) {
+          const lo = side === 0 ? sec.leftLo : sec.rightLo;
+          const hi = side === 0 ? sec.leftHi : sec.rightHi;
+          const left = row.cx + lo * row.ppu, width = (hi - lo) * row.ppu;
+          ctx.fillStyle = water ? 'rgba(220,249,255,0.7)' : shade(cA, dim);
+          const curb = Math.max(0.5, CURB_WIDTH * row.ppu);
+          ctx.fillRect(left - curb, y, width + curb * 2, 1);
+          ctx.fillStyle = shade(water && art === null ? wtrA : rA, dim);
+          ctx.fillRect(left, y, width, 1);
+          if (art !== null) drawSurfaceRow(art.materials, rq, rowAtlasRow(w, tileWorldEff, rq.size), rq.sx, rq.size, left, y, width, 0.55 * dim);
+          ctx.fillStyle = palette ? withAlpha(palette.edge, 0.8 * dim) : `rgba(240,240,235,${0.8 * dim})`;
+          ctx.fillRect(left, y, Math.max(0.5, row.ppu * 0.08), 1);
+          ctx.fillRect(left + width - Math.max(0.5, row.ppu * 0.08), y, Math.max(0.5, row.ppu * 0.08), 1);
+        }
+        // Relocated pad has its own lateral lane; clip the drawing at the
+        // branch edges, matching the drivable reward route.
+        for (const pad of circuit.pads) {
+          if (w < pad.start || w > pad.start + pad.length) continue;
+          const px = pad.x ?? 0;
+          const lo = Math.max(px - PAD_HALF_X, px >= 0 ? sec.rightLo : sec.leftLo);
+          const hi = Math.min(px + PAD_HALF_X, px >= 0 ? sec.rightHi : sec.leftHi);
+          const dx = row.cx + lo * row.ppu, dw = (hi - lo) * row.ppu;
+          ctx.fillStyle = palette ? withAlpha(palette.pad, .75 * dim) : withAlpha(theme.accent, .75 * dim);
+          ctx.fillRect(dx, y, dw, 1);
+          if (art !== null) drawSurfaceRow(art.materials, bq, rowAtlasRow(w, tileWorldEff, bq.size), bq.sx, bq.size, dx, y, dw, .85 * dim);
+          ctx.fillStyle = `rgba(255,255,255,${.8 * dim})`;
+          if (Math.floor(w / 8) % 2 === 0) ctx.fillRect(dx, y, dw, 1);
+        }
+      }
+      const rel = (fork.start - 35 - camW + circuit.track.length) % circuit.track.length;
+      const sign = projAt(rel);
+      if (sign !== null && sign.half > 4) {
+        beginTerrainClip(rel);
+        const sw = Math.max(12, sign.half * 1.5), sh = Math.max(8, sign.half * .55);
+        ctx.fillStyle = 'rgba(6,8,20,.9)';
+        ctx.fillRect(sign.cx - sw, sign.y - sh * 2, sw * 2, sh);
+        ctx.fillStyle = '#a6adbe';
+        ctx.fillRect(sign.cx - sw, sign.y - sh, Math.max(1, sign.ppu * .12), sh);
+        ctx.fillRect(sign.cx + sw - Math.max(1, sign.ppu * .12), sign.y - sh, Math.max(1, sign.ppu * .12), sh);
+        ctx.strokeStyle = theme.accent; ctx.lineWidth = Math.max(1, sign.ppu * .12);
+        for (const side of [-1, 1]) {
+          const x = sign.cx + side * sw * .48, yy = sign.y - sh * 1.5;
+          ctx.beginPath(); ctx.moveTo(x, yy + sh * .3); ctx.lineTo(x + side * sh * .3, yy - sh * .3);
+          ctx.lineTo(x, yy - sh * .2); ctx.moveTo(x + side * sh * .3, yy - sh * .3);
+          ctx.lineTo(x + side * sh * .35, yy); ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+    // World dressing follows the OUTER verge, never standing in a fork lane.
+    const vergeShift = (z: number, side: number): number => {
+      if (fork === undefined) return 0;
+      const sec = forkCrossSection(fork, circuit.track.wrap(camS + z), ROAD_HALF, forkMarker);
+      return side < 0 ? sec.roadLo + ROAD_HALF : sec.roadHi - ROAD_HALF;
+    };
+
+    // Ramp lane and lip use the same world interval and width as takeoff.
+    // Keep the avoidance line visible on both sides; water reads as a wave.
+    for (const ramp of circuit.ramps ?? []) {
+      let rel = (ramp.s - camW + circuit.track.length) % circuit.track.length;
+      if (rel > circuit.track.length - ramp.length) rel -= circuit.track.length;
+      const near = projAt(Math.max(RACING_Z_NEAR, rel));
+      const far = projAt(rel + ramp.length);
+      if (near === null || far === null || near.y <= far.y) continue;
+      beginTerrainClip(rel + ramp.length);
+      const nx = near.cx + ramp.x * near.ppu;
+      const fx = far.cx + ramp.x * far.ppu;
+      const nw = ramp.halfWidth * near.ppu;
+      const fw = ramp.halfWidth * far.ppu;
+      ctx.fillStyle = water ? 'rgba(180,242,255,0.55)' : 'rgba(18,25,38,0.88)';
+      drawTrap(ctx, nx, fx, nw, fw, near.y, far.y);
+      ctx.strokeStyle = theme.accent;
+      ctx.lineWidth = Math.max(1, far.ppu * 0.09);
+      ctx.beginPath();
+      ctx.moveTo(nx - nw, near.y); ctx.lineTo(fx - fw, far.y);
+      ctx.lineTo(fx + fw, far.y); ctx.lineTo(nx + nw, near.y);
+      ctx.stroke();
+      for (let k = 1; k <= 3; k++) {
+        const p = projAt(rel + ramp.length * k / 4);
+        if (p === null) continue;
+        const cx = p.cx + ramp.x * p.ppu;
+        const half = ramp.halfWidth * p.ppu * 0.65;
+        ctx.beginPath();
+        ctx.moveTo(cx - half, p.y + p.ppu * 0.18);
+        ctx.lineTo(cx, p.y - p.ppu * 0.12);
+        ctx.lineTo(cx + half, p.y + p.ppu * 0.18);
+        ctx.stroke();
+      }
+      ctx.fillStyle = water ? '#d8faff' : theme.accent;
+      ctx.fillRect(fx - fw, far.y - Math.max(1, far.ppu * 0.15), fw * 2, Math.max(1, far.ppu * 0.15));
+      ctx.restore();
     }
 
     // Shared route-buoy pass for BOTH water surfaces (procedural and
@@ -1840,10 +2290,12 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     if (water) {
       const buoyCount = buoyCountFor(circuit.track.length);
       for (const m of worldMarkerSlots(camS, circuit.track.length, buoyCount)) {
-        const proj = projectAtZ(strips, m.z);
+        const proj = projAt(m.z);
         if (proj === null || proj.half <= 3) continue;
+        beginTerrainClip(m.z);
         const side = buoySide(m.k);
-        drawBuoy(ctx, proj.cx + side * proj.half * 1.15, proj.y, Math.max(2, proj.half * 0.3));
+        drawBuoy(ctx, proj.cx + side * proj.half * 1.15 + vergeShift(m.z, side) * proj.ppu, proj.y, Math.max(2, proj.half * 0.3));
+        ctx.restore();
       }
     }
 
@@ -1895,12 +2347,12 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       spriteCount++;
     };
     for (const m of worldMarkerSlots(camS, trackLen, RACING_SCENERY_COUNT)) {
-      const proj = projectAtZ(strips, m.z);
+      const proj = projAt(m.z);
       if (proj === null || proj.half <= 4) continue;
       const postH = proj.half * 0.5;
       const postW = Math.max(1, proj.half * 0.05);
-      const lx = proj.cx - proj.half * 1.3;
-      const rx = proj.cx + proj.half * 1.3;
+      const lx = proj.cx - proj.half * 1.3 + vergeShift(m.z, -1) * proj.ppu;
+      const rx = proj.cx + proj.half * 1.3 + vergeShift(m.z, 1) * proj.ppu;
       if (art !== null) {
         // Atlas roadside from stable marker identity: the slot (and therefore
         // the size class) never changes as the marker approaches — only
@@ -1922,7 +2374,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           cell.sy,
           cell.size,
           cell.size,
-          proj.cx - off - w / 2,
+          proj.cx - off - w / 2 + vergeShift(m.z, -1) * proj.ppu,
           proj.y - h,
           w,
           h,
@@ -1936,7 +2388,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           cell.sy,
           cell.size,
           cell.size,
-          proj.cx + off - w / 2,
+          proj.cx + off - w / 2 + vergeShift(m.z, 1) * proj.ppu,
           proj.y - h,
           w,
           h,
@@ -1944,6 +2396,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         );
         continue;
       }
+      beginTerrainClip(m.z);
       const alt = markerGate(m.k, 6) === 0;
       if (theme.scenery === 'pines') {
         ctx.fillStyle = '#1d5a2e';
@@ -1987,10 +2440,13 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           }
         }
       }
+      ctx.restore();
     }
     for (const m of worldMarkerSlots(camS, trackLen, RACING_ARROW_COUNT)) {
-      const proj = projectAtZ(strips, m.z);
+      if (fork !== undefined && forkCrossSection(fork, circuit.track.wrap(camS + m.z), ROAD_HALF, forkMarker).blend > 0) continue;
+      const proj = projAt(m.z);
       if (proj === null) continue;
+      beginTerrainClip(m.z);
       const dim = markerDim(m.z);
       const ms = circuit.track.wrap((m.k * trackLen) / RACING_ARROW_COUNT);
       // Ground direction arrow ahead of bends: painted on the surface at the
@@ -2038,6 +2494,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           ctx.fill();
         }
       }
+      ctx.restore();
     }
 
     // Corner approach boards: world-anchored countdown boards at fixed
@@ -2048,13 +2505,14 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       for (let bi = 0; bi < spots.length; bi++) {
         let rel = (spots[bi]! - camW) % trackLen;
         if (rel < 0) rel += trackLen;
-        const proj = projectAtZ(strips, rel);
+        const proj = projAt(rel);
         if (proj === null || proj.half <= 6) continue;
+        beginTerrainClip(rel);
         const chevrons = boardChevrons(bi);
         const bdir = upcomingBoards.bend.dir;
         const bh = Math.min(30, proj.half * 0.6);
         const bw = bh * (0.6 + 0.35 * chevrons);
-        const bx = proj.cx + bdir * proj.half * 1.5;
+        const bx = proj.cx + bdir * proj.half * 1.5 + vergeShift(rel, bdir) * proj.ppu;
         const by = proj.y - bh * 1.1;
         ctx.fillStyle = 'rgba(6,8,20,0.78)';
         ctx.fillRect(bx - bw / 2, by - bh / 2, bw, bh);
@@ -2068,6 +2526,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           ctx.closePath();
           ctx.fill();
         }
+        ctx.restore();
       }
     }
 
@@ -2081,7 +2540,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         const cell = cells[pi]!;
         let rel = (circuit.track.wrap(cell.s) - camW) % trackLen;
         if (rel < 0) rel += trackLen;
-        const proj = projectAtZ(strips, rel);
+        const proj = projAt(rel);
         if (proj === null || proj.half <= 4) continue;
         const cx = proj.cx + cell.x * proj.ppu;
         if (art !== null) {
@@ -2104,6 +2563,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           );
           continue;
         }
+        beginTerrainClip(rel);
         const cw = Math.min(14, proj.half * 0.3);
         const flick = 0.75 + 0.25 * visHash(Math.floor(race.t * 3) * 1.7 + pi);
         ctx.fillStyle = theme.accent;
@@ -2118,6 +2578,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         ctx.globalAlpha = 1;
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(cx - 1, proj.y - 1, 2, 2);
+        ctx.restore();
       }
     }
 
@@ -2137,7 +2598,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       const z = RACING_CAM_BACK + rel;
       if (z < RACING_Z_NEAR || z > RACING_Z_NEAR + RACING_Z_SPAN) continue;
       if (art !== null) {
-        const proj = projectAtZ(strips, z);
+        const proj = projAt(z);
         if (proj === null) continue;
         const cx = proj.cx + r.x * proj.ppu;
         const w = Math.max(4, CRAFT_WORLD_W * proj.ppu);
@@ -2153,19 +2614,22 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         const bw = w / STRIP_BODY_FILL;
         const leanDx = cx - bw / 2 + rivalLean.shift * bw;
         const leanDh = bw * rivalLean.squash;
-        const leanDy = proj.y - w * 0.075 - bw + (bw - leanDh);
+        const leanDy = proj.y - w * 0.075 - bw + (bw - leanDh) - (r.air?.height ?? 0) * proj.ppu;
+        beginTerrainClip(z);
         if (water) {
           drawStripShadow(cx, proj.y - w * 0.075, w, 0, 0, Math.min(1, Math.abs(r.speed) / 60), true);
-          if (wakeFrame) emitWake(cx, proj.y - w * 0.075, w, r.speed, r.steerPos, r.boostT > 0);
+          if (wakeFrame && groundVisible(z) && (r.air?.height ?? 0) <= 0) emitWake(cx, proj.y - w * 0.075, w, r.speed, r.steerPos, r.boostT > 0);
         } else {
           drawStripShadow(
             cx,
             proj.y - w * 0.075,
             w,
-            exhaustFlame(r.speed, r.boostT),
+            // Human-powered racers never burn; magic caps at a flicker.
+            flameForPresentation(cupPresentation, r.speed, r.boostT),
             visHash(race.t * 3 + i),
           );
         }
+        ctx.restore();
         pushSprite(
           z,
           2000 + i,
@@ -2207,27 +2671,35 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         const slot = rivalSlots[k]!;
         const r = race.racers[slot.idx]!;
         // Same strip buffer the road uses: one consistent depth projection.
-        const proj = projectAtZ(strips, RACING_CAM_BACK + slot.rel);
+        const z = RACING_CAM_BACK + slot.rel;
+        const proj = projAt(z);
         if (proj === null) continue;
         const cx = proj.cx + r.x * proj.ppu;
         const w = Math.max(4, CRAFT_WORLD_W * proj.ppu);
+        beginTerrainClip(z);
         const rLean = craftLean(r.steerPos * steerVisScale(r.speed));
-        if (wakeFrame) emitWake(cx, proj.y - w * 0.075, w, r.speed, r.steerPos, r.boostT > 0);
+        if (wakeFrame && groundVisible(z) && (r.air?.height ?? 0) <= 0) emitWake(cx, proj.y - w * 0.075, w, r.speed, r.steerPos, r.boostT > 0);
+        // Human-powered racers never burn and lose the engine glow; magic
+        // reads through the restrained trail instead of a boost flame.
+        const rFlame = flameForPresentation(cupPresentation, r.speed, r.boostT);
+        const rBob = riderBobFor(cupPresentation, r.speed, race.t);
         drawCraft(
           cx,
-          proj.y - w * 0.075,
+          proj.y - w * 0.075 + rBob,
           w,
           craftHulls[slot.idx % craftHulls.length]!,
           craftDarks[slot.idx % craftDarks.length]!,
           0,
-          !water && r.boostT > 0,
-          !water && r.speed > 20,
+          !water && rFlame === 2,
+          !water && r.speed > 20 && !cupPresentation.human,
           'twinpod',
           r.steerPos * 0.14 * steerVisScale(r.speed),
           visHash(race.t * 3 + slot.idx),
           rLean,
           water,
+          (r.air?.height ?? 0) * proj.ppu,
         );
+        ctx.restore();
       }
     }
 
@@ -2249,18 +2721,26 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     lastVisRot = packResidualLean(steerVis * visK, lastPlayerPose);
     const tilt = player.steerPos * 12 * (inputBuf[PLAYER_INDEX]!.drift ? 1.5 : 1) * visK;
     const roll = (player.steerPos * 0.14 + (player.drifting ? player.steerPos * 0.08 : 0)) * visK;
-    const scrape = Math.abs(player.x) >= BARRIER_X - 0.05 && Math.abs(player.speed) > 20;
+    const scrape = player.offroad && Math.abs(player.x) >= BARRIER_X - 0.05 && Math.abs(player.speed) > 20;
     const px = W / 2 + steerVis * 26 * visK + (scrape ? visHash(race.t * 61.7) * 4 - 2 : 0);
-    const pProj = projectAtZ(strips, RACING_CAM_BACK);
+    const pProj = projAt(RACING_CAM_BACK);
     if (pProj !== null) {
       const pw = CRAFT_WORLD_W * pProj.ppu;
       const py = pProj.y - pw * 0.075;
       // Boost/scrape/drift VFX advance only while the race clock advances, so
       // paused frames emit and step nothing and stay byte-identical.
+      // Traversal rider cue: human pace reads through a small cadence bob
+      // around the planted base (exactly 0 at rest); magic reads through a
+      // single restrained trail spark; motor keeps the legacy flame path.
+      const playerFlame = flameForPresentation(cupPresentation, player.speed, player.boostT);
+      const playerBob = riderBobFor(cupPresentation, player.speed, race.t);
       if (race.t !== lastSparkT) {
         lastSparkT = race.t;
-        if (player.boostT > 0 && Math.abs(player.speed) > 10) {
+        if (player.boostT > 0 && Math.abs(player.speed) > 10 && playerFlame === 2) {
           emitSparks(px, py + pw * 0.3, 2, '#fff7c0', 1.2);
+        }
+        if (trailForPresentation(cupPresentation, player.speed, player.boostT) === 1) {
+          emitSparks(px, py + pw * 0.3, 1, '#cfe8ff', 0.8);
         }
         if (scrape) emitSparks(px + Math.sign(player.x) * pw * 0.5, py, 3, '#ffd94d', 2.2);
         if (player.drifting && Math.abs(player.speed) > 30) {
@@ -2274,7 +2754,13 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         }
         stepSparks(1 / 60);
       }
-      if (water && wakeFrame) emitWake(px, py, pw, player.speed, player.steerPos, player.boostT > 0);
+      if (water && wakeFrame && (player.air?.height ?? 0) <= 0) emitWake(px, py, pw, player.speed, player.steerPos, player.boostT > 0);
+      // Rider bob rides the hull base (contact preserved: lean math and the
+      // waterline/shadow anchors all derive from this same py).
+      const groundPy = py + playerBob;
+      const liftPx = (player.air?.height ?? 0) * pProj.ppu;
+      const landing = (player.air?.landingT ?? 0) / 0.45;
+      const bobPy = groundPy - liftPx + Math.sin(landing * Math.PI) * 2;
       if (art !== null) {
         // Generated player strip: hysteresis pose plus the residual rotation
         // about the blit base (never mirrored, never crossfaded). Shift and
@@ -2282,13 +2768,13 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         const pbw = pw / STRIP_BODY_FILL;
         const leanDh = pbw * lastVisLean.squash;
         if (water) {
-          drawStripShadow(px, py, pw, 0, 0, Math.min(1, Math.abs(player.speed) / 60), true);
+          drawStripShadow(px, groundPy, pw / (1 + (player.air?.height ?? 0) * 0.1), 0, 0, Math.min(1, Math.abs(player.speed) / 60), true);
         } else {
           drawStripShadow(
             px,
-            py,
-            pw,
-            exhaustFlame(player.speed, player.boostT),
+            groundPy,
+            pw / (1 + (player.air?.height ?? 0) * 0.1),
+            liftPx > 0 ? 0 : playerFlame,
             visHash(race.t * 7 + 1),
           );
         }
@@ -2301,7 +2787,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           64,
           64,
           px - pbw / 2 + lastVisLean.shift * pbw,
-          py - pbw + (pbw - leanDh),
+          bobPy - pbw + (pbw - leanDh),
           pbw,
           leanDh,
           1,
@@ -2310,18 +2796,19 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       } else {
         drawCraft(
           px,
-          py,
+          groundPy,
           pw,
           craftHulls[0]!,
           craftDarks[0]!,
           tilt,
-          !water && player.boostT > 0,
-          !water && player.speed > 1,
+          !water && playerFlame === 2,
+          !water && player.speed > 1 && !cupPresentation.human,
           race.circuit.craftShape ?? 'twinpod',
           roll,
           visHash(race.t * 7 + 1),
           lastVisLean,
           water,
+          liftPx,
         );
       }
     }
@@ -2332,6 +2819,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       sortArtSprites(spriteQueue, spriteCount);
       for (let q = 0; q < spriteCount; q++) {
         const e = spriteQueue[q]!;
+        if (e.order !== 3000) beginTerrainClip(e.z);
         if (e.alpha !== 1) ctx.globalAlpha = e.alpha;
         if (e.rot !== 0) {
           // Residual craft lean: one save/restore around the blit base
@@ -2350,6 +2838,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           ctx.drawImage(e.img, e.sx, e.sy, e.sw, e.sh, e.dx, e.dy, e.dw, e.dh);
         }
         if (e.alpha !== 1) ctx.globalAlpha = 1;
+        if (e.order !== 3000) ctx.restore();
       }
     }
     drawSparks();
@@ -2381,6 +2870,17 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     const theme = circuit.theme;
     const player = race.racers[PLAYER_INDEX]!;
     drawHud();
+    if (phase === 'race' && circuit.fork !== undefined) {
+      const distance = circuit.fork.start - circuit.track.wrap(player.s);
+      if (distance < 220 && distance > -100) {
+        const label = `FORK: WIDE LEFT / ${(circuit.boostMode ?? 'pads') === 'none' ? 'NARROW' : 'BOOST'} RIGHT`;
+        ctx.fillStyle = 'rgba(0,0,0,.72)';
+        ctx.fillRect(8, H - 50, 228, 13);
+        ctx.fillStyle = '#f5edc5'; ctx.font = '10px monospace';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.fillText(label, 11, H - 49);
+      }
+    }
     // Boost meter.
     ctx.textBaseline = 'top';
     ctx.font = '10px monospace';
@@ -2397,9 +2897,16 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     ctx.fillRect(10 + 100 * BOOST_COST - 1, H - 20, 2, 10);
     ctx.fillStyle = '#ffffff';
     ctx.fillText(`BOOST ${boostValue(player.boostT > 0, player.boost)}`, 114, H - 21);
-    if (player.offroad) {
+    if ((player.air?.height ?? 0) > 0.5 || player.offroad) {
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.fillRect(196, H - 36, 70, 12);
+    }
+    if ((player.air?.height ?? 0) > 0.5) {
+      ctx.fillStyle = '#bdefff';
+      ctx.fillText('AIR', 198, H - 35);
+    } else if (player.offroad) {
       ctx.fillStyle = '#ffb02e';
-      ctx.fillText(offroadLabel(circuit.discipline), 198, H - 21);
+      ctx.fillText(offroadLabel(surfaceDisciplineFor(circuit.traversal, circuit.discipline)), 198, H - 35);
     }
     if (player.lapTimes.length > 0) {
       ctx.fillStyle = '#aee9f1';
@@ -2463,7 +2970,12 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       ctx.textBaseline = 'middle';
       ctx.font = 'bold 26px monospace';
       ctx.fillStyle = '#ffd94d';
-      const waterTitle = (circuit.discipline ?? 'hover') === 'jetski' ? ' - JET SKI' : '';
+      // Traversal label is title/subtitle-only and truncated: the freeform
+      // invented name can never overflow the card. Legacy cups keep the
+      // exact water suffix; traversal cups let the label carry identity.
+      const travTitle = titleLabelFor(circuit.traversal);
+      const waterTitle =
+        circuit.traversal !== undefined ? '' : isWaterCircuit(circuit) ? ' - JET SKI' : '';
       const title = `RACE ${displayRaceNumber()}/${raceCount}: ${truncateName(circuit.name.toUpperCase(), 20)}${waterTitle}`;
       ctx.fillText(title, W / 2 - title.length * 7.8, 110);
       ctx.font = '10px monospace';
@@ -2475,14 +2987,18 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
             60,
           )
         : 'VEX PRIME defends the finale.';
+      const travPresentation = resolveRacePresentation(circuit.traversal);
       const lines = [
         circuit.blurb,
+        ...(travTitle !== null ? [travTitle.toUpperCase()] : []),
         `${circuit.laps} LAPS - ${race.circuit.names
           .slice(1)
           .map((n) => truncateName(n, 10))
           .join(' / ')}`,
         ...(isFinale ? [bossLine] : []),
-        helpControlsLine(circuit.discipline),
+        circuit.traversal === undefined
+          ? helpControlsLine(circuit.discipline)
+          : helpControlsLineFor(travPresentation, circuit.traversal.handling),
         'PRESS A OR B TO RACE',
       ];
       for (const [li, line] of lines.entries()) {
@@ -2943,7 +3459,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       // Boost is a sustained afterburner in the engine mixer; barrier scrape is throttled.
       scrapeSfxT -= dt;
       if (
-        Math.abs(player.x) >= BARRIER_X - 0.05 &&
+        player.offroad && Math.abs(player.x) >= BARRIER_X - 0.05 &&
         Math.abs(player.speed) > 20 &&
         scrapeSfxT <= 0
       ) {
@@ -3053,7 +3569,11 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           offroad: player.offroad,
           steerPos: player.steerPos,
           latV: player.latV,
-          discipline: race.circuit.discipline ?? 'hover',
+          ...(player.air === undefined ? {} : { air: { ...player.air } }),
+          elevation: race.circuit.track.heightAt?.(player.s) ?? 0,
+          grade: race.circuit.track.gradeAt?.(player.s) ?? 0,
+          ...(player.forkSide === undefined ? {} : { forkSide: player.forkSide }),
+          discipline: surfaceDisciplineFor(race.circuit.traversal, race.circuit.discipline),
           visTilt: lastVisRot,
           visShift: lastVisLean.shift,
           visSquash: lastVisLean.squash,

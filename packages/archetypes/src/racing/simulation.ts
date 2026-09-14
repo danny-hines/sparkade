@@ -23,7 +23,24 @@ import {
   type EnergyPickup,
   type RaceCircuit,
 } from './track';
-import { boundaryCapTop, movementFor } from './movement';
+import { boundaryCapTop, movementForTraversal } from './movement';
+import {
+  FORK_SHOULDER,
+  clampForkX,
+  forkBranchSide,
+  forkCrossSection,
+  type ForkSection,
+} from './forks';
+import { trackGradeAt, trackHeightAt } from './elevation';
+import {
+  JUMP_AIR_STEER_SCALE,
+  JUMP_AIRBORNE_HEIGHT,
+  JUMP_COOLDOWN,
+  JUMP_GRAVITY,
+  JUMP_LANDING_CUE,
+  JUMP_TAKEOFF_MIN_SPEED,
+  jumpImpulseFor,
+} from './jumps';
 
 export const RACE_LAPS = 3;
 export const RACER_COUNT = 5;
@@ -40,6 +57,25 @@ export interface RacerInput {
   boost: boolean;
   /** Drift/airbrake (cabinet L/R): extra yaw at the cost of drag. */
   drift: boolean;
+}
+
+/**
+ * Optional airborne state for jump ramps. Present only on ramp circuits
+ * (attached by createRaceFor when circuit.ramps is non-empty); absent on
+ * every legacy circuit so the racer shape stays exact. height tracks height
+ * above the current ground; velocity is vertical speed; cooldown blocks
+ * same-pass retrigger; landingT is a brief renderer touchdown cue.
+ */
+export interface RacerAirState {
+  height: number;
+  velocity: number;
+  cooldown: number;
+  landingT: number;
+}
+
+/** True while the racer is clearly airborne (above the surface-gate height). */
+export function isAirborne(r: RacerState): boolean {
+  return r.air !== undefined && r.air.height > JUMP_AIRBORNE_HEIGHT;
 }
 
 export interface RacerState {
@@ -95,6 +131,19 @@ export interface RacerState {
   gateS: number;
   /** True while the driver holds drift/airbrake at speed (for DEV telemetry). */
   drifting: boolean;
+  /**
+   * Optional airborne state. Initialized only for ramp circuits; the key is
+   * absent (not zeroed) on every legacy racer.
+   */
+  air?: RacerAirState;
+  /**
+   * Persistent fork commitment: -1 (left lane), +1 (right lane), 0
+   * (uncommitted: outside the split or just entering). Initialized only for
+   * fork circuits; the key is absent on every legacy racer. Committed from
+   * the previous-x side at zone entry so tunneled input can never flip the
+   * lane across the island; reset on zone exit.
+   */
+  forkSide?: number;
 }
 
 export interface RaceState {
@@ -139,6 +188,15 @@ const DRIFT_DRAG = 0.38;
 const DRIFT_SLIDE_GRIP = 0.6;
 /** Shared braking model for AI corner planning (default; AI passes its own). */
 const BRAKE_DECEL = 70;
+/**
+ * Grade pull: bounded gravity influence from the actual track grade for
+ * grounded racers (same rule for player and AI). Uphill (grade > 0) scrubs
+ * pace, downhill adds it. Profiles bound |grade| well under 0.12, and the
+ * clamp keeps hand-built tracks honest too. Zero on legacy/flat tracks, so
+ * the old trajectory arithmetic is untouched when height is omitted.
+ */
+const GRADE_GRAVITY = 40;
+const GRADE_CLAMP = 0.15;
 /**
  * One manual burst costs half the meter: a full meter holds roughly two
  * sustainable uses. Recovery is slow (0.04/s refills a burst in 12.5 s) and
@@ -218,6 +276,16 @@ export function createRaceFor(circuit: RaceCircuit, countdownSec = 1.2): RaceSta
     r.x = slot.x;
     racers.push(r);
   }
+  // Airborne state exists only on ramp circuits; legacy racers omit the key
+  // entirely (exact legacy shape, exact legacy arithmetic downstream).
+  if ((circuit.ramps?.length ?? 0) > 0) {
+    for (const r of racers) r.air = { height: 0, velocity: 0, cooldown: 0, landingT: 0 };
+  }
+  // Fork commitment exists only on fork circuits; legacy racers omit the key
+  // entirely (exact legacy shape, exact legacy arithmetic downstream).
+  if (circuit.fork !== undefined) {
+    for (const r of racers) r.forkSide = 0;
+  }
   return {
     t: 0,
     racers,
@@ -250,6 +318,38 @@ function clamp(v: number, lo: number, hi: number): number {
 
 function wrapS(race: RaceState, s: number): number {
   return race.circuit.track.wrap(s);
+}
+
+/** Fork lookahead: AI commits to its branch lane before the blend begins. */
+const FORK_AI_APPROACH = 120;
+
+/** Reusable fork cross-section scratch (single-threaded stepping). */
+function blankForkSection(): ForkSection {
+  return {
+    blend: 0, roadLo: -4, roadHi: 4, islandLo: 0, islandHi: 0,
+    islandActive: false, leftLo: -4, leftHi: 4, rightLo: -4, rightHi: 4,
+    leftCenter: 0, rightCenter: 0,
+  };
+}
+const forkStepSec: ForkSection = blankForkSection();
+const forkContactSec: ForkSection = blankForkSection();
+const forkAiSec: ForkSection = blankForkSection();
+
+/**
+ * Shoulder depth past the asphalt, fork-aware: inside the split it reads
+ * past the two lane bounds instead of the single legacy road. Outside the
+ * split both lanes equal the legacy road, so the legacy arithmetic is exact.
+ */
+function laneDepthAt(race: RaceState, w: number, x: number): number {
+  const fork = race.circuit.fork;
+  if (fork === undefined) return Math.max(0, Math.abs(x) - ROAD_HALF);
+  forkCrossSection(fork, w, ROAD_HALF, forkStepSec);
+  const sec = forkStepSec;
+  if (x >= sec.leftLo && x <= sec.leftHi) return 0;
+  if (x >= sec.rightLo && x <= sec.rightHi) return 0;
+  const dl = x < sec.leftLo ? sec.leftLo - x : x > sec.leftHi ? x - sec.leftHi : 0;
+  const dr = x < sec.rightLo ? sec.rightLo - x : x > sec.rightHi ? x - sec.rightHi : 0;
+  return Math.min(dl, dr);
 }
 
 function padAt(race: RaceState, s: number): BoostPad | null {
@@ -309,10 +409,16 @@ export function stepRacer(race: RaceState, r: RacerState, input: RacerInput, dt:
   // Lateral span of this step: the pickup sweep interpolates across it so a
   // fast craft cannot tunnel past a cell lane between frames.
   const stepX0 = r.x;
+  // Pre-step airborne flag for grounded-only rules below (takeoff can only
+  // happen later this step; legacy racers read false with no extra ops).
+  const airborne = isAirborne(r);
   const curve = race.circuit.track.curvatureAt(r.s);
-  const profile = movementFor(race.circuit.discipline);
+  // Traversal passthrough: absent traversal returns the exact legacy profile.
+  const profile = movementForTraversal(race.circuit.discipline, race.circuit.traversal);
   // Shoulder depth past the asphalt; the curb band counts as on-road.
-  const depth = Math.max(0, Math.abs(r.x) - ROAD_HALF);
+  // On fork circuits depth reads past the two lane bounds (identical to the
+  // legacy road outside the split).
+  const depth = laneDepthAt(race, wrapS(race, r.s), r.x);
   r.offroad = depth > CURB_WIDTH;
 
   let top = profile.topSpeed * r.topScale;
@@ -321,7 +427,10 @@ export function stepRacer(race: RaceState, r: RacerState, input: RacerInput, dt:
   // easing to the deep-shoulder cap at the barrier. Continuous in x, so
   // crossing the edge never snaps and shallow brushes keep most pace.
   // (Jet-ski smoothsteps the same span; see movement.ts.)
-  if (r.offroad) {
+  // Clearly airborne craft bypass the surface-only pace cap; grounded
+  // arithmetic (including the legacy path, where airborne is always false)
+  // is untouched.
+  if (r.offroad && !airborne) {
     top = boundaryCapTop(profile, top, r.boostT > 0, depth, ROAD_HALF, CURB_WIDTH, BARRIER_X);
   }
 
@@ -333,20 +442,25 @@ export function stepRacer(race: RaceState, r: RacerState, input: RacerInput, dt:
     r.boostDelay = BOOST_REGEN_DELAY;
   }
 
-  const accelRate = (r.boostT > 0 ? profile.boostAccel : profile.accel) * (r.offroad ? profile.shallowAccelScale : 1);
+  const accelRate = (r.boostT > 0 ? profile.boostAccel : profile.accel) * (r.offroad && !airborne ? profile.shallowAccelScale : 1);
   if (input.accel) r.speed += accelRate * dt;
   if (input.brake) r.speed -= (r.speed > 1 ? profile.brakeDecel : profile.reverseDecel) * dt;
   r.speed -= r.speed * profile.drag * dt;
   // Jet-ski water drag: off-throttle pace bleeds off faster than a hover
   // craft coasts. Guarded so the hover path executes no extra arithmetic.
   if (profile.coastDrag > 0 && !input.accel && r.boostT <= 0) r.speed -= r.speed * profile.coastDrag * dt;
+  // Grade pull from the actual track grade (grounded racers only; flight is
+  // a later milestone). Guarded so flat tracks run the exact legacy ops.
+  const grade = trackGradeAt(race.circuit.track, r.s);
+  // Grade pull is a grounded force only; flight keeps ballistic motion.
+  if (grade !== 0 && !airborne) r.speed -= Math.max(-GRADE_CLAMP, Math.min(GRADE_CLAMP, grade)) * GRADE_GRAVITY * dt;
   // Converge toward the cap AFTER accel so top speed means top speed.
   // Open-road caps converge hard (equilibrium overshoot is accelRate/8,
   // under 9 units even while boosting); far above a surface cap the excess
   // scrubs gradually (~0.5 s time constant, no instant edge snap), easing
   // to the hard cap near the limit so sustained shoulder pace stays capped.
   if (r.speed > top) {
-    const rate = r.offroad && r.speed > top + 8 ? 2.0 : 8;
+    const rate = r.offroad && !airborne && r.speed > top + 8 ? 2.0 : 8;
     r.speed += (top - r.speed) * Math.min(1, rate * dt);
   }
   r.drifting = input.drift && Math.abs(r.speed) > 1;
@@ -383,10 +497,13 @@ export function stepRacer(race: RaceState, r: RacerState, input: RacerInput, dt:
   // held line via yaw plus drag), never a free straight-line gain.
   const bendLoad =
     curve * r.speed * Math.abs(r.speed) * CURVE_PUSH * (input.drift ? DRIFT_SLIDE_GRIP : 1);
+  // Airborne steering is softened (reduced lateral authority); the ×1 on
+  // the grounded path keeps legacy arithmetic exact.
+  const steerScale = airborne ? JUMP_AIR_STEER_SCALE : 1;
   if (profile.lateralResponse <= 0) {
     // Hover: the smoothed input slides the hull directly (legacy behavior,
     // exact legacy arithmetic — this branch must not change).
-    r.x += r.steerPos * steerAuthority * (input.drift ? DRIFT_YAW : 1) * dir * dt;
+    r.x += r.steerPos * steerAuthority * steerScale * (input.drift ? DRIFT_YAW : 1) * dir * dt;
     r.x -= bendLoad * dt;
   } else {
     // Jet-ski: steering chases a target lateral velocity, so the hull
@@ -394,7 +511,7 @@ export function stepRacer(race: RaceState, r: RacerState, input: RacerInput, dt:
     // velocity decays — the line never recenters, so this never auto-steers.
     // Authority is still zero at a stop, so stopped input cannot move the
     // hull; the snap keeps a released craft bit-stable at rest.
-    const targetV = r.steerPos * steerAuthority * (input.drift ? DRIFT_YAW : 1) * dir - bendLoad;
+    const targetV = r.steerPos * steerAuthority * steerScale * (input.drift ? DRIFT_YAW : 1) * dir - bendLoad;
     r.latV += (targetV - r.latV) * Math.min(1, profile.lateralResponse * dt);
     if (targetV === 0 && Math.abs(r.latV) < profile.lateralSnap) r.latV = 0;
     r.x += r.latV * dt;
@@ -402,12 +519,26 @@ export function stepRacer(race: RaceState, r: RacerState, input: RacerInput, dt:
   // Shoulder flag follows the post-steer position (curb band counts as
   // on-road); pace loss is handled progressively by the surface
   // convergence above, never an edge snap.
-  r.offroad = Math.max(0, Math.abs(r.x) - ROAD_HALF) > CURB_WIDTH;
-  // Barrier scrape: clamp hard and bleed speed.
-  if (Math.abs(r.x) > BARRIER_X) {
-    r.x = Math.sign(r.x) * BARRIER_X;
-    r.speed -= Math.abs(r.speed) * 2.2 * dt + 8 * dt;
-    if (profile.lateralResponse > 0) r.latV = 0;
+  r.offroad = laneDepthAt(race, wrapS(race, r.s), r.x) > CURB_WIDTH;
+  // Barrier scrape: clamp hard and bleed speed. Inside a fork split the
+  // legacy +/- barrier becomes interval-relative (a normal shoulder past the
+  // outer asphalt edge); outside the split it is the exact legacy barrier.
+  {
+    const fork = race.circuit.fork;
+    let lo = -BARRIER_X;
+    let hi = BARRIER_X;
+    if (fork !== undefined) {
+      forkCrossSection(fork, wrapS(race, r.s), ROAD_HALF, forkStepSec);
+      if (forkStepSec.blend > 0) {
+        lo = forkStepSec.roadLo - FORK_SHOULDER;
+        hi = forkStepSec.roadHi + FORK_SHOULDER;
+      }
+    }
+    if (r.x < lo || r.x > hi) {
+      r.x = clamp(r.x, lo, hi);
+      r.speed -= Math.abs(r.speed) * 2.2 * dt + 8 * dt;
+      if (profile.lateralResponse > 0) r.latV = 0;
+    }
   }
 
   const prevW = wrapS(race, r.s);
@@ -417,6 +548,36 @@ export function stepRacer(race: RaceState, r: RacerState, input: RacerInput, dt:
   const prevLap = r.lap;
   crossGates(r, prevW, newW, r.speed >= 0, gatesFor(race));
   if (r.nextCp !== prevCp || r.lap !== prevLap) r.gateS = r.s;
+  // Fork island: commit once from the previous-x side, then hold it — input
+  // that tunnels across the island can never flip the lane. The island grows
+  // with the entrance blend, so the clamp target moves continuously and zone
+  // entry never teleports. Same rule for the player and every AI rival.
+  const fork = race.circuit.fork;
+  if (fork !== undefined) {
+    forkCrossSection(fork, newW, ROAD_HALF, forkStepSec);
+    if (forkStepSec.blend <= 0) {
+      r.forkSide = 0;
+    } else {
+      if ((r.forkSide ?? 0) === 0) {
+        r.forkSide = stepX0 <= 0 ? -1 : 1;
+      }
+      const beforeIsland = r.x;
+      r.x = clampForkX(fork, newW, ROAD_HALF, r.x, r.forkSide ?? 0);
+      if (r.x !== beforeIsland) {
+        r.speed -= Math.abs(r.speed) * 0.6 * dt;
+        if (profile.lateralResponse > 0) r.latV = 0;
+      }
+      if (r.x < forkStepSec.roadLo - FORK_SHOULDER || r.x > forkStepSec.roadHi + FORK_SHOULDER) {
+        r.x = clamp(r.x, forkStepSec.roadLo - FORK_SHOULDER, forkStepSec.roadHi + FORK_SHOULDER);
+        r.speed -= Math.abs(r.speed) * 2.2 * dt + 8 * dt;
+        if (profile.lateralResponse > 0) r.latV = 0;
+      }
+      r.offroad = laneDepthAt(race, newW, r.x) > CURB_WIDTH;
+    }
+  }
+  // Jump flight: lip takeoff, gravity, touchdown. Progress gates above stay
+  // unconditional (air never skips them); pads/pickups below gate on air.
+  stepJumps(race, r, prevW, newW, stepX0, dt);
 
   // Boost pads grant one free entry burn kick inside the painted pad lane
   // (|x| <= PAD_HALF_X, the same lane the renderer draws) while driving
@@ -430,13 +591,17 @@ export function stepRacer(race: RaceState, r: RacerState, input: RacerInput, dt:
   // the mode gate below keeps even a hand-placed pad dark).
   const mode = race.circuit.boostMode ?? 'pads';
   const driving = r.speed >= PAD_MIN_SPEED;
-  const onPad = mode === 'pads' && driving && Math.abs(r.x) <= PAD_HALF_X && padAt(race, newW) !== null;
+  // Pads are a surface source: clearly airborne craft fly over them. The pad
+  // lane reads the branch-relative pad.x (omitted means road center, so the
+  // legacy trigger is exact).
+  const pad = mode === 'pads' && driving && !isAirborne(r) ? padAt(race, newW) : null;
+  const onPad = pad !== null && Math.abs(r.x - (pad.x ?? 0)) <= PAD_HALF_X;
   if (onPad && !r.padOn && r.boostT <= 0) r.boostT = Math.max(r.boostT, 0.8);
   r.padOn = onPad;
   // Banked energy cells: forward swept progress only, lateral overlap at the
   // interpolated crossing point, once per racer per lap. Reversing over a
   // cell, sitting on one, or re-crossing it this lap banks nothing.
-  if (mode === 'pickups') collectPickups(race, r, prevW, newW, stepX0);
+  if (mode === 'pickups' && !isAirborne(r)) collectPickups(race, r, prevW, newW, stepX0);
   if (r.boostT > 0) {
     r.boostT = Math.max(0, r.boostT - dt);
     if (r.boostT > 0) r.boostDelay = BOOST_REGEN_DELAY;
@@ -456,6 +621,67 @@ function fwdDist(race: RaceState, from: number, to: number): number {
   let d = to - from;
   if (d < 0) d += len;
   return d;
+}
+
+/**
+ * Jump flight for one racer step. A grounded forward sweep across a ramp lip
+ * at takeoff pace with lateral overlap launches with a bounded
+ * speed-dependent impulse; flight integrates gravity against height above
+ * the current ground, and touchdown clamps height/velocity with a brief cue
+ * while s/x/speed continue untouched (no teleport, no speed cliff).
+ * Parked, crawling, and reversing craft can never launch (speed gate plus
+ * forward-sweep test); a cooldown set at takeoff and touchdown blocks a
+ * same-pass retrigger but expires long before the next legitimate lap.
+ * Pausing is the caller's freeze (no step calls): every timer here
+ * integrates dt, so frozen frames hold frozen air. Legacy circuits (no
+ * ramps, or a racer without the air key) return before any arithmetic.
+ */
+function stepJumps(
+  race: RaceState,
+  r: RacerState,
+  prevW: number,
+  newW: number,
+  stepX0: number,
+  dt: number,
+): void {
+  const air = r.air;
+  const ramps = race.circuit.ramps;
+  if (air === undefined || ramps === undefined || ramps.length === 0) return;
+  // Caller-owned pause needs no timers of its own: cooldown and cue decay
+  // only through stepped dt, so a frozen race holds frozen air.
+  if (air.cooldown > 0) air.cooldown = Math.max(0, air.cooldown - dt);
+  if (air.landingT > 0) air.landingT = Math.max(0, air.landingT - dt);
+  let launched = false;
+  if (air.height <= 0 && air.velocity <= 0 && air.cooldown <= 0 && r.speed >= JUMP_TAKEOFF_MIN_SPEED) {
+    const span = fwdDist(race, prevW, newW);
+    if (span > 1e-9) {
+      for (let ri = 0; ri < ramps.length; ri++) {
+        const ramp = ramps[ri]!;
+        const lip = wrapS(race, ramp.s + ramp.length);
+        const at = fwdDist(race, prevW, lip);
+        if (at <= 0 || at > span) continue;
+        const xCross = stepX0 + (r.x - stepX0) * (at / span);
+        if (Math.abs(xCross - ramp.x) > ramp.halfWidth) continue;
+        air.velocity = jumpImpulseFor(r.speed) + trackGradeAt(race.circuit.track, r.s) * r.speed;
+        launched = true;
+        air.cooldown = JUMP_COOLDOWN;
+        break;
+      }
+    }
+  }
+  if (air.height > 0 || air.velocity > 0) {
+    air.velocity -= JUMP_GRAVITY * dt;
+    // World-vertical flight: rising terrain meets the racer sooner and
+    // falling terrain leaves more air beneath them. Never stick to a hill.
+    const groundRise = launched ? 0 : trackHeightAt(race.circuit.track, newW) - trackHeightAt(race.circuit.track, prevW);
+    air.height += air.velocity * dt - groundRise;
+    if (air.height <= 0) {
+      air.height = 0;
+      air.velocity = 0;
+      air.landingT = JUMP_LANDING_CUE;
+      air.cooldown = Math.max(air.cooldown, JUMP_COOLDOWN);
+    }
+  }
 }
 
 /**
@@ -578,6 +804,26 @@ function resolveContact(race: RaceState, dt: number): void {
     for (let j = i + 1; j < racers.length; j++) {
       const b = racers[j]!;
       if (b.finished) continue;
+      // Airborne craft fly over the pack: no contact either way.
+      if (isAirborne(a) || isAirborne(b)) continue;
+      // Fork island: craft on opposite committed lanes never touch across
+      // the island — cross-island contacts are suppressed outright.
+      const fork = race.circuit.fork;
+      let aSide = 0;
+      let bSide = 0;
+      let aW = 0;
+      let bW = 0;
+      if (fork !== undefined) {
+        aW = wrapS(race, a.s);
+        bW = wrapS(race, b.s);
+        forkCrossSection(fork, aW, ROAD_HALF, forkStepSec);
+        const aActive = forkStepSec.islandActive;
+        aSide = a.x <= forkStepSec.islandLo ? -1 : a.x >= forkStepSec.islandHi ? 1 : 0;
+        forkCrossSection(fork, bW, ROAD_HALF, forkContactSec);
+        const bActive = forkContactSec.islandActive;
+        bSide = b.x <= forkContactSec.islandLo ? -1 : b.x >= forkContactSec.islandHi ? 1 : 0;
+        if (aActive && bActive && aSide !== 0 && bSide !== 0 && aSide !== bSide) continue;
+      }
       const ds = trackGap(race, a.s, b.s);
       const dx = a.x - b.x;
       if (Math.abs(ds) < CRAFT_LENGTH && Math.abs(dx) < CRAFT_SIDE) {
@@ -589,10 +835,26 @@ function resolveContact(race: RaceState, dt: number): void {
         // shove can escape the barrier: re-clamp within bounds (a hard cap,
         // never auto-centering) and re-sync the offroad flags the shove may
         // have carried across the curb line. No speed or boost change here.
-        a.x = clamp(a.x, -BARRIER_X, BARRIER_X);
-        b.x = clamp(b.x, -BARRIER_X, BARRIER_X);
-        a.offroad = Math.max(0, Math.abs(a.x) - ROAD_HALF) > CURB_WIDTH;
-        b.offroad = Math.max(0, Math.abs(b.x) - ROAD_HALF) > CURB_WIDTH;
+        // On fork circuits the same-lane push additionally clamps against
+        // the island (no shove tunnels a racer through it) and the barrier
+        // is interval-relative inside the split.
+        if (fork === undefined) {
+          a.x = clamp(a.x, -BARRIER_X, BARRIER_X);
+          b.x = clamp(b.x, -BARRIER_X, BARRIER_X);
+        } else {
+          a.x = clampForkX(fork, aW, ROAD_HALF, a.x, aSide !== 0 ? aSide : (a.forkSide ?? 0));
+          b.x = clampForkX(fork, bW, ROAD_HALF, b.x, bSide !== 0 ? bSide : (b.forkSide ?? 0));
+          forkCrossSection(fork, aW, ROAD_HALF, forkStepSec);
+          a.x = forkStepSec.blend > 0
+            ? clamp(a.x, forkStepSec.roadLo - FORK_SHOULDER, forkStepSec.roadHi + FORK_SHOULDER)
+            : clamp(a.x, -BARRIER_X, BARRIER_X);
+          forkCrossSection(fork, bW, ROAD_HALF, forkStepSec);
+          b.x = forkStepSec.blend > 0
+            ? clamp(b.x, forkStepSec.roadLo - FORK_SHOULDER, forkStepSec.roadHi + FORK_SHOULDER)
+            : clamp(b.x, -BARRIER_X, BARRIER_X);
+        }
+        a.offroad = laneDepthAt(race, wrapS(race, a.s), a.x) > CURB_WIDTH;
+        b.offroad = laneDepthAt(race, wrapS(race, b.s), b.x) > CURB_WIDTH;
         // Closing speed is the rate the longitudinal gap shrinks: positive
         // while the pair approaches (rear craft faster), negative while they
         // separate. Symmetric under a/b swap. Only the approaching (faster)
@@ -830,6 +1092,32 @@ export function aiInputFor(race: RaceState, i: number, out?: RacerInput): RacerI
   // the turn direction: +curve bends right (+x).
   const frac = (i * 0.61803398875) % 1;
   let targetX = ahead.abs > 0.0025 ? Math.sign(ahead.signed) * (0.7 + 0.7 * frac) : ((i + 1) % 3 - 1) * 1.1;
+  // Fork branches: a stable left/right pick by racer index, committed well
+  // before the blend begins. In-zone the branch-relative center is the only
+  // lateral target — passes and pickup hunts never fight it — and the lane
+  // centers reconverge to the road center at the exit, so the field merges
+  // naturally with no steering event.
+  const fork = race.circuit.fork;
+  let inFork = false;
+  if (fork !== undefined) {
+    const w = race.circuit.track.wrap(r.s);
+    const d = w - fork.start;
+    if (d >= -FORK_AI_APPROACH && d <= fork.length) {
+      inFork = true;
+      const side = (r.forkSide ?? 0) || forkBranchSide(i);
+      if (d < 0) {
+        targetX = side * 1.5;
+      } else {
+        forkCrossSection(fork, w, ROAD_HALF, forkAiSec);
+        targetX = side < 0 ? forkAiSec.leftCenter : forkAiSec.rightCenter;
+        if (d < fork.length / 2) {
+          // Keep the incoming lane at the tip; do not snap the target back
+          // through the growing island at the start of the split.
+          targetX += side * 1.5 * (1 - forkAiSec.blend);
+        }
+      }
+    }
+  }
   // Nearest unfinished craft directly ahead (directional, not wrapped).
   let target: RacerState | null = null;
   let targetGap = 85;
@@ -848,7 +1136,7 @@ export function aiInputFor(race: RaceState, i: number, out?: RacerInput): RacerI
   // otherwise take the side with fewer blockers so the choice cannot chatter.
   let passing = false;
   let blocked = false;
-  if (slower && targetGap < 75 && Math.abs(target!.x - r.x) < 2.2) {
+  if (!inFork && slower && targetGap < 75 && Math.abs(target!.x - r.x) < 2.2) {
     const dx = r.x - target!.x;
     let side: number;
     if (Math.abs(dx) >= 1.2) {
@@ -890,7 +1178,7 @@ export function aiInputFor(race: RaceState, i: number, out?: RacerInput): RacerI
   // Energy-lane seeking: in pickups mode the next bankable cell ahead pulls
   // the line sideways on mild road, through the same steering input as every
   // other target. Passing lines and real corners win over cell hunting.
-  if (!passing && ahead.abs < 0.004) {
+  if (!inFork && !passing && ahead.abs < 0.004) {
     const laneX = pickupTargetX(race, i);
     if (laneX !== null) targetX = clamp(laneX, -2.2, 2.2);
   }
@@ -905,15 +1193,11 @@ export function aiInputFor(race: RaceState, i: number, out?: RacerInput): RacerI
   // tight bend; rivals share the player's steering, grip and brake limits.
   // The pace target follows the race discipline so jet-ski rivals plan for
   // jet-ski pace through the same driver logic (hover is unchanged).
-  const topSpeed = movementFor(race.circuit.discipline).topSpeed * r.topScale;
+  const aiProfile = movementForTraversal(race.circuit.discipline, race.circuit.traversal);
+  const topSpeed = aiProfile.topSpeed * r.topScale;
   const cornerSafe = Math.min(
     topSpeed,
-    plannedCornerSpeed(
-      race.circuit.track,
-      r.s,
-      r.speed,
-      movementFor(race.circuit.discipline).brakeDecel,
-    ),
+    plannedCornerSpeed(race.circuit.track, r.s, r.speed, aiProfile.brakeDecel),
   );
   const currentCurve = race.circuit.track.curvatureAt(r.s);
   const drift = Math.abs(currentCurve) > 0.007 && Math.abs(r.speed) > 35;

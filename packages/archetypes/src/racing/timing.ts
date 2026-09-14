@@ -4,6 +4,8 @@
 // race clock are untouched — this only observes gate/lap state.
 
 import { CHECKPOINT_FRACTIONS, type RaceCircuit } from './track';
+import { jumpLayoutKey } from './jumps';
+import { forkLayoutKey } from './forks';
 
 /** Bump when physics or timing rules change enough to obsolete records. */
 export const TIMING_VERSION = 3;
@@ -47,7 +49,12 @@ export function geometrySignature(track: {
  * the legacy scheme (no mode segment); pickups/none append their mode and
  * pickups appends the cell layout, so different boost rules never share a
  * record. Jet-ski courses append a discipline segment; hover keys (explicit
- * or omitted discipline) stay byte-identical to the legacy scheme. Never a
+ * or omitted discipline) stay byte-identical to the legacy scheme. Circuits
+ * with a compiled traversal append a handling+surface segment (the only two
+ * axes that affect physics — rider, propulsion, and label never split
+ * records); circuits without one keep the exact legacy key. Circuits with
+ * compiled jump ramps append the ramp layout (ramps reshape pace); circuits
+ * without ramps keep the exact legacy key. Never a
  * bare template id or display name.
  */
 export function recordKey(gameId: string, courseId: string, circuit: RaceCircuit): string {
@@ -70,6 +77,24 @@ export function recordKey(gameId: string, courseId: string, circuit: RaceCircuit
     segs.push(`cells${cells}`);
   }
   if ((circuit.discipline ?? 'hover') === 'jetski') segs.push('discjetski1');
+  if (circuit.traversal !== undefined && circuit.traversal !== null) {
+    segs.push(`trav${circuit.traversal.handling}-${circuit.traversal.surface}`);
+  }
+  // Non-flat elevation reshapes lap pace, so it segregates records. Flat or
+  // omitted elevation appends nothing — legacy keys stay byte-identical.
+  const elevation = circuit.track.elevationProfile?.kind;
+  if (elevation === 'rolling' || elevation === 'ridge') segs.push(`elev${elevation}`);
+  // Compiled jump ramps reshape lap pace, so they segregate records. Absent
+  // ramps append nothing — legacy keys stay byte-identical.
+  if (circuit.ramps !== undefined && circuit.ramps.length > 0) {
+    segs.push(`jumps${jumpLayoutKey(circuit.ramps)}`);
+  }
+  // A compiled fork split reshapes lane choice and supply lanes, so it
+  // segregates records. Absent forks append nothing — legacy keys stay
+  // byte-identical.
+  if (circuit.fork !== undefined) {
+    segs.push(`fork${forkLayoutKey(circuit.fork)}`);
+  }
   return segs.join('|');
 }
 

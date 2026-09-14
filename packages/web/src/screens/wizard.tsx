@@ -66,10 +66,11 @@ const ARCHETYPES: readonly ArchetypeChoice[] = [
   },
   {
     id: 'racing',
-    label: 'Hover Cup',
+    label: 'Racing',
     previewImage: '/archetypes/racing.png',
-    feel: 'Steer · boost · win',
-    description: 'A 3-race hover cup against four rivals across three proven circuits.',
+    feel: 'Race · overtake · win',
+    description:
+      'High-speed racing with your own vehicles and riders in personalized worlds built around you.',
   },
 ];
 

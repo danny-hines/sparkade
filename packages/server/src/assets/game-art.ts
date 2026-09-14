@@ -19,12 +19,14 @@ import {
 import { GENERATED_SHOOTER_ENEMIES, SHOOTER_ENEMY_BOARD_SIZE } from './shooter-enemy';
 import { FIGHTER_POSE_SHEET_SIZE, fighterPoseSheetCellRect } from './fighter-pose-sheet';
 import {
+  mockRacingCraftRearSource,
   mockRacingCraftStripSource,
   mockRacingJetskiStripSource,
   mockRacingMaterialsSource,
   mockRacingPanoramaSource,
   mockRacingScenerySheetSource,
 } from './racing-mock';
+import { resolveTraversal, type RacingTraversal } from '@sparkade/shared';
 
 export const KEY_ART_PROMPT_VERSION = 'key-art-v6';
 export const STORY_ART_PROMPT_VERSION = 'story-scenes-v4';
@@ -97,6 +99,50 @@ function visualBrief(
 }
 
 /**
+ * Validated traversal on a racing spec, when present. Only the enum axes
+ * are consulted downstream; the label is never read.
+ */
+function racingTraversalOf(spec: GameSpec): RacingTraversal | undefined {
+  return spec.archetype === 'racing' ? resolveTraversal(spec.identity?.traversal) : undefined;
+}
+
+/**
+ * Key-art conveyance paragraph for a traversal cup, driven by the rider
+ * axis. Preserves the photo likeness for the rider identity and the rear
+ * rider silhouette from the strips while re-rendering both naturally.
+ */
+function traversalKeyArtCraftBrief(
+  traversal: RacingTraversal,
+  concept: string,
+  hasPlayerPhoto: boolean,
+): string {
+  const rider = traversal.rider;
+  const surface = traversal.surface === 'water' ? 'the water' : 'the ground';
+  const reference = hasPlayerPhoto ? 'The BOTTOM PANEL' : 'The reference image';
+  if (rider === 'none') {
+    return hasPlayerPhoto
+      ? `${reference} is the presentation-scale identity reference for the player conveyance. Preserve its signature silhouette, materials, colors, and markings, but RE-RENDER the conveyance naturally inside the scene at a physically plausible scale, perspective, and lighting. Do not paste, trace, enlarge, or copy the isolated reference pixels or its strict rear pose. The pilot and conveyance are separate identities: never put the pilot face, head, or body onto the conveyance.`
+      : `${reference} is the presentation-scale identity reference for the player conveyance. Preserve its signature silhouette, materials, colors, and markings, but RE-RENDER the conveyance naturally inside the scene at a physically plausible scale, perspective, and lighting. Do not paste, trace, enlarge, or copy the isolated reference pixels or its strict rear pose. Never give the conveyance a human face, head, or body.`;
+  }
+  if (rider === 'onFoot') {
+    return hasPlayerPhoto
+      ? `${reference} is the presentation-scale identity reference for the player runner. Preserve the signature outfit, colors, and markings, but RE-RENDER the runner naturally inside the scene at a physically plausible scale, perspective, and lighting: one visible adult runner mid-stride. Do not paste, trace, enlarge, or copy the isolated reference pixels or its strict rear pose. Never render a conveyance or a second runner. Use the TOP PANEL photo likeness for the runner identity. Runner concept: ${concept}.`
+      : `${reference} is the presentation-scale identity reference for the player runner. Preserve the signature outfit, colors, and markings, but RE-RENDER the runner naturally inside the scene at a physically plausible scale, perspective, and lighting: one visible adult runner mid-stride. Do not paste, trace, enlarge, or copy the isolated reference pixels or its strict rear pose. Never render a conveyance or a second runner. Runner concept: ${concept}.`;
+  }
+  const pose =
+    rider === 'standing'
+      ? 'one visible adult rider standing on the conveyance'
+      : 'one visible adult rider seated astride the conveyance with hands on its controls';
+  const forbidden =
+    rider === 'standing'
+      ? 'never render the rider seated or detached'
+      : 'never render the rider standing or detached';
+  return hasPlayerPhoto
+    ? `${reference} is the presentation-scale identity reference for the player conveyance plus its rider. Preserve its signature silhouette, materials, colors, markings, and the rider outfit, but RE-RENDER rider and conveyance naturally inside the scene at a physically plausible scale, perspective, and lighting: ${pose}, conveyance touching ${surface}. Do not paste, trace, enlarge, or copy the isolated reference pixels or its strict rear pose. Never paste a face into the conveyance and ${forbidden}. Use the TOP PANEL photo likeness for the rider identity. Conveyance concept: ${concept}.`
+    : `${reference} is the presentation-scale identity reference for the player conveyance plus its rider. Preserve its signature silhouette, materials, colors, markings, and the rider outfit, but RE-RENDER rider and conveyance naturally inside the scene at a physically plausible scale, perspective, and lighting: ${pose}, conveyance touching ${surface}. Do not paste, trace, enlarge, or copy the isolated reference pixels or its strict rear pose. Never paste a face into the conveyance and ${forbidden}. Conveyance concept: ${concept}.`;
+}
+
+/**
  * Player-craft identity paragraph for key art. Shooter, hshooter, and hover
  * racing keep the legacy vehicle-only contract (never merge pilot and
  * craft). Jetski racing instead requires the seated adult rider astride the
@@ -108,6 +154,8 @@ function jetskiCraftBrief(
   hasPlayerPhoto: boolean,
 ): string {
   const concept = clean(playerCraft.visualConcept);
+  const traversal = racingTraversalOf(spec);
+  if (traversal) return traversalKeyArtCraftBrief(traversal, concept, hasPlayerPhoto);
   if (isJetskiSpec(spec)) {
     return hasPlayerPhoto
       ? `The BOTTOM PANEL is the presentation-scale identity reference for the player watercraft plus its seated rider. Preserve its signature compact hull, handlebars, materials, colors, markings, and the rider outfit, but RE-RENDER rider and craft naturally inside the scene at a physically plausible scale, perspective, and lighting: one visible adult rider seated astride the hull with hands on the handlebars, hull touching the water. Do not paste, trace, enlarge, or copy the isolated reference pixels or its strict rear pose. Never paste a face into the hull and never render the rider standing, detached, or facing the camera. Use the TOP PANEL photo likeness for the rider identity. Watercraft concept: ${concept}.`
@@ -132,9 +180,7 @@ export function buildKeyArtPrompt(
         : 'Transform the exact adult person in the reference photo into the PLAYER HERO of this game. The reference is immutable identity truth from the neck up: preserve their recognizable apparent adult age, face and head shape, jaw, cheek structure, eye size and spacing, nose, mouth, skin tone, hairline, hair texture and style, facial hair, glasses, headwear, and visible head accessories; never replace them with a generic or younger character. The source photo clothing below the neck is NOT identity: replace it with the canonical game-world outfit in the visual brief.'
       : 'Create a distinctive original PLAYER HERO suited to this game premise.',
     visualBrief(spec, heroConcept, playerCraft),
-    playerCraft
-      ? jetskiCraftBrief(spec, playerCraft, hasPlayerPhoto)
-      : '',
+    playerCraft ? jetskiCraftBrief(spec, playerCraft, hasPlayerPhoto) : '',
     spec.archetype === 'adventure'
       ? spec.combatKit.primary.unarmed
         ? 'Show the hero in a clearly readable unarmed ready stance with both hands visible and no invented weapon.'
@@ -175,11 +221,7 @@ export function buildKeyArtPolicyFallbackPrompt(
     spec.archetype === 'fighter'
       ? `Immutable Fighter art direction: ${fighterArtDirectionPrompt(spec.artDirection)}`
       : '',
-    playerCraft
-      ? isJetskiSpec(spec)
-        ? `Preserve the player watercraft plus its seated rider shown in the ${hasPlayerPhoto ? 'BOTTOM PANEL' : 'reference image'}: ${clean(playerCraft.visualConcept)}. Re-render rider and craft as an integrated part of the scene at natural scale, perspective, and lighting: one visible adult rider seated astride the hull, hull touching the water. Never paste or enlarge the isolated reference. Never paste a face into the hull.`
-        : `Preserve the separate player vehicle identity shown in the ${hasPlayerPhoto ? 'BOTTOM PANEL' : 'reference image'}: ${clean(playerCraft.visualConcept)}. Re-render it as an integrated part of the scene at natural scale, perspective, and lighting; never paste or enlarge the isolated reference. Never merge the person and vehicle identities.`
-      : '',
+    playerCraft ? keyArtFallbackCraftBrief(spec, playerCraft, hasPlayerPhoto) : '',
     `Create polished landscape key art for a colorful ${spec.archetype} game world using this limited palette: ${spec.palette.join(', ')}.`,
     'Use a calm, adventurous composition with the player character as the central focal point. Keep every complete face, head, hairstyle, and headwear inside the middle 60% of the image height; reserve the outer 20% at both the top and bottom for expendable scenery only.',
     'Premium 16-bit console illustration with crisp pixel clusters, clear silhouettes, and rich environmental detail.',
@@ -215,11 +257,7 @@ export function buildStoryArtPrompt(
     spec.archetype === 'fighter'
       ? `Immutable Fighter art direction: ${fighterArtDirectionPrompt(spec.artDirection)}`
       : '',
-    playerCraft
-      ? isJetskiSpec(spec)
-        ? `Whenever the player watercraft is visible, preserve the BOTTOM PANEL's rider-plus-hull identity: ${clean(playerCraft.visualConcept)}. RE-RENDER it naturally at the scene's scale, perspective, pose, and lighting with one visible adult rider seated astride the hull, hull touching the water. Do not paste, trace, enlarge, or copy the isolated reference pixels. Never paste a face into the hull and never render the rider standing or detached.`
-        : `Whenever the player vehicle is visible, preserve the BOTTOM PANEL's separate craft identity: ${clean(playerCraft.visualConcept)}. RE-RENDER it naturally at the scene's scale, perspective, pose, and lighting. Do not paste, trace, enlarge, or copy the isolated reference pixels. Never place the pilot's face or body onto the craft.`
-      : '',
+    playerCraft ? storyArtCraftBrief(spec, playerCraft) : '',
     spec.archetype === 'adventure'
       ? role === 'intro'
         ? `The hero has not collected ${clean(spec.combatKit.secondary.name)} yet; show only the canonical primary equipment and do not place the secondary in the scene.`
@@ -235,6 +273,67 @@ export function buildStoryArtPrompt(
     'Polished 16-bit console illustration with crisp deliberate pixel clusters and readable silhouettes. Stylize the rendering, not the adult anatomy: no de-aging, oversized anime eyes, rounded childlike face, chibi proportions, or generic mascot features. Keep faces and the main action away from the extreme edges.',
     'No text, letters, title, logo, caption, speech bubble, UI, watermark, signature, border, photorealism, blur, or 3D render.',
   ].join(' ');
+}
+
+/**
+ * Conservative fallback craft paragraph: legacy jetski/hover strings are
+ * preserved verbatim when no traversal exists; traversal cups get a
+ * rider-axis paragraph instead.
+ */
+function keyArtFallbackCraftBrief(
+  spec: GameSpec,
+  playerCraft: PlayerCraftArtBrief,
+  hasPlayerPhoto: boolean,
+): string {
+  const traversal = racingTraversalOf(spec);
+  if (traversal) {
+    const panel = hasPlayerPhoto ? 'BOTTOM PANEL' : 'reference image';
+    const concept = clean(playerCraft.visualConcept);
+    if (traversal.rider === 'none') {
+      return `Preserve the separate player conveyance identity shown in the ${panel}: ${concept}. Re-render it as an integrated part of the scene at natural scale, perspective, and lighting; never paste or enlarge the isolated reference. Never merge the person and conveyance identities.`;
+    }
+    if (traversal.rider === 'onFoot') {
+      return `Preserve the player runner identity shown in the ${panel}: ${concept}. Re-render the runner mid-stride as an integrated part of the scene at natural scale, perspective, and lighting; never paste or enlarge the isolated reference. Never render a conveyance or a second runner.`;
+    }
+    const pose =
+      traversal.rider === 'standing'
+        ? 'one visible adult rider standing on the conveyance'
+        : 'one visible adult rider seated astride the conveyance';
+    return `Preserve the player conveyance plus its rider shown in the ${panel}: ${concept}. Re-render rider and conveyance as an integrated part of the scene at natural scale, perspective, and lighting: ${pose}. Never paste or enlarge the isolated reference. Never paste a face into the conveyance.`;
+  }
+  return isJetskiSpec(spec)
+    ? `Preserve the player watercraft plus its seated rider shown in the ${hasPlayerPhoto ? 'BOTTOM PANEL' : 'reference image'}: ${clean(playerCraft.visualConcept)}. Re-render rider and craft as an integrated part of the scene at natural scale, perspective, and lighting: one visible adult rider seated astride the hull, hull touching the water. Never paste or enlarge the isolated reference. Never paste a face into the hull.`
+    : `Preserve the separate player vehicle identity shown in the ${hasPlayerPhoto ? 'BOTTOM PANEL' : 'reference image'}: ${clean(playerCraft.visualConcept)}. Re-render it as an integrated part of the scene at natural scale, perspective, and lighting; never paste or enlarge the isolated reference. Never merge the person and vehicle identities.`;
+}
+
+/**
+ * Story-scene conveyance paragraph: legacy strings preserved verbatim
+ * without traversal; rider-axis wording with traversal.
+ */
+function storyArtCraftBrief(spec: GameSpec, playerCraft: PlayerCraftArtBrief): string {
+  const traversal = racingTraversalOf(spec);
+  if (traversal) {
+    const concept = clean(playerCraft.visualConcept);
+    const surface = traversal.surface === 'water' ? 'the water' : 'the ground';
+    if (traversal.rider === 'none') {
+      return `Whenever the player conveyance is visible, preserve the BOTTOM PANEL's separate conveyance identity: ${concept}. RE-RENDER it naturally at the scene's scale, perspective, pose, and lighting. Do not paste, trace, enlarge, or copy the isolated reference pixels. Never place the pilot's face or body onto the conveyance.`;
+    }
+    if (traversal.rider === 'onFoot') {
+      return `Whenever the player runner is visible, preserve the BOTTOM PANEL's runner identity: ${concept}. RE-RENDER them naturally at the scene's scale, perspective, pose, and lighting, mid-stride. Do not paste, trace, enlarge, or copy the isolated reference pixels. Never render a conveyance or a second runner.`;
+    }
+    const pose =
+      traversal.rider === 'standing'
+        ? 'one visible adult rider standing on the conveyance'
+        : 'one visible adult rider seated astride the conveyance';
+    const forbidden =
+      traversal.rider === 'standing'
+        ? 'never render the rider seated or detached'
+        : 'never render the rider standing or detached';
+    return `Whenever the player conveyance is visible, preserve the BOTTOM PANEL's rider-plus-conveyance identity: ${concept}. RE-RENDER it naturally at the scene's scale, perspective, pose, and lighting with ${pose}, conveyance touching ${surface}. Do not paste, trace, enlarge, or copy the isolated reference pixels. Never paste a face into the conveyance and ${forbidden}.`;
+  }
+  return isJetskiSpec(spec)
+    ? `Whenever the player watercraft is visible, preserve the BOTTOM PANEL's rider-plus-hull identity: ${clean(playerCraft.visualConcept)}. RE-RENDER it naturally at the scene's scale, perspective, pose, and lighting with one visible adult rider seated astride the hull, hull touching the water. Do not paste, trace, enlarge, or copy the isolated reference pixels. Never paste a face into the hull and never render the rider standing or detached.`
+    : `Whenever the player vehicle is visible, preserve the BOTTOM PANEL's separate craft identity: ${clean(playerCraft.visualConcept)}. RE-RENDER it naturally at the scene's scale, perspective, pose, and lighting. Do not paste, trace, enlarge, or copy the isolated reference pixels. Never place the pilot's face or body onto the craft.`;
 }
 
 /** A story-role-specific prompt that is safe to use after a policy rejection. */
@@ -266,11 +365,7 @@ export function buildStoryArtPolicyFallbackPrompt(
     spec.archetype === 'fighter'
       ? `Immutable Fighter art direction: ${fighterArtDirectionPrompt(spec.artDirection)}`
       : '',
-    playerCraft
-      ? isJetskiSpec(spec)
-        ? `If the watercraft appears, preserve this rider-plus-hull identity: ${clean(playerCraft.visualConcept)}. Show one visible adult rider seated astride the hull, hull touching the water. Re-render it as part of the scene at natural scale, perspective, and lighting; never paste or enlarge the isolated reference. Never paste a face into the hull.`
-        : `If the vehicle appears, preserve this craft identity and never merge it with the pilot: ${clean(playerCraft.visualConcept)}. Re-render it as part of the scene at natural scale, perspective, and lighting; never paste or enlarge the isolated reference.`
-      : '',
+    playerCraft ? storyArtFallbackCraftBrief(spec, playerCraft) : '',
     spec.archetype === 'adventure'
       ? role === 'intro'
         ? `Show the canonical primary ${clean(spec.combatKit.primary.name)} only; the secondary has not been collected.`
@@ -280,6 +375,31 @@ export function buildStoryArtPolicyFallbackPrompt(
     'Polished 16-bit console illustration with crisp pixel clusters, readable silhouettes, and the main subject away from the extreme edges.',
     'No text, letters, title, logo, caption, speech bubble, UI, watermark, signature, border, photorealism, blur, or 3D render.',
   ].join(' ');
+}
+
+/**
+ * Story fallback conveyance paragraph: legacy strings preserved verbatim
+ * without traversal; rider-axis wording with traversal.
+ */
+function storyArtFallbackCraftBrief(spec: GameSpec, playerCraft: PlayerCraftArtBrief): string {
+  const traversal = racingTraversalOf(spec);
+  if (traversal) {
+    const concept = clean(playerCraft.visualConcept);
+    if (traversal.rider === 'none') {
+      return `If the conveyance appears, preserve this conveyance identity and never merge it with the pilot: ${concept}. Re-render it as part of the scene at natural scale, perspective, and lighting; never paste or enlarge the isolated reference.`;
+    }
+    if (traversal.rider === 'onFoot') {
+      return `If the runner appears, preserve this runner identity: ${concept}. Re-render them mid-stride as part of the scene at natural scale, perspective, and lighting; never paste or enlarge the isolated reference. Never render a conveyance or a second runner.`;
+    }
+    const pose =
+      traversal.rider === 'standing'
+        ? 'Show one visible adult rider standing on the conveyance.'
+        : 'Show one visible adult rider seated astride the conveyance.';
+    return `If the conveyance appears, preserve this rider-plus-conveyance identity: ${concept}. ${pose} Re-render it as part of the scene at natural scale, perspective, and lighting; never paste or enlarge the isolated reference. Never paste a face into the conveyance.`;
+  }
+  return isJetskiSpec(spec)
+    ? `If the watercraft appears, preserve this rider-plus-hull identity: ${clean(playerCraft.visualConcept)}. Show one visible adult rider seated astride the hull, hull touching the water. Re-render it as part of the scene at natural scale, perspective, and lighting; never paste or enlarge the isolated reference. Never paste a face into the hull.`
+    : `If the vehicle appears, preserve this craft identity and never merge it with the pilot: ${clean(playerCraft.visualConcept)}. Re-render it as part of the scene at natural scale, perspective, and lighting; never paste or enlarge the isolated reference.`;
 }
 
 /** Normalize arbitrary camera uploads before sending them to an edit endpoint. */
@@ -323,10 +443,22 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
   if (prompt.includes('rear-view hovercraft turnaround strip')) {
     return mockRacingCraftStripSource();
   }
+  if (prompt.includes('rear-view turnaround strip')) {
+    let seed = 7;
+    for (const char of prompt) seed = (Math.imul(seed, 31) + char.charCodeAt(0)) >>> 0;
+    // Traversal strips: rider-bearing subjects reuse the rider watercraft
+    // fixture, vehicle-only strips reuse the hovercraft fixture. Both pass
+    // the real strip validators; the full roster judge still runs live.
+    if (/same outfit, same rear head/i.test(prompt)) return mockRacingJetskiStripSource(seed);
+    return mockRacingCraftStripSource();
+  }
+  if (prompt.includes('isolated rear-view pose on flat #00ff00')) {
+    return mockRacingCraftRearSource();
+  }
   if (prompt.includes('roadside-object sheet')) {
     return mockRacingScenerySheetSource();
   }
-  if (/panoramic backdrop for the (?:hover-cup|jetski-cup) course/.test(prompt)) {
+  if (/panoramic backdrop for the (?:hover-cup|jetski-cup|water|ground) course/.test(prompt)) {
     return mockRacingPanoramaSource();
   }
   if (prompt.includes('top-down seamless material sheet')) {
@@ -336,7 +468,9 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
     const slot = Math.max(0, Math.min(3, Number(/Tile (\d) of 4/.exec(prompt)?.[1] ?? 1) - 1));
     return sharp(await mockRacingMaterialsSource())
       .extract({ left: (slot % 2) * 128, top: Math.floor(slot / 2) * 128, width: 128, height: 128 })
-      .resize(256, 256, { kernel: sharp.kernel.nearest }).png().toBuffer();
+      .resize(256, 256, { kernel: sharp.kernel.nearest })
+      .png()
+      .toBuffer();
   }
   if (prompt.includes('ADVENTURE THEMED OBJECT BOARD CONTRACT')) {
     return mockGeneratedAdventureObjectBoard();

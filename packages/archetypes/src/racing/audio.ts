@@ -10,7 +10,11 @@
 // repurposed as the water rush (silent at rest, swelling with speed and
 // carve, surging under boost). Omit the discipline for the exact legacy mix.
 
-import type { RacingDiscipline, RacingEngineProfile } from '@sparkade/shared';
+import type {
+  RacingDiscipline,
+  RacingEngineProfile,
+  RacingTraversal,
+} from '@sparkade/shared';
 import {
   JETSKI_WATER_REST_NORM,
   jetskiWaterCutoff,
@@ -20,6 +24,25 @@ import {
   resolveEngineProfile,
   type ResolvedEngineProfile,
 } from './sound-profile';
+import {
+  applyCadence,
+  humanCadenceHz,
+  humanDriveCutoff,
+  humanDriveGain,
+  isLegacyTraversal,
+  magicToneGain,
+  magicToneHz,
+  magicWindCutoff,
+  magicWindGain,
+  traversalOnWater,
+  traversalPropulsion,
+  traversalRider,
+  traversalSurface,
+  traversalWaterCutoff,
+  traversalWaterGain,
+  TRAVERSAL_REST_NORM,
+  type TraversalRider,
+} from './traversal-audio';
 
 /** Minimal structural capability; AudioSys satisfies it, fakes are trivial. */
 export interface HoverEngineCaps {
@@ -95,35 +118,69 @@ export class HoverEngine {
   private discipline: RacingDiscipline = 'hover';
   private voice: ResolvedEngineProfile = resolveEngineProfile();
   private burner = new Afterburner();
+  private traversal: RacingTraversal | null = null;
+  private rider: TraversalRider = 'seated';
 
   /**
    * Optional authored timbre; omit/null for the exact legacy mix. The
    * optional discipline selects the watercraft mix ('jetski'); omit/null
-   * (or anything but 'jetski') for the exact legacy hover voice.
+   * (or anything but 'jetski') for the exact legacy hover voice. The
+   * optional traversal (identity.traversal, composable P1 contract)
+   * selects the propulsion voice: absent/null keeps the exact legacy
+   * motor path; motor reuses family/tone/pitch with the traversal
+   * surface engine (ground → hover mix, water → jetski mix); human
+   * replaces the hum with filtered movement noise; magic replaces it
+   * with a restrained soft tone plus wind. Label is never consulted.
    */
-  constructor(profile?: RacingEngineProfile | null, discipline?: RacingDiscipline | null) {
-    this.setProfile(profile, discipline);
+  constructor(
+    profile?: RacingEngineProfile | null,
+    discipline?: RacingDiscipline | null,
+    traversal?: RacingTraversal | null,
+  ) {
+    this.setProfile(profile, discipline, traversal);
   }
 
   /**
    * Select the engine timbre (identity.sound.engine) and optionally the
-   * discipline (identity.discipline). Stores parameters only: no nodes
-   * are created, no voice is claimed, and a running voice keeps playing
-   * with its timbre switched live. Null/undefined restores the exact
-   * legacy mix. Reads the current discipline back via voiceDiscipline().
+   * discipline (identity.discipline) and traversal (identity.traversal).
+   * Stores parameters only: no nodes are created, no voice is claimed,
+   * and a running motor voice keeps playing with its timbre switched
+   * live. Null/undefined restores the exact legacy mix. A switch into
+   * the human voice silences a running motor tone immediately (the
+   * movement noise starts on the next update); other switches retune
+   * live. Reads the current discipline back via voiceDiscipline().
    */
-  setProfile(profile?: RacingEngineProfile | null, discipline?: RacingDiscipline | null): void {
+  setProfile(
+    profile?: RacingEngineProfile | null,
+    discipline?: RacingDiscipline | null,
+    traversal?: RacingTraversal | null,
+  ): void {
     // An explicit discipline (including null → hover) switches the mix;
     // an omitted one keeps the current mix, so live timbre switches
     // mid-race never splash a jetski back to hover by accident.
     if (discipline !== undefined) this.discipline = normalizeEngineDiscipline(discipline);
-    this.voice = resolveEngineProfile(profile ?? null, this.discipline);
+    if (traversal !== undefined) this.traversal = traversal ?? null;
+    this.rider = traversalRider(this.traversal);
+    // A present traversal drives the surface engine (mirroring
+    // movementForTraversal); an absent one keeps the discipline mix
+    // exactly, so legacy cups sound byte-identical.
+    const effective: RacingDiscipline = isLegacyTraversal(this.traversal)
+      ? this.discipline
+      : traversalSurface(this.traversal, this.discipline) === 'water'
+        ? 'jetski'
+        : 'hover';
+    this.voice = resolveEngineProfile(profile ?? null, effective);
     this.burner.setProfile(this.voice);
+    const propulsion = traversalPropulsion(this.traversal);
     try {
-      if (this.osc) this.osc.type = this.voice.oscType;
+      if (this.osc) {
+        if (propulsion === 'magic') this.osc.type = 'sine';
+        else if (propulsion === 'motor') this.osc.type = this.voice.oscType;
+      }
     } catch {
       // A dead voice must never break a profile switch; next update retries.
     }
+    if (propulsion === 'human') this.stopTone();
   }
 
   /** Current mix ('hover' unless 'jetski' was selected). */
@@ -133,13 +190,39 @@ export class HoverEngine {
 
   /**
    * Whether this update wants the second (noise) voice: boost on any
-   * mix, or the jetski water rush while moving. Lets the race mixer
-   * free a rival slot first, exactly like boost priority, so the
+   * mix, the jetski water rush while moving, human rolling/footfall
+   * while moving, or the magic wind swell while moving. Lets the race
+   * mixer free a rival slot first, exactly like boost priority, so the
    * player's own craft never starves behind distant rivals.
    */
   wantsNoise(s: HoverEngineState): boolean {
     if (s.boosting) return true;
-    return this.discipline === 'jetski' && speedNormFor(s) > JETSKI_WATER_REST_NORM;
+    const propulsion = traversalPropulsion(this.traversal);
+    if (propulsion === 'human' || propulsion === 'magic') {
+      return speedNormFor(s) > TRAVERSAL_REST_NORM;
+    }
+    if (isLegacyTraversal(this.traversal)) {
+      return this.discipline === 'jetski' && speedNormFor(s) > JETSKI_WATER_REST_NORM;
+    }
+    return (
+      traversalOnWater(this.traversal, this.discipline) &&
+      speedNormFor(s) > JETSKI_WATER_REST_NORM
+    );
+  }
+
+  /**
+   * Player voices this update will hold once it runs: motor always holds
+   * its tone plus the noise voice while wantsNoise; human holds only the
+   * movement-noise voice while wantsNoise (no tone ever); magic holds its
+   * tone plus wind while audible (same condition as wantsNoise). Pure
+   * parameters only — no nodes, no claims — so the race mixer can free
+   * exactly the rival slots the player is about to need.
+   */
+  requestedSources(s: HoverEngineState): number {
+    const propulsion = traversalPropulsion(this.traversal);
+    if (propulsion === 'human') return this.wantsNoise(s) ? 1 : 0;
+    if (propulsion === 'magic') return this.wantsNoise(s) ? 2 : 0;
+    return this.wantsNoise(s) ? 2 : 1;
   }
 
   /** Remember the capability; creates no nodes and claims no voice. */
@@ -163,12 +246,25 @@ export class HoverEngine {
   }
 
   /**
-   * Drive the hum from live craft state. Lazily starts the single voice on
-   * the first call; a missing capability or spent budget stays silent and
-   * retries on a later call. Reuses all nodes — no per-update allocation.
+   * Drive the voice from live craft state. Motor keeps the exact legacy
+   * hum path; human drives filtered movement noise with step/roll
+   * cadence (no hum, no burner); magic drives a restrained soft tone
+   * plus wind. Lazily starts voices on the first call; a missing
+   * capability or spent budget stays silent and retries later. Reuses
+   * all nodes — no per-update allocation; cadence modulates from the
+   * monotonic audio clock.
    */
   update(s: HoverEngineState): void {
     if (!this.caps) return;
+    const propulsion = traversalPropulsion(this.traversal);
+    if (propulsion === 'human') {
+      this.updateHuman(s);
+      return;
+    }
+    if (propulsion === 'magic') {
+      this.updateMagic(s);
+      return;
+    }
     if (!this.start()) return;
     try {
       const ctx = this.caps.context();
@@ -183,6 +279,142 @@ export class HoverEngine {
       // Dead context or parameters must never crash racing: drop the broken
       // voice quietly; a later update retries from a clean claim.
       this.stop();
+    }
+  }
+
+  /**
+   * Human movement voice: no engine hum and no combustion burner at all.
+   * The motor tone stays stopped (its voice is released); a single
+   * repurposed noise source plays filtered rolling/footfall texture with
+   * cadence from the audio clock, plus the water wash on surface water.
+   * Silent at rest; exertion rises with throttle/accel.
+   */
+  private updateHuman(s: HoverEngineState): void {
+    this.stopTone();
+    this.pitchHz = 0;
+    try {
+      const caps = this.caps;
+      if (!caps) return;
+      const ctx = caps.context();
+      const norm = speedNormFor(s);
+      const onWater = traversalOnWater(this.traversal, this.discipline);
+      this.burner.updateHuman(s, norm, this.rider, onWater, ctx.currentTime);
+    } catch {
+      this.stop();
+    }
+  }
+
+  /**
+   * Magic voice: a restrained soft tonal swell (forced sine, quiet cap,
+   * silent at rest) plus wind on the repurposed noise source, with the
+   * water wash on surface water. No bells, no loud idle buzz.
+   */
+  private updateMagic(s: HoverEngineState): void {
+    try {
+      const caps = this.caps;
+      if (!caps) return;
+      const norm = speedNormFor(s);
+      // Silent at rest: no tonal voice (no idle buzz); the wind tail
+      // fades through the shared noise path.
+      if (!s.boosting && norm <= TRAVERSAL_REST_NORM) {
+        this.stopTone();
+        this.burner.updateMagic(s, norm, traversalOnWater(this.traversal, this.discipline));
+        return;
+      }
+      if (!this.startMagic()) return;
+      const ctx = caps.context();
+      const t = ctx.currentTime;
+      const onWater = traversalOnWater(this.traversal, this.discipline);
+      this.pitchHz = magicToneHz(norm, s.boosting);
+      const response = s.throttle ? 0.09 : 0.2;
+      this.osc!.frequency.setTargetAtTime(this.pitchHz, t, response);
+      this.gain!.gain.setTargetAtTime(magicToneGain(norm, s.boosting), t, response);
+      this.filter!.frequency.setTargetAtTime(magicWindCutoff(norm, s.boosting), t, response);
+      this.burner.updateMagic(s, norm, onWater);
+    } catch {
+      this.stop();
+    }
+  }
+
+  /** Start the single tonal voice forced to a soft sine for magic. */
+  private startMagic(): boolean {
+    if (this.osc !== null) {
+      try {
+        this.osc.type = 'sine';
+      } catch {
+        // A dead voice keeps its last timbre; the update still applies.
+      }
+      return true;
+    }
+    if (!this.caps || !this.caps.claimVoice()) return false;
+    this.voiceHeld = true;
+    try {
+      const ctx = this.caps.context();
+      this.osc = ctx.createOscillator();
+      this.osc.type = 'sine';
+      this.osc.frequency.value = magicToneHz(0, false);
+      this.filter = ctx.createBiquadFilter();
+      this.filter.type = 'lowpass';
+      this.filter.frequency.value = 700;
+      this.gain = ctx.createGain();
+      this.gain.gain.value = 0;
+      this.osc.connect(this.filter);
+      this.filter.connect(this.gain);
+      this.gain.connect(this.caps.sfxBus);
+      this.osc.start();
+      return true;
+    } catch {
+      const nodes = [this.osc, this.filter, this.gain];
+      this.osc = null;
+      this.gain = null;
+      this.filter = null;
+      this.voiceHeld = false;
+      for (const node of nodes) {
+        try {
+          node?.disconnect();
+        } catch {
+          // Already disconnected.
+        }
+      }
+      try {
+        this.caps?.releaseVoice();
+      } catch {
+        // Accounting must never throw.
+      }
+      return false;
+    }
+  }
+
+  /** Silence the motor tone only, keeping the repurposed noise source. */
+  private stopTone(): void {
+    if (!this.voiceHeld) {
+      this.osc = null;
+      this.gain = null;
+      this.filter = null;
+      this.pitchHz = 0;
+      return;
+    }
+    this.voiceHeld = false;
+    this.pitchHz = 0;
+    try {
+      this.osc?.stop();
+    } catch {
+      // Already stopped.
+    }
+    for (const node of [this.osc, this.filter, this.gain]) {
+      try {
+        node?.disconnect();
+      } catch {
+        // Already disconnected.
+      }
+    }
+    this.osc = null;
+    this.gain = null;
+    this.filter = null;
+    try {
+      this.caps?.releaseVoice();
+    } catch {
+      // Accounting must never throw.
     }
   }
 
@@ -385,6 +617,79 @@ class Afterburner {
         now,
         burning ? 0.025 : 0.06,
       );
+    } catch {
+      this.stop();
+    }
+  }
+
+  /**
+   * Human movement noise on the same single source: filtered
+   * rolling/footfall texture with step/roll cadence from the monotonic
+   * audio clock, plus the water wash on surface water. Silent at rest;
+   * exertion rises with throttle. Reuses the cached noise buffer and
+   * claims at most one voice — never an engine hum or burner.
+   */
+  updateHuman(
+    s: HoverEngineState,
+    norm: number,
+    rider: TraversalRider,
+    onWater: boolean,
+    now: number,
+  ): void {
+    const caps = this.caps;
+    if (!caps) return;
+    try {
+      const ctx = caps.context();
+      const t = ctx.currentTime;
+      const drive = humanDriveGain(norm, s.throttle, s.boosting, rider);
+      const wash = onWater ? traversalWaterGain(norm, s.drifting, s.boosting) * 0.6 : 0;
+      const base = Math.min(0.44, drive + wash);
+      const running = s.boosting || base > 0;
+      if (running) this.lastBurnAt = t;
+      if (!running && t - this.lastBurnAt > 0.16) {
+        this.stop();
+        return;
+      }
+      if (!this.source) {
+        if (!running || !caps.claimVoice()) return;
+        this.startSource(caps, ctx, humanDriveCutoff(norm, s.boosting, rider));
+      }
+      const cadence = applyCadence(base, now, humanCadenceHz(norm, rider));
+      const cutoff = Math.max(
+        humanDriveCutoff(norm, s.boosting, rider),
+        onWater && base > 0 ? traversalWaterCutoff(norm, s.boosting) * 0.7 : 0,
+      );
+      this.filter!.frequency.setTargetAtTime(cutoff, t, 0.07);
+      this.gain!.gain.setTargetAtTime(running ? cadence : 0, t, s.boosting ? 0.03 : 0.06);
+    } catch {
+      this.stop();
+    }
+  }
+
+  /**
+   * Magic wind swell on the same single source: soft rushing air under
+   * motion with the water wash on surface water, surging into a boost
+   * whoosh. No bells — looped noise only.
+   */
+  updateMagic(s: HoverEngineState, norm: number, onWater: boolean): void {
+    const caps = this.caps;
+    if (!caps) return;
+    try {
+      const ctx = caps.context();
+      const t = ctx.currentTime;
+      const wind = magicWindGain(norm, s.boosting, onWater);
+      const running = s.boosting || wind > 0;
+      if (running) this.lastBurnAt = t;
+      if (!running && t - this.lastBurnAt > 0.16) {
+        this.stop();
+        return;
+      }
+      if (!this.source) {
+        if (!running || !caps.claimVoice()) return;
+        this.startSource(caps, ctx, magicWindCutoff(norm, s.boosting));
+      }
+      this.filter!.frequency.setTargetAtTime(magicWindCutoff(norm, s.boosting), t, 0.08);
+      this.gain!.gain.setTargetAtTime(running ? wind : 0, t, s.boosting ? 0.03 : 0.07);
     } catch {
       this.stop();
     }

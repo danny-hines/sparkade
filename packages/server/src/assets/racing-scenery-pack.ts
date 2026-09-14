@@ -2,6 +2,7 @@ import sharp from 'sharp';
 import { RACING_SCENERY_SLOTS, type RacingSpec } from '@sparkade/shared';
 import { FighterPoseImageError, processGeneratedFighterPose } from './fighter-pose';
 import { GameAssetWorkspace, imagePromptHash } from './manifest';
+import { racingArtSubject } from './racing-traversal-art';
 
 export const RACING_SCENERY_OBJECTS_VERSION = 'racing-scenery-objects-v1';
 /** Jetski scenery-object fingerprint; hover keeps v1 byte-identical. */
@@ -18,7 +19,9 @@ const PRIVATE_ROLES = [
 /** Each image owns one semantic slot; atlas layout is deterministic local work. */
 export function racingSceneryObjectPrompts(spec: RacingSpec): string[] {
   const identity = spec.identity!;
-  const jetski = identity.discipline === 'jetski';
+  // Water follows the surface axis when a traversal exists (even with the
+  // legacy discipline omitted), else the legacy discipline.
+  const jetski = racingArtSubject(identity).water;
   const subjects = jetski
     ? [
         'a tall iconic waterside landmark of this world (lighthouse, stilt tower, cliff arch, or mangrove giant), viewed from the water',
@@ -96,10 +99,9 @@ export async function generateRacingSceneryPack(options: {
 }): Promise<Buffer> {
   const { workspace, reference } = options;
   const prompts = racingSceneryObjectPrompts(options.spec);
-  const version =
-    options.spec.identity?.discipline === 'jetski'
-      ? RACING_JETSKI_SCENERY_OBJECTS_VERSION
-      : RACING_SCENERY_OBJECTS_VERSION;
+  const version = racingArtSubject(options.spec.identity).water
+    ? RACING_JETSKI_SCENERY_OBJECTS_VERSION
+    : RACING_SCENERY_OBJECTS_VERSION;
   const hash = imagePromptHash(JSON.stringify(prompts), reference);
   const cached = workspace.load('racingSceneryAtlas', version, hash);
   if (cached) return cached;

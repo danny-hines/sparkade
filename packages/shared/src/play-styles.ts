@@ -301,13 +301,33 @@ export function mechanicalFingerprint(spec: GameSpec): MechanicalFingerprint {
     case 'racing':
       return {
         ...base,
-        playStyle: 'hoverCup',
-        movement: 'hoverSteer+boost',
+        playStyle: spec.identity?.traversal
+          ? 'racingCup'
+          : spec.identity?.discipline === 'jetski'
+            ? 'waterCup'
+            : 'hoverCup',
+        movement: spec.identity?.traversal
+          ? `${spec.identity.traversal.handling}Steer:${spec.identity.traversal.surface}+boost`
+          : spec.identity?.discipline === 'jetski'
+            ? 'waterCarve+boost'
+            : 'hoverSteer+boost',
         weapons: ['boost'],
         objective: 'winCupPoints',
         topology: 'closedCircuits',
-        progression: 'threeRaceCup',
-        encounters: [...new Set(spec.levels.map((l) => l.template))].sort(),
+        progression:
+          spec.identity?.boost.mode && spec.identity.boost.mode !== 'pads'
+            ? `threeRaceCup:${spec.identity.boost.mode}`
+            : 'threeRaceCup',
+        encounters: [
+          ...new Set([
+            ...spec.levels.map((l) => l.template),
+            ...spec.levels.flatMap((l) => [
+              ...(l.elevation && l.elevation !== 'flat' ? [`elevation:${l.elevation}`] : []),
+              ...(l.jumps && l.jumps !== 'none' ? [`jumps:${l.jumps}`] : []),
+              ...(l.forks === 'split' ? ['forks:split'] : []),
+            ]),
+          ]),
+        ].sort(),
       };
     case 'hshooter':
       return {

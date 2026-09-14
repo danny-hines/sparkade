@@ -27,8 +27,10 @@ import type {
   Provider,
   ProviderCapabilities,
   ProviderUsage,
+  RacingElevation,
   RacingIdentity,
   RacingSpec,
+  RacingTraversal,
 } from '@sparkade/shared';
 
 /**
@@ -39,7 +41,9 @@ import type {
 export function mockJetskiRequested(requestText: string): boolean {
   if (/jet[ -]?ski|personal watercraft|wave[ -]?runn/i.test(requestText)) return true;
   if (/\bhover(?:craft)?\b|\bkart\b/i.test(requestText)) return false;
-  return /\bwater[ -]?rac(?:e|ing)\b|\brac(?:e|ing)\s+(?:on|across|through)\s+(?:the\s+)?water\b/i.test(requestText);
+  return /\bwater[ -]?rac(?:e|ing)\b|\brac(?:e|ing)\s+(?:on|across|through)\s+(?:the\s+)?water\b/i.test(
+    requestText,
+  );
 }
 
 /** Hero name from the approved creation brief block, when the caller supplied one. */
@@ -49,6 +53,71 @@ export function mockBriefHeroName(user: string): string | null {
   const name = hit[1]!.trim();
   if (!name || /\(Spark decides\)/i.test(name)) return null;
   return name.slice(0, 48);
+}
+
+/** Mock-only translation fixtures. The live model authors these axes; neither
+ * the runtime nor image routing branches on an activity name. Explicit axes
+ * allow tests to exercise invented activities without adding a named preset. */
+export function mockTraversalRequested(text: string): RacingTraversal | undefined {
+  const handling = /\bhandling[\s:=]+(direct|grip|carve|flow)\b/i.exec(text)?.[1]?.toLowerCase();
+  const surface = /\bsurface[\s:=]+(ground|water)\b/i.exec(text)?.[1]?.toLowerCase();
+  const rider = /\brider[\s:=]+(none|seated|standing|onFoot)\b/i.exec(text)?.[1];
+  const propulsion = /\bpropulsion[\s:=]+(motor|human|magic)\b/i.exec(text)?.[1]?.toLowerCase();
+  if (handling && surface && rider && propulsion) {
+    return {
+      label: 'Open Racing',
+      handling,
+      surface,
+      rider: rider.toLowerCase() === 'onfoot' ? 'onFoot' : rider.toLowerCase(),
+      propulsion,
+    } as RacingTraversal;
+  }
+  if (/\bbicycle|\bcycling\b/i.test(text))
+    return {
+      label: 'Cycle Sprint',
+      handling: 'grip',
+      surface: 'ground',
+      rider: 'seated',
+      propulsion: 'human',
+    };
+  if (/\bmotorcycle\b/i.test(text))
+    return {
+      label: 'Moto Sprint',
+      handling: 'grip',
+      surface: 'ground',
+      rider: 'seated',
+      propulsion: 'motor',
+    };
+  if (/\bskateboard/i.test(text))
+    return {
+      label: 'Street Carve',
+      handling: 'carve',
+      surface: 'ground',
+      rider: 'standing',
+      propulsion: 'human',
+    };
+  return undefined;
+}
+
+/**
+ * Bounded hill selection from an explicit request. The live model authors
+ * these; the mock only translates obvious asks so tests can exercise the
+ * complete generation contract. Returns undefined (legacy flat omission)
+ * for anything else.
+ */
+export function mockElevationRequested(text: string): RacingElevation | undefined {
+  if (/\bridge\b/i.test(text)) return 'ridge';
+  if (/\brolling\b|\bhills?\b|\belevation\b/i.test(text)) return 'rolling';
+  return undefined;
+}
+
+/**
+ * Bounded ramp selection from an explicit request. Returns undefined (legacy
+ * omission) unless the request plainly asks for jumps or ramps.
+ */
+export function mockJumpsRequested(text: string): 'ramps' | undefined {
+  if (/\bramps?\b|\bjumps?\b|\bairborne\b/i.test(text)) return 'ramps';
+  return undefined;
 }
 
 /**
@@ -61,6 +130,28 @@ export function mockBriefHeroName(user: string): string | null {
  */
 function mockRacingIdentity(golden: GameSpec, requestText = '', user = ''): RacingIdentity {
   const briefName = user ? mockBriefHeroName(user) : null;
+  const traversal = mockTraversalRequested(requestText);
+  if (traversal) {
+    const identity = mockRacingIdentity(golden, '', user);
+    const subject =
+      traversal.rider === 'onFoot'
+        ? 'adult runner'
+        : traversal.rider === 'none'
+          ? 'unoccupied racing conveyance'
+          : `${traversal.rider} adult rider with a racing conveyance`;
+    return {
+      ...identity,
+      pilotName: briefName ?? identity.pilotName,
+      traversal,
+      discipline: traversal.surface === 'water' ? 'jetski' : 'hover',
+      worldConcept: `A distinctive ${traversal.surface} racing world for ${requestText.replace(/[^ -~]+/g, ' ').slice(0, 200)}`,
+      playerCraftConcept: `Teal ${subject}, rear view, ${traversal.propulsion} propulsion`,
+      rivalCrafts: identity.rivalCrafts.map((r, k) => ({
+        ...r,
+        vehicleConcept: `Distinct ${['coral', 'gold', 'violet', 'blue'][k]} ${subject}, rear view, ${traversal.propulsion} propulsion`,
+      })),
+    };
+  }
   if (mockJetskiRequested(requestText)) {
     const cast = ['VEX', 'JUNO', 'PIP', 'KAZ'];
     const hulls = [
@@ -71,8 +162,10 @@ function mockRacingIdentity(golden: GameSpec, requestText = '', user = ''): Raci
     ];
     return {
       pilotName: briefName ?? 'RIN',
-      artDirection: 'Sunlit turquoise water cup: glossy hulls, orange buoys, sand and vegetated banks',
-      worldConcept: 'A sunlit jet-ski cup across a limestone lagoon, a stilt-house harbor, and emerald mangroves at sunset',
+      artDirection:
+        'Sunlit turquoise water cup: glossy hulls, orange buoys, sand and vegetated banks',
+      worldConcept:
+        'A sunlit jet-ski cup across a limestone lagoon, a stilt-house harbor, and emerald mangroves at sunset',
       playerCraftConcept:
         'Privateer turquoise jet-ski hull with orange trim and a seated rider in a white vest, compact hull touching turquoise water, rear view',
       rivalCrafts: cast.map((name, k) => ({ name, vehicleConcept: hulls[k]! })),
@@ -92,7 +185,11 @@ function mockRacingIdentity(golden: GameSpec, requestText = '', user = ''): Raci
       name: rival.name,
       vehicleConcept: `${rival.name} cup rival hovercraft in a distinct helmet-color livery, rear-view wedge silhouette`,
     }));
-    while (cast.length < 4) cast.push({ name: `RIVAL${cast.length + 1}`, vehicleConcept: 'Spare cup hovercraft in reserve livery' });
+    while (cast.length < 4)
+      cast.push({
+        name: `RIVAL${cast.length + 1}`,
+        vehicleConcept: 'Spare cup hovercraft in reserve livery',
+      });
     return {
       pilotName: briefName ?? 'ROOKIE',
       artDirection: 'Flat-shaded procedural hover cup in the template theme colors',
@@ -362,10 +459,17 @@ export class MockProvider implements Provider {
             archetype === 'racing'
               ? (golden.levels as { name: string }[]).map((level, i, all) => ({
                   name: level.name.slice(0, 24),
-                  summary:
+                  summary: [
                     i < all.length - 1
                       ? `Cup race ${i + 1}: bank points against the field`
                       : 'Finale: take the cup from the lead rival',
+                    // Carry an explicit hill/ramp ask into the summaries so
+                    // the levels stage can author the bounded course options.
+                    ...(mockElevationRequested(requestText)
+                      ? [`over ${mockElevationRequested(requestText)} hills`]
+                      : []),
+                    ...(mockJumpsRequested(requestText) ? ['with jump ramps'] : []),
+                  ].join(' '),
                 }))
               : [
                   { name: 'Opening', summary: 'Learn the ropes in a gentle first stretch' },
@@ -375,24 +479,24 @@ export class MockProvider implements Provider {
                 ],
           cast:
             archetype === 'racing'
-              ? (golden.levels as { rivals: { name: string }[] }[])[0]?.rivals.map((rival, i) => ({
+              ? ((golden.levels as { rivals: { name: string }[] }[])[0]?.rivals.map((rival, i) => ({
                   role: `rival${i + 1}`,
                   concept: `${rival.name}, cup rival driver with a distinct helmet and livery`,
-                })) ?? []
+                })) ?? [])
               : archetype === 'hshooter' || archetype === 'shooter'
-              ? [
-                  { role: 'popcorn', concept: 'A small disposable cobalt scout' },
-                  { role: 'weaver', concept: 'A slim brass-vane interceptor' },
-                  { role: 'tank', concept: 'A broad armored hostile gunship' },
-                  { role: 'turret', concept: 'A surface-mounted trench cannon' },
-                  { role: 'kamikaze', concept: 'A pointed high-speed impact drone' },
-                ]
-              : [
-                  { role: 'walker', concept: 'A grumpy ground patroller' },
-                  { role: 'flyer', concept: 'A swooping nuisance' },
-                  { role: 'shooter', concept: 'A lobbing turret' },
-                  { role: 'chaser', concept: 'A fast, angry pursuer' },
-                ],
+                ? [
+                    { role: 'popcorn', concept: 'A small disposable cobalt scout' },
+                    { role: 'weaver', concept: 'A slim brass-vane interceptor' },
+                    { role: 'tank', concept: 'A broad armored hostile gunship' },
+                    { role: 'turret', concept: 'A surface-mounted trench cannon' },
+                    { role: 'kamikaze', concept: 'A pointed high-speed impact drone' },
+                  ]
+                : [
+                    { role: 'walker', concept: 'A grumpy ground patroller' },
+                    { role: 'flyer', concept: 'A swooping nuisance' },
+                    { role: 'shooter', concept: 'A lobbing turret' },
+                    { role: 'chaser', concept: 'A fast, angry pursuer' },
+                  ],
           musicBrief: {
             key: golden.music.key,
             bpm: golden.music.bpm,
@@ -444,7 +548,20 @@ export class MockProvider implements Provider {
         payload = design;
         break;
       }
-      case 'levels':
+      case 'levels': {
+        // Racing hills/ramps author from an explicit request only: the clone
+        // otherwise preserves legacy omission exactly (no elevation/jumps keys).
+        let levels = structuredClone(golden.levels);
+        if (golden.archetype === 'racing') {
+          const elevation = mockElevationRequested(req.user);
+          const jumps = mockJumpsRequested(req.user);
+          if (elevation || jumps)
+            levels = (levels as RacingSpec['levels']).map((level) => ({
+              ...level,
+              ...(elevation ? { elevation } : {}),
+              ...(jumps ? { jumps } : {}),
+            }));
+        }
         payload = {
           ...(golden.archetype === 'fighter' && golden.player
             ? { player: structuredClone(golden.player) }
@@ -452,9 +569,10 @@ export class MockProvider implements Provider {
           levels:
             golden.archetype === 'platformer' && req.system.includes('`encounterRoute`')
               ? mockEncounterLevels(golden)
-              : structuredClone(golden.levels),
+              : levels,
         };
         break;
+      }
       case 'entities':
         payload = {
           sprites: structuredClone(golden.sprites),
@@ -482,7 +600,11 @@ export class MockProvider implements Provider {
   private pickArchetype(prompt: string): ArchetypeId {
     // Saved-game catalogs must not steer the fallback guess either.
     const p = (prompt.split('GAMES ALREADY ON THIS CABINET')[0] ?? prompt).toLowerCase();
-    if (/\brace\b|racing|kart|\bhover\b|f-?zero|grand.?prix|jet.?ski|personal watercraft|wave.?runn/.test(p))
+    if (
+      /\brace\b|racing|kart|\bhover\b|f-?zero|grand.?prix|jet.?ski|personal watercraft|wave.?runn/.test(
+        p,
+      )
+    )
       return 'racing';
     if (
       /(fight|versus|brawl|duel|karate|kung.?fu|boxer|boxing|martial|kombat|tournament.*(fight|duel)|street.?fight)/.test(
@@ -498,7 +620,14 @@ export class MockProvider implements Provider {
     if (/(dungeon|explore|zelda|adventure|museum|quest|garden(?!.*(defend|orbit)))/.test(p))
       return 'adventure';
     if (/(platform|jump|climb|run|tower|mountain)/.test(p)) return 'platformer';
-    const all: ArchetypeId[] = ['platformer', 'shooter', 'adventure', 'hshooter', 'fighter', 'racing'];
+    const all: ArchetypeId[] = [
+      'platformer',
+      'shooter',
+      'adventure',
+      'hshooter',
+      'fighter',
+      'racing',
+    ];
     return all[prompt.length % all.length]!;
   }
 }
@@ -542,10 +671,16 @@ function detectArchetype(req: CompleteRequest): ArchetypeId | null {
   // Racing keywords first: "race" would otherwise fall through to the
   // spaceship/shooter fallback below. Jet-ski wording routes to racing too,
   // where the design stage selects the jetski discipline.
-  if (/\brace\b|racing|kart|\bhover\b|f-?zero|grand.?prix|jet.?ski|personal watercraft|wave.?runn/i.test(premise))
+  if (
+    /\brace\b|racing|kart|\bhover\b|f-?zero|grand.?prix|jet.?ski|personal watercraft|wave.?runn/i.test(
+      premise,
+    )
+  )
     return 'racing';
   const m =
-    /(hshooter|horizontal shooter|fighting game|fighter|platformer|shooter|adventure)/i.exec(premise);
+    /(hshooter|horizontal shooter|fighting game|fighter|platformer|shooter|adventure)/i.exec(
+      premise,
+    );
   if (!m) return null;
   const w = m[1]!.toLowerCase();
   return (

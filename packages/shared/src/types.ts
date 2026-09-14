@@ -578,6 +578,30 @@ export interface HShooterSpec extends GameSpecBase {
 
 /** Proven closed-circuit template id (matches the archetype's RACE_CIRCUITS). */
 export type RacingTemplateId = 'ember' | 'coral' | 'ratchet';
+/**
+ * Bounded jump-ramp layout id for a racing circuit. Optional everywhere
+ * authoring touches it — omission (or 'none') means legacy flat racing with
+ * byte-for-byte legacy behavior (no ramp zones, no airborne state). 'ramps'
+ * compiles 1-2 deterministic centered ramp zones (see jumps.ts); the renderer
+ * draws them from themed ramp/wave markers, no image assets.
+ */
+export type RacingJumps = 'none' | 'ramps';
+/**
+ * Bounded fork-split layout id for a racing circuit. Optional everywhere
+ * authoring touches it — omission (or 'none') means the legacy single road
+ * with byte-for-byte legacy behavior (no split zone, no island, no fork
+ * commitment). 'split' compiles at most one deterministic two-corridor fork
+ * on a safe quiet interval (see forks.ts); both lanes share the same
+ * centerline s, so lap gates, positions, and records never split per route.
+ */
+export type RacingForks = 'none' | 'split';
+/**
+ * Bounded elevation profile id for a racing circuit. Optional everywhere
+ * authoring touches it — omission (or 'flat') means legacy flat geometry
+ * with byte-for-byte legacy behavior. Rolling/ridge profiles are periodic
+ * analytic height over lap progress with bounded grade (see elevation.ts).
+ */
+export type RacingElevation = 'flat' | 'rolling' | 'ridge';
 /** Roadside dressing variant per circuit. */
 export type RacingScenery = 'posts' | 'pines' | 'crystals';
 
@@ -617,6 +641,15 @@ export interface RacingCircuitSpec {
   length?: number;
   /** Mirror the template (reverses turn direction); omitted → false. */
   mirror?: boolean;
+  /** Optional elevation profile (periodic bounded height over the lap);
+   *  omitted → flat (legacy geometry and arithmetic exactly). */
+  elevation?: RacingElevation;
+  /** Optional jump-ramp layout (1-2 deterministic centered ramp zones);
+   *  omitted → 'none' (no ramps, legacy behavior exactly). */
+  jumps?: RacingJumps;
+  /** Optional fork split (at most one deterministic two-corridor zone);
+   *  omitted → 'none' (single road, legacy behavior exactly). */
+  forks?: RacingForks;
   /** Player-craft silhouette; omitted → twinpod. */
   craftShape?: RacingCraftShape;
   /** Free-text environment visual concept for this circuit (world dressing,
@@ -718,6 +751,13 @@ export interface RacingIdentity {
   boost: RacingBoostSupply;
   /** Movement discipline for the whole cup. Omitted → 'hover' (legacy). */
   discipline?: RacingDiscipline;
+  /**
+   * Composable traversal contract (P1). Omitted → legacy hover/jetski
+   * behavior exactly. When present, (handling, surface) resolve physics
+   * through the shared bounded tables; label/rider/propulsion are
+   * presentation only and never drive code.
+   */
+  traversal?: import('./racing-traversal').RacingTraversal;
 }
 
 export interface RacingSpec extends GameSpecBase {

@@ -103,6 +103,74 @@ describe('mock racing cup stages', () => {
     expect(validateAgainst('test:racing-levels', prompt.jsonSchema, payload)).toEqual([]);
   });
 
+  it('authors hills and ramps only from an explicit request, preserving legacy omission', async () => {
+    const prompt = buildLevelsPrompt('racing', design);
+    const { payload } = await runStage(prompt);
+    const plain = payload['levels'] as RacingSpec['levels'];
+    expect(plain).toHaveLength(3);
+    for (const level of plain) {
+      expect(level).not.toHaveProperty('elevation');
+      expect(level).not.toHaveProperty('jumps');
+    }
+    expect(validateAgainst('test:racing-levels-flat', prompt.jsonSchema, payload)).toEqual([]);
+
+    const hilly = await runStage({
+      ...prompt,
+      user: `${prompt.user}\nRace over rolling hills with jump ramps`,
+    });
+    const levels = hilly.payload['levels'] as RacingSpec['levels'];
+    expect(levels).toHaveLength(3);
+    for (const level of levels) {
+      expect(level.elevation).toBe('rolling');
+      expect(level.jumps).toBe('ramps');
+    }
+    expect(
+      validateAgainst('test:racing-levels-hills', prompt.jsonSchema, hilly.payload),
+    ).toEqual([]);
+  });
+
+  it('carries a hill/ramp ask from design summaries into authored course options', async () => {
+    const prompt = buildDesignPrompt({
+      promptText: 'a hover cup over rolling hills with jump ramps',
+      hasPhoto: false,
+      describeInStory: false,
+      antiCollision: [],
+    });
+    const { payload } = await runStage(prompt);
+    const doc = payload as unknown as DesignDoc;
+    expect(doc.archetype).toBe('racing');
+    expect(
+      doc.levelPlan.every((e) => /rolling hills/.test(e.summary) && /jump ramps/.test(e.summary)),
+    ).toBe(true);
+    const levelsPrompt = buildLevelsPrompt('racing', doc);
+    const levels = await runStage(levelsPrompt);
+    const circuits = levels.payload['levels'] as RacingSpec['levels'];
+    expect(circuits.every((l) => l.elevation === 'rolling' && l.jumps === 'ramps')).toBe(true);
+    expect(
+      validateAgainst('test:racing-levels-design-hills', levelsPrompt.jsonSchema, levels.payload),
+    ).toEqual([]);
+  });
+
+  it('rejects unknown elevation and jumps enums', async () => {
+    const prompt = buildLevelsPrompt('racing', design);
+    const { payload } = await runStage(prompt);
+    const levels = payload['levels'] as RacingSpec['levels'];
+    const badElevation = {
+      ...payload,
+      levels: levels.map((l) => ({ ...l, elevation: 'mountain' })),
+    };
+    expect(
+      validateAgainst('test:racing-levels-bad-elevation', prompt.jsonSchema, badElevation),
+    ).not.toEqual([]);
+    const badJumps = {
+      ...payload,
+      levels: levels.map((l) => ({ ...l, jumps: 'loop-the-loop' })),
+    };
+    expect(
+      validateAgainst('test:racing-levels-bad-jumps', prompt.jsonSchema, badJumps),
+    ).not.toEqual([]);
+  });
+
   it('prefers the exact stage schema over hover/race story words', async () => {
     const prompt = buildLevelsPrompt('shooter', design);
     const { payload } = await runStage({

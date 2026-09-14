@@ -365,6 +365,33 @@
             "hover",
             "jetski"
           ]
+        },
+        "traversal": {
+          "description": "Composable traversal contract: a short freeform activity label plus bounded handling/surface (physics) and rider/propulsion (presentation only). Omit to preserve legacy hover/jetski behavior exactly.",
+          "type": "object",
+          "properties": {
+            "label": {
+              "description": "Short freeform user-facing activity name. Never drives code.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 48,
+              "pattern": "^[ -~]+$"
+            },
+            "handling": {
+              "enum": ["direct", "grip", "carve", "flow"]
+            },
+            "surface": {
+              "enum": ["ground", "water"]
+            },
+            "rider": {
+              "enum": ["none", "seated", "standing", "onFoot"]
+            },
+            "propulsion": {
+              "enum": ["motor", "human", "magic"]
+            }
+          },
+          "required": ["label", "handling", "surface", "rider", "propulsion"],
+          "additionalProperties": false
         }
       },
       "required": [

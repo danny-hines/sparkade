@@ -33,6 +33,17 @@ describe('Surprise archetype shuffle bag', () => {
     expect(draws.every((archetype, index) => index === 0 || archetype !== draws[index - 1])).toBe(true);
   });
 
+  it('always includes racing in a full cycle so AI choice can land on it', () => {
+    let state: SurpriseBagState | null = null;
+    const draws: string[] = [];
+    for (let index = 0; index < ARCHETYPE_IDS.length; index++) {
+      const result = drawSurpriseArchetype(state, () => (index * 0.31) % 1);
+      draws.push(result.archetype);
+      state = result.state;
+    }
+    expect(draws).toContain('racing');
+  });
+
   it('recovers from missing or corrupt persisted state', () => {
     expect(drawSurpriseArchetype(null, () => 0.5).archetype).toBeTruthy();
     const recovered = drawSurpriseArchetype(

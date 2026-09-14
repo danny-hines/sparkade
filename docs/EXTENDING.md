@@ -97,7 +97,31 @@ coast down more readily, and use a gradual shallows response. They render wakes 
 buoys and mix motor/water sound; legacy hover physics and record keys stay unchanged.
 Steering presentation eases a continuous lean through the three sprite poses, with
 hysteresis at pose switches and neutral presentation at rest. Jet-ski personal bests
-use a separate record key. Elevation, jumping, and branching routes remain separate work.
+use a separate record key.
+Generic racers ride the composable `traversal` contract: `handling`
+(`direct`/`grip`/`carve`/`flow`) plus `surface` (`ground`/`water`) resolve physics
+through the shared bounded tables, while `rider`
+(`none`/`seated`/`standing`/`onFoot`) plus `propulsion` (`motor`/`human`/`magic`)
+are presentation-only and govern image fiction. On-foot runners use the basic
+bank-pose foundation mid-stride — never a dedicated run cycle — and human-powered
+conveyances show no motor exhaust. The creator offers Racing as a first-class
+archetype choice alongside the others, and the surprise draw cycles through it.
+Bounded hills and ramps are authorable per course: `elevation`
+(`flat`/`rolling`/`ridge`) compiles a periodic analytic hill profile the engine
+owns (no authored height points or grades), and `jumps: ramps` compiles 1-2
+deterministic centered ramp zones with an avoidance line on each side. The design
+stage seeds these in `levelPlan` summaries only on an explicit hills/jumps ask
+(water courses stay flat by default); the levels stage authors them onto the three
+existing templates, omitting both for legacy flat racing exactly. Ramps launch
+racers off the lip at speed back onto the same circuit — no free flight, tricks,
+or hop button. An optional `forks: split` prototype offers coplanar branches on a safe
+interval (currently verified on `ember`, length 3200, without ramps on that
+course). It has a broad left route, narrower right route carrying the existing
+boost supply, a physical island, and a shared-progress rejoin. The linter rejects
+authored splits without a safe interval; normal generation does not select forks
+yet. Both sides use the same `s`, curvature, elevation, and lap gates. Still
+unsupported: genuinely shorter shortcuts, per-branch elevation/overpasses,
+dedicated run/pedal cycles, combat items, and multiplayer.
 Incomplete new packs fail generation or loading. Reviewed selections survive retries
 of unrelated assets. Legacy cups
 without generated-art metadata keep their procedural renderer.

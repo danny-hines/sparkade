@@ -350,6 +350,7 @@ import {
   buildRacingRosterJudgeSchema,
   normalizeRacingRosterJudgeDecision,
   racingRosterSlots,
+  racingPackDiscipline,
   type RacingPackEntry,
   type RacingRosterSlotDescriptor,
   type RacingSlotCorrectionKind,
@@ -2678,7 +2679,8 @@ export class GenerationRunner {
             ...buildRacingRosterJudgePrompt(
               reviewSlots,
               references.map(({ slot }) => slot),
-              racingSpec?.identity?.discipline === 'jetski' ? 'jetski' : 'hover',
+              racingSpec ? racingPackDiscipline(racingSpec) : 'hover',
+              racingSpec?.identity?.traversal,
             ),
             jsonSchema: buildRacingRosterJudgeSchema(reviewSlots),
             maxTokens: 1600,
@@ -2739,7 +2741,8 @@ export class GenerationRunner {
                   artDirection: playerIdentity.artDirection,
                   colors: racingSpec.palette.join(', '),
                   retryGuidance: playerGuidance,
-                  discipline: playerIdentity.discipline === 'jetski' ? 'jetski' : undefined,
+                  discipline: racingPackDiscipline(racingSpec),
+                  traversal: playerIdentity.traversal,
                   rolePrefix: 'racing-craft-player',
                   generate: (prompt, pose, posedReference) =>
                     callImage({
@@ -3719,7 +3722,7 @@ export class GenerationRunner {
               drain(
                 plan.panoramas.map((entry) =>
                   generateEntry(entry, (raw) => processGeneratedRacingPanorama(raw,
-                    racingSpec.identity?.discipline),
+                    racingPackDiscipline(racingSpec)),
                     entry.reference === 'keyArt' ? keyArt : undefined),
                 ),
               ),
@@ -3740,7 +3743,7 @@ export class GenerationRunner {
               })
                 .catch(racingAssetFailure)
                 .then((image) => [image]),
-              (racingSpec.identity?.discipline === 'jetski'
+              (racingPackDiscipline(racingSpec) === 'jetski'
                 ? generateRacingJetskiMaterialsPack({
                     spec: racingSpec,
                     workspace: assetWorkspace,
@@ -3855,7 +3858,8 @@ export class GenerationRunner {
                       artDirection: rivalIdentity.artDirection,
                       colors: racingSpec.palette.join(', '),
                       retryGuidance: guidance,
-                      discipline: rivalIdentity.discipline === 'jetski' ? 'jetski' : undefined,
+                      discipline: racingPackDiscipline(racingSpec),
+                      traversal: rivalIdentity.traversal,
                       rolePrefix: `racing-craft-${slot.id}`,
                       generate: (prompt, pose, posedReference) =>
                         callImage({

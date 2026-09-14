@@ -3,7 +3,7 @@
 // resolvable music, and the five-minute duration floor.
 import type { LintError, RacingSpec } from '@sparkade/shared';
 import { err, lintDuration, lintMusic, lintSongRef } from '../common';
-import { RACE_CIRCUITS } from './track';
+import { RACE_CIRCUITS, compileTrackVariant } from './track';
 
 const TEMPLATE_IDS = new Set(RACE_CIRCUITS.map((c) => c.id));
 
@@ -36,6 +36,23 @@ export function lintRacing(spec: RacingSpec): LintError[] {
           `unknown circuit template "${circuit.template}"; geometry must come from a proven template`,
         ),
       );
+    }
+    if (circuit.forks === 'split' && TEMPLATE_IDS.has(circuit.template)) {
+      try {
+        const compiled = compileTrackVariant(circuit.template, {
+          length: circuit.length,
+          mirror: circuit.mirror,
+          elevation: circuit.elevation,
+          jumps: circuit.jumps,
+          forks: 'split',
+        });
+        if (compiled.fork === undefined) out.push(err(
+          'RACING_FORK_LAYOUT', `${path}/forks`,
+          'No safe fork interval exists with these options. Use ember at length 3200 without ramps, or omit forks.',
+        ));
+      } catch {
+        out.push(err('RACING_FORK_LAYOUT', `${path}/forks`, 'Invalid course options for a fork layout.'));
+      }
     }
     if (circuit.laps !== 3) {
       out.push(err('RACING_LAPS', `${path}/laps`, `cup races are always 3 laps, got ${circuit.laps}`));

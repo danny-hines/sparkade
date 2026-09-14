@@ -19,7 +19,8 @@
 //   relatively kinder deep cap and stronger shallow acceleration.
 // - lower top pace with heavier longitudinal drag and extra off-throttle
 //   coasting decay, so throttle control matters more than top speed.
-import type { RacingDiscipline } from '@sparkade/shared';
+import type { RacingDiscipline, RacingHandling, RacingSurface, RacingTraversal } from '@sparkade/shared';
+import { handlingTuningFor, TRAVERSAL_HANDLING_TUNINGS } from '@sparkade/shared';
 
 /** Bounded runtime movement settings for one discipline. */
 export interface MovementProfile {
@@ -125,6 +126,72 @@ export function movementFor(discipline?: RacingDiscipline): MovementProfile {
   if (discipline === undefined || discipline === 'hover') return HOVER_MOVEMENT;
   if (discipline === 'jetski') return JETSKI_MOVEMENT;
   throw new Error(`unknown racing discipline "${discipline}" (expected "hover" | "jetski")`);
+}
+
+/**
+ * Traversal-aware profile resolution: the central shared resolver for new
+ * authored combinations. Omitted traversal returns the exact legacy profile
+ * object (same reference, legacy behavior preserved exactly). A present
+ * traversal composes the surface base pace (ground → hover numbers, water →
+ * jet-ski numbers; top pace normalized so every combination stays finishable
+ * and AI-compatible) with the bounded handling steering/lateral tuning.
+ * Label, rider, and propulsion are never consulted — invented names and
+ * sport identity never drive physics, and there is no sport-name branching.
+ *
+ * Hot-path note: stepRacer and aiInputFor call this per racer per step, so
+ * the composed profiles live in a bounded precomputed 4-handling × 2-surface
+ * table (8 entries, built once at module load). The traversal path returns a
+ * cached reference and allocates nothing; parameters are untouched.
+ */
+function composeTraversalProfile(surface: RacingSurface, handling: RacingHandling): MovementProfile {
+  const base = surface === 'water' ? JETSKI_MOVEMENT : HOVER_MOVEMENT;
+  const tuning = TRAVERSAL_HANDLING_TUNINGS[handling];
+  if (
+    tuning.steerAttack === base.steerAttack &&
+    tuning.steerRelease === base.steerRelease &&
+    tuning.steerCounter === base.steerCounter &&
+    tuning.lateralResponse === base.lateralResponse &&
+    tuning.lateralSnap === base.lateralSnap
+  ) {
+    return base;
+  }
+  return {
+    ...base,
+    discipline: surface === 'water' ? 'jetski' : 'hover',
+    steerAttack: tuning.steerAttack,
+    steerRelease: tuning.steerRelease,
+    steerCounter: tuning.steerCounter,
+    lateralResponse: tuning.lateralResponse,
+    lateralSnap: tuning.lateralSnap,
+  };
+}
+
+/** Bounded precomputed profile per physics-affecting axis (handling × surface). */
+const TRAVERSAL_PROFILE_CACHE: Record<RacingSurface, Record<RacingHandling, MovementProfile>> = {
+  ground: {
+    direct: composeTraversalProfile('ground', 'direct'),
+    grip: composeTraversalProfile('ground', 'grip'),
+    carve: composeTraversalProfile('ground', 'carve'),
+    flow: composeTraversalProfile('ground', 'flow'),
+  },
+  water: {
+    direct: composeTraversalProfile('water', 'direct'),
+    grip: composeTraversalProfile('water', 'grip'),
+    carve: composeTraversalProfile('water', 'carve'),
+    flow: composeTraversalProfile('water', 'flow'),
+  },
+};
+
+export function movementForTraversal(
+  discipline?: RacingDiscipline,
+  traversal?: RacingTraversal,
+): MovementProfile {
+  if (traversal === undefined) return movementFor(discipline);
+  // Validate through the shared bounded table (throws on invented values);
+  // the surface read keeps the legacy non-water-means-ground semantics.
+  handlingTuningFor(traversal);
+  const surface: RacingSurface = traversal.surface === 'water' ? 'water' : 'ground';
+  return TRAVERSAL_PROFILE_CACHE[surface][traversal.handling];
 }
 
 /** Normalize an authoring value: omitted → hover, anything else validated. */

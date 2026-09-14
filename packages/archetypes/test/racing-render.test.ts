@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import type { RacingArtBundle } from '@sparkade/engine';
 import type { RacingSpec } from '@sparkade/shared';
 import {
+  PANORAMA_BLEND_OVERLAP,
   PANORAMA_SOURCE_HEIGHT,
   PANORAMA_SOURCE_WIDTH,
   PANORAMA_SOURCE_Y,
@@ -25,7 +26,10 @@ import {
   isLandmarkSlot,
   makeArtSpriteQueue,
   materialTileRect,
+  panoramaBlendWeight,
   panoramaMaxOffset,
+  panoramaPeriodWidth,
+  panoramaSliceSpans,
   panoramaSourceX,
   perspectiveZ,
   projectRoad,
@@ -272,51 +276,115 @@ describe('identity-stable scenery', () => {
   });
 });
 
-describe('panorama band and directional offset', () => {
+describe('panorama band and proportional cyclic scroll', () => {
   it('uses a landmark-bearing band that fits the plate', () => {
     expect(PANORAMA_SOURCE_WIDTH).toBe(1216);
     expect(PANORAMA_SOURCE_HEIGHT).toBe(280);
     expect(PANORAMA_SOURCE_Y).toBe(200);
     expect(PANORAMA_SOURCE_Y + PANORAMA_SOURCE_HEIGHT).toBeLessThanOrEqual(480);
     expect(panoramaMaxOffset()).toBe(1536 - 1216);
+    // Periodic strip keeps the same band; the blend overlap leaves the
+    // 1216px view comfortably inside the tileable period (at most 2 draws).
+    expect(PANORAMA_BLEND_OVERLAP).toBe(256);
+    expect(panoramaPeriodWidth()).toBe(1536 - PANORAMA_BLEND_OVERLAP);
+    expect(panoramaPeriodWidth()).toBeGreaterThan(PANORAMA_SOURCE_WIDTH);
     // Band aspect matches the screen sky aspect (512x118).
     expect(PANORAMA_SOURCE_WIDTH / PANORAMA_SOURCE_HEIGHT).toBeCloseTo(512 / 118, 2);
   });
 
-  it('is directional, bounded, and wrap-continuous', () => {
-    const max = panoramaMaxOffset();
-    expect(panoramaSourceX(Math.PI / 2, max)).toBeCloseTo(max, 9);
-    expect(panoramaSourceX(-Math.PI / 2, max)).toBeCloseTo(0, 9);
-    expect(panoramaSourceX(0, max)).toBeCloseTo(max / 2, 9);
-    expect(Math.abs(panoramaSourceX(Math.PI, max) - panoramaSourceX(-Math.PI, max))).toBeLessThan(
+  it('scrolls proportionally with heading: same delta, same displacement', () => {
+    const period = panoramaPeriodWidth();
+    const pxPerRad = period / (Math.PI * 2);
+    // Zero heading sits at zero; quarter turns land on quarter periods.
+    expect(panoramaSourceX(0, period)).toBeCloseTo(0, 9);
+    expect(panoramaSourceX(Math.PI / 2, period)).toBeCloseTo(period / 4, 9);
+    expect(panoramaSourceX(Math.PI, period)).toBeCloseTo(period / 2, 9);
+    // No discontinuity at ±π (atan2 wrap): both land on period/2.
+    expect(Math.abs(panoramaSourceX(Math.PI, period) - panoramaSourceX(-Math.PI, period))).toBeLessThan(
       1e-9,
     );
+    // Full rotations return exactly (seamless spins and lap wraps).
+    for (const h of [-3, -1, 0, 0.7, 2.5]) {
+      expect(panoramaSourceX(h + Math.PI * 2, period)).toBeCloseTo(panoramaSourceX(h, period), 9);
+      expect(panoramaSourceX(h - Math.PI * 2, period)).toBeCloseTo(panoramaSourceX(h, period), 9);
+    }
+    // Proportional and same-direction everywhere: a small positive heading
+    // step always advances (mod period) by step * pxPerRad — never stalls
+    // or reverses the way a sine map does at its extrema.
+    for (const h of [-3, -1.7, -0.5, 0, 1.2, 2.9, Math.PI - 0.05, -Math.PI + 0.05]) {
+      const d = 0.05;
+      const a = panoramaSourceX(h, period);
+      const b = panoramaSourceX(h + d, period);
+      let fwd = b - a;
+      if (fwd < 0) fwd += period;
+      expect(fwd).toBeCloseTo(d * pxPerRad, 9);
+    }
     for (const h of [-2, -1, 0, 1, 2, 3.5]) {
-      const o = panoramaSourceX(h, max);
+      const o = panoramaSourceX(h, period);
       expect(o).toBeGreaterThanOrEqual(0);
-      expect(o).toBeLessThanOrEqual(max);
+      expect(o).toBeLessThan(period);
+    }
+  });
+
+  it('tiles the period with at most two gapless in-bounds spans', () => {
+    const period = panoramaPeriodWidth();
+    const out: Array<{ sx: number; sw: number; dx: number; dw: number }> = [];
+    for (const srcX of [0, 1, 63, 64, 65, period - PANORAMA_SOURCE_WIDTH - 1, period - 1, 710.5]) {
+      const n = panoramaSliceSpans(srcX, PANORAMA_SOURCE_WIDTH, period, 512, out);
+      expect(n === 1 || n === 2).toBe(true);
+      let totalSw = 0;
+      let totalDw = 0;
+      for (let k = 0; k < n; k++) {
+        const sp = out[k]!;
+        expect(sp.sx).toBeGreaterThanOrEqual(0);
+        expect(sp.sx + sp.sw).toBeLessThanOrEqual(period + 1e-9);
+        expect(sp.sw).toBeGreaterThan(0);
+        totalSw += sp.sw;
+        totalDw += sp.dw;
+        if (k > 0) expect(sp.dx).toBeCloseTo(out[k - 1]!.dx + out[k - 1]!.dw, 9);
+      }
+      expect(out[0]!.dx).toBe(0);
+      expect(totalSw).toBeCloseTo(PANORAMA_SOURCE_WIDTH, 9);
+      expect(totalDw).toBeCloseTo(512, 9);
+      // Never mirrored: source widths stay positive, dest starts at 0.
+      expect(out.every((sp) => sp.sw > 0 && sp.dw > 0)).toBe(true);
+    }
+    // Blend weights run 0→1 smoothly (tail→head crossfade).
+    expect(panoramaBlendWeight(0, PANORAMA_BLEND_OVERLAP)).toBe(0);
+    expect(panoramaBlendWeight(PANORAMA_BLEND_OVERLAP - 1, PANORAMA_BLEND_OVERLAP)).toBeCloseTo(1, 9);
+    let prevW = -1;
+    for (let j = 0; j < PANORAMA_BLEND_OVERLAP; j += 16) {
+      const w = panoramaBlendWeight(j, PANORAMA_BLEND_OVERLAP);
+      expect(w).toBeGreaterThanOrEqual(prevW);
+      prevW = w;
     }
   });
 
   it('stays continuous across a real lap of heading samples', () => {
     const track = RACE_CIRCUITS[0]!.track;
-    const max = panoramaMaxOffset();
+    const period = panoramaPeriodWidth();
     let prev: number | null = null;
     let worst = 0;
     const steps = 720;
-    let first = 0;
-    for (let k = 0; k <= steps; k++) {
+    const first = panoramaSourceX(track.headingAt(0), period);
+    prev = first;
+    for (let k = 1; k <= steps; k++) {
       const s = (k / steps) * track.length;
-      const o = panoramaSourceX(track.headingAt(s), max);
-      if (k === 0) first = o;
-      if (prev !== null) worst = Math.max(worst, Math.abs(o - prev));
+      const o = panoramaSourceX(track.headingAt(s), period);
+      // Shortest cyclic distance between consecutive samples.
+      let d = Math.abs(o - prev!);
+      d = Math.min(d, period - d);
+      worst = Math.max(worst, d);
       prev = o;
     }
-    // No full-range jumps between consecutive samples (hairpins move fast
-    // but smoothly), and the lap seam meets itself: the start/finish sample
-    // pair differs only by closed-loop tangent float noise.
-    expect(worst).toBeLessThan(max / 2);
-    expect(Math.abs(prev! - first)).toBeLessThan(1);
+    // No full-range jumps between consecutive samples, and the lap seam
+    // meets itself: a closed loop turns exactly once, so start/finish
+    // headings (and their cyclic offsets) agree up to tangent float noise.
+    expect(worst).toBeLessThan(period / 2);
+    const last = panoramaSourceX(track.headingAt(track.length), period);
+    let seam = Math.abs(last - first);
+    seam = Math.min(seam, period - seam);
+    expect(seam).toBeLessThan(1);
   });
 });
 
@@ -365,12 +433,26 @@ describe('pack vs legacy render', () => {
     const { game, draws } = makeGame(pack, goldenSpec());
     game.render();
     const pano = draws.filter((d) => d.img === pack.panoramas[0]);
-    expect(pano.length).toBeGreaterThan(0);
-    expect(pano[0]).toMatchObject({
-      sy: PANORAMA_SOURCE_Y,
-      sw: PANORAMA_SOURCE_WIDTH,
-      sh: PANORAMA_SOURCE_HEIGHT,
-    });
+    // Headless stubs cannot build the blended strip canvas, so the frame
+    // path wraps the raw plate cyclically: 1-2 gapless slices covering the
+    // full 1216px band (production draws the same spans from the tileable
+    // cached strip instead — same geometry, blended seam).
+    expect(pano.length === 1 || pano.length === 2).toBe(true);
+    let panoSw = 0;
+    let panoDw = 0;
+    for (let k = 0; k < pano.length; k++) {
+      const d = pano[k]!;
+      expect(d.sy).toBe(PANORAMA_SOURCE_Y);
+      expect(d.sh).toBe(PANORAMA_SOURCE_HEIGHT);
+      expect(d.dy).toBe(0);
+      expect(d.dh).toBe(118);
+      panoSw += d.sw;
+      panoDw += d.dw;
+      if (k > 0) expect(d.dx).toBeCloseTo(pano[k - 1]!.dx + pano[k - 1]!.dw, 9);
+    }
+    expect(pano[0]!.dx).toBe(0);
+    expect(panoSw).toBeCloseTo(PANORAMA_SOURCE_WIDTH, 9);
+    expect(panoDw).toBeCloseTo(512, 9);
     const strips = draws.filter((d) => (pack.strips as unknown[]).includes(d.img));
     expect(strips.length).toBeGreaterThan(0);
     for (const s of strips) {
@@ -765,5 +847,47 @@ describe('rendered rows follow the shared projection', () => {
       if (road[k]!.dx === road[k - 1]!.dx && road[k]!.dw === road[k - 1]!.dw) frozen++;
     }
     expect(frozen).toBeLessThan(8);
+  });
+});
+
+describe('calibrated panorama motion', () => {
+  it('tracks camera yaw at the road field of view without a full-turn seam', () => {
+    const period = panoramaPeriodWidth();
+    const delta = .001;
+    for (let h = -Math.PI; h < Math.PI; h += .027) {
+      const a = panoramaSourceX(h, period, 5), b = panoramaSourceX(h + delta, period, 5);
+      const pixels = ((b - a + period) % period) * 512 / PANORAMA_SOURCE_WIDTH;
+      expect(pixels / delta).toBeGreaterThan(420);
+      expect(pixels / delta).toBeLessThan(440);
+      expect(panoramaSourceX(h + 2 * Math.PI, period, 5)).toBeCloseTo(a, 7);
+    }
+  });
+});
+
+
+describe('fork rendering integration', () => {
+  it('paints both road lanes from the shared section while driving the actual simulation', () => {
+    const spec = goldenSpec();
+    const level = spec.levels.find(l => l.template === 'ember')!;
+    level.length = 3200; level.forks = 'split';
+    spec.levels = [level, ...spec.levels.filter(l => l !== level)];
+    const pack = stubPack();
+    const { game, draws } = makeGame(pack, spec);
+    game.racingDev.setAutopilot(true);
+    const input = blankInput();
+    for (let n = 0; n < 6000; n++) {
+      input.A.pressed = n % 60 === 0;
+      game.update(1 / 60, input);
+      const snap = game.racingDev.snapshot();
+      if (snap.phase === 'race' && snap.player.s > 2600 && snap.player.s < 2750) break;
+    }
+    expect(game.racingDev.snapshot().player.forkSide).toBe(-1);
+    draws.length = 0; game.render();
+    const road = materialTileRect('road');
+    const rows = draws.filter(d => d.img === pack.materialAtlas && d.sx === road.sx && d.sw === road.size && d.sy >= road.sy && d.sy < road.sy + road.size && d.dy === 220);
+    // The base road plus the two branch intervals; every row retains a
+    // bounded atlas source and finite projection, including offscreen edges.
+    expect(rows.length).toBeGreaterThanOrEqual(3);
+    for (const d of rows) { expect(d.dw).toBeGreaterThan(0); expect(Number.isFinite(d.dx)).toBe(true); expect(d.sh).toBe(1); }
   });
 });

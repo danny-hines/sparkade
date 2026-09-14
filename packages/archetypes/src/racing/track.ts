@@ -14,8 +14,22 @@ import type {
   RacingBoostMode,
   RacingCraftShape,
   RacingDiscipline,
+  RacingForks,
+  RacingJumps,
   RacingTrackMaterials,
+  RacingTraversal,
 } from '@sparkade/shared';
+import { resolveTraversal, type RacingElevation } from '@sparkade/shared';
+import {
+  applyForkSupplies,
+  forkFor,
+  resolveForks,
+  type ForkLayout,
+} from './forks';
+import { resolveDiscipline } from './movement';
+import { elevationGrade, elevationHeight, elevationProfileFor, resolveElevation, type ElevationProfile } from './elevation';
+import { rampsFor, resolveJumps, type JumpRamp } from './jumps';
+import { surfaceDisciplineFor } from './presentation';
 
 export interface TrackPoint {
   x: number;
@@ -27,6 +41,12 @@ export interface BoostPad {
   start: number;
   /** Pad length in track units. */
   length: number;
+  /**
+   * Lateral center of the pad lane (0 = road center). Omitted means 0 —
+   * every legacy pad keeps the exact legacy trigger. Fork circuits relocate
+   * one existing pad into the narrow branch through this lane.
+   */
+  x?: number;
 }
 
 /**
@@ -56,6 +76,17 @@ export interface CompiledTrack {
   curvatureAt(s: number): number;
   /** Closed-loop outline for the minimap (count+1 points, last === first). */
   outline(count?: number): TrackPoint[];
+  /**
+   * Optional bounded elevation metadata. Absent on every legacy/flat track
+   * (omitted/flat compile returns the exact prior shape); present only for
+   * non-flat compileTrackVariant options. The renderer reads ground height
+   * through heightAt/gradeAt below.
+   */
+  elevationProfile?: ElevationProfile;
+  /** Ground height (track units) at distance s. Absent on legacy tracks. */
+  heightAt?(s: number): number;
+  /** Grade dh/ds (signed rise per forward unit) at s. Absent on legacy. */
+  gradeAt?(s: number): number;
 }
 
 function catmullRom(p0: TrackPoint, p1: TrackPoint, p2: TrackPoint, p3: TrackPoint, t: number): TrackPoint {
@@ -271,6 +302,26 @@ export interface RaceCircuit {
    * hover behavior exactly.
    */
   discipline: RacingDiscipline;
+  /**
+   * Optional composable traversal contract. Absent on every legacy circuit
+   * (simulation keeps the exact legacy arithmetic); when present, physics
+   * resolves through movementForTraversal(discipline, traversal).
+   */
+  traversal?: RacingTraversal;
+  /**
+   * Optional compiled jump ramps. Absent on every legacy/flat circuit
+   * (omitted/'none' compile keeps the exact prior shape); present only for
+   * jumps 'ramps' compiles. The simulation launches/lands racers through
+   * these zones; the renderer draws them from themed ramp/wave markers.
+   */
+  ramps?: readonly JumpRamp[];
+  /**
+   * Optional compiled fork split. Absent on every legacy circuit
+   * (omitted/'none' compile keeps the exact prior shape); present only for
+   * forks 'split' compiles with a safe interval. Both lanes share the one
+   * centerline s — gates, laps, and positions never split per route.
+   */
+  fork?: ForkLayout;
 }
 
 /** Numeric audit of a compiled circuit for tests and generation bounds. */
@@ -525,25 +576,74 @@ export function mirrorPoints(control: TrackPoint[]): TrackPoint[] {
  */
 export function compileTrackVariant(
   templateId: string,
-  opts: { length?: number; mirror?: boolean; discipline?: RacingDiscipline } = {},
+  opts: {
+    length?: number;
+    mirror?: boolean;
+    discipline?: RacingDiscipline;
+    traversal?: unknown;
+    elevation?: RacingElevation;
+    jumps?: RacingJumps;
+    forks?: RacingForks;
+  } = {},
 ): RaceCircuit {
   const def = TEMPLATE_DEFS.find((d) => d.id === templateId) ?? TEMPLATE_DEFS[0]!;
   const control = opts.mirror ? mirrorPoints(def.control) : def.control;
-  const track = compileTrack(control, opts.length ?? def.targetLength);
+  const base = compileTrack(control, opts.length ?? def.targetLength);
+  // Optional bounded elevation: validated here (unknown values throw);
+  // omission/'flat' keeps the exact legacy track object and arithmetic.
+  // The profile is a function of s only, so it is independent of mirror —
+  // only horizontal geometry mirrors.
+  const elevation = resolveElevation(opts.elevation);
+  const track: CompiledTrack =
+    elevation === undefined
+      ? base
+      : {
+          ...base,
+          elevationProfile: elevationProfileFor(elevation),
+          heightAt: (s: number): number => elevationHeight(elevation, base.wrap(s), base.length),
+          gradeAt: (s: number): number => elevationGrade(elevation, base.wrap(s), base.length),
+        };
+  // Optional bounded jump ramps: validated here (unknown values throw);
+  // omission/'none' keeps the exact legacy circuit object (no ramps key).
+  // Ramp zones are a function of s only, so they are independent of mirror.
+  const jumps = resolveJumps(opts.jumps);
+  const ramps = jumps === undefined ? undefined : rampsFor(track);
+  const traversal = resolveTraversal(opts.traversal);
+  // Effective legacy discipline derives from the traversal surface when one
+  // is compiled in (water → jetski, ground → hover); otherwise the explicit
+  // discipline, omission → hover. Invalid disciplines still throw via the
+  // shared resolver rather than racing the wrong physics.
+  const discipline =
+    traversal === undefined
+      ? resolveDiscipline(opts.discipline)
+      : surfaceDisciplineFor(traversal, null);
+  // Optional bounded fork split: validated here (unknown values throw);
+  // omission/'none' keeps the exact legacy circuit object (no fork key).
+  // Ramps already occupy their safe intervals, so the fork search runs after
+  // them and keeps its keep-out from every ramp approach/landing. A 'split'
+  // request with no safe interval compiles no fork rather than forcing one.
+  const forkOpt = resolveForks(opts.forks);
+  const fork = forkOpt === undefined ? undefined : (forkFor(track, ramps) ?? undefined);
+  const pads = padsFor(track);
+  const pickups = pickupsFor(track);
+  if (fork !== undefined) applyForkSupplies(pads, pickups, fork, track.length);
   return {
     id: def.id,
     name: def.name,
     blurb: def.blurb,
     track,
-    pads: padsFor(track),
-    pickups: pickupsFor(track),
+    pads,
+    pickups,
     boostMode: 'pads',
     laps: def.laps,
     timeout: def.timeout,
     aiScales: [...def.aiScales],
     names: [...def.names],
     theme: def.theme,
-    discipline: opts.discipline ?? 'hover',
+    discipline,
+    ...(traversal === undefined ? {} : { traversal }),
+    ...(ramps === undefined ? {} : { ramps }),
+    ...(fork === undefined ? {} : { fork }),
   };
 }
 

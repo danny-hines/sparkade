@@ -19,4 +19,14 @@ describe('creation brief prompt', () => {
       'Nova is the main character. Spark decides the game type. Escape a neon zombie wasteland.',
     );
   });
+
+  it('carries an explicitly chosen racing type into the prompt', () => {
+    expect(
+      buildCreationPrompt({
+        heroName: 'Nova',
+        archetypeLabel: 'Racing',
+        details: 'Neon harbor cup.',
+      }),
+    ).toBe('Nova is the main character. Make it a Racing game. Neon harbor cup.');
+  });
 });

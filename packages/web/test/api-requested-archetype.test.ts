@@ -66,4 +66,22 @@ describe('createGame requested archetype', () => {
     expect(capture.submitted().get('heroName')).toBe('Nova');
     expect(capture.submitted().get('details')).toBe('Explore a strange crystal ocean');
   });
+
+  it('sends racing with the hero name, details, and photo preserved', async () => {
+    const capture = captureCreateRequest();
+    await api.createGame({
+      promptText: 'Nova is the main character. Make it a Racing game. Neon harbor cup.',
+      sourceKind: 'voice',
+      requestedArchetype: 'racing',
+      heroName: 'Nova',
+      details: 'Neon harbor cup.',
+      photo: new Blob(['photo-bytes'], { type: 'image/jpeg' }),
+      idempotencyKey: 'ik-racing',
+    });
+
+    expect(capture.submitted().get('requestedArchetype')).toBe('racing');
+    expect(capture.submitted().get('heroName')).toBe('Nova');
+    expect(capture.submitted().get('details')).toBe('Neon harbor cup.');
+    expect(capture.submitted().get('photo')).toBeInstanceOf(Blob);
+  });
 });

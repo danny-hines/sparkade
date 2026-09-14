@@ -12,6 +12,15 @@ import {
   processGeneratedFighterPose,
   type ProcessedFighterPose,
 } from './fighter-pose';
+import { resolveTraversal, type RacingTraversal } from '@sparkade/shared';
+import {
+  racingBankLine,
+  racingExhaustLine,
+  racingPeopleBanLine,
+  racingRearCameraLine,
+  racingRiderIdentityLine,
+  racingSubjectNoun,
+} from './racing-traversal-art';
 
 export const RACING_CRAFT_STRIP_PROMPT_VERSION = 'racing-craft-strip-v3';
 /**
@@ -20,13 +29,25 @@ export const RACING_CRAFT_STRIP_PROMPT_VERSION = 'racing-craft-strip-v3';
  * hull) are a separate cache lineage.
  */
 export const RACING_JETSKI_STRIP_PROMPT_VERSION = 'racing-jetski-strip-v1';
+/**
+ * Traversal strip prompt fingerprint. Any present traversal takes this
+ * lineage (enum-driven generic wording); absent traversal keeps the legacy
+ * hover/jetski lineages byte-identical.
+ */
+export const RACING_TRAVERSAL_STRIP_PROMPT_VERSION = 'racing-traversal-strip-v1';
 
 /** Runtime movement discipline selecting hover vs jetski strip semantics. */
 export type RacingStripDiscipline = 'hover' | 'jetski';
 
 /** Prompt version owning the given discipline's cache lineage. */
-export function racingCraftStripPromptVersion(discipline: RacingStripDiscipline = 'hover'): string {
-  return discipline === 'jetski' ? RACING_JETSKI_STRIP_PROMPT_VERSION : RACING_CRAFT_STRIP_PROMPT_VERSION;
+export function racingCraftStripPromptVersion(
+  discipline: RacingStripDiscipline = 'hover',
+  traversal?: RacingTraversal,
+): string {
+  if (resolveTraversal(traversal) !== undefined) return RACING_TRAVERSAL_STRIP_PROMPT_VERSION;
+  return discipline === 'jetski'
+    ? RACING_JETSKI_STRIP_PROMPT_VERSION
+    : RACING_CRAFT_STRIP_PROMPT_VERSION;
 }
 /** Gutter search half-window around each expected third divider (fraction of width). */
 export const RACING_STRIP_GUTTER_SEARCH_FRACTION = 0.11;
@@ -55,6 +76,12 @@ export interface RacingCraftStripPromptOptions {
    * vehicle-only hovercraft prompt; 'jetski' requires a visible seated rider.
    */
   discipline?: RacingStripDiscipline;
+  /**
+   * Validated composable traversal. When present, the surface/rider/
+   * propulsion axes drive a generic rear-view prompt (own cache lineage);
+   * the freeform label is never read. Absent traversal keeps legacy output.
+   */
+  traversal?: RacingTraversal;
 }
 
 function clean(value: string | undefined, max: number): string | null {
@@ -72,10 +99,14 @@ function clean(value: string | undefined, max: number): string | null {
  */
 export function buildRacingCraftStripPrompt(options: RacingCraftStripPromptOptions): string {
   const name = clean(options.name, 24) ?? 'Racer';
+  const traversal = resolveTraversal(options.traversal);
+  if (traversal) return buildTraversalRacingCraftStripPrompt(options, traversal, name);
   const jetski = options.discipline === 'jetski';
   const concept =
     clean(options.vehicleConcept, 280) ??
-    (jetski ? 'distinctive compact jet-ski watercraft with a seated rider' : 'distinctive rear-view hovercraft');
+    (jetski
+      ? 'distinctive compact jet-ski watercraft with a seated rider'
+      : 'distinctive rear-view hovercraft');
   const artDirection = clean(options.artDirection, 280);
   const colors = clean(options.colors, 300);
   const retry = clean(options.retryGuidance, 320);
@@ -119,6 +150,54 @@ export function buildRacingCraftStripPrompt(options: RacingCraftStripPromptOptio
       : '',
     retry
       ? `ART DIRECTOR CORRECTION: ${retry}. Apply only this correction while preserving vehicle identity, rear orientation, scale, and pixel technique.`
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+/**
+ * Generic 3-pose rear-view strip for a validated traversal. Driven ONLY by
+ * the surface/rider/propulsion axes: rear, bank-left, and bank-right poses
+ * with inward roll, rider-plus-conveyance consistency, and propulsion
+ * fiction (never motor exhaust on human power). The label is never read.
+ */
+function buildTraversalRacingCraftStripPrompt(
+  options: RacingCraftStripPromptOptions,
+  traversal: RacingTraversal,
+  name: string,
+): string {
+  const rider = traversal.rider;
+  const water = traversal.surface === 'water';
+  const subject = racingSubjectNoun(rider);
+  const concept =
+    clean(options.vehicleConcept, 280) ??
+    (rider === 'none'
+      ? 'distinctive rear-view racing vehicle'
+      : rider === 'onFoot'
+        ? 'distinctive rear-view racing runner mid-stride'
+        : 'distinctive rear-view racing conveyance with its rider');
+  const artDirection = clean(options.artDirection, 280);
+  const colors = clean(options.colors, 300);
+  const retry = clean(options.retryGuidance, 320);
+  return [
+    `Create exactly ONE isolated rear-view turnaround strip for ${name}: THREE poses of the SAME ${subject} side by side in one row, left to right: neutral-rear cruise, banking LEFT, banking RIGHT. Do not render pose labels.`,
+    artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
+    `${racingRiderIdentityLine(rider, concept)} ${racingBankLine(rider)}`,
+    racingRearCameraLine(rider),
+    water ? 'Water cup: the subject touches the water with a small waterline contact patch.' : '',
+    racingExhaustLine(traversal.propulsion, water),
+    racingPeopleBanLine(rider),
+    colors ? `Use this limited game color direction with strong contrast: ${colors}.` : '',
+    'Polished high-density 16-bit SNES-era pixel art: crisp square pixel clusters, hard edges, limited flat color ramps, strong outline separation, no antialiasing, blur, gradients, or photorealism.',
+    `This is one rigid ${subject} in three rear states, NOT three different subjects, a character sheet, sequence, collage, story scene, icon, card, screenshot, or concept-art page.`,
+    'Each pose must be complete and fully visible with ample clear green gutters and margins: fully empty green bands between the poses and around the outer edges, several percent of image width, so each pose cuts out without touching a neighbor. Nothing may be cropped and poses must not touch or overlap each other.',
+    'The entire empty background, including every gap around or enclosed by each silhouette, must be perfectly flat solid #00ff00. No subject may use #00ff00 or a near-neon imitation; darker natural greens are allowed.',
+    options.candidateId
+      ? `Generate independent strip candidate ${clean(options.candidateId, 12) ?? 'A'} for evaluation. Do not render this label.`
+      : '',
+    retry
+      ? `ART DIRECTOR CORRECTION: ${retry}. Apply only this correction while preserving rider and conveyance identity, rear orientation, scale, and pixel technique.`
       : '',
   ]
     .filter(Boolean)
@@ -416,7 +495,9 @@ export async function splitRacingStripCells(
       const right = Math.floor(((slot + 1) * width) / 3);
       const w = Math.max(1, right - left);
       cells.push(
-        await sharp({ create: { width: w, height, channels: 4, background: '#00ff00' } }).png().toBuffer(),
+        await sharp({ create: { width: w, height, channels: 4, background: '#00ff00' } })
+          .png()
+          .toBuffer(),
       );
       bounds.push({ left, top: 0, width: w, height });
       continue;

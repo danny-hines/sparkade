@@ -9,11 +9,15 @@ import {
   RACING_CRAFT_STRIP_HEIGHT,
   RACING_CRAFT_STRIP_WIDTH,
 } from '@sparkade/shared';
-import {
-  FighterPoseImageError,
-  processGeneratedFighterPose,
-} from './fighter-pose';
+import { FighterPoseImageError, processGeneratedFighterPose } from './fighter-pose';
 import { RACING_CRAFT_SCALE_TOLERANCE } from './racing-craft';
+import { resolveTraversal, type RacingTraversal } from '@sparkade/shared';
+import {
+  racingExhaustLine,
+  racingPeopleBanLine,
+  racingRiderIdentityLine,
+  racingSubjectNoun,
+} from './racing-traversal-art';
 
 /** Prompt fingerprint for the two single-pose bank edits. */
 export const RACING_BANK_PROMPT_VERSION = 'racing-craft-bank-v1';
@@ -22,10 +26,19 @@ export const RACING_BANK_PROMPT_VERSION = 'racing-craft-bank-v1';
  * approved assets reuse correctly.
  */
 export const RACING_JETSKI_BANK_PROMPT_VERSION = 'racing-jetski-bank-v2';
+/**
+ * Traversal bank-edit fingerprint. Any present traversal takes this
+ * lineage; absent traversal keeps the legacy lineages byte-identical.
+ */
+export const RACING_TRAVERSAL_BANK_PROMPT_VERSION = 'racing-traversal-bank-v1';
 
 export type RacingBankDiscipline = 'hover' | 'jetski';
 
-export function racingBankPromptVersion(discipline: RacingBankDiscipline = 'hover'): string {
+export function racingBankPromptVersion(
+  discipline: RacingBankDiscipline = 'hover',
+  traversal?: RacingTraversal,
+): string {
+  if (resolveTraversal(traversal) !== undefined) return RACING_TRAVERSAL_BANK_PROMPT_VERSION;
   return discipline === 'jetski' ? RACING_JETSKI_BANK_PROMPT_VERSION : RACING_BANK_PROMPT_VERSION;
 }
 
@@ -46,6 +59,8 @@ export interface RacingBankEditPromptOptions {
   retryGuidance?: string;
   /** Omitted (or 'hover') preserves the exact legacy vehicle-only prompt. */
   discipline?: RacingBankDiscipline;
+  /** Validated composable traversal: enum axes drive the edit, label never read. */
+  traversal?: RacingTraversal;
   /** A pose guide already carries the desired roll; preserve it, don't rotate twice. */
   posedReference?: boolean;
 }
@@ -63,6 +78,8 @@ export function buildRacingBankEditPrompt(options: RacingBankEditPromptOptions):
   const retry = clean(options.retryGuidance, 320);
   const side = options.pose === 'bankLeft' ? 'LEFT' : 'RIGHT';
   const drop = options.pose === 'bankLeft' ? 'left side dips' : 'right side dips';
+  const traversal = resolveTraversal(options.traversal);
+  if (traversal) return buildTraversalRacingBankEditPrompt(options, traversal, side, drop);
   if (options.discipline === 'jetski') {
     return [
       `Paint exactly ONE isolated rear-view jetski pose on flat #00ff00: the SAME watercraft plus its SAME seated adult rider as the reference image (${name}'s craft), banking ${side}. This is the ${side}-bank pose; the opposite bank is a separate image.`,
@@ -99,6 +116,57 @@ export function buildRacingBankEditPrompt(options: RacingBankEditPromptOptions):
     retry
       ? `ART DIRECTOR CORRECTION: ${retry}. Apply only this correction while preserving vehicle identity, rear orientation, scale, and pixel technique.`
       : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+/**
+ * One single-pose bank edit for a validated traversal. Same rear camera and
+ * identity as the strip, with opposite ROLL and no yaw; the rider axis sets
+ * the subject and the propulsion axis sets the exhaust fiction.
+ */
+function buildTraversalRacingBankEditPrompt(
+  options: RacingBankEditPromptOptions,
+  traversal: RacingTraversal,
+  side: string,
+  drop: string,
+): string {
+  const name = clean(options.vehicleName, 24) ?? 'Racer';
+  const artDirection = clean(options.artDirection, 280);
+  const colors = clean(options.colors, 300);
+  const retry = clean(options.retryGuidance, 320);
+  const rider = traversal.rider;
+  const water = traversal.surface === 'water';
+  const subject = racingSubjectNoun(rider);
+  const referenceNoun =
+    rider === 'none'
+      ? `${name}'s vehicle`
+      : rider === 'onFoot'
+        ? `${name}'s runner`
+        : `${name}'s conveyance`;
+  const directionCheck =
+    rider === 'none'
+      ? `SCREEN DIRECTION CHECK: ${options.posedReference ? 'the reference is already tilted' : 'rotate the upright reference'} ${options.pose === 'bankLeft' ? 'COUNTERCLOCKWISE by 10 degrees as seen on this image. The conveyance centerline MUST lean LEFT: its screen-left edge sits lower than its screen-right edge. LEFT means screen-left. Do not rotate clockwise.' : 'CLOCKWISE by 10 degrees as seen on this image. The conveyance centerline MUST lean RIGHT: its screen-right edge sits lower than its screen-left edge. RIGHT means screen-right. Do not rotate counterclockwise.'}`
+      : rider === 'onFoot'
+        ? `SCREEN DIRECTION CHECK: ${options.posedReference ? 'the reference is already tilted' : 'rotate the upright reference'} ${options.pose === 'bankLeft' ? 'COUNTERCLOCKWISE by 10 degrees as seen on this image. The runner head MUST lie to the LEFT of the stride center. LEFT means screen-left, not the runner perspective. Do not rotate clockwise.' : 'CLOCKWISE by 10 degrees as seen on this image. The runner head MUST lie to the RIGHT of the stride center. RIGHT means screen-right, not the runner perspective. Do not rotate counterclockwise.'}`
+        : `SCREEN DIRECTION CHECK: ${options.posedReference ? 'the reference is already tilted' : 'rotate the upright reference'} ${options.pose === 'bankLeft' ? 'COUNTERCLOCKWISE by 10 degrees as seen on this image. The rider head MUST lie to the LEFT of the conveyance center. LEFT means screen-left, not the conveyance port/starboard perspective. Do not rotate clockwise.' : 'CLOCKWISE by 10 degrees as seen on this image. The rider head MUST lie to the RIGHT of the conveyance center. RIGHT means screen-right, not the conveyance port/starboard perspective. Do not rotate counterclockwise.'}`;
+  return [
+    `Paint exactly ONE isolated rear-view pose on flat #00ff00: the SAME ${subject} as the reference image (${referenceNoun}), banking ${side}. This is the ${side}-bank pose; the opposite bank is a separate image.`,
+    artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
+    `${racingRiderIdentityLine(rider, `the reference ${subject}`)} Never redesign it and never mirror an asymmetric livery into this pose.${water ? ' The subject touches the water with a small waterline contact patch.' : ''}`,
+    `ROLL ONLY, NO YAW: ${options.posedReference ? 'The reference ALREADY has the exact desired 10-degree roll. Copy its orientation and silhouette; do not rotate it again or straighten it.' : `Tilt the subject roughly 8-12 degrees around the camera axis so its ${drop}.`} The subject still points directly AWAY toward the horizon with the rear camera behind and slightly above.`,
+    directionCheck,
+    racingExhaustLine(traversal.propulsion, water),
+    racingPeopleBanLine(rider),
+    colors ? `Use this limited game color direction with strong contrast: ${colors}.` : '',
+    'Polished high-density 16-bit SNES-era pixel art: crisp square pixel clusters, hard edges, limited flat color ramps, strong outline separation, no antialiasing, blur, gradients, or photorealism.',
+    'The subject must be complete and fully visible with ample clear green margins on every side, several percent of image width, so it cuts out cleanly. Nothing may be cropped.',
+    'The entire empty background, including every gap around or enclosed by the silhouette, must be perfectly flat solid #00ff00. The subject must not use #00ff00 or a near-neon imitation; darker natural greens are allowed.',
+    retry
+      ? `ART DIRECTOR CORRECTION: ${retry}. Apply only this correction while preserving rider and conveyance identity, rear orientation, scale, and pixel technique.`
+      : '',
+    `Return ONLY the ${side}-bank pose. Preserve the reference identity and its rear camera.`,
   ]
     .filter(Boolean)
     .join(' ');
@@ -150,9 +218,14 @@ export async function buildRacingBankPoseGuide(
   const enlarged = await buildRacingBankEditReference(neutralCell);
   return sharp(enlarged)
     .rotate(pose === 'bankLeft' ? -10 : 10, { background: { r: 0, g: 0, b: 0, alpha: 0 } })
-    .resize(512, 512, { fit: 'contain', kernel: sharp.kernel.nearest,
-      background: { r: 0, g: 0, b: 0, alpha: 0 } })
-    .flatten({ background: '#00ff00' }).png().toBuffer();
+    .resize(512, 512, {
+      fit: 'contain',
+      kernel: sharp.kernel.nearest,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    })
+    .flatten({ background: '#00ff00' })
+    .png()
+    .toBuffer();
 }
 
 export interface NormalizedRacingBankPose {
@@ -179,12 +252,18 @@ export async function normalizeRacingBankPose(
   try {
     meta = await sharp(raw).metadata();
   } catch {
-    throw new FighterPoseImageError('invalid-image', `generated racing bank ${pose} is not decodable`);
+    throw new FighterPoseImageError(
+      'invalid-image',
+      `generated racing bank ${pose} is not decodable`,
+    );
   }
   const rawWidth = meta.width ?? 0;
   const rawHeight = meta.height ?? 0;
   if (!rawWidth || !rawHeight) {
-    throw new FighterPoseImageError('invalid-image', `generated racing bank ${pose} has no dimensions`);
+    throw new FighterPoseImageError(
+      'invalid-image',
+      `generated racing bank ${pose} has no dimensions`,
+    );
   }
   let processed;
   try {
@@ -212,7 +291,12 @@ export async function normalizeRacingBankPose(
   // Same physical crop gate as the strip cells: a silhouette touching the
   // raw cell boundary is cropped or merged, never a valid bank.
   const b = processed.metrics.sourceBounds;
-  if (b.left <= 1 || b.top <= 1 || b.left + b.width >= rawWidth - 1 || b.top + b.height >= rawHeight - 1) {
+  if (
+    b.left <= 1 ||
+    b.top <= 1 ||
+    b.left + b.width >= rawWidth - 1 ||
+    b.top + b.height >= rawHeight - 1
+  ) {
     throw new FighterPoseImageError(
       'inconsistent-scale',
       `generated racing craft ${pose} is cropped by its sheet cell (${b.width}x${b.height} at ${b.left},${b.top})`,
@@ -255,10 +339,19 @@ export async function assembleRacingBankStrip(
  * review again before approving it. Yaw or same-direction banks still fail.
  */
 export async function swapRacingBankCells(strip: Buffer): Promise<Buffer> {
-  const cells = await Promise.all([0, 1, 2].map((cell) =>
-    sharp(strip).extract({ left: cell * RACING_CRAFT_CELL, top: 0,
-      width: RACING_CRAFT_CELL, height: RACING_CRAFT_CELL }).png().toBuffer(),
-  ));
+  const cells = await Promise.all(
+    [0, 1, 2].map((cell) =>
+      sharp(strip)
+        .extract({
+          left: cell * RACING_CRAFT_CELL,
+          top: 0,
+          width: RACING_CRAFT_CELL,
+          height: RACING_CRAFT_CELL,
+        })
+        .png()
+        .toBuffer(),
+    ),
+  );
   return assembleRacingBankStrip(cells[0]!, cells[2]!, cells[1]!);
 }
 
@@ -271,6 +364,8 @@ export interface RacingBankCorrectionOptions {
   retryGuidance: string;
   /** Omitted (or 'hover') preserves the exact legacy vehicle-only prompts. */
   discipline?: RacingBankDiscipline;
+  /** Validated composable traversal: enum axes drive the edits, label never read. */
+  traversal?: RacingTraversal;
   /** Usage-role prefix, e.g. `racing-craft-player`. */
   rolePrefix: string;
   /**
@@ -278,7 +373,11 @@ export interface RacingBankCorrectionOptions {
    * Pass the identity reference here: HR neutral rear for the player, the
    * rear cell enlarged for rivals.
    */
-  generate(prompt: string, pose: 'bankLeft' | 'bankRight', posedReference?: Buffer): Promise<Buffer>;
+  generate(
+    prompt: string,
+    pose: 'bankLeft' | 'bankRight',
+    posedReference?: Buffer,
+  ): Promise<Buffer>;
   checkActive(): void;
   validationFailure(role: string): void;
 }
@@ -293,6 +392,7 @@ export async function correctRacingBankPoses(
   options: RacingBankCorrectionOptions,
 ): Promise<Buffer> {
   const neutral = await extractRacingNeutralCell(options.strip);
+  const traversal = resolveTraversal(options.traversal);
   const prompts = {
     bankLeft: buildRacingBankEditPrompt({
       vehicleName: options.vehicleName,
@@ -301,7 +401,8 @@ export async function correctRacingBankPoses(
       pose: 'bankLeft',
       retryGuidance: options.retryGuidance,
       discipline: options.discipline,
-      posedReference: options.discipline === 'jetski',
+      traversal: options.traversal,
+      posedReference: traversal !== undefined || options.discipline === 'jetski',
     }),
     bankRight: buildRacingBankEditPrompt({
       vehicleName: options.vehicleName,
@@ -310,13 +411,16 @@ export async function correctRacingBankPoses(
       pose: 'bankRight',
       retryGuidance: options.retryGuidance,
       discipline: options.discipline,
-      posedReference: options.discipline === 'jetski',
+      traversal: options.traversal,
+      posedReference: traversal !== undefined || options.discipline === 'jetski',
     }),
   };
   const runPose = async (pose: 'bankLeft' | 'bankRight'): Promise<NormalizedRacingBankPose> => {
     options.checkActive();
-    const guide = options.discipline === 'jetski'
-      ? await buildRacingBankPoseGuide(neutral, pose) : undefined;
+    const guide =
+      traversal !== undefined || options.discipline === 'jetski'
+        ? await buildRacingBankPoseGuide(neutral, pose)
+        : undefined;
     const raw = await options.generate(prompts[pose], pose, guide);
     try {
       return await normalizeRacingBankPose(raw, pose);

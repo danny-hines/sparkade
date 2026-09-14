@@ -9,7 +9,9 @@ import {
   RACING_SCENERY_CELLS,
   RACING_SCENERY_COLUMNS,
   RACING_SCENERY_SLOTS,
+  resolveTraversal,
   type RacingScenerySlot,
+  type RacingTraversal,
 } from '@sparkade/shared';
 import {
   FighterPoseImageError,
@@ -26,6 +28,12 @@ export const RACING_PANORAMA_PROMPT_VERSION = 'racing-panorama-v3';
  * Hover keeps v3 byte-identical.
  */
 export const RACING_JETSKI_PANORAMA_PROMPT_VERSION = 'racing-jetski-panorama-v3';
+/**
+ * Traversal panorama fingerprint. Any present traversal takes this lineage
+ * (generic water/ground wording driven by the surface axis); absent
+ * traversal keeps the legacy lineages byte-identical.
+ */
+export const RACING_TRAVERSAL_PANORAMA_PROMPT_VERSION = 'racing-traversal-panorama-v1';
 
 export type RacingWorldDiscipline = 'hover' | 'jetski';
 /** Generated plates at least this wide are accepted and cover-cropped. */
@@ -49,6 +57,8 @@ export interface RacingPanoramaPromptOptions {
   retryGuidance?: string;
   /** Omitted (or 'hover') preserves the exact legacy hover-world prompt. */
   discipline?: RacingWorldDiscipline;
+  /** Validated composable traversal: the surface axis selects water/ground wording. */
+  traversal?: RacingTraversal;
 }
 
 function clean(value: string | undefined, max: number): string | null {
@@ -64,6 +74,9 @@ function clean(value: string | undefined, max: number): string | null {
 export function buildRacingPanoramaPrompt(options: RacingPanoramaPromptOptions): string {
   const course = clean(options.courseName, 24) ?? 'Course';
   const artDirection = clean(options.artDirection, 280);
+  const traversal = resolveTraversal(options.traversal);
+  if (traversal)
+    return buildTraversalRacingPanoramaPrompt(options, traversal, course, artDirection);
   const jetski = options.discipline === 'jetski';
   const world =
     clean(options.worldConcept, 280) ??
@@ -98,6 +111,65 @@ export function buildRacingPanoramaPrompt(options: RacingPanoramaPromptOptions):
     colors ? `Use this limited game color direction with strong contrast: ${colors}.` : '',
     'Polished high-density 16-bit SNES-era pixel art: crisp square pixel clusters, hard edges, limited flat color ramps, no antialiasing, blur, gradients, or photorealism.',
     'This is a distant-world panorama plate, NOT a screenshot, race scene, map, diagram, turnaround, collage, or story illustration. No painted road, track, lane, vehicle, craft, person, pilot, face, crowd, building interior, HUD, text, letters, numbers, logo, watermark, signature, UI, border, or frame.',
+    'Composition: distinctive skyline and landmarks must fill the lower two thirds, with a modest sky band above. This will be cropped to a very wide 3.2:1 strip anchored at the BOTTOM; do not put all world detail in a tiny strip at the bottom or leave the center as empty sky.',
+    'The image must be a FULLY OPAQUE painting edge to edge: sky meets land across the whole frame with no transparency, no solid-color backdrop, and no green screen of any kind.',
+    options.candidateId
+      ? `Generate independent panorama candidate ${clean(options.candidateId, 12) ?? 'A'} for evaluation. Do not render this label.`
+      : '',
+    retry
+      ? `ART DIRECTOR CORRECTION: ${retry}. Apply only this correction while preserving world identity, locale, and pixel technique.`
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+/**
+ * Generic panorama for a validated traversal. The surface axis selects the
+ * water or ground composition; water keeps the distant-horizon contract
+ * (sky above, far shore middle, narrow near-water band) that the water
+ * normalization preserves. No sport names, no label reads.
+ */
+function buildTraversalRacingPanoramaPrompt(
+  options: RacingPanoramaPromptOptions,
+  traversal: RacingTraversal,
+  course: string,
+  artDirection: string | null,
+): string {
+  const water = traversal.surface === 'water';
+  const world =
+    clean(options.worldConcept, 280) ??
+    (water ? 'a distinctive racing waterscape' : 'a distinctive racing world');
+  const env = clean(options.envConcept, 280) ?? 'a distinctive racing locale';
+  const colors = clean(options.colors, 300);
+  const retry = clean(options.retryGuidance, 320);
+  if (water) {
+    return [
+      `Create exactly ONE wide panoramic backdrop for the water course ${course}: the distant water world seen ABOVE the waterline horizon, painted as if from rider eye level at the water surface looking at the far shore. Sky fills the TOP half of the frame, a straight horizon with distant shoreline and landmark silhouettes sits in the MIDDLE band, and only a narrow near-water band runs along the bottom. Coherent harbor, lagoon, stilt-house, mangrove, cliff, or open-water shapes rooted in the locale.`,
+      artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
+      `World identity: ${world}. This course locale: ${env}. Root every shape and color in that locale, distinct from the other two cup courses.`,
+      colors ? `Use this limited game color direction with strong contrast: ${colors}.` : '',
+      'Polished high-density 16-bit SNES-era pixel art: crisp square pixel clusters, hard edges, limited flat color ramps, no antialiasing, blur, gradients, or photorealism.',
+      'This is a distant-horizon panorama plate, NOT a screenshot, race scene, map, diagram, turnaround, collage, or story illustration. No painted road, track, lane, asphalt, curb, guardrail, vehicle, conveyance, wake, spray, buoy, buoy lane, course marker, foreground dock, pier, person, pilot, face, crowd, building interior, HUD, text, letters, numbers, logo, watermark, signature, UI, border, or frame. The runtime owns all water detail and course markers — paint only sky, horizon, and the far shore.',
+      'Composition contract: the complete frame will be fitted into a wide panorama strip. Keep the far shoreline visible across the lower third, with recognizable landmark silhouettes above it; never an aerial, oblique, or top-down view of the water, and never a close-up of docks, piers, or the near shore.',
+      'The image must be a FULLY OPAQUE painting edge to edge: sky meets the far shore across the whole frame with no transparency, no solid-color backdrop, and no green screen of any kind.',
+      options.candidateId
+        ? `Generate independent panorama candidate ${clean(options.candidateId, 12) ?? 'A'} for evaluation. Do not render this label.`
+        : '',
+      retry
+        ? `ART DIRECTOR CORRECTION: ${retry}. Apply only this correction while preserving world identity, locale, and pixel technique.`
+        : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+  return [
+    `Create exactly ONE wide panoramic backdrop for the ground course ${course}: the distant world seen ABOVE the road horizon. Camera looks toward the horizon at eye level; sky, far ridgelines, and landmark silhouettes fill the frame.`,
+    artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
+    `World identity: ${world}. This course locale: ${env}. Root every shape and color in that locale, distinct from the other two cup courses.`,
+    colors ? `Use this limited game color direction with strong contrast: ${colors}.` : '',
+    'Polished high-density 16-bit SNES-era pixel art: crisp square pixel clusters, hard edges, limited flat color ramps, no antialiasing, blur, gradients, or photorealism.',
+    'This is a distant-world panorama plate, NOT a screenshot, race scene, map, diagram, turnaround, collage, or story illustration. No painted road, track, lane, vehicle, conveyance, person, pilot, face, crowd, building interior, HUD, text, letters, numbers, logo, watermark, signature, UI, border, or frame.',
     'Composition: distinctive skyline and landmarks must fill the lower two thirds, with a modest sky band above. This will be cropped to a very wide 3.2:1 strip anchored at the BOTTOM; do not put all world detail in a tiny strip at the bottom or leave the center as empty sky.',
     'The image must be a FULLY OPAQUE painting edge to edge: sky meets land across the whole frame with no transparency, no solid-color backdrop, and no green screen of any kind.',
     options.candidateId

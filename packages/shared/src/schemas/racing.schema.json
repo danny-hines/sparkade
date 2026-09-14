@@ -1081,6 +1081,28 @@
           "description": "Mirror the template across the racing line (reverses turn direction). Omit or false for the authored direction.",
           "type": "boolean"
         },
+        "elevation": {
+          "description": "Optional bounded elevation profile (periodic analytic height over the lap: rolling rises or a ridge climb). Omit or flat for legacy flat geometry exactly.",
+          "enum": [
+            "flat",
+            "rolling",
+            "ridge"
+          ]
+        },
+        "jumps": {
+          "description": "Optional bounded jump ramps: 1-2 deterministic centered ramp zones with an avoidance line each side. Omit or none for legacy flat racing exactly.",
+          "enum": [
+            "none",
+            "ramps"
+          ]
+        },
+        "forks": {
+          "description": "Optional bounded fork split: at most one deterministic two-corridor zone (broad safe left, narrow rewarded right) on a safe quiet interval. Omit or none for the legacy single road exactly.",
+          "enum": [
+            "none",
+            "split"
+          ]
+        },
         "craftShape": {
           "description": "Player-craft silhouette for this race (procedural originals: dart, twinpod, wedge). Omit for twinpod.",
           "enum": [
@@ -1299,6 +1321,33 @@
             "hover",
             "jetski"
           ]
+        },
+        "traversal": {
+          "description": "Composable traversal contract: a short freeform activity label plus bounded handling/surface (physics) and rider/propulsion (presentation only). Omit to preserve legacy hover/jetski behavior exactly.",
+          "type": "object",
+          "properties": {
+            "label": {
+              "description": "Short freeform user-facing activity name. Never drives code.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 48,
+              "pattern": "^[ -~]+$"
+            },
+            "handling": {
+              "enum": ["direct", "grip", "carve", "flow"]
+            },
+            "surface": {
+              "enum": ["ground", "water"]
+            },
+            "rider": {
+              "enum": ["none", "seated", "standing", "onFoot"]
+            },
+            "propulsion": {
+              "enum": ["motor", "human", "magic"]
+            }
+          },
+          "required": ["label", "handling", "surface", "rider", "propulsion"],
+          "additionalProperties": false
         }
       },
       "required": [

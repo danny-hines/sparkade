@@ -102,9 +102,59 @@ const EXPECTED_DIMS: Record<string, { width: number; height: number }> = {
 };
 
 describe.sequential('mock racing pack pipeline', () => {
+  it.each([
+    ['bicycle', 'grip', 'ground', 'seated', 'human'],
+    ['skateboard', 'carve', 'ground', 'standing', 'human'],
+    ['invented leaf', 'flow', 'water', 'standing', 'magic'],
+  ])(
+    'carries a personalized %s traversal through the full generated pack',
+    async (name, handling, surface, rider, propulsion) => {
+      const { db, files, runner } = createHarness();
+      const photo = await sharp({
+        create: { width: 64, height: 64, channels: 3, background: '#ab8060' },
+      })
+        .jpeg()
+        .toBuffer();
+      const details = `Race an original ${name}; handling ${handling}, surface ${surface}, rider ${rider}, propulsion ${propulsion}. ${name === 'skateboard' ? 'Rolling hills with jump ramps.' : ''}`;
+      const { jobId, gameId } = runner.createJob({
+        promptText: details,
+        photo,
+        creationBrief: { version: 1, heroName: 'Rin', archetype: 'racing', details },
+        requestedArchetype: 'racing',
+        sourceKind: 'preset',
+        idempotencyKey: 'mock-traversal-' + name,
+      });
+      const terminal = await waitForTerminal(db, jobId);
+      expect(terminal, JSON.stringify(terminal.error)).toMatchObject({ status: 'done' });
+      const spec = files.readSpec(gameId) as RacingSpec;
+      expect(spec.identity).toMatchObject({
+        pilotName: 'Rin',
+        traversal: { handling, surface, rider, propulsion },
+      });
+      if (name === 'skateboard') {
+        expect(spec.levels.every(l => l.elevation === 'rolling' && l.jumps === 'ramps')).toBe(true);
+      }
+      const dir = join(files.gameDir(gameId), 'assets');
+      for (const role of RACING_PACK_REQUIRED_ROLES)
+        expect(generatedAssetForRole(dir, role)).not.toBeNull();
+      expect(generatedAssetForRole(dir, 'racingCraftPlayer')!.promptVersion).toBe(
+        'racing-traversal-strip-v1-approved-v1',
+      );
+      if (surface === 'water')
+        expect(generatedAssetForRole(dir, 'racingMaterialAtlas')!.promptVersion).toBe(
+          'racing-jetski-material-tiles-v1',
+        );
+    },
+    90_000,
+  );
+
   it('generates a personalized jetski cup from photo, name and description', async () => {
     const { db, files, runner } = createHarness();
-    const photo = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#ab8060' } }).jpeg().toBuffer();
+    const photo = await sharp({
+      create: { width: 64, height: 64, channels: 3, background: '#ab8060' },
+    })
+      .jpeg()
+      .toBuffer();
     const details = 'Jet skiing across a tropical lagoon, collect floating Tide Cells for boost';
     const { jobId, gameId } = runner.createJob({
       promptText: details,
@@ -117,10 +167,15 @@ describe.sequential('mock racing pack pipeline', () => {
     const terminal = await waitForTerminal(db, jobId);
     expect(terminal, JSON.stringify(terminal.error)).toMatchObject({ status: 'done' });
     const spec = files.readSpec(gameId) as RacingSpec;
-    expect(spec.identity).toMatchObject({ discipline: 'jetski', pilotName: 'Rin', boost: { mode: 'pickups' } });
+    expect(spec.identity).toMatchObject({
+      discipline: 'jetski',
+      pilotName: 'Rin',
+      boost: { mode: 'pickups' },
+    });
     expect(spec.levels).toHaveLength(3);
     const assetsDir = join(files.gameDir(gameId), 'assets');
-    for (const role of RACING_PACK_REQUIRED_ROLES) expect(generatedAssetForRole(assetsDir, role)).not.toBeNull();
+    for (const role of RACING_PACK_REQUIRED_ROLES)
+      expect(generatedAssetForRole(assetsDir, role)).not.toBeNull();
     const player = generatedAssetForRole(assetsDir, 'racingCraftPlayer');
     expect(player!.promptVersion).toBe('racing-jetski-strip-v1-approved-v1');
   }, 90_000);

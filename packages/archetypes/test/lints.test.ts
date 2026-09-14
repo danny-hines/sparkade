@@ -103,7 +103,7 @@ function golden<T extends GameSpec>(archetype: string): T {
 const codes = (errors: { code: string }[]) => errors.map((e) => e.code);
 
 describe('golden games are golden', () => {
-  for (const a of ['platformer', 'shooter', 'adventure', 'hshooter'] as const) {
+  for (const a of ['platformer', 'shooter', 'adventure', 'hshooter', 'racing'] as const) {
     it(`golden-${a} passes lint with zero errors and meets the five-minute rule`, () => {
       const spec = golden(a);
       expect(archetypes[a].lint(spec)).toEqual([]);

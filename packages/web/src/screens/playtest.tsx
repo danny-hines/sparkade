@@ -2,7 +2,8 @@
 // boots a golden game straight into the real GameHost with a keyboard
 // InputBroker — no pipeline, no menu. Pass `&game=<id>` to load a saved game,
 // or `&auto=1` to skip cards and run the attract AI for a hands-free visual
-// check. DEV-gated in app.tsx (stripped from prod).
+// check. Audio is on by default (engine defaults); pass `&mute=1` for silent
+// automated runs. DEV-gated in app.tsx (stripped from prod).
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { GameHost, InputBroker } from '@sparkade/engine';
@@ -178,7 +179,10 @@ export function PlaytestScreen(): ComponentChildren {
           input,
           likeness,
           attract: params.get('auto') === '1',
-          volumes: { musicVol: 0, sfxVol: 0, uiVol: 0 },
+          volumes:
+            params.get('mute') === '1'
+              ? { musicVol: 0, sfxVol: 0, uiVol: 0 }
+              : { musicVol: 0.7, sfxVol: 0.8, uiVol: 0.4 },
           callbacks: {
             onQuit: () => {},
             onVolumesChanged: () => {},

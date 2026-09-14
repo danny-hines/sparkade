@@ -27,7 +27,56 @@ import type {
   Provider,
   ProviderCapabilities,
   ProviderUsage,
+  RacingIdentity,
+  RacingSpec,
 } from '@sparkade/shared';
+
+/**
+ * Racing identity for the mock design stage: the golden's authored contract
+ * when it has one, else a deterministic legacy-shape pads fallback derived
+ * from the golden's own cast (same names, same slots).
+ */
+function mockRacingIdentity(golden: GameSpec): RacingIdentity {
+  if (golden.archetype === 'racing') {
+    const spec = golden as RacingSpec;
+    if (spec.identity) return structuredClone(spec.identity);
+    const cast = (spec.levels[0]?.rivals ?? []).map((rival) => ({
+      name: rival.name,
+      vehicleConcept: `${rival.name} cup rival hovercraft in a distinct helmet-color livery, rear-view wedge silhouette`,
+    }));
+    while (cast.length < 4) cast.push({ name: `RIVAL${cast.length + 1}`, vehicleConcept: 'Spare cup hovercraft in reserve livery' });
+    return {
+      pilotName: 'ROOKIE',
+      artDirection: 'Flat-shaded procedural hover cup in the template theme colors',
+      worldConcept: 'A legacy-rules hover cup run on the three proven circuits',
+      playerCraftConcept: 'Privateer twin-pod hovercraft in track-day colors, rear-view silhouette',
+      rivalCrafts: cast.slice(0, 4),
+      sound: { engine: { family: 'electric' } },
+      boost: {
+        mode: 'pads',
+        displayName: 'Surge Pads',
+        appearanceConcept: 'Glowing accent chevron strips painted across the racing line',
+      },
+    };
+  }
+  const fallback = ['VEX', 'JUNO', 'PIP', 'KAZ'].map((name) => ({
+    name,
+    vehicleConcept: `${name} cup rival hovercraft in a distinct helmet-color livery, rear-view wedge silhouette`,
+  }));
+  return {
+    pilotName: 'ROOKIE',
+    artDirection: 'Flat-shaded procedural hover cup in the template theme colors',
+    worldConcept: 'A legacy-rules hover cup run on the three proven circuits',
+    playerCraftConcept: 'Privateer twin-pod hovercraft in track-day colors, rear-view silhouette',
+    rivalCrafts: fallback,
+    sound: { engine: { family: 'electric' } },
+    boost: {
+      mode: 'pads',
+      displayName: 'Surge Pads',
+      appearanceConcept: 'Glowing accent chevron strips painted across the racing line',
+    },
+  };
+}
 import type { FaceFeatures } from '../likeness/features';
 import { repoRoot, readJson, sleep } from '../util';
 
@@ -235,7 +284,9 @@ export class MockProvider implements Provider {
           heroConcept:
             golden.archetype === 'fighter'
               ? golden.player.visualConcept
-              : 'An indigo expedition jacket with brass fasteners, sturdy tan trousers, and dark trail boots',
+              : golden.archetype === 'racing'
+                ? (golden.meta.heroConcept ?? 'Privateer hover pilot in track-day colors')
+                : 'An indigo expedition jacket with brass fasteners, sturdy tan trousers, and dark trail boots',
           ...(golden.archetype === 'adventure'
             ? { combatKit: structuredClone(golden.combatKit), adventureStyle }
             : {}),
@@ -251,15 +302,33 @@ export class MockProvider implements Provider {
           ...(golden.archetype === 'fighter'
             ? { fighterArtDirection: structuredClone(golden.artDirection), fighterStyle }
             : {}),
+          // Racing identity is exercisable end-to-end: the golden's authored
+          // contract when present, else a deterministic pads-mode fallback so
+          // legacy goldens still travel the new path.
+          ...(archetype === 'racing' ? { racingIdentity: mockRacingIdentity(golden) } : {}),
           story: structuredClone(golden.story),
-          levelPlan: [
-            { name: 'Opening', summary: 'Learn the ropes in a gentle first stretch' },
-            { name: 'Rising', summary: 'The middle act turns up the pressure' },
-            { name: 'Gauntlet', summary: 'Everything the world has learned about you' },
-            { name: 'The Boss', summary: 'A showdown with the big bad' },
-          ],
+          levelPlan:
+            archetype === 'racing'
+              ? (golden.levels as { name: string }[]).map((level, i, all) => ({
+                  name: level.name.slice(0, 24),
+                  summary:
+                    i < all.length - 1
+                      ? `Cup race ${i + 1}: bank points against the field`
+                      : 'Finale: take the cup from the lead rival',
+                }))
+              : [
+                  { name: 'Opening', summary: 'Learn the ropes in a gentle first stretch' },
+                  { name: 'Rising', summary: 'The middle act turns up the pressure' },
+                  { name: 'Gauntlet', summary: 'Everything the world has learned about you' },
+                  { name: 'The Boss', summary: 'A showdown with the big bad' },
+                ],
           cast:
-            archetype === 'hshooter' || archetype === 'shooter'
+            archetype === 'racing'
+              ? (golden.levels as { rivals: { name: string }[] }[])[0]?.rivals.map((rival, i) => ({
+                  role: `rival${i + 1}`,
+                  concept: `${rival.name}, cup rival driver with a distinct helmet and livery`,
+                })) ?? []
+              : archetype === 'hshooter' || archetype === 'shooter'
               ? [
                   { role: 'popcorn', concept: 'A small disposable cobalt scout' },
                   { role: 'weaver', concept: 'A slim brass-vane interceptor' },
@@ -360,7 +429,9 @@ export class MockProvider implements Provider {
   }
 
   private pickArchetype(prompt: string): ArchetypeId {
-    const p = prompt.toLowerCase();
+    // Saved-game catalogs must not steer the fallback guess either.
+    const p = (prompt.split('GAMES ALREADY ON THIS CABINET')[0] ?? prompt).toLowerCase();
+    if (/\brace\b|racing|kart|\bhover\b|f-?zero|grand.?prix/.test(p)) return 'racing';
     if (
       /(fight|versus|brawl|duel|karate|kung.?fu|boxer|boxing|martial|kombat|tournament.*(fight|duel)|street.?fight)/.test(
         p,
@@ -375,7 +446,7 @@ export class MockProvider implements Provider {
     if (/(dungeon|explore|zelda|adventure|museum|quest|garden(?!.*(defend|orbit)))/.test(p))
       return 'adventure';
     if (/(platform|jump|climb|run|tower|mountain)/.test(p)) return 'platformer';
-    const all: ArchetypeId[] = ['platformer', 'shooter', 'adventure', 'hshooter', 'fighter'];
+    const all: ArchetypeId[] = ['platformer', 'shooter', 'adventure', 'hshooter', 'fighter', 'racing'];
     return all[prompt.length % all.length]!;
   }
 }
@@ -396,15 +467,31 @@ function detectStage(req: CompleteRequest): MockStage {
   return 'design';
 }
 
+const KNOWN_ARCHETYPES = '(platformer|shooter|adventure|hshooter|fighter|racing)';
+
 function detectArchetype(req: CompleteRequest): ArchetypeId | null {
-  const title = String((req.jsonSchema as { title?: string } | undefined)?.title ?? '');
-  const required = /REQUIRED ARCHETYPE:\s*(platformer|shooter|adventure|hshooter|fighter)/i.exec(
-    req.user,
-  );
+  const schema = (req.jsonSchema ?? {}) as { title?: string; $id?: string };
+  // 1. An explicit requested type always wins over every other signal.
+  const required = new RegExp(`REQUIRED ARCHETYPE:\\s*${KNOWN_ARCHETYPES}`, 'i').exec(req.user);
   if (required) return required[1]!.toLowerCase() as ArchetypeId;
-  const hay = `${title}\n${req.system.slice(0, 400)}\n${req.user}`;
+  // 2. The stage schema itself names its archetype (title or $id).
+  const schemaHit = new RegExp(
+    `sparkade://schemas/${KNOWN_ARCHETYPES}|Sparkade ${KNOWN_ARCHETYPES}\\b`,
+  ).exec(`${schema.$id ?? ''}\n${schema.title ?? ''}`);
+  if (schemaHit) {
+    return (schemaHit[1] ?? schemaHit[2])!.toLowerCase() as ArchetypeId;
+  }
+  // 3. Later stages carry the design document JSON, whose archetype is authoritative.
+  const docHit = new RegExp(`"archetype"\\s*:\\s*"${KNOWN_ARCHETYPES}"`).exec(req.user);
+  if (docHit) return docHit[1]!.toLowerCase() as ArchetypeId;
+  // 4. Fresh-premise keywords on the CURRENT request only: saved games,
+  // catalogs, and excerpts must never steer detection.
+  const premise = req.user.split('GAMES ALREADY ON THIS CABINET')[0] ?? req.user;
+  // Racing keywords first: "race" would otherwise fall through to the
+  // spaceship/shooter fallback below.
+  if (/\brace\b|racing|kart|\bhover\b|f-?zero|grand.?prix/i.test(premise)) return 'racing';
   const m =
-    /(hshooter|horizontal shooter|fighting game|fighter|platformer|shooter|adventure)/i.exec(hay);
+    /(hshooter|horizontal shooter|fighting game|fighter|platformer|shooter|adventure)/i.exec(premise);
   if (!m) return null;
   const w = m[1]!.toLowerCase();
   return (

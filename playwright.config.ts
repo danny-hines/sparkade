@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 const root = dirname(fileURLToPath(import.meta.url));
 
 // e2e runs against demo mode (mock provider) with an isolated data dir so the
-// library always starts as exactly the five golden games. Dev/CI only — never on the Pi.
+// library always starts as exactly the six golden games. Dev/CI only — never on the Pi.
 export default defineConfig({
   testDir: 'tests/e2e',
   timeout: 120_000,

@@ -17,6 +17,11 @@ import {
   PLATFORMER_ENEMY_ASSETS,
   PLATFORMER_POSE_ASSETS,
   PLATFORMER_PROP_ASSETS,
+  RACING_CRAFT_STRIP_ASSETS,
+  RACING_MATERIAL_ATLAS_ASSET,
+  RACING_PANORAMA_ASSETS,
+  RACING_SCENERY_ATLAS_ASSET,
+  RacingArtLoadError,
   SHOOTER_BACKDROP_ASSETS,
   SHOOTER_BOSS_ASSET,
   SHOOTER_ENEMY_ATLAS_ASSET,
@@ -574,5 +579,81 @@ describe('loadLikenessAssets', () => {
 
     expect(result?.adventurePlayerPoses).toBeNull();
     expect(requested.filter((url) => url.includes('/assets/adventure-player-'))).toHaveLength(12);
+  });
+});
+
+describe('racing art pack loading', () => {
+  beforeEach(() => {
+    requested.length = 0;
+    decoded.length = 0;
+    failing.clear();
+    vi.stubGlobal('Image', FakeImage);
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  const completeRacingAvailability = Object.fromEntries([
+    ...RACING_PANORAMA_ASSETS.map((role) => [role, true]),
+    ...RACING_CRAFT_STRIP_ASSETS.map((role) => [role, true]),
+    [RACING_SCENERY_ATLAS_ASSET, true],
+    [RACING_MATERIAL_ATLAS_ASSET, true],
+  ]);
+
+  it('activates the complete ten-file bundle atomically', async () => {
+    const result = await loadLikenessAssets('racing-game', {
+      ...legacyAssets,
+      ...completeRacingAvailability,
+    });
+
+    expect(result?.racingArt).not.toBeNull();
+    expect(result?.racingArt?.panoramas).toHaveLength(3);
+    expect(result?.racingArt?.strips).toHaveLength(5);
+    expect(result?.racingArt?.sceneryAtlas).not.toBeNull();
+    expect(result?.racingArt?.materialAtlas).not.toBeNull();
+    for (const role of [
+      ...RACING_PANORAMA_ASSETS,
+      ...RACING_CRAFT_STRIP_ASSETS,
+      RACING_SCENERY_ATLAS_ASSET,
+      RACING_MATERIAL_ATLAS_ASSET,
+    ] as GeneratedGameAssetRole[]) {
+      expect(requested).toContain(
+        `/api/games/racing-game/assets/${GENERATED_GAME_ASSET_FILES[role]}`,
+      );
+    }
+  });
+
+  it('throws RacingArtLoadError on an advertised-but-incomplete pack', async () => {
+    await expect(
+      loadLikenessAssets('partial-racing-game', {
+        ...legacyAssets,
+        ...completeRacingAvailability,
+        [RACING_MATERIAL_ATLAS_ASSET]: false,
+      }),
+    ).rejects.toMatchObject({ name: 'RacingArtLoadError' });
+  });
+
+  it('throws RacingArtLoadError when a pack download fails', async () => {
+    failing.add(
+      `/api/games/broken-racing-game/assets/${GENERATED_GAME_ASSET_FILES.racingCraftRival3}`,
+    );
+    const error = await loadLikenessAssets('broken-racing-game', {
+      ...legacyAssets,
+      ...completeRacingAvailability,
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RacingArtLoadError);
+    expect((error as RacingArtLoadError).missing).toContain('racingCraftRival3');
+  });
+
+  it('leaves legacy games without racing art', async () => {
+    const result = await loadLikenessAssets('old-game', legacyAssets);
+    expect(result?.racingArt).toBeNull();
+    expect(requested.some((url) => url.includes('racing-'))).toBe(false);
+  });
+
+  it('rejects an expected racing pack even when every file is missing', async () => {
+    await expect(
+      loadLikenessAssets('missing-world', { ...legacyAssets, racingArtRequired: true }),
+    ).rejects.toMatchObject({ name: 'RacingArtLoadError', gameId: 'missing-world' });
+    expect(requested).toHaveLength(0);
   });
 });

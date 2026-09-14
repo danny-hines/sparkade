@@ -48,6 +48,8 @@ export type GameAssetAvailability = {
   portrait: boolean;
   /** Server-normalized v4+ Fighter arenas already contain their color treatment. */
   fighterArenaPresentationBaked?: boolean;
+  /** A generated racing game requires its complete artwork pack. */
+  racingArtRequired?: boolean;
 } & Record<GeneratedGameAssetRole, boolean>;
 
 export interface GameDetail {

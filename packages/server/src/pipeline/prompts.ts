@@ -430,6 +430,9 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
     fighter: [
       '\nFIGHTER APPEARANCES DO NOT USE sprites.assign body art. Set sprites.assign.hero and sprites.assign.boss to any library sprite (both are unused schema placeholders), e.g. "hero": "lib:hero_squire", "boss": "lib:boss_titan". A later image-asset stage generates one complete 13-state atlas for the player, three ladder opponents, and boss from their required visualConcept, build, outfit family, and palette colorSlot. A supplied photo is identity truth for the player. The five-atlas roster is atomic and generation fails if any character remains incomplete. Never add unsupported face fields or encode the player as a custom sprite.',
     ].join('\n'),
+    racing: [
+      '\nRACING CRAFT DO NOT USE sprites.assign body art. Set sprites.assign.hero and sprites.assign.boss to any library sprite (both are unused schema placeholders), e.g. "hero": "lib:hero_squire", "boss": "lib:boss_titan". The design-stage racingIdentity already carries the authored identity (pilot, art direction, world and vehicle concepts, engine profile, boost supply): do not re-author it here. A later image stage generates the real gameplay pack from it (five vehicle strips, three panoramas, scenery and material atlases). Never invent track geometry: each of the exactly 3 levels picks one proven template (ember, coral, ratchet) and only authors its name, 4 rivals (bounded pace 0.7-1.0), music song, optional theme/timeout, and optional world dressing (envConcept + track-material colors). The boss is the finale rival (name + pace only, no combat).',
+    ].join('\n'),
   };
   const tileRoles: Record<ArchetypeId, string[]> = {
     platformer: [
@@ -456,6 +459,7 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
     ],
     hshooter: ['tile_solid', 'tile_solid_inner', 'tile_hazard', 'tile_deco'],
     fighter: [],
+    racing: [],
   };
   const extraRoles: Record<ArchetypeId, string> = {
     platformer:
@@ -468,6 +472,8 @@ function spriteMenu(archetype: ArchetypeId): { libList: string; reskinNotes: str
       "Also reskinnable via assign: projectile (your ship's shot), enemy_shot, pod (boss side-turrets), pickup_spread, pickup_rapid, pickup_shield, pickup_bomb.",
     fighter:
       'Nothing to reskin — Fighter bodies come from the required generated roster atlases. The player and ladder roster are authored by the levels pass. Here, make the boss unmistakable with a concrete visualConcept plus a distinct build, outfit, and colorSlot.',
+    racing:
+      'Nothing to reskin — racing vehicles come from the generated image pack, not sprites.assign. Keep the hero/boss placeholder assigns; the design racingIdentity (pilot, world/vehicle concepts, engine profile, boost supply) already carries the identity for this cup, so author no new identity here. Put per-race character into circuit names, rival pace, theme accents, and world dressing (envConcept + track materials).',
   };
   const roles = tileRoles[archetype];
   const connectedSolidNote =
@@ -531,6 +537,12 @@ export function buildEntitiesPrompt(
   hasPhoto: boolean,
   recentUse?: RecentUse,
   diagnostics: readonly LintError[] = [],
+  /**
+   * Canonical racing circuits established by the levels stage. The entities
+   * prompt cannot re-derive them (stages run in parallel), so the runner
+   * passes them in and the boss copies the finale rival verbatim.
+   */
+  levels?: unknown,
 ): BuiltPrompt {
   const schema = stageSchema(archetype, 'entities');
   const bossNotes: Record<ArchetypeId, string> = {
@@ -544,6 +556,8 @@ export function buildEntitiesPrompt(
       'Bullet patterns: fan, spiral, walls (a vertical bullet column with a gap), aimed. The boss flies in from the right of an open arena. pods are destructible turrets. bulletSpeed multiplies base speed.',
     fighter:
       'The boss is the final ladder fighter: use colorSlot 11 (the roster pass reserves it), author its build and outfit, give it more HP (100-200), and add 2-3 rage phases (aggression 0.8-2, rising as its HP drops). Prefer the armor outfit so its padded silhouette dominates the ladder; do not invent face details or moves.',
+    racing:
+      'The boss is the finale-circuit rival, metadata only: COPY the final (last) circuit rival at rivalIndex (1-4) — its name and topScale verbatim — from the already-established levels, then add only a separate display title and titleQuote. Never re-derive, rename, or repick them, and never give the boss HP, phases, patterns, or attacks — the finale is an honest race. Copying exactly avoids repair churn.',
   };
   const menu = spriteMenu(archetype);
   const system = renderTemplate(loadTemplate('entities'), {
@@ -555,6 +569,10 @@ export function buildEntitiesPrompt(
     SCHEMA: JSON.stringify(schema, null, 1),
   });
   // Variable per-cabinet content goes in the USER message (system stays cacheable).
+  const racingLevelsBlock =
+    archetype === 'racing' && levels !== undefined
+      ? `CANONICAL CUP CIRCUITS (already established by the levels stage — do NOT regenerate them; copy the final circuit's rival at your chosen rivalIndex verbatim into name and topScale, then add only title and titleQuote):\n${JSON.stringify(levels)}`
+      : '';
   const uniq = (xs: string[]) => [...new Set(xs)];
   const recentBits = [
     recentUse?.heroes.length ? `hero bodies: ${uniq(recentUse.heroes).join(', ')}` : '',
@@ -576,6 +594,7 @@ export function buildEntitiesPrompt(
       ...(archetype === 'adventure' ? [adventureStyleBrief(design)] : []),
       ...(archetype === 'fighter' ? [fighterStyleBrief(design)] : []),
       `Photo for likeness: ${hasPhoto ? 'yes' : 'no'}.${likenessBodyNote}${recentNote}`,
+      racingLevelsBlock,
       ...(archetype === 'platformer'
         ? [
             platformerStyleBrief(design),

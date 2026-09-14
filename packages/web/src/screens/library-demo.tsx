@@ -25,6 +25,7 @@ const CROP: Record<ArchetypeId, string> = {
   shooter: '50% 88%', // player sits low; keep a little sky for incoming enemies
   hshooter: '50% 55%',
   adventure: '50% 50%', // top-down: hero roams, no privileged edge
+  racing: '50% 100%', // behind-craft view: road and HUD read at the bottom
 };
 
 export function LibraryDemo(props: {

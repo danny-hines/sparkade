@@ -1,0 +1,995 @@
+{
+  "specVersion": 1,
+  "archetype": "racing",
+  "seed": 4177,
+  "meta": {
+    "title": "Ember Cup",
+    "tagline": "Three circuits, four rivals, one hovering trophy.",
+    "heroConcept": "You wear a heat-scarred pit-crew race suit from the neck down: ember-orange shell over charcoal weave, buckle harness, spine coolant lines, mag-grip boots."
+  },
+  "palette": [
+    "#000000",
+    "#0a0f1c",
+    "#0e1a33",
+    "#1c3357",
+    "#35577f",
+    "#4fd8f0",
+    "#9df0ff",
+    "#cdeeff",
+    "#6b6fd6",
+    "#3d3f9e",
+    "#23244f",
+    "#ff5140",
+    "#ffb066",
+    "#ffd23e",
+    "#bfe4f5",
+    "#f2fbff"
+  ],
+  "story": {
+    "intro": [
+      "The Ember Cup posts three races across the hover leagues.",
+      "You, rookie pilot Pippa Vane, borrowed a cyan hull and a full boost cell.",
+      "Beat VEX, JUNO, PIP and KAZ, and take the finale from VEX PRIME."
+    ],
+    "levelIntros": [
+      "Ember Loop: hairpin and S-curves through the ember fields.",
+      "Coral Sweep: fast double-apex sweepers along the coral coast.",
+      "Ratchet Chicane: tight stadium chicanes. VEX PRIME defends the finale."
+    ],
+    "bossIntro": "VEX PRIME holds the inside line and the points lead. Take the finale.",
+    "victory": [
+      "Checkered flag. The cup is yours, Pippa Vane.",
+      "The pits chant your line through every sweeper home."
+    ],
+    "defeat": [
+      "VEX PRIME keeps the cup. The hull is intact and the cell recharges.",
+      "Run the lines again. The trophy stays on the table."
+    ]
+  },
+  "sprites": {
+    "custom": {},
+    "assign": {
+      "hero": "lib:hero_squire",
+      "boss": "lib:boss_titan"
+    }
+  },
+  "levels": [
+    {
+      "name": "Ember Loop",
+      "template": "ember",
+      "laps": 3,
+      "musicSong": "theme",
+      "rivals": [
+        {
+          "name": "VEX",
+          "topScale": 0.93
+        },
+        {
+          "name": "JUNO",
+          "topScale": 0.9
+        },
+        {
+          "name": "PIP",
+          "topScale": 0.87
+        },
+        {
+          "name": "KAZ",
+          "topScale": 0.84
+        }
+      ],
+      "craftShape": "wedge",
+      "envConcept": "Ember fields at dusk: cooling lava veins between black glass ridges, pit lanterns along the road.",
+      "materials": {
+        "road": "#5c5e6e",
+        "ground": "#2f4a26",
+        "curb": "#d8d8cc",
+        "edge": "#35e0ff",
+        "pad": "#35e0ff"
+      }
+    },
+    {
+      "name": "Coral Sweep",
+      "template": "coral",
+      "laps": 3,
+      "musicSong": "theme",
+      "rivals": [
+        {
+          "name": "VEX",
+          "topScale": 0.94
+        },
+        {
+          "name": "JUNO",
+          "topScale": 0.91
+        },
+        {
+          "name": "PIP",
+          "topScale": 0.88
+        },
+        {
+          "name": "KAZ",
+          "topScale": 0.85
+        }
+      ],
+      "theme": {
+        "scenery": "pines"
+      },
+      "length": 3100,
+      "envConcept": "Coral coast morning: pale reef walls and spray arches over a bright tidal causeway.",
+      "materials": {
+        "road": "#68646c",
+        "ground": "#7a5a34",
+        "curb": "#f2ead8",
+        "edge": "#ff4fd8",
+        "pad": "#ff4fd8"
+      }
+    },
+    {
+      "name": "Ratchet Chicane",
+      "template": "ratchet",
+      "laps": 3,
+      "musicSong": "boss",
+      "rivals": [
+        {
+          "name": "VEX",
+          "topScale": 0.985
+        },
+        {
+          "name": "JUNO",
+          "topScale": 0.93
+        },
+        {
+          "name": "PIP",
+          "topScale": 0.9
+        },
+        {
+          "name": "KAZ",
+          "topScale": 0.87
+        }
+      ],
+      "theme": {
+        "scenery": "crystals"
+      },
+      "envConcept": "Ratchet stadium at night: tight chicane walls under floodlight towers and crystal marquees.",
+      "materials": {
+        "road": "#626076",
+        "ground": "#26334a",
+        "curb": "#e8e4da",
+        "edge": "#ffb02e",
+        "pad": "#ffb02e"
+      }
+    }
+  ],
+  "boss": {
+    "name": "VEX",
+    "title": "VEX PRIME",
+    "rivalIndex": 1,
+    "topScale": 0.985,
+    "titleQuote": "Try the outside. It is shorter on paper."
+  },
+  "music": {
+    "bpm": 158,
+    "instruments": {
+      "bass": {
+        "decay": 0.3,
+        "vol": 0.58
+      },
+      "drums": {
+        "vol": 0.46
+      },
+      "pulse1": {
+        "decay": 0.35,
+        "duty": 0.25,
+        "vol": 0.52
+      },
+      "pulse2": {
+        "decay": 0.65,
+        "duty": 0.5,
+        "vol": 0.3
+      }
+    },
+    "jingles": {
+      "gameover": {
+        "bass": [
+          "F#2:2",
+          "-",
+          "E2:2",
+          "-",
+          "D#2:2",
+          "-",
+          "C#2:2",
+          "-",
+          "B1:2",
+          "-",
+          "A1:2",
+          "-",
+          "F#1:4",
+          "-",
+          "-",
+          "-"
+        ],
+        "drums": [
+          "K",
+          "-",
+          "-",
+          "-",
+          "S",
+          "-",
+          "-",
+          "-",
+          "K",
+          "-",
+          "-",
+          "-",
+          "S",
+          "-",
+          "-",
+          "-"
+        ],
+        "pulse1": [
+          "A4:2",
+          "-",
+          "G#4:1",
+          "F#4:1",
+          "E4:2",
+          "-",
+          "D#4:2",
+          "-",
+          "C#4:2",
+          "-",
+          "B3:2",
+          "-",
+          "A3:2",
+          "-",
+          "F#3:4",
+          "-"
+        ],
+        "pulse2": [
+          "F#3:2",
+          "-",
+          "E3:2",
+          "-",
+          "D#3:2",
+          "-",
+          "C#3:2",
+          "-",
+          "B2:2",
+          "-",
+          "A2:2",
+          "-",
+          "F#2:4",
+          "-",
+          "-",
+          "-"
+        ]
+      },
+      "levelIntro": {
+        "bass": [
+          "F#2:2",
+          "-",
+          "-",
+          "-",
+          "C#3:1",
+          "F#2:1",
+          "B1:2",
+          "-",
+          "-",
+          "-",
+          "-",
+          "-",
+          "-",
+          "-",
+          "-",
+          "-"
+        ],
+        "drums": [
+          "K",
+          "H",
+          "H",
+          "-",
+          "K",
+          "-",
+          "S",
+          "-",
+          "K",
+          "H",
+          "-",
+          "-",
+          "-",
+          "-",
+          "-",
+          "-"
+        ],
+        "pulse1": [
+          "F#4:1",
+          "A4:1",
+          "C#5:1",
+          "F#5:4",
+          "-",
+          "-",
+          "-",
+          "-",
+          "E5:1",
+          "D#5:1",
+          "C#5:2",
+          "-",
+          "-",
+          "-",
+          "-",
+          "-"
+        ],
+        "pulse2": [
+          "F#3:4",
+          "-",
+          "-",
+          "-",
+          "A3:2",
+          "-",
+          "G#3:2",
+          "-",
+          "-",
+          "-",
+          "-",
+          "-",
+          "-",
+          "-",
+          "-",
+          "-"
+        ]
+      },
+      "victory": {
+        "bass": [
+          "F#2:2",
+          "-",
+          "B1:2",
+          "-",
+          "C#2:2",
+          "-",
+          "D#2:2",
+          "-",
+          "E2:2",
+          "-",
+          "C#3:1",
+          "B2:1",
+          "F#2:4",
+          "-",
+          "-",
+          "-"
+        ],
+        "drums": [
+          "K",
+          "-",
+          "H",
+          "-",
+          "K",
+          "-",
+          "H",
+          "-",
+          "K",
+          "-",
+          "H",
+          "-",
+          "S",
+          "-",
+          "K",
+          "-"
+        ],
+        "pulse1": [
+          "F#4:1",
+          "A4:1",
+          "C#5:1",
+          "E5:1",
+          "D#5:1",
+          "C#5:1",
+          "B4:2",
+          "-",
+          "A4:1",
+          "B4:1",
+          "C#5:1",
+          "D#5:1",
+          "F#5:4",
+          "-",
+          "-",
+          "-"
+        ],
+        "pulse2": [
+          "F#3:4",
+          "-",
+          "-",
+          "-",
+          "A3:4",
+          "-",
+          "-",
+          "-",
+          "B3:4",
+          "-",
+          "-",
+          "-",
+          "F#4:4",
+          "-",
+          "-",
+          "-"
+        ]
+      }
+    },
+    "key": "F# Dorian",
+    "patterns": {
+      "bA": {
+        "bass": [
+          "F#2:1",
+          "-",
+          "-",
+          "F#2:1",
+          "-",
+          "-",
+          "F#2:1",
+          "-",
+          "-",
+          "F#2:1",
+          "-",
+          "-",
+          "C#2:1",
+          "-",
+          "-",
+          "F#2:1"
+        ],
+        "drums": [
+          "K",
+          "-",
+          "H",
+          "K",
+          "-",
+          "H",
+          "S",
+          "-",
+          "K",
+          "K",
+          "H",
+          "-",
+          "K",
+          "-",
+          "S",
+          "H"
+        ],
+        "pulse1": [
+          "F#5:1",
+          "-",
+          "F#5:1",
+          "-",
+          "A4:1",
+          "-",
+          "C#5:1",
+          "-",
+          "C#5:1",
+          "-",
+          "B4:1",
+          "-",
+          "A4:1",
+          "G#4:1",
+          "F#4:1",
+          "-"
+        ],
+        "pulse2": [
+          "F#3:1",
+          "C#4:1",
+          "F#3:1",
+          "A3:1",
+          "F#3:1",
+          "C#4:1",
+          "F#3:1",
+          "A3:1",
+          "F#3:1",
+          "C#4:1",
+          "F#3:1",
+          "A3:1",
+          "E3:1",
+          "C#4:1",
+          "F#3:1",
+          "-"
+        ]
+      },
+      "bB": {
+        "bass": [
+          "G2:1",
+          "-",
+          "-",
+          "G2:1",
+          "-",
+          "-",
+          "G2:1",
+          "-",
+          "-",
+          "G2:1",
+          "-",
+          "-",
+          "D3:1",
+          "-",
+          "-",
+          "G2:1"
+        ],
+        "drums": [
+          "K",
+          "-",
+          "H",
+          "K",
+          "-",
+          "H",
+          "S",
+          "-",
+          "K",
+          "-",
+          "H",
+          "K",
+          "-",
+          "H",
+          "S",
+          "-"
+        ],
+        "pulse1": [
+          "G5:1",
+          "-",
+          "G5:1",
+          "-",
+          "B4:1",
+          "-",
+          "D5:1",
+          "-",
+          "D5:1",
+          "-",
+          "C#5:1",
+          "-",
+          "B4:1",
+          "A4:1",
+          "G4:1",
+          "-"
+        ],
+        "pulse2": [
+          "G3:1",
+          "D4:1",
+          "G3:1",
+          "B3:1",
+          "G3:1",
+          "D4:1",
+          "G3:1",
+          "B3:1",
+          "G3:1",
+          "D4:1",
+          "G3:1",
+          "B3:1",
+          "F#3:1",
+          "D4:1",
+          "G3:1",
+          "-"
+        ]
+      },
+      "bC": {
+        "bass": [
+          "E2:1",
+          "-",
+          "-",
+          "E2:1",
+          "-",
+          "-",
+          "E2:1",
+          "-",
+          "-",
+          "E2:1",
+          "-",
+          "-",
+          "B2:1",
+          "-",
+          "-",
+          "E2:1"
+        ],
+        "drums": [
+          "K",
+          "-",
+          "H",
+          "K",
+          "-",
+          "H",
+          "S",
+          "K",
+          "-",
+          "K",
+          "H",
+          "-",
+          "K",
+          "-",
+          "S",
+          "H"
+        ],
+        "pulse1": [
+          "E5:1",
+          "-",
+          "E5:1",
+          "-",
+          "G#4:1",
+          "-",
+          "B4:1",
+          "-",
+          "B4:1",
+          "-",
+          "A4:1",
+          "-",
+          "G#4:1",
+          "F#4:1",
+          "E4:1",
+          "-"
+        ],
+        "pulse2": [
+          "E3:1",
+          "B3:1",
+          "E3:1",
+          "G#3:1",
+          "E3:1",
+          "B3:1",
+          "E3:1",
+          "G#3:1",
+          "E3:1",
+          "B3:1",
+          "E3:1",
+          "G#3:1",
+          "D#3:1",
+          "B3:1",
+          "E3:1",
+          "-"
+        ]
+      },
+      "tA": {
+        "bass": [
+          "F#2:2",
+          "-",
+          "C#3:1",
+          "F#2:1",
+          "F#2:1",
+          "-",
+          "C#3:1",
+          "F#2:1",
+          "F#2:2",
+          "-",
+          "C#3:1",
+          "F#2:1",
+          "F#2:1",
+          "C#3:1",
+          "F#2:1",
+          "C#3:1"
+        ],
+        "drums": [
+          "K",
+          "H",
+          "H",
+          "H",
+          "S",
+          "H",
+          "K",
+          "H",
+          "K",
+          "H",
+          "H",
+          "K",
+          "S",
+          "H",
+          "H",
+          "H"
+        ],
+        "pulse1": [
+          "F#4:2",
+          "-",
+          "A4:1",
+          "C#5:1",
+          "A4:2",
+          "-",
+          "G#4:1",
+          "A4:1",
+          "B4:1",
+          "A4:1",
+          "G#4:1",
+          "E4:1",
+          "C#5:2",
+          "-",
+          "B4:1",
+          "A4:1"
+        ],
+        "pulse2": [
+          "F#3:1",
+          "A3:1",
+          "C#4:1",
+          "F#4:1",
+          "F#3:1",
+          "A3:1",
+          "C#4:1",
+          "A3:1",
+          "F#3:1",
+          "A3:1",
+          "C#4:1",
+          "F#4:1",
+          "F#3:1",
+          "A3:1",
+          "C#4:1",
+          "E4:1"
+        ]
+      },
+      "tB": {
+        "bass": [
+          "B2:2",
+          "-",
+          "F#3:1",
+          "B2:1",
+          "B2:1",
+          "-",
+          "F#3:1",
+          "B2:1",
+          "B2:2",
+          "-",
+          "F#3:1",
+          "B2:1",
+          "A2:1",
+          "F#2:1",
+          "B2:1",
+          "F#3:1"
+        ],
+        "drums": [
+          "K",
+          "H",
+          "H",
+          "H",
+          "S",
+          "H",
+          "K",
+          "H",
+          "K",
+          "H",
+          "H",
+          "H",
+          "S",
+          "H",
+          "K",
+          "H"
+        ],
+        "pulse1": [
+          "B4:2",
+          "-",
+          "D#5:1",
+          "F#5:1",
+          "D#5:2",
+          "-",
+          "C#5:1",
+          "B4:1",
+          "A4:1",
+          "G#4:1",
+          "F#4:2",
+          "-",
+          "G#4:1",
+          "A4:1",
+          "B4:2",
+          "-"
+        ],
+        "pulse2": [
+          "B3:1",
+          "D#4:1",
+          "F#4:1",
+          "B4:1",
+          "B3:1",
+          "D#4:1",
+          "F#4:1",
+          "D#4:1",
+          "B3:1",
+          "D#4:1",
+          "F#4:1",
+          "B4:1",
+          "A3:1",
+          "D#4:1",
+          "F#4:1",
+          "B4:1"
+        ]
+      },
+      "tC": {
+        "bass": [
+          "F#2:2",
+          "-",
+          "F#2:1",
+          "C#3:1",
+          "F#2:2",
+          "-",
+          "E2:1",
+          "F#2:1",
+          "F#2:2",
+          "-",
+          "C#3:1",
+          "B1:1",
+          "F#2:1",
+          "C#3:1",
+          "F#2:1",
+          "C#3:1"
+        ],
+        "drums": [
+          "K",
+          "H",
+          "H",
+          "H",
+          "S",
+          "H",
+          "H",
+          "K",
+          "K",
+          "H",
+          "H",
+          "H",
+          "S",
+          "H",
+          "H",
+          "K"
+        ],
+        "pulse1": [
+          "A4:1",
+          "C#5:1",
+          "E5:2",
+          "-",
+          "D#5:2",
+          "-",
+          "C#5:1",
+          "B4:1",
+          "A4:2",
+          "-",
+          "G#4:1",
+          "A4:1",
+          "F#4:1",
+          "A4:1",
+          "C#5:2",
+          "-"
+        ],
+        "pulse2": [
+          "F#3:1",
+          "A3:1",
+          "C#4:1",
+          "E4:1",
+          "D#4:1",
+          "C#4:1",
+          "A3:1",
+          "F#3:1",
+          "F#3:1",
+          "A3:1",
+          "C#4:1",
+          "E4:1",
+          "F#3:1",
+          "A3:1",
+          "C#4:1",
+          "E4:1"
+        ]
+      },
+      "tD": {
+        "bass": [
+          "E2:2",
+          "-",
+          "B2:1",
+          "E2:1",
+          "E2:1",
+          "-",
+          "B2:1",
+          "E2:1",
+          "E2:2",
+          "-",
+          "B2:1",
+          "E2:1",
+          "E2:1",
+          "B2:1",
+          "E2:1",
+          "B2:1"
+        ],
+        "drums": [
+          "K",
+          "H",
+          "H",
+          "K",
+          "S",
+          "H",
+          "H",
+          "H",
+          "K",
+          "H",
+          "H",
+          "H",
+          "S",
+          "H",
+          "K",
+          "H"
+        ],
+        "pulse1": [
+          "E4:2",
+          "-",
+          "G#4:1",
+          "B4:1",
+          "G#4:2",
+          "-",
+          "F#4:1",
+          "E4:1",
+          "D#4:1",
+          "E4:1",
+          "G#4:1",
+          "B4:1",
+          "E5:2",
+          "-",
+          "D#5:1",
+          "B4:1"
+        ],
+        "pulse2": [
+          "E3:1",
+          "G#3:1",
+          "B3:1",
+          "E4:1",
+          "E3:1",
+          "G#3:1",
+          "B3:1",
+          "G#3:1",
+          "E3:1",
+          "G#3:1",
+          "B3:1",
+          "E4:1",
+          "E3:1",
+          "G#3:1",
+          "B3:1",
+          "E4:1"
+        ]
+      }
+    },
+    "songs": {
+      "boss": [
+        "bA",
+        "bB",
+        "bA",
+        "bC"
+      ],
+      "theme": [
+        "tA",
+        "tB",
+        "tC",
+        "tD"
+      ]
+    }
+  },
+  "scoring": {
+    "events": {
+      "enemyKill": 0,
+      "pickup": 50,
+      "bossHit": 100,
+      "levelClear": 500
+    },
+    "timeBonusPerSecond": 10
+  },
+  "identity": {
+    "pilotName": "ROOKIE",
+    "artDirection": "Flat-shaded dusk-ember hover cup: glassy blacks, hot orange accents, cyan surge light.",
+    "worldConcept": "A dusk-ember hover cup through lava fields, coral coast, and a night stadium.",
+    "playerCraftConcept": "Privateer twin-pod hovercraft in ember-orange over charcoal weave with a cyan spine stripe, rear-view silhouette.",
+    "rivalCrafts": [
+      {
+        "name": "VEX",
+        "vehicleConcept": "Matte black dart with ember-orange fangs and a high tail fin, rear-view silhouette."
+      },
+      {
+        "name": "JUNO",
+        "vehicleConcept": "Pearl-white wedge with coral-pink side pods and a low canopy, rear-view silhouette."
+      },
+      {
+        "name": "PIP",
+        "vehicleConcept": "Mint-green twinpod with yellow checker tail and round pods, rear-view silhouette."
+      },
+      {
+        "name": "KAZ",
+        "vehicleConcept": "Deep violet wedge with violet-gold trim and a wide rear skirt, rear-view silhouette."
+      }
+    ],
+    "sound": {
+      "engine": {
+        "family": "electric",
+        "tone": 0.7,
+        "pitch": 3
+      }
+    },
+    "boost": {
+      "mode": "pads",
+      "displayName": "Surge Pads",
+      "appearanceConcept": "Glowing cyan chevron strips painted across the racing line."
+    }
+  }
+}

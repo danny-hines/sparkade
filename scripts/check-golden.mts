@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ArchetypeId, GameSpec } from '@sparkade/shared';
+import { ARCHETYPE_IDS, type ArchetypeId, type GameSpec } from '@sparkade/shared';
 import { archetypes } from '@sparkade/archetypes';
 import {
   applySpriteFallbacks,
@@ -17,7 +17,7 @@ import {
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const args = process.argv.slice(2);
-const targets = (args.length ? args : ['platformer', 'shooter', 'adventure', 'hshooter', 'fighter']).map((a) =>
+const targets = (args.length ? args : [...ARCHETYPE_IDS]).map((a) =>
   a.endsWith('.json') ? a : join(root, 'packages', 'generation', 'golden', `golden-${a}.json`),
 );
 

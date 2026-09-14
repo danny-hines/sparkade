@@ -12,11 +12,11 @@ test('boots to attract; key screens produce no uncaught console errors', async (
   await expect(page.locator('.attract .logo')).toContainText('SPARK');
   await expect(page.locator('.press-start')).toBeVisible();
 
-  // home: New Game + the five golden games + Settings, all in one list
+  // home: New Game + the six golden games + Settings, all in one list
   await tap(page, 'Enter');
   await expect(page.locator('.home-item.new')).toBeVisible();
-  await expect(page.locator('.home-item.game')).toHaveCount(5);
-  await expect(page.locator('.badge.golden')).toHaveCount(5);
+  await expect(page.locator('.home-item.game')).toHaveCount(6);
+  await expect(page.locator('.badge.golden')).toHaveCount(6);
 
   // settings is the last list item; Up wraps to it
   await tap(page, 'ArrowUp');
@@ -272,7 +272,7 @@ test('generation progress survives a page reload (durable jobs)', async ({ page 
         }),
       { timeout: 120_000 },
     )
-    .toBeGreaterThanOrEqual(7); // 5 goldens + 2 generated
+    .toBeGreaterThanOrEqual(8); // 6 goldens + 2 generated
 });
 
 test('delete flow: Cancel is the default; hold-A deletes', async ({ page }) => {
@@ -464,4 +464,154 @@ test('generates and plays an armed climber with the complete action sprite set',
     combat.results.filter((result) => !result.pass),
     JSON.stringify(combat),
   ).toEqual([]);
+});
+test('golden racing cup: fast deterministic full cup under GameHost', async ({
+  page,
+}) => {
+  // Fast-forwarded: the rAF loop stops and the test steps host.update
+  // directly in batches, so a full cup takes ~1 minute, not ~9.
+  test.setTimeout(300_000);
+  const errors = trackErrors(page);
+  await page.goto('http://127.0.0.1:5198/?dev=playtest&game=golden-racing');
+  await page.waitForFunction(() => !!(window as any).sparkadePlaytest?.instance);
+  await page.evaluate(() => (window as any).sparkadePlaytest.loop.stop());
+  // Test-local press: the key stays physically down across real updates
+  // (held polls), then releases across more updates (edge resets). The
+  // broker latches ultra-fast taps, but one held press yields exactly one
+  // consumed edge, so each press advances exactly one card/phase.
+  const press = async (code: 'KeyX' | 'Enter', holdSteps = 30, restSteps = 30) => {
+    await page.keyboard.down(code);
+    await page.evaluate((n: number) => {
+      const h = (window as any).sparkadePlaytest;
+      for (let i = 0; i < n; i++) h.update(1 / 60);
+    }, holdSteps);
+    await page.keyboard.up(code);
+    await page.evaluate((n: number) => {
+      const h = (window as any).sparkadePlaytest;
+      for (let i = 0; i < n; i++) h.update(1 / 60);
+    }, restSteps);
+  };
+  // Explicit A through the host how-to card (how-to is host state, not engine cards).
+  for (let i = 0; i < 10; i++) {
+    const st = await page.evaluate(() => (window as any).sparkadePlaytest.state);
+    if (st === 'game') break;
+    await press('KeyX');
+  }
+  // One batch: up to 600 fixed steps plus a periodic render, stopping
+  // immediately at results/cards/cupEnd so the test answers promptly.
+  // Autopilot is owned inside the batch: on for title/countdown driving,
+  // off the moment results/cupEnd appear, so no batch ever skips a manual
+  // confirmation.
+  const step = () =>
+    page.evaluate(() => {
+      const h = (window as any).sparkadePlaytest;
+      const dev = h.instance.racingDev;
+      const atStart = dev.snapshot().phase as string;
+      if (atStart === 'title' || atStart === 'countdown') dev.setAutopilot(true);
+      if (atStart === 'results' || atStart === 'cupEnd') dev.setAutopilot(false);
+      let stop = '';
+      for (let i = 0; i < 600; i++) {
+        h.update(1 / 60);
+        if (i % 200 === 0) h.render();
+        const ph = dev.snapshot().phase as string;
+        if (ph === 'results' || ph === 'cupEnd') {
+          // Stop automatic confirmation before the caller's press helper
+          // advances any more frames through this new phase.
+          dev.setAutopilot(false);
+          stop = ph;
+          break;
+        }
+        if (h.engineCtx.cards.active) {
+          stop = 'cards';
+          break;
+        }
+      }
+      const s = dev.snapshot();
+      return {
+        stop,
+        phase: s.phase as string,
+        trackId: s.trackId as string,
+        raceIndex: s.cup.raceIndex as number,
+        complete: s.cup.complete as boolean,
+        points: s.cup.points as number[],
+        speed: s.player.speed as number,
+        lap: s.player.lap as number,
+        t: s.t as number,
+        cards: !!h.engineCtx.cards.active,
+        hostState: h.state as string,
+        resultNull: h.instance.result === null,
+      };
+    });
+  const visited: string[] = [];
+  const laps: Record<string, number> = {};
+  const trail: string[] = [];
+  let pauseChecked = false;
+  let confirmedNull = false;
+  for (let b = 0; b < 300; b++) {
+    const st = await step();
+    if (!visited.includes(st.trackId)) visited.push(st.trackId);
+    if (st.phase === 'results') laps[st.trackId] = Math.max(laps[st.trackId] ?? 0, st.lap);
+    const mark = `${b}:${st.hostState}/${st.phase}${st.cards ? '+cards' : ''}`;
+    if (trail[trail.length - 1] !== mark) trail.push(mark);
+    // Tally exits first: once the host takes over, phase snapshots lag the
+    // confirmed result and must not be re-asserted as null.
+    if (st.hostState === 'tally') break;
+    if (st.cards) {
+      await press('KeyX'); // actual A through story cards
+      continue;
+    }
+    // Real acceleration on real physics, no teleports.
+    if (st.phase === 'race' && !pauseChecked) {
+      expect(st.speed).toBeGreaterThan(5);
+      await press('Enter', 5, 5); // START pauses via the real host path
+      expect(await page.evaluate(() => (window as any).sparkadePlaytest.state)).toBe('paused');
+      const t1 = (
+        await page.evaluate(() => (window as any).sparkadePlaytest.instance.racingDev.snapshot())
+      ).t;
+      await page.evaluate(() => {
+        const h = (window as any).sparkadePlaytest;
+        for (let i = 0; i < 60; i++) h.update(1 / 60);
+      });
+      expect(
+        (
+          await page.evaluate(
+            () => (window as any).sparkadePlaytest.instance.racingDev.snapshot(),
+          )
+        ).t,
+      ).toBe(t1);
+      await press('Enter', 5, 5);
+      expect(await page.evaluate(() => (window as any).sparkadePlaytest.state)).toBe('game');
+      pauseChecked = true;
+      continue;
+    }
+    if (st.phase === 'results') {
+      await press('KeyX'); // manual A through every results screen
+      continue;
+    }
+    if (st.phase === 'cupEnd') {
+      // Null exactly before the manual confirmation, non-null after the
+      // narrative plays out (asserted below at tally).
+      if (!confirmedNull) {
+        expect(st.resultNull).toBe(true);
+        confirmedNull = true;
+      }
+      await press('KeyX'); // actual A confirms the standings
+      continue;
+    }
+  }
+  console.log(`racing-e2e trail: ${trail.join(' ')}`);
+  expect(pauseChecked).toBe(true);
+  expect(confirmedNull).toBe(true);
+  expect(visited).toEqual(['ember', 'coral', 'ratchet']);
+  // Actual physics laps on all three — a timeout DNF banks points too, but
+  // only real driving banks laps.
+  expect(laps).toEqual({ ember: 3, coral: 3, ratchet: 3 });
+  const end = await page.evaluate(
+    () => (window as any).sparkadePlaytest.instance.racingDev.snapshot(),
+  );
+  expect(end.cup.complete).toBe(true);
+  expect((end.cup.points as number[]).reduce((a, b) => a + b, 0)).toBe(66);
+  expect(await page.evaluate(() => (window as any).sparkadePlaytest.state)).toBe('tally');
+
+  expect(errors).toEqual([]);
 });

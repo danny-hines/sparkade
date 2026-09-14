@@ -3,16 +3,18 @@ import { ARCHETYPE_IDS } from '@sparkade/shared';
 import { drawSurpriseArchetype, type SurpriseBagState } from '../src/surprise';
 
 describe('Surprise archetype shuffle bag', () => {
+  const BAG = [...ARCHETYPE_IDS];
+
   it('uses every archetype exactly once per cycle', () => {
     let state: SurpriseBagState | null = null;
-    const draws = Array.from({ length: ARCHETYPE_IDS.length * 2 }, () => {
+    const draws = Array.from({ length: BAG.length * 2 }, () => {
       const result = drawSurpriseArchetype(state, () => 0.37);
       state = result.state;
       return result.archetype;
     });
 
-    for (let start = 0; start < draws.length; start += ARCHETYPE_IDS.length) {
-      expect(new Set(draws.slice(start, start + ARCHETYPE_IDS.length))).toEqual(new Set(ARCHETYPE_IDS));
+    for (let start = 0; start < draws.length; start += BAG.length) {
+      expect(new Set(draws.slice(start, start + BAG.length))).toEqual(new Set(BAG));
     }
   });
 

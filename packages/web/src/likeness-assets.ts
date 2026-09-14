@@ -1,10 +1,33 @@
-import type { LikenessAssets } from '@sparkade/engine';
+import type { LikenessAssets, RacingArtBundle } from '@sparkade/engine';
 import {
   GENERATED_GAME_ASSET_FILES,
   PLATFORMER_ACTION_ASSET_ROLES,
+  RACING_CRAFT_ROLES,
+  RACING_PANORAMA_ROLES,
   type GeneratedGameAssetRole,
 } from '@sparkade/shared';
 import { api as defaultApi } from './api';
+
+/** Ten-file racing pack in load order: 3 panoramas, 5 strips, scenery, materials. */
+export const RACING_PANORAMA_ASSETS = RACING_PANORAMA_ROLES;
+export const RACING_CRAFT_STRIP_ASSETS = RACING_CRAFT_ROLES;
+export const RACING_SCENERY_ATLAS_ASSET =
+  'racingSceneryAtlas' as const satisfies GeneratedGameAssetRole;
+export const RACING_MATERIAL_ATLAS_ASSET =
+  'racingMaterialAtlas' as const satisfies GeneratedGameAssetRole;
+
+/** Surfaced when an advertised racing pack cannot load completely. */
+export class RacingArtLoadError extends Error {
+  constructor(
+    readonly gameId: string,
+    readonly missing: readonly string[],
+  ) {
+    super(
+      'Some artwork could not be loaded. Reload the game to try again.',
+    );
+    this.name = 'RacingArtLoadError';
+  }
+}
 
 export type RuntimeGameAssetFilename = Parameters<typeof defaultApi.assetUrl>[1];
 
@@ -17,6 +40,7 @@ export type RuntimeGameAssetAvailability = {
   head16Back: boolean;
   portrait: boolean;
   fighterArenaPresentationBaked?: boolean;
+  racingArtRequired?: boolean;
 } & Record<GeneratedGameAssetRole, boolean>;
 
 /** Published in the same stable order used by Fighter identity slots. */
@@ -158,6 +182,16 @@ export async function loadLikenessAssets(
     assetUrl: (_gameId: string, filename: RuntimeGameAssetFilename) => assetUrlFor(filename),
   };
   const hasCompleteFighterRoster = FIGHTER_ROSTER_ATLAS_ASSETS.every((role) => assets[role]);
+  const hasCompleteRacingPack =
+    RACING_PANORAMA_ASSETS.every((role) => assets[role]) &&
+    RACING_CRAFT_STRIP_ASSETS.every((role) => assets[role]) &&
+    assets[RACING_SCENERY_ATLAS_ASSET] &&
+    assets[RACING_MATERIAL_ATLAS_ASSET];
+  const hasAnyRacingAsset =
+    RACING_PANORAMA_ASSETS.some((role) => assets[role]) ||
+    RACING_CRAFT_STRIP_ASSETS.some((role) => assets[role]) ||
+    assets[RACING_SCENERY_ATLAS_ASSET] ||
+    assets[RACING_MATERIAL_ATLAS_ASSET];
   const hasCompletePlatformerSet = PLATFORMER_POSE_ASSETS.every(([, role]) => assets[role]);
   const hasCompleteAdventurePlayerSet = ADVENTURE_PLAYER_POSE_ASSETS.every(
     ([, role]) => assets[role],
@@ -190,9 +224,23 @@ export async function loadLikenessAssets(
     !SHOOTER_BACKDROP_ASSETS.some(([, role]) => assets[role]) &&
     !hasCompleteFighterRoster &&
     !hasCompletePlatformerSet &&
-    !hasCompleteAdventurePlayerSet
+    !hasCompleteAdventurePlayerSet &&
+    !hasAnyRacingAsset &&
+    !assets.racingArtRequired
   ) {
     return null;
+  }
+  // An advertised-but-incomplete pack is a load error, never a silent
+  // fallback: the M4 renderer refuses partial packs, so failing here keeps
+  // the failure explicit at the load boundary it belongs to.
+  if ((hasAnyRacingAsset || assets.racingArtRequired) && !hasCompleteRacingPack) {
+    const missing = [
+      ...RACING_PANORAMA_ASSETS.filter((role) => !assets[role]),
+      ...RACING_CRAFT_STRIP_ASSETS.filter((role) => !assets[role]),
+      ...(assets[RACING_SCENERY_ATLAS_ASSET] ? [] : [RACING_SCENERY_ATLAS_ASSET]),
+      ...(assets[RACING_MATERIAL_ATLAS_ASSET] ? [] : [RACING_MATERIAL_ATLAS_ASSET]),
+    ];
+    throw new RacingArtLoadError(gameId, missing);
   }
 
   const likenessPromise = Promise.all([
@@ -369,6 +417,52 @@ export async function loadLikenessAssets(
           ) as Record<AdventurePlayerPoseName, HTMLImageElement>;
         })
       : Promise.resolve(null);
+  // Complete packs only: every role advertised means every file must decode,
+  // otherwise the whole load fails loudly via RacingArtLoadError below.
+  const racingArtPromise: Promise<RacingArtBundle | null> = hasCompleteRacingPack
+    ? Promise.all([
+        ...RACING_PANORAMA_ASSETS.map((role) =>
+          loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[role])),
+        ),
+        ...RACING_CRAFT_STRIP_ASSETS.map((role) =>
+          loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[role])),
+        ),
+        loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[RACING_SCENERY_ATLAS_ASSET])),
+        loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[RACING_MATERIAL_ATLAS_ASSET])),
+      ]).then((images) => {
+        const [p1, p2, p3, s0, s1, s2, s3, s4, sceneryAtlas, materialAtlas] = images;
+        if (
+          !p1 ||
+          !p2 ||
+          !p3 ||
+          !s0 ||
+          !s1 ||
+          !s2 ||
+          !s3 ||
+          !s4 ||
+          !sceneryAtlas ||
+          !materialAtlas
+        ) {
+          const missing = [
+            ...RACING_PANORAMA_ASSETS.filter(
+              (_, k) => images[k] === null,
+            ),
+            ...RACING_CRAFT_STRIP_ASSETS.filter(
+              (_, k) => images[3 + k] === null,
+            ),
+            ...(sceneryAtlas ? [] : [RACING_SCENERY_ATLAS_ASSET]),
+            ...(materialAtlas ? [] : [RACING_MATERIAL_ATLAS_ASSET]),
+          ];
+          throw new RacingArtLoadError(gameId, missing);
+        }
+        return {
+          panoramas: [p1, p2, p3],
+          strips: [s0, s1, s2, s3, s4],
+          sceneryAtlas,
+          materialAtlas,
+        };
+      })
+    : Promise.resolve(null);
 
   const [
     [head12, head12Side, head12Back, head16, head16Side, head16Back, portrait, portraitDefeat],
@@ -393,6 +487,7 @@ export async function loadLikenessAssets(
     shooterPlayerCraft,
     shooterBoss,
     shooterEnemyAtlas,
+    racingArt,
   ] = await Promise.all([
     likenessPromise,
     storyPromise,
@@ -416,6 +511,7 @@ export async function loadLikenessAssets(
     shooterPlayerCraftPromise,
     shooterBossPromise,
     shooterEnemyAtlasPromise,
+    racingArtPromise,
   ]);
 
   return {
@@ -452,5 +548,6 @@ export async function loadLikenessAssets(
     shooterPlayerCraft,
     shooterBoss,
     shooterEnemyAtlas,
+    racingArt,
   };
 }

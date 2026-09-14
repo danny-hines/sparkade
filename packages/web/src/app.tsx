@@ -17,6 +17,7 @@ import { AssetsGalleryScreen } from './screens/assets-gallery';
 import { LikenessLabScreen } from './screens/likeness-lab';
 import { SpriteEditorScreen } from './screens/sprite-editor';
 import { PlaytestScreen } from './screens/playtest';
+import { RacingDevScreen } from './screens/racing-dev';
 import { PresentationLabScreen } from './screens/presentation-lab';
 import { PlatformerPosesLabScreen } from './screens/platformer-poses-lab';
 import { PlatformerLevelsLabScreen } from './screens/platformer-levels-lab';
@@ -46,6 +47,7 @@ export function App(): ComponentChildren {
     if (dev === 'likeness') return <LikenessLabScreen />;
     if (dev === 'sprite-editor') return <SpriteEditorScreen />;
     if (dev === 'playtest') return <PlaytestScreen />;
+    if (dev === 'racing') return <RacingDevScreen />;
     if (dev === 'presentation') return <PresentationLabScreen />;
     if (dev === 'platformer-poses') return <PlatformerPosesLabScreen />;
     if (dev === 'fighter-poses') return <FighterPosesLabScreen />;

@@ -67,6 +67,9 @@ const STRATEGIES: Record<ArchetypeId, Strategy> = {
   },
   // Fighter self-plays via engine.attract (both actors on AI); pilot stays idle.
   fighter: () => ({}),
+  // Racing self-plays via engine.attract (internal autopilot drives the player
+  // with the same neutral AI and auto-advances); the pilot stays idle.
+  racing: () => ({}),
 };
 
 /** A GameHost-compatible input source that plays `archetype` on autopilot. */

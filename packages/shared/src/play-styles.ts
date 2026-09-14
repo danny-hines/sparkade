@@ -298,6 +298,17 @@ export function mechanicalFingerprint(spec: GameSpec): MechanicalFingerprint {
           ...new Set(spec.levels.flatMap((l) => l.waves.flatMap(shooterEncounters))),
         ].sort(),
       };
+    case 'racing':
+      return {
+        ...base,
+        playStyle: 'hoverCup',
+        movement: 'hoverSteer+boost',
+        weapons: ['boost'],
+        objective: 'winCupPoints',
+        topology: 'closedCircuits',
+        progression: 'threeRaceCup',
+        encounters: [...new Set(spec.levels.map((l) => l.template))].sort(),
+      };
     case 'hshooter':
       return {
         ...base,

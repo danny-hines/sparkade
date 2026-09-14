@@ -65,6 +65,7 @@ export function estimateGenerationCost(
     shooterBossJudge?: boolean;
     shooterEnemyJudge?: boolean;
     platformerEnemyJudge?: boolean;
+    racingRosterJudge?: boolean;
     adventurePlayerIdentityJudge?: boolean;
     adventurePlayerSetJudge?: boolean;
     adventureBossJudge?: boolean;
@@ -102,6 +103,12 @@ export function estimateGenerationCost(
       : []),
     ...(options.platformerEnemyJudge
       ? [{ input: 2200, output: 2800 }] // one board selects two candidates for all four enemies
+      : []),
+    ...(options.racingRosterJudge
+      ? [
+          { input: 900, output: 800 },
+          { input: 1800, output: 1200 },
+        ] // one five-strip board review with a JSON verdict
       : []),
     ...(options.adventurePlayerIdentityJudge
       ? [{ input: 1200, output: 900 }] // source-photo identity foundation selection
@@ -146,6 +153,11 @@ export function estimateImageCount(hasPhoto: boolean, archetype?: ArchetypeId): 
   // story-art-derived boss candidates, and one ten-candidate enemy-cast board.
   if (archetype === 'hshooter') return hasPhoto ? 18 : 16;
   if (archetype === 'shooter') return hasPhoto ? 18 : 16;
+  // Racing gameplay calls: 5 craft strips + 3 panoramas + 6 scenery
+  // objects + 1 material atlas (15), plus key art (1) and 4 story scenes.
+  // A photo adds the portrait + defeat portrait (heads bake locally from
+  // the portrait, never generated).
+  if (archetype === 'racing') return hasPhoto ? 22 : 20;
   if (archetype === undefined) return hasPhoto ? 40 : 31;
   if (!hasPhoto) return 8;
   return 10;

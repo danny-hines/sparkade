@@ -1,7 +1,7 @@
 import { ARCHETYPE_IDS, type ArchetypeId } from '@sparkade/shared';
 
 const STORAGE_KEY = 'sparkade.surprise-archetype-bag.v1';
-const ARCHETYPES = [...ARCHETYPE_IDS];
+const ARCHETYPES: ArchetypeId[] = [...ARCHETYPE_IDS];
 
 export interface SurpriseBagState {
   version: 1;

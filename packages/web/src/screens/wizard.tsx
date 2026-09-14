@@ -64,11 +64,27 @@ const ARCHETYPES: readonly ArchetypeChoice[] = [
     feel: 'Duel · counter · triumph',
     description: 'A character-driven arcade ladder with distinct rivals and arenas.',
   },
+  {
+    id: 'racing',
+    label: 'Hover Cup',
+    previewImage: '/archetypes/racing.png',
+    feel: 'Steer · boost · win',
+    description: 'A 3-race hover cup against four rivals across three proven circuits.',
+  },
 ];
 
 function choiceFor(id: ArchetypeId): ArchetypeChoice {
   return ARCHETYPES.find((choice) => choice.id === id) ?? ARCHETYPES[0]!;
 }
+
+/**
+ * Carousel geometry (mirrors styles.css `.archetype-card` 210px +
+ * `.archetype-track` 18px gap). The track is parked at the container's
+ * center (left: 50%) and shifted back by the selected card's center, so the
+ * selected card lands on the viewport center for every cursor position.
+ */
+const CARD_STRIDE = 228;
+const CARD_HALF = 105;
 
 export function WizardScreen(props: {
   go: (s: Screen) => void;
@@ -741,7 +757,11 @@ export function WizardScreen(props: {
             <div class="archetype-carousel">
               <div
                 class="archetype-track"
-                style={{ transform: `translateX(calc(50% - ${cursor * 232 + 107}px))` }}
+                style={{
+                  position: 'relative',
+                  left: '50%',
+                  transform: `translateX(${-(cursor * CARD_STRIDE + CARD_HALF)}px)`,
+                }}
               >
                 {ARCHETYPES.map((choice, index) => (
                   <div

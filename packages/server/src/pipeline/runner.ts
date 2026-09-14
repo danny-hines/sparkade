@@ -4,6 +4,7 @@
 // On boot the server reconciles: interrupted jobs become failed-retryable.
 import { generatePlatformerActions } from '../assets/platformer-actions';
 import { randomInt } from 'node:crypto';
+import { alignRacingCast, racingIdentityProblems } from './racing-identity';
 import type { DurablePipelineCalls, PipelineStore } from './durable';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -326,6 +327,32 @@ import {
   type PlayerCraftCandidateDescriptor,
   type PlayerCraftOrientation,
 } from '../assets/player-craft-judge';
+import {
+  buildRacingIdentityReference,
+  processGeneratedRacingCraftStrip,
+  processGeneratedRacingCraftStripReference,
+} from '../assets/racing-craft';
+import {
+  buildRacingBankEditReference,
+  correctRacingBankPoses,
+  extractRacingNeutralCell,
+} from '../assets/racing-bank';
+import { processGeneratedRacingPanorama } from '../assets/racing-scenery';
+import { generateRacingSceneryPack } from '../assets/racing-scenery-pack';
+import { processGeneratedRacingMaterials } from '../assets/racing-materials';
+import {
+  RACING_PACK_REQUIRED_ROLES,
+  reviewPendingRacingStrips,
+  buildRacingPackPlan,
+  buildRacingRosterJudgeBoard,
+  buildRacingRosterJudgePrompt,
+  buildRacingRosterJudgeSchema,
+  normalizeRacingRosterJudgeDecision,
+  racingRosterSlots,
+  type RacingPackEntry,
+  type RacingRosterSlotDescriptor,
+  type RacingSlotCorrectionKind,
+} from '../assets/racing-pack';
 import {
   GENERATED_HSHOOTER_BACKDROPS,
   HSHOOTER_BACKDROP_ASPECT_HINT,
@@ -2038,20 +2065,47 @@ export class GenerationRunner {
             }
           }
         };
+        // One shared levels promise: racing entities depend on the canonical
+        // circuits (no duplicate level generation), every other archetype
+        // keeps full levels/entities/music parallelism.
+        const levelsPromise = loadLevels();
+        const canonicalLevelsOf = (canonical: unknown): unknown => {
+          const roster = isRecord(canonical) ? canonical : null;
+          return roster?.['levels'] ?? canonical;
+        };
         const results = await Promise.allSettled([
-          loadLevels().then((canonical) => {
+          levelsPromise.then((canonical) => {
+            parts.levels = canonicalLevelsOf(canonical);
             const roster = isRecord(canonical) ? canonical : null;
-            parts.levels = roster?.['levels'] ?? canonical;
             if (archetype === 'fighter') parts.player = roster?.['player'];
             tick(resumedLevels !== undefined ? 'Levels restored' : 'Levels');
           }),
           (resumedEntities !== undefined
             ? Promise.resolve(resumedEntities)
-            : callLlm('entities', buildEntitiesPrompt(archetype, design, !!photo, recentUse), {
-                stage: 'writing-spec',
-                checkpoint: 'entities',
-                label: 'Casting entities…',
-              })
+            : archetype === 'racing'
+              ? levelsPromise.then((canonical) =>
+                  callLlm(
+                    'entities',
+                    buildEntitiesPrompt(
+                      archetype,
+                      design,
+                      !!photo,
+                      recentUse,
+                      [],
+                      canonicalLevelsOf(canonical),
+                    ),
+                    {
+                      stage: 'writing-spec',
+                      checkpoint: 'entities',
+                      label: 'Casting entities…',
+                    },
+                  ),
+                )
+              : callLlm('entities', buildEntitiesPrompt(archetype, design, !!photo, recentUse), {
+                  stage: 'writing-spec',
+                  checkpoint: 'entities',
+                  label: 'Casting entities…',
+                })
           ).then((r) => {
             parts.entities = r as SpecParts['entities'];
             pushPartial({ sprites: parts.entities?.sprites as PartialSpec['sprites'] });
@@ -2162,6 +2216,11 @@ export class GenerationRunner {
           'The validated game must preserve the design-selected Adventure objective.',
           'validating',
         );
+      }
+
+      const identityProblems = racingIdentityProblems(spec, design);
+      if (identityProblems.length) {
+        throw new PipelineError('validation-failed', identityProblems[0]!.message, 'validating');
       }
 
       try {
@@ -2561,28 +2620,202 @@ export class GenerationRunner {
             return { gameplay: selected.gameplay, presentationReference: selected.presentation };
           })()
         : Promise.resolve(null);
-      const keyArtTask = playerCraftTask.then(async (craftAssets) => {
-        const craftBrief = craftAssets ? playerCraftIdentity : undefined;
-        const reference = craftAssets
-          ? await buildHShooterIdentityReference(photoReference, craftAssets.presentationReference)
-          : photoReference;
-        const keyArtPrompt = buildKeyArtPrompt(spec, !!photo, canonicalHeroConcept, craftBrief);
-        return cachedGeneratedAsset({
-          role: 'keyArt',
-          promptVersion: KEY_ART_PROMPT_VERSION,
-          prompt: keyArtPrompt,
-          policyFallbackPrompt: buildKeyArtPolicyFallbackPrompt(
-            spec,
-            !!photo,
-            canonicalHeroConcept,
-            craftBrief,
-          ),
-          label: 'Key art',
-          ...(reference ? { reference } : {}),
-          size: KEY_ART_ASPECT_HINT,
-          normalize: normalizeKeyArt,
+      // Racing player strip is generated BEFORE key art so the vehicle-first
+      // presentation reference can ground key/story art. Required for
+      // identity-bearing cups: failures throw (no silent artless success).
+      const racingSpec = spec.archetype === 'racing' ? spec : null;
+      const racingIdentity = racingSpec?.identity;
+      const racingAssetFailure = (error: unknown): never => {
+        throwIfSuspended();
+        if (error instanceof PipelineError || error instanceof GeneratedAssetStorageError)
+          throw error;
+        throw new PipelineError(
+          'image-invalid',
+          error instanceof Error ? error.message : String(error),
+          'building-assets',
+        );
+      };
+      const generatePlayerStrip = async (retryGuidance = ''): Promise<PlayerCraftAssets> => {
+        if (!racingSpec) throw new Error('racing pack needs an identity-bearing racing spec');
+        const entry = buildRacingPackPlan(racingSpec).playerStrip;
+        const result = await cachedGeneratedAsset({
+          role: entry.role,
+          promptVersion: entry.promptVersion,
+          prompt: retryGuidance
+            ? `${entry.prompt} ART DIRECTOR CORRECTION: ${retryGuidance.slice(0, 320)}.`
+            : entry.prompt,
+          label: entry.label,
+          ...(entry.size ? { size: entry.size } : {}),
+          normalize: (raw) => processGeneratedRacingCraftStrip(raw).then((strip) => strip.png),
+          privateCompanion: {
+            role: 'racingCraftReference',
+            normalize: (raw) => processGeneratedRacingCraftStripReference(raw),
+          },
         });
-      });
+        return { gameplay: result.image, presentationReference: result.companion };
+      };
+      // Player-only semantic review BEFORE the reference freezes: key and
+      // story art render from this strip's presentation reference, so a
+      // later correction could never propagate downstream. One bounded
+      // repaint, then fail clearly.
+      const reviewRacingStrips = async (
+        buffers: Buffer[],
+        reviewSlots: readonly RacingRosterSlotDescriptor[],
+        label: string,
+        references: readonly { slot: RacingRosterSlotDescriptor; png: Buffer }[] = [],
+      ): Promise<ReturnType<typeof normalizeRacingRosterJudgeDecision>> => {
+        const board = await buildRacingRosterJudgeBoard([
+          ...buffers.map((png, k) => ({ id: reviewSlots[k]!.id, png })),
+          ...references.map(({ slot, png }) => ({ id: slot.id, png, referenceOnly: true })),
+        ]);
+        if (mockImages) {
+          return { accepted: true, rejectedIds: [], retryGuidance: '', correctionKinds: {}, slotGuidance: {} };
+        }
+        const rawDecision = await callLlm(
+          'design',
+          {
+            ...buildRacingRosterJudgePrompt(
+              reviewSlots,
+              references.map(({ slot }) => slot),
+            ),
+            jsonSchema: buildRacingRosterJudgeSchema(reviewSlots),
+            maxTokens: 1600,
+            timeoutMs: 120_000,
+          },
+          {
+            stage: 'building-assets',
+            label,
+            image: board,
+            reasoningEffort: 'low',
+          },
+        );
+        return normalizeRacingRosterJudgeDecision(rawDecision, reviewSlots);
+      };
+      const racingPlayerStripTask: Promise<PlayerCraftAssets | null> = racingIdentity
+        ? (async () => {
+            if (!racingSpec) throw new Error('racing pack needs an identity-bearing racing spec');
+            // Persist the reviewed selection under the immutable design key.
+            // A correction prompt changes the candidate hash; without this
+            // selection checkpoint, retrying unrelated scenery repaints the
+            // player and invalidates every dependent story image.
+            const entry = buildRacingPackPlan(racingSpec).playerStrip;
+            const acceptedVersion = `${entry.promptVersion}-approved-v1`;
+            const acceptedHash = imagePromptHash(entry.prompt);
+            const acceptedImage = assetWorkspace.load(entry.role, acceptedVersion, acceptedHash);
+            const acceptedReference = assetWorkspace.loadPrivate(
+              'racingCraftReference',
+              acceptedVersion,
+              acceptedHash,
+            );
+            if (acceptedImage && acceptedReference) {
+              emit('building-assets', 'Restored the reviewed player vehicle');
+              return { gameplay: acceptedImage, presentationReference: acceptedReference };
+            }
+            emit('building-assets', 'Painting the player vehicle strip…');
+            const playerSlots = racingRosterSlots(racingSpec).slice(0, 1);
+            let strip = await generatePlayerStrip();
+            let decision = await reviewRacingStrips(
+              [strip.gameplay],
+              playerSlots,
+              'Spark reviews the player vehicle',
+            );
+            if (!decision.accepted) {
+              // Category-aware correction BEFORE the reference freezes.
+              // Banking keeps the accepted neutral cell and its HR
+              // presentation reference; a vehicle rejection repaints the
+              // full strip (with a fresh HR companion) while key/story art
+              // can still render from it.
+              const playerKind: RacingSlotCorrectionKind =
+                decision.correctionKinds['player'] ?? 'vehicle';
+              const playerGuidance = decision.slotGuidance['player'] || decision.retryGuidance || 'Correct the rejected player vehicle to match its concept and rear camera.';
+              const playerIdentity = racingSpec.identity!;
+              if (playerKind === 'banking') {
+                emit('building-assets', 'Correcting the player banking poses…');
+                const correctedPlayer = await correctRacingBankPoses({
+                  strip: strip.gameplay,
+                  vehicleName: playerSlots[0]!.name,
+                  artDirection: playerIdentity.artDirection,
+                  colors: racingSpec.palette.join(', '),
+                  retryGuidance: playerGuidance,
+                  rolePrefix: 'racing-craft-player',
+                  generate: (prompt, pose) =>
+                    callImage({
+                      role: `racing-craft-player-bank-${pose}`,
+                      label: `Player bank ${pose === 'bankLeft' ? 'left' : 'right'} correction`,
+                      prompt,
+                      reference: strip.presentationReference,
+                      size: '1024x1024',
+                    }),
+                  checkActive: throwIfSuspended,
+                  validationFailure,
+                }).catch(racingAssetFailure);
+                strip = {
+                  gameplay: correctedPlayer,
+                  presentationReference: strip.presentationReference,
+                };
+              } else {
+                emit('building-assets', 'Repainting the player vehicle strip…');
+                strip = await generatePlayerStrip(playerGuidance).catch(racingAssetFailure);
+              }
+              decision = await reviewRacingStrips(
+                [strip.gameplay],
+                playerSlots,
+                'Spark re-reviews the player vehicle',
+              );
+            }
+            if (!decision.accepted) {
+              throw new PipelineError(
+                'image-invalid',
+                `Player vehicle review rejected the strip${decision.retryGuidance ? `: ${decision.retryGuidance.slice(0, 200)}` : ''}`,
+                'building-assets',
+              );
+            }
+            await assetWorkspace.storePrivate(
+              'racingCraftReference',
+              strip.presentationReference,
+              acceptedVersion,
+              acceptedHash,
+            );
+            await assetWorkspace.store(entry.role, strip.gameplay, acceptedVersion, acceptedHash);
+            return strip;
+          })()
+        : Promise.resolve(null);
+      const keyArtTask = Promise.all([playerCraftTask, racingPlayerStripTask]).then(
+        async ([craftAssets, racingCraft]) => {
+          const craftBrief = craftAssets
+            ? playerCraftIdentity
+            : racingCraft && racingIdentity
+              ? { visualConcept: racingIdentity.playerCraftConcept }
+              : undefined;
+          const reference = craftAssets
+            ? await buildHShooterIdentityReference(
+                photoReference,
+                craftAssets.presentationReference,
+              )
+            : racingCraft
+              ? await buildRacingIdentityReference(
+                  photoReference,
+                  racingCraft.presentationReference,
+                )
+              : photoReference;
+          const keyArtPrompt = buildKeyArtPrompt(spec, !!photo, canonicalHeroConcept, craftBrief);
+          return cachedGeneratedAsset({
+            role: 'keyArt',
+            promptVersion: KEY_ART_PROMPT_VERSION,
+            prompt: keyArtPrompt,
+            policyFallbackPrompt: buildKeyArtPolicyFallbackPrompt(
+              spec,
+              !!photo,
+              canonicalHeroConcept,
+              craftBrief,
+            ),
+            label: 'Key art',
+            ...(reference ? { reference } : {}),
+            size: KEY_ART_ASPECT_HINT,
+            normalize: normalizeKeyArt,
+          });
+        },
+      );
 
       let resolveAdventurePortraitReference!: (reference: Buffer) => void;
       let rejectAdventurePortraitReference!: (error: unknown) => void;
@@ -3352,17 +3585,24 @@ export class GenerationRunner {
         role: StoryArtRole,
         assetRole: GeneratedGameAssetRole,
       ): Promise<Buffer> =>
-        Promise.all([keyArtTask, playerCraftTask, adventurePlayerTask]).then(
-          async ([keyArt, craftAssets, adventurePlayer]) => {
-            const craftBrief = craftAssets ? playerCraftIdentity : undefined;
+        Promise.all([keyArtTask, playerCraftTask, racingPlayerStripTask, adventurePlayerTask]).then(
+          async ([keyArt, craftAssets, racingCraft, adventurePlayer]) => {
+            const craftBrief = craftAssets
+              ? playerCraftIdentity
+              : racingCraft && racingIdentity
+                ? { visualConcept: racingIdentity.playerCraftConcept }
+                : undefined;
             const adventureReference = adventurePlayer
               ? await buildAdventureStoryIdentityReference(keyArt, adventurePlayer)
               : null;
-            const reference = adventureReference
+            const storyReference = adventureReference
               ? adventureReference
               : craftAssets
                 ? await buildHShooterIdentityReference(keyArt, craftAssets.presentationReference)
-                : keyArt;
+                : racingCraft
+                  ? await buildRacingIdentityReference(keyArt, racingCraft.presentationReference)
+                  : keyArt;
+            const reference = storyReference;
             return cachedGeneratedAsset({
               role: assetRole,
               promptVersion: STORY_ART_PROMPT_VERSION,
@@ -3394,6 +3634,254 @@ export class GenerationRunner {
         defeat: storyAssetTask('defeat', 'storyDefeat'),
       } satisfies Record<StoryArtRole, Promise<Buffer>>;
       const storyTask = Promise.all(Object.values(storyAssets)).then(() => undefined);
+
+      // Racing world + roster pack. Required for identity-bearing cups: every
+      // one of the ten roles must validate, and the five-strip roster must
+      // pass one semantic review (with a single bounded correction) before
+      // the job can go ready. Nothing degrades to generic art silently.
+      let racingArtStatus: GameMetaFile['racingArt'];
+      const racingPackTask: Promise<void> = racingIdentity
+        ? Promise.all([keyArtTask, racingPlayerStripTask]).then(async ([keyArt, playerStrip]) => {
+            if (!playerStrip) {
+              throw new PipelineError(
+                'image-invalid',
+                'Player vehicle strip did not complete',
+                'building-assets',
+              );
+            }
+            if (!racingSpec) throw new Error('racing pack needs an identity-bearing racing spec');
+            const plan = buildRacingPackPlan(racingSpec);
+            const slots = racingRosterSlots(racingSpec);
+            const generateStrip = (entry: RacingPackEntry): Promise<Buffer> => {
+              const approved = assetWorkspace.load(
+                entry.role,
+                `${entry.promptVersion}-approved-v1`,
+                imagePromptHash(entry.prompt),
+              );
+              if (approved) return Promise.resolve(approved);
+              return cachedGeneratedAsset({
+                role: entry.role,
+                promptVersion: entry.promptVersion,
+                prompt: entry.prompt,
+                label: entry.label,
+                ...(entry.size ? { size: entry.size } : {}),
+                normalize: (raw) =>
+                  processGeneratedRacingCraftStrip(raw).then((strip) => strip.png),
+              });
+            };
+            const generateEntry = (
+              entry: RacingPackEntry,
+              normalize: (raw: Buffer) => Promise<Buffer>,
+              reference?: Buffer,
+            ): Promise<Buffer> =>
+              cachedGeneratedAsset({
+                role: entry.role,
+                promptVersion: entry.promptVersion,
+                prompt: entry.prompt,
+                label: entry.label,
+                ...(entry.size ? { size: entry.size } : {}),
+                ...(reference ? { reference } : {}),
+                normalize,
+              });
+            emit('building-assets', 'Painting rival strips, panoramas, and the world pack…');
+            const plannedRoles = [
+              plan.playerStrip.role,
+              ...plan.rivalStrips.map((entry) => entry.role),
+              ...plan.panoramas.map((entry) => entry.role),
+              plan.scenery.role,
+              plan.materials.role,
+            ];
+            if (!RACING_PACK_REQUIRED_ROLES.every((role) => plannedRoles.includes(role))) {
+              throw new Error('racing pack plan does not cover the ten-file contract');
+            }
+            // Drain every started image call before reporting failure, so
+            // retries cannot overlap old writes or omit their usage receipts.
+            const drain = async <T>(tasks: Promise<T>[]): Promise<T[]> => {
+              const outcomes = await Promise.allSettled(tasks);
+              const failed = outcomes.find((result) => result.status === 'rejected');
+              if (failed?.status === 'rejected') throw failed.reason;
+              return outcomes.map((result) => (result as PromiseFulfilledResult<T>).value);
+            };
+            const [rivalBuffers] = await drain<Buffer[]>([
+              drain(plan.rivalStrips.map((entry) => generateStrip(entry))),
+              drain(
+                plan.panoramas.map((entry) =>
+                  generateEntry(entry, (raw) => processGeneratedRacingPanorama(raw), keyArt),
+                ),
+              ),
+              generateRacingSceneryPack({
+                spec: racingSpec,
+                workspace: assetWorkspace,
+                reference: keyArt,
+                generate: (prompt, slot) =>
+                  callImage({
+                    role: `racing-scenery-object-${slot + 1}`,
+                    label: `Roadside object ${slot + 1} of 6`,
+                    prompt,
+                    reference: keyArt,
+                    size: '1024x1024',
+                  }),
+                checkActive: throwIfSuspended,
+                validationFailure,
+              })
+                .catch(racingAssetFailure)
+                .then((image) => [image]),
+              generateEntry(plan.materials, (raw) => processGeneratedRacingMaterials(raw)).then(
+                (image) => [image],
+              ),
+            ]);
+            // Rival-only review: the player strip was already reviewed
+            // before its reference froze into key/story art, so it rides
+            // the board as a reference-only row and can never receive a
+            // new random verdict. Only rival targets can reject here.
+            const buffers = [playerStrip.gameplay, ...rivalBuffers!];
+            const approvedIds = new Set(['player']);
+            for (const [index, entry] of plan.rivalStrips.entries()) {
+              if (assetWorkspace.load(entry.role, `${entry.promptVersion}-approved-v1`, imagePromptHash(entry.prompt))) {
+                approvedIds.add(slots[index + 1]!.id);
+              }
+            }
+            const reviewPending = (label: string) => reviewPendingRacingStrips({
+              slots,
+              buffers,
+              approvedIds,
+              review: (pending, targets, references) => reviewRacingStrips(pending, targets, label, references),
+              approve: async (id, png) => {
+                const index = slots.findIndex((slot) => slot.id === id);
+                const entry = plan.rivalStrips[index - 1]!;
+                await assetWorkspace.store(entry.role, png, `${entry.promptVersion}-approved-v1`, imagePromptHash(entry.prompt));
+                approvedIds.add(id);
+              },
+            });
+            let decision = await reviewPending('Spark reviews the vehicle roster');
+            if (!decision.accepted) {
+              const retryIds = decision.rejectedIds.length
+                ? decision.rejectedIds
+                : slots.filter((slot) => !approvedIds.has(slot.id)).map((slot) => slot.id);
+              const retryKinds = retryIds.map(
+                (id): RacingSlotCorrectionKind => decision.correctionKinds[id] ?? 'vehicle',
+              );
+              emit(
+                'building-assets',
+                retryKinds.every((kind) => kind === 'banking')
+                  ? 'Correcting rejected rival banking poses…'
+                  : 'Correcting rejected rival vehicles…',
+              );
+              for (const id of retryIds) {
+                const k = slots.findIndex((slot) => slot.id === id);
+                if (k === 0) {
+                  throw new PipelineError(
+                    'image-invalid',
+                    'Vehicle roster review rejected the frozen player strip; key and story art already rendered from it',
+                    'building-assets',
+                  );
+                }
+                if (k > 0) {
+                  // Category-aware correction per the review. Banking
+                  // preserves the accepted neutral cell and regenerates only
+                  // the two banks; a vehicle rejection (bad neutral identity
+                  // — the garden distinctness case — or any doubt) takes one
+                  // full-strip regeneration with the slot-specific guidance.
+                  const entry = plan.rivalStrips[k - 1]!;
+                  const slot = slots[k]!;
+                  const kind: RacingSlotCorrectionKind =
+                    decision.correctionKinds[id] ?? 'vehicle';
+                  const guidance = decision.slotGuidance[id] || decision.retryGuidance || 'Correct this rejected vehicle to match its concept, rear camera and distinct silhouette.';
+                  if (kind === 'vehicle') {
+                    // One full-strip regeneration with the slot-specific
+                    // distinctness guidance, cached under the correction
+                    // hash by cachedGeneratedAsset. No loops: a single
+                    // bounded correction pass, then re-review or fail.
+                    buffers[k] = await cachedGeneratedAsset({
+                      role: entry.role,
+                      promptVersion: entry.promptVersion,
+                      prompt: `${entry.prompt} ART DIRECTOR VEHICLE CORRECTION: ${guidance.slice(0, 320)}.`,
+                      label: entry.label,
+                      ...(entry.size ? { size: entry.size } : {}),
+                      normalize: (raw) =>
+                        processGeneratedRacingCraftStrip(raw).then((strip) => strip.png),
+                    }).catch(racingAssetFailure);
+                    await assetWorkspace.store(entry.role, buffers[k]!, entry.promptVersion, imagePromptHash(entry.prompt));
+                    continue;
+                  }
+                  // Targeted banking correction: preserve the accepted
+                  // neutral cell, regenerate only the two banks as
+                  // single-object edits of the enlarged rear cell. The
+                  // corrected strip persists under the correction hash so an
+                  // unrelated later retry reuses the approved selection.
+                  const correctedPrompt = `${entry.prompt} ART DIRECTOR BANKING CORRECTION: ${guidance.slice(0, 320)}.`;
+                  const correctedHash = imagePromptHash(correctedPrompt);
+                  const cachedCorrected = assetWorkspace.load(
+                    entry.role,
+                    entry.promptVersion,
+                    correctedHash,
+                  );
+                  if (cachedCorrected) {
+                    buffers[k] = cachedCorrected;
+                  } else {
+                    const bankReference = await buildRacingBankEditReference(
+                      await extractRacingNeutralCell(buffers[k]!),
+                    );
+                    const rivalIdentity = racingSpec.identity!;
+                    const corrected = await correctRacingBankPoses({
+                      strip: buffers[k]!,
+                      vehicleName: slot.name,
+                      artDirection: rivalIdentity.artDirection,
+                      colors: racingSpec.palette.join(', '),
+                      retryGuidance: guidance,
+                      rolePrefix: `racing-craft-${slot.id}`,
+                      generate: (prompt, pose) =>
+                        callImage({
+                          role: `racing-craft-${slot.id}-bank-${pose}`,
+                          label: `${slot.name} bank ${pose === 'bankLeft' ? 'left' : 'right'} correction`,
+                          prompt,
+                          reference: bankReference,
+                          size: '1024x1024',
+                        }),
+                      checkActive: throwIfSuspended,
+                      validationFailure,
+                    }).catch(racingAssetFailure);
+                    await assetWorkspace.store(
+                      entry.role,
+                      corrected,
+                      entry.promptVersion,
+                      correctedHash,
+                    );
+                    buffers[k] = corrected;
+                    await assetWorkspace.store(
+                      entry.role,
+                      corrected,
+                      entry.promptVersion,
+                      imagePromptHash(entry.prompt),
+                    );
+                  }
+                }
+              }
+              // Each approval is already durable. Only remaining rejected
+              // candidates are targets; all unchanged slots are references.
+              decision = await reviewPending('Spark re-reviews the corrected vehicles');
+            }
+            if (!decision.accepted) {
+              throw new PipelineError(
+                'image-invalid',
+                `Vehicle roster review rejected the pack${decision.retryGuidance ? `: ${decision.retryGuidance.slice(0, 200)}` : ''}`,
+                'building-assets',
+              );
+            }
+            // Store the reviewed selection under its immutable design key;
+            // arbitrary correction text must not force another repaint on retry.
+            for (const [index, entry] of plan.rivalStrips.entries()) {
+              await assetWorkspace.store(
+                entry.role,
+                buffers[index + 1]!,
+                `${entry.promptVersion}-approved-v1`,
+                imagePromptHash(entry.prompt),
+              );
+            }
+            racingArtStatus = { mode: 'generated', attempted: true };
+            emit('building-assets', 'Finished the generated racing world and roster');
+          })
+        : Promise.resolve();
 
       let platformerBackdropArtStatus: GameMetaFile['platformerBackdropArt'] =
         spec.archetype === 'platformer'
@@ -7271,6 +7759,7 @@ export class GenerationRunner {
 
       const finishingAssets = await Promise.allSettled([
         storyTask,
+        racingPackTask,
         platformerBackdropTask,
         hshooterBackdropTask,
         shooterBackdropTask,
@@ -7332,6 +7821,7 @@ export class GenerationRunner {
           perImageUsd: mockImages ? 0 : imagePrice,
         },
         ...(fighterArtStatus ? { fighterArt: fighterArtStatus } : {}),
+        ...(racingArtStatus ? { racingArt: racingArtStatus } : {}),
         ...(fighterArenaArtStatus ? { fighterArenaArt: fighterArenaArtStatus } : {}),
         ...(platformerPlayerArtStatus ? { platformerPlayerArt: platformerPlayerArtStatus } : {}),
         ...(platformerBossArtStatus ? { platformerBossArt: platformerBossArtStatus } : {}),
@@ -7571,7 +8061,7 @@ export class GenerationRunner {
       ? { ...authoredFighterPlayer, visualConcept: design.heroConcept }
       : undefined;
     const canonicalHeroConcept = design.heroConcept;
-    return {
+    return alignRacingCast({
       specVersion: 1,
       archetype,
       seed,
@@ -7592,6 +8082,11 @@ export class GenerationRunner {
       ...(archetype === 'fighter' ? { fighterStyle: design.fighterStyle ?? 'rushdown' } : {}),
       ...(archetype === 'fighter' && design.fighterArtDirection
         ? { artDirection: design.fighterArtDirection }
+        : {}),
+      // Racing identity flows design → spec verbatim (levels/entities/music
+      // never author it, so repair of those regions cannot disturb it).
+      ...(archetype === 'racing' && design.racingIdentity
+        ? { identity: structuredClone(design.racingIdentity) }
         : {}),
       palette: design.palette,
       story: design.story,
@@ -7643,7 +8138,7 @@ export class GenerationRunner {
       ...(archetype === 'hshooter' ? { hshooterArtDensity: 'detailed' as const } : {}),
       ...(archetype === 'platformer' && design.feel ? { feel: design.feel } : {}),
       scoring: design.scoring,
-    } as GameSpec;
+    } as GameSpec);
   }
 
   private collectDiagnostics(spec: GameSpec, archetype: ArchetypeId): LintError[] {
@@ -8095,7 +8590,16 @@ export class GenerationRunner {
         } else if (owner === 'entities') {
           const raw = await callLlm(
             'entities',
-            buildEntitiesPrompt(archetype, design, hasPhoto, recentUse, before),
+            buildEntitiesPrompt(
+              archetype,
+              design,
+              hasPhoto,
+              recentUse,
+              before,
+              // Repair re-casts against the current spec's circuits, so the
+              // boss keeps copying the established finale rival verbatim.
+              archetype === 'racing' ? (spec as { levels?: unknown }).levels : undefined,
+            ),
             {
               label: 'Entities recast',
               stage: 'writing-spec',

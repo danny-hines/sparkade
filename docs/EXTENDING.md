@@ -42,22 +42,60 @@ Checklist for a new archetype:
 6. **UI** — nothing to do; the shell reads `controlHelp` and the library/detail screens are
    archetype-agnostic. Never present unsupported genres as playable options.
 
+## Supported archetype controls
+
+Racing is supported (hover cup — no combat items, no hop): **B** accelerate · **Y** brake ·
+**A** boost/continue · **L/R** drift · d-pad steer. Remaining racing work is kart items,
+multiplayer, and Pi tuning — not a deferred archetype.
+
+The racing HUD shows corner severity and approach distance, the nearest rival's gap,
+and brief position changes. Personal bests compare complete flying laps (lap 2 onward),
+with checkpoint deltas against the same best lap. Records persist locally in the browser
+or cabinet and are separated by generated game and course layout, including mirrored
+variants. Autopilot laps do not earn records; restarting clears live comparisons while
+keeping saved bests. The opening lap still counts toward the race and cup normally.
+
 ## Deferred archetypes (post-MVP) — canonical control maps
 
-Recorded here (and in `shared/constants.ts` → `DEFERRED_CONTROL_MAPS`) so they don't get lost:
-
-| Archetype  | Controls                                                              |
-| ---------- | --------------------------------------------------------------------- |
-| **Racing** | **B** accelerate · **Y** brake · **A** item/boost · **L/R** hop/drift |
+None remain — every documented archetype is built. The racing cabinet map lives in
+`shared/constants.ts` → `RACING_CONTROL_MAP`.
 
 Fighter is now a supported archetype: the model authors bounded roster data while the hand-written
 runtime owns AI, hitboxes, and move/frame data. Muse Image generates a complete five-character
 atlas roster after validation, and incomplete art fails the generation job instead of publishing a
 body-piece fallback.
 
-Racing remains deferred because it needs validated track topology plus kart physics. When built,
-its spec should follow the same pattern: the model authors bounded track data while the state
-machine stays hand-written.
+Racing is now a supported archetype: the model authors bounded cup data (circuit names,
+one-of-each templates, same-slot rival cast, fair pace, themes) while the hand-written
+simulation owns tracks, physics, and cup scoring. New designs commit a `racingIdentity`
+for the pilot, art direction, world, five vehicle concepts, sound profile, and one boost
+supply mode. Validation and repair preserve that identity verbatim in the game spec.
+Each course adds an environment concept and road/ground/curb/edge/pad color treatment.
+
+The generated racing pack has ten required PNGs: three course panoramas, five vehicle
+strips (rear, bank left, bank right), a roadside/collectible atlas, and a material atlas.
+Roadside objects are generated separately, cached privately, and assembled locally into
+the fixed atlas; the image model does not control cell layout. Panoramas preserve their
+horizon-bearing lower band.
+The player vehicle is reviewed before it becomes the reference for key and story art;
+new rival art is checked against the approved roster before the game becomes ready.
+Bank corrections preserve the neutral vehicle and regenerate its left/right poses;
+concept or silhouette rejections regenerate the full strip before another review.
+Incomplete new packs fail generation or loading. Reviewed selections survive retries
+of unrelated assets. Legacy cups
+without generated-art metadata keep their procedural renderer.
+
+Sound identity selects electric, combustion, or arcane engines with bounded tone and
+pitch controls. Speed, throttle, afterburner, rival proximity and stereo placement drive
+the mix, alongside the generated musical score. Engine sources retain the existing
+three-source budget and release on pause, results, restart, and disposal. No ambient
+recordings or new audio provider are required.
+
+Boost supply is exclusive per cup: pads give track-based bursts, pickups bank energy
+once per racer per lap, and reserve-only cups have neither track source. Manual boost
+uses the same bounded reserve; pickups substantially reduce passive regeneration.
+Records separate different boost modes. Remaining racing work includes combat items,
+multiplayer, and Pi frame-rate tuning.
 
 ## Generated asset pipeline
 

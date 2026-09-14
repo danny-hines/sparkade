@@ -33,7 +33,7 @@ import { Rng } from './rng';
 import { SpriteStore } from './sprites';
 import { StoryCards } from './storycard';
 import { Hud } from './hud';
-import type { GameInstance, LikenessAssets } from './types';
+import type { GameInstance, LikenessAssets, RacingArtBundle } from './types';
 
 /** Lighting mood → a translucent color wash over the scene. undefined = untinted. */
 const LIGHTING_TINTS: Record<string, { color: string; alpha: number } | undefined> = {
@@ -99,6 +99,8 @@ export interface EngineContext {
   adventureEnemyAtlas: CanvasImageSource | null;
   /** Required generated Adventure gameplay-object atlas. */
   adventureObjectAtlas: CanvasImageSource | null;
+  /** Complete ten-file racing art pack, when the loader activated one. */
+  racingArt: RacingArtBundle | null;
   spec: GameSpec;
   /** True when the host runs as a self-playing library demo — archetypes can
    *  read this to drive themselves (e.g. the fighter runs both sides on AI). */
@@ -243,6 +245,7 @@ export class GameHost {
       adventureBoss: opts.likeness?.adventureBoss ?? null,
       adventureEnemyAtlas: opts.likeness?.adventureEnemyAtlas ?? null,
       adventureObjectAtlas: opts.likeness?.adventureObjectAtlas ?? null,
+      racingArt: opts.likeness?.racingArt ?? null,
       spec: opts.spec,
       attract: !!opts.attract,
       shake: (ms = FEEL.screenShakeMs, magnitude = 3) => this.renderer.shake(ms, magnitude),
@@ -343,6 +346,7 @@ export class GameHost {
           this.state = 'paused';
           this.pause.reset();
           this.opts.input.swallow();
+          this.instance.setPaused?.(true);
           this.sfx.play('uiSelect');
           break;
         }
@@ -380,8 +384,10 @@ export class GameHost {
         if (action === 'resume') {
           this.state = 'game';
           this.opts.input.swallow();
+          this.instance.setPaused?.(false);
         } else if (action === 'restart') {
           this.instance.restart();
+          this.instance.setPaused?.(false);
           this.state = 'game';
           this.opts.input.swallow();
         } else if (action === 'quit') {
@@ -491,36 +497,42 @@ export class GameHost {
         this.weather.draw(r.ctx, this.engineCtx.camera.x, this.engineCtx.camera.y);
         this.engineCtx.particles.render(r, this.engineCtx.camera.x, this.engineCtx.camera.y);
         r.endWorld();
-        this.engineCtx.hud.render(r, this.instance.hud, {
-          elapsedSeconds: this.playT,
-          showKeys: this.opts.spec.archetype === 'adventure',
-          showBombs:
-            this.opts.spec.archetype === 'shooter' || this.opts.spec.archetype === 'hshooter',
-          showCollectibles: this.opts.spec.archetype === 'platformer',
-          showAbilities: this.opts.spec.archetype === 'platformer',
-          healthIcon:
-            this.opts.spec.archetype === 'platformer'
-              ? this.engineCtx.platformerProps?.health
-              : null,
-          collectibleIcon:
-            this.opts.spec.archetype === 'platformer'
-              ? this.engineCtx.platformerProps?.collectible
-              : null,
-          abilityIcons:
-            this.opts.spec.archetype === 'platformer'
-              ? {
-                  doubleJump:
-                    this.engineCtx.platformerProps?.powerupDoubleJump ??
-                    this.engineCtx.platformerProps?.powerup,
-                  projectile:
-                    this.engineCtx.platformerProps?.powerupProjectile ??
-                    this.engineCtx.platformerProps?.powerup,
-                  shield:
-                    this.engineCtx.platformerProps?.powerupShield ??
-                    this.engineCtx.platformerProps?.powerup,
-                }
-              : undefined,
-        });
+        // Games with their own overlay pass draw it here, after world
+        // effects; everyone else keeps the generic hearts/lives HUD.
+        if (this.instance.renderHud) {
+          this.instance.renderHud();
+        } else {
+          this.engineCtx.hud.render(r, this.instance.hud, {
+            elapsedSeconds: this.playT,
+            showKeys: this.opts.spec.archetype === 'adventure',
+            showBombs:
+              this.opts.spec.archetype === 'shooter' || this.opts.spec.archetype === 'hshooter',
+            showCollectibles: this.opts.spec.archetype === 'platformer',
+            showAbilities: this.opts.spec.archetype === 'platformer',
+            healthIcon:
+              this.opts.spec.archetype === 'platformer'
+                ? this.engineCtx.platformerProps?.health
+                : null,
+            collectibleIcon:
+              this.opts.spec.archetype === 'platformer'
+                ? this.engineCtx.platformerProps?.collectible
+                : null,
+            abilityIcons:
+              this.opts.spec.archetype === 'platformer'
+                ? {
+                    doubleJump:
+                      this.engineCtx.platformerProps?.powerupDoubleJump ??
+                      this.engineCtx.platformerProps?.powerup,
+                    projectile:
+                      this.engineCtx.platformerProps?.powerupProjectile ??
+                      this.engineCtx.platformerProps?.powerup,
+                    shield:
+                      this.engineCtx.platformerProps?.powerupShield ??
+                      this.engineCtx.platformerProps?.powerup,
+                  }
+                : undefined,
+          });
+        }
         if (this.engineCtx.cards.active) this.engineCtx.cards.render(r);
         if (this.state === 'paused') this.pause.render(r);
         break;

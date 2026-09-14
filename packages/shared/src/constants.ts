@@ -319,7 +319,7 @@ export const JINGLE_DUCK = 0.3;
 // Archetypes
 // ---------------------------------------------------------------------------
 
-export const ARCHETYPE_IDS = ['platformer', 'shooter', 'adventure', 'hshooter', 'fighter'] as const;
+export const ARCHETYPE_IDS = ['platformer', 'shooter', 'adventure', 'hshooter', 'fighter', 'racing'] as const;
 export type ArchetypeId = (typeof ARCHETYPE_IDS)[number];
 
 /** Minimum estimated interactive play time (seconds) — the five-minute rule. */
@@ -493,6 +493,16 @@ export const GENERATED_GAME_ASSET_FILES = {
   adventurePlayerDownSecondary: 'adventure-player-down-secondary.png',
   adventurePlayerUpSecondary: 'adventure-player-up-secondary.png',
   adventurePlayerSideSecondary: 'adventure-player-side-secondary.png',
+  racingPanorama1: 'racing-panorama-1.png',
+  racingPanorama2: 'racing-panorama-2.png',
+  racingPanorama3: 'racing-panorama-3.png',
+  racingSceneryAtlas: 'racing-scenery-atlas.png',
+  racingCraftPlayer: 'racing-craft-player.png',
+  racingCraftRival1: 'racing-craft-rival-1.png',
+  racingCraftRival2: 'racing-craft-rival-2.png',
+  racingCraftRival3: 'racing-craft-rival-3.png',
+  racingCraftRival4: 'racing-craft-rival-4.png',
+  racingMaterialAtlas: 'racing-material-atlas.png',
   // Legacy, read-only compatibility: an experimental pipeline emitted these
   // files for a small number of saved games. New generations no longer create
   // them and the runtime intentionally ignores them in favor of curated packs,
@@ -930,14 +940,13 @@ export const IDEA_CARDS: readonly IdeaCard[] = [
 // don't get lost. See docs/EXTENDING.md for the extension interface.
 // ---------------------------------------------------------------------------
 
-export const DEFERRED_CONTROL_MAPS = {
-  racing: {
-    B: 'accelerate',
-    Y: 'brake',
-    A: 'item / boost',
-    L: 'hop / drift',
-    R: 'hop / drift',
-  },
+/** Canonical cabinet control map for the supported racing hover cup. */
+export const RACING_CONTROL_MAP = {
+  B: 'accelerate',
+  Y: 'brake',
+  A: 'boost / continue',
+  L: 'drift',
+  R: 'drift',
 } as const;
 
 /** Maximum bytes accepted by the public game asset upload endpoint. */

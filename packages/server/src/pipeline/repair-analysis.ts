@@ -672,7 +672,8 @@ function isArchetypeId(value: unknown): value is ArchetypeId {
     value === 'shooter' ||
     value === 'adventure' ||
     value === 'hshooter' ||
-    value === 'fighter'
+    value === 'fighter' ||
+    value === 'racing'
   );
 }
 

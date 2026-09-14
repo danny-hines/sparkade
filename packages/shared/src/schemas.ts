@@ -6,6 +6,7 @@ import platformerSchemaJson from './schemas/platformer.schema.json';
 import shooterSchemaJson from './schemas/shooter.schema.json';
 import adventureSchemaJson from './schemas/adventure.schema.json';
 import hshooterSchemaJson from './schemas/hshooter.schema.json';
+import racingSchemaJson from './schemas/racing.schema.json';
 import fighterSchemaJson from './schemas/fighter.schema.json';
 import designSchemaJson from './schemas/design.schema.json';
 import type { ArchetypeId } from './constants';
@@ -15,6 +16,7 @@ export const ARCHETYPE_SCHEMAS: Record<ArchetypeId, Record<string, unknown>> = {
   shooter: shooterSchemaJson as Record<string, unknown>,
   adventure: adventureSchemaJson as Record<string, unknown>,
   hshooter: hshooterSchemaJson as Record<string, unknown>,
+  racing: racingSchemaJson as Record<string, unknown>,
   fighter: fighterSchemaJson as Record<string, unknown>,
 };
 
@@ -54,7 +56,12 @@ export function stageSchema(archetype: ArchetypeId, stage: SpecStage): Record<st
   const properties: Record<string, unknown> = {};
   for (const key of [...required, ...optional]) {
     const prop = full.properties[key];
-    if (prop === undefined) throw new Error(`schema for ${archetype} is missing property ${key}`);
+    // Optional stage properties an archetype never promises (e.g. racing's
+    // omitted backdrop) are simply left out of the stage schema.
+    if (prop === undefined) {
+      if (required.includes(key)) throw new Error(`schema for ${archetype} is missing property ${key}`);
+      continue;
+    }
     properties[key] = prop;
   }
   const defs = structuredClone(full.$defs) as Record<

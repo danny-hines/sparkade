@@ -35,6 +35,7 @@ export type TemplateName =
   | 'levels-adventure'
   | 'levels-hshooter'
   | 'levels-fighter'
+  | 'levels-racing'
   | 'entities'
   | 'music'
   | 'repair';
@@ -170,6 +171,17 @@ export function goldenExcerpt(archetype: ArchetypeId, stage: SpecStage | 'design
           {
             levels: [{ ...level, tiles, legend }],
             NOTE: 'plus two more levels in the real spec; decoration and the exit door are engine-placed',
+          },
+          null,
+          1,
+        );
+      }
+      if (g.archetype === 'racing') {
+        return JSON.stringify(
+          {
+            levels: g.levels,
+            NOTE:
+              'the real cup is exactly these 3 circuits: one of each template, same 4 rival names in the same slots every race',
           },
           null,
           1,

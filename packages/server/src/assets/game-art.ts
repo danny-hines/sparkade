@@ -18,6 +18,12 @@ import {
 } from './hshooter-enemy';
 import { GENERATED_SHOOTER_ENEMIES, SHOOTER_ENEMY_BOARD_SIZE } from './shooter-enemy';
 import { FIGHTER_POSE_SHEET_SIZE, fighterPoseSheetCellRect } from './fighter-pose-sheet';
+import {
+  mockRacingCraftStripSource,
+  mockRacingMaterialsSource,
+  mockRacingPanoramaSource,
+  mockRacingScenerySheetSource,
+} from './racing-mock';
 
 export const KEY_ART_PROMPT_VERSION = 'key-art-v6';
 export const STORY_ART_PROMPT_VERSION = 'story-scenes-v4';
@@ -262,8 +268,28 @@ async function normalizeLandscape(image: Buffer, width: number, height: number):
 
 /** Deterministic binary fixture used only when the whole app runs with the mock
  * provider. It exercises the exact normalization/manifest/runtime path without
- * pretending that a local placeholder came from Muse Image. */
+ * pretending that a local placeholder came from Muse Image. Racing fixtures
+ * come from the MOCK-ONLY racing-mock module, never from a real provider. */
 export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
+  if (prompt.startsWith('Create exactly ONE isolated racing scenery object.')) {
+    const slot = Math.max(0, Math.min(5, Number(prompt.match(/Slot (\d)/)?.[1] ?? 1) - 1));
+    return sharp(await mockRacingScenerySheetSource())
+      .extract({ left: (slot % 3) * 192, top: Math.floor(slot / 3) * 192, width: 192, height: 192 })
+      .png()
+      .toBuffer();
+  }
+  if (prompt.includes('rear-view hovercraft turnaround strip')) {
+    return mockRacingCraftStripSource();
+  }
+  if (prompt.includes('roadside-object sheet')) {
+    return mockRacingScenerySheetSource();
+  }
+  if (prompt.includes('panoramic backdrop for the hover-cup course')) {
+    return mockRacingPanoramaSource();
+  }
+  if (prompt.includes('top-down seamless material sheet')) {
+    return mockRacingMaterialsSource();
+  }
   if (prompt.includes('ADVENTURE THEMED OBJECT BOARD CONTRACT')) {
     return mockGeneratedAdventureObjectBoard();
   }

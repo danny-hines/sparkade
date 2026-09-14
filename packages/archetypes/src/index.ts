@@ -6,6 +6,7 @@ import { shooter } from './shooter/index';
 import { adventure } from './adventure/index';
 import { hshooter } from './hshooter/index';
 import { fighter } from './fighter/index';
+import { racing } from './racing/index';
 
 export const archetypes: Record<ArchetypeId, Archetype> = {
   platformer,
@@ -13,6 +14,7 @@ export const archetypes: Record<ArchetypeId, Archetype> = {
   adventure,
   hshooter,
   fighter,
+  racing,
 };
 
 export type { Archetype } from './types';
@@ -77,3 +79,12 @@ export {
 
 export { shooterStyleExample } from './shooter/examples';
 export { adventureStyleExample } from './adventure/examples';
+export { racing, lintRacing, estimateRacingDurationS } from './racing/index';
+export { createRacingGame, RACING_CONTROLS } from './racing/index';
+export type {
+  RaceState,
+  RacerInput,
+  RacerState,
+  RacingDevSnapshot,
+  RacingDevHandle,
+} from './racing/index';

@@ -33,6 +33,7 @@
     "tilesets:generate": "tsx scripts/generate-platformer-tileset.mts",
     "tilesets:promote": "tsx scripts/promote-platformer-tileset.mts",
     "adventure-fixtures:promote": "tsx scripts/promote-adventure-fixtures.mts",
+    "check:racing": "tsx scripts/check-racing.mts",
     "verify": "node scripts/verify.mjs",
     "test:e2e": "playwright test"
   },

@@ -22,6 +22,7 @@ export function generationEstimate(
     adventureBossJudge: archetype === 'adventure',
     adventureEnemyJudge: archetype === 'adventure',
     adventureObjectJudge: archetype === 'adventure',
+    racingRosterJudge: archetype === undefined || archetype === 'racing',
   });
   const conservativeUpperBound = hasPhoto && archetype === undefined;
   const happyPathImages = estimateImageCount(hasPhoto, archetype);

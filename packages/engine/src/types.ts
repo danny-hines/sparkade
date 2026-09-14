@@ -101,6 +101,20 @@ export interface LikenessAssets {
   adventureEnemyAtlas?: CanvasImageSource | null;
   /** Required themed key, item, NPC, and active-secondary Adventure atlas. */
   adventureObjectAtlas?: CanvasImageSource | null;
+  /** Complete ten-file racing art pack. Activated only when every role loads. */
+  racingArt?: RacingArtBundle | null;
+}
+
+/** Generated racing gameplay art in cup order. M4's renderer consumes this. */
+export interface RacingArtBundle {
+  /** Three course panoramas in cup race order (1536x480 each). */
+  panoramas: readonly CanvasImageSource[];
+  /** Five vehicle strips in racer order: player, then rivals 1-4. */
+  strips: readonly CanvasImageSource[];
+  /** Six-slot roadside/collectible atlas. */
+  sceneryAtlas: CanvasImageSource;
+  /** 2x2 track material atlas. */
+  materialAtlas: CanvasImageSource;
 }
 
 /** What a finished run reports back to the host. */
@@ -149,8 +163,20 @@ export interface GameInstance {
   start(): void;
   update(dt: number, input: InputSnapshot): void;
   render(): void;
+  /**
+   * Optional world-space-independent overlay pass (HUD, cards). The host
+   * calls it after world effects instead of the generic hearts/lives HUD;
+   * games without it keep the generic HUD unchanged.
+   */
+  renderHud?(): void;
   /** Restart from the last checkpoint / current level start (pause-menu Restart). */
   restart(): void;
+  /**
+   * Optional pause hook for games holding continuous resources (e.g. a
+   * sustained audio voice). The host calls it with true on pause and false
+   * on resume/restart; games without it are untouched.
+   */
+  setPaused?(paused: boolean): void;
   readonly hud: HudState;
   /** Non-null once the run is over; host then takes over (tally → initials → leaderboard). */
   readonly result: GameResult | null;

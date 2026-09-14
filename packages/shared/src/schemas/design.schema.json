@@ -4,40 +4,115 @@
   "title": "Sparkade design pass output",
   "type": "object",
   "properties": {
-    "fighterStyle": { "enum": ["rushdown", "counter", "rangedControl"] },
-    "adventureStyle": { "enum": ["dungeonExpedition", "puzzleQuest", "rescueRaid"] },
-    "shooterStyle": { "enum": ["weaponSwitch", "chargeSpecialist", "lockOnStriker"] },
+    "fighterStyle": {
+      "enum": [
+        "rushdown",
+        "counter",
+        "rangedControl"
+      ]
+    },
+    "adventureStyle": {
+      "enum": [
+        "dungeonExpedition",
+        "puzzleQuest",
+        "rescueRaid"
+      ]
+    },
+    "shooterStyle": {
+      "enum": [
+        "weaponSwitch",
+        "chargeSpecialist",
+        "lockOnStriker"
+      ]
+    },
     "presentationFamily": {
       "description": "Platformer presentation, chosen independently of gameplay: storybook, tech, or arcade.",
-      "enum": ["storybook", "tech", "arcade"]
+      "enum": [
+        "storybook",
+        "tech",
+        "arcade"
+      ]
     },
     "chargeShot": {
       "description": "Blaster weapon choice: none for conventional guns; plasma or arcane for a charged energy blast.",
-      "enum": ["none", "plasma", "arcane"]
+      "enum": [
+        "none",
+        "plasma",
+        "arcane"
+      ]
     },
     "mechanics": {
       "type": "object",
       "properties": {
-        "traversal": { "enum": ["jump", "wallJump"] },
-        "combat": { "enum": ["stomp", "blaster", "melee"] },
-        "structure": { "enum": ["horizontal", "tower", "mixed"] }
+        "traversal": {
+          "enum": [
+            "jump",
+            "wallJump"
+          ]
+        },
+        "combat": {
+          "enum": [
+            "stomp",
+            "blaster",
+            "melee"
+          ]
+        },
+        "structure": {
+          "enum": [
+            "horizontal",
+            "tower",
+            "mixed"
+          ]
+        }
       },
-      "required": ["traversal", "combat", "structure"],
+      "required": [
+        "traversal",
+        "combat",
+        "structure"
+      ],
       "additionalProperties": false
     },
     "playStyle": {
       "description": "Platformer gameplay package. Omission preserves legacy acrobat behavior.",
-      "enum": ["acrobat", "runAndGun", "towerClimber", "meleeAction", "armedClimber"]
+      "enum": [
+        "acrobat",
+        "runAndGun",
+        "towerClimber",
+        "meleeAction",
+        "armedClimber"
+      ]
     },
-    "title": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[ -~]+$" },
-    "tagline": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[ -~]+$" },
-    "archetype": { "enum": ["platformer", "shooter", "adventure", "hshooter", "fighter"] },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "pattern": "^[ -~]+$"
+    },
+    "tagline": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[ -~]+$"
+    },
+    "archetype": {
+      "enum": [
+        "platformer",
+        "shooter",
+        "adventure",
+        "hshooter",
+        "fighter",
+        "racing"
+      ]
+    },
     "palette": {
       "description": "Exactly 16 hex colors. Index 0 is treated as transparent. Slot conventions: 1 outline/darkest, 2-4 background dark->light, 5-7 hero, 8-a enemies, b hazard, c warm accent, d gold, e light, f near-white.",
       "type": "array",
       "minItems": 16,
       "maxItems": 16,
-      "items": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }
+      "items": {
+        "type": "string",
+        "pattern": "^#[0-9a-fA-F]{6}$"
+      }
     },
     "heroConcept": {
       "description": "Canonical visual brief for the player hero. When a likeness photo exists, describe the story-specific outfit from the neck down (garments, colors, materials, footwear, and body-worn costume details) without inventing or changing the person's face, hair, eyewear, or headwear.",
@@ -55,18 +130,34 @@
           "properties": {
             "profile": {
               "description": "close = fists/knife; sweep = sword/bat/wrench; reach = spear/whip.",
-              "enum": ["close", "sweep", "reach"]
+              "enum": [
+                "close",
+                "sweep",
+                "reach"
+              ]
             },
-            "name": { "type": "string", "minLength": 1, "maxLength": 24, "pattern": "^[ -~]+$" },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 24,
+              "pattern": "^[ -~]+$"
+            },
             "visualConcept": {
               "type": "string",
               "minLength": 8,
               "maxLength": 160,
               "pattern": "^[ -~]+$"
             },
-            "unarmed": { "type": "boolean" }
+            "unarmed": {
+              "type": "boolean"
+            }
           },
-          "required": ["profile", "name", "visualConcept", "unarmed"],
+          "required": [
+            "profile",
+            "name",
+            "visualConcept",
+            "unarmed"
+          ],
           "additionalProperties": false
         },
         "secondary": {
@@ -74,9 +165,18 @@
           "properties": {
             "behavior": {
               "description": "shot = bow/gun/blaster; returning = boomerang/disc; blast = bomb/dynamite/mine.",
-              "enum": ["shot", "returning", "blast"]
+              "enum": [
+                "shot",
+                "returning",
+                "blast"
+              ]
             },
-            "name": { "type": "string", "minLength": 1, "maxLength": 24, "pattern": "^[ -~]+$" },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 24,
+              "pattern": "^[ -~]+$"
+            },
             "visualConcept": {
               "type": "string",
               "minLength": 8,
@@ -84,11 +184,18 @@
               "pattern": "^[ -~]+$"
             }
           },
-          "required": ["behavior", "name", "visualConcept"],
+          "required": [
+            "behavior",
+            "name",
+            "visualConcept"
+          ],
           "additionalProperties": false
         }
       },
-      "required": ["primary", "secondary"],
+      "required": [
+        "primary",
+        "secondary"
+      ],
       "additionalProperties": false
     },
     "vehicleConcept": {
@@ -102,7 +209,13 @@
       "description": "Fighter only. One immutable visual-language contract shared by story art, the complete roster, all combat poses, and generated arenas.",
       "type": "object",
       "properties": {
-        "aesthetic": { "enum": ["cartoon", "stylized", "semi-realistic"] },
+        "aesthetic": {
+          "enum": [
+            "cartoon",
+            "stylized",
+            "semi-realistic"
+          ]
+        },
         "proportions": {
           "type": "string",
           "minLength": 12,
@@ -116,7 +229,146 @@
           "pattern": "^[ -~]+$"
         }
       },
-      "required": ["aesthetic", "proportions", "rendering"],
+      "required": [
+        "aesthetic",
+        "proportions",
+        "rendering"
+      ],
+      "additionalProperties": false
+    },
+    "racingIdentity": {
+      "description": "Racing only. Authored identity contract for a generated racing game: pilot, shared art direction, world and vehicle concepts, sound identity, and the cup's one boost supply. New racing designs must author this; every other archetype omits it.",
+      "type": "object",
+      "properties": {
+        "pilotName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48,
+          "pattern": "^[ -~]+$"
+        },
+        "artDirection": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 280,
+          "pattern": "^[ -~]+$"
+        },
+        "worldConcept": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 280,
+          "pattern": "^[ -~]+$"
+        },
+        "playerCraftConcept": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 280,
+          "pattern": "^[ -~]+$"
+        },
+        "rivalCrafts": {
+          "description": "Exactly the 4 rival vehicle concepts, in stable cast order.",
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 24,
+                "pattern": "^[ -~]+$"
+              },
+              "vehicleConcept": {
+                "type": "string",
+                "minLength": 8,
+                "maxLength": 280,
+                "pattern": "^[ -~]+$"
+              }
+            },
+            "required": [
+              "name",
+              "vehicleConcept"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "sound": {
+          "type": "object",
+          "properties": {
+            "engine": {
+              "description": "Stored engine-voice profile for the later audio milestone.",
+              "type": "object",
+              "properties": {
+                "family": {
+                  "enum": [
+                    "electric",
+                    "combustion",
+                    "arcane"
+                  ]
+                },
+                "tone": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "pitch": {
+                  "type": "number",
+                  "minimum": -12,
+                  "maximum": 12
+                }
+              },
+              "required": [
+                "family"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "engine"
+          ],
+          "additionalProperties": false
+        },
+        "boost": {
+          "description": "The cup's one primary boost supply, with its in-world display name and concrete appearance concept.",
+          "type": "object",
+          "properties": {
+            "mode": {
+              "enum": [
+                "pads",
+                "pickups",
+                "none"
+              ]
+            },
+            "displayName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 24,
+              "pattern": "^[ -~]+$"
+            },
+            "appearanceConcept": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 280,
+              "pattern": "^[ -~]+$"
+            }
+          },
+          "required": [
+            "mode",
+            "displayName",
+            "appearanceConcept"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "pilotName",
+        "artDirection",
+        "worldConcept",
+        "playerCraftConcept",
+        "rivalCrafts",
+        "sound",
+        "boost"
+      ],
       "additionalProperties": false
     },
     "story": {
@@ -126,43 +378,87 @@
           "type": "array",
           "minItems": 1,
           "maxItems": 3,
-          "items": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[ -~]+$" }
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[ -~]+$"
+          }
         },
         "levelIntros": {
           "type": "array",
           "minItems": 3,
           "maxItems": 3,
-          "items": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[ -~]+$" }
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[ -~]+$"
+          }
         },
-        "bossIntro": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[ -~]+$" },
+        "bossIntro": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[ -~]+$"
+        },
         "victory": {
           "type": "array",
           "minItems": 1,
           "maxItems": 3,
-          "items": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[ -~]+$" }
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[ -~]+$"
+          }
         },
         "defeat": {
           "type": "array",
           "minItems": 1,
           "maxItems": 3,
-          "items": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[ -~]+$" }
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[ -~]+$"
+          }
         }
       },
-      "required": ["intro", "levelIntros", "bossIntro", "victory", "defeat"],
+      "required": [
+        "intro",
+        "levelIntros",
+        "bossIntro",
+        "victory",
+        "defeat"
+      ],
       "additionalProperties": false
     },
     "levelPlan": {
-      "description": "Exactly 4 entries: level 1, level 2, level 3, boss.",
+      "description": "Race plan in race order (bounds depend on archetype: racing runs exactly 3 circuits, every other archetype runs exactly 4 entries).",
       "type": "array",
-      "minItems": 4,
+      "minItems": 3,
       "maxItems": 4,
       "items": {
         "type": "object",
         "properties": {
-          "name": { "type": "string", "minLength": 1, "maxLength": 24, "pattern": "^[ -~]+$" },
-          "summary": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[ -~]+$" }
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 24,
+            "pattern": "^[ -~]+$"
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[ -~]+$"
+          }
         },
-        "required": ["name", "summary"],
+        "required": [
+          "name",
+          "summary"
+        ],
         "additionalProperties": false
       }
     },
@@ -181,21 +477,53 @@
             "maxLength": 24,
             "pattern": "^[a-z][a-zA-Z0-9_]{0,23}$"
           },
-          "concept": { "type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[ -~]+$" }
+          "concept": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^[ -~]+$"
+          }
         },
-        "required": ["role", "concept"],
+        "required": [
+          "role",
+          "concept"
+        ],
         "additionalProperties": false
       }
     },
     "musicBrief": {
       "type": "object",
       "properties": {
-        "key": { "type": "string", "minLength": 1, "maxLength": 16, "pattern": "^[ -~]+$" },
-        "bpm": { "type": "integer", "minimum": 70, "maximum": 200 },
-        "themeMood": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[ -~]+$" },
-        "bossMood": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[ -~]+$" }
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16,
+          "pattern": "^[ -~]+$"
+        },
+        "bpm": {
+          "type": "integer",
+          "minimum": 70,
+          "maximum": 200
+        },
+        "themeMood": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[ -~]+$"
+        },
+        "bossMood": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[ -~]+$"
+        }
       },
-      "required": ["key", "bpm", "themeMood", "bossMood"],
+      "required": [
+        "key",
+        "bpm",
+        "themeMood",
+        "bossMood"
+      ],
       "additionalProperties": false
     },
     "scoring": {
@@ -204,31 +532,77 @@
         "events": {
           "type": "object",
           "properties": {
-            "enemyKill": { "type": "integer", "minimum": 0, "maximum": 100000 },
-            "pickup": { "type": "integer", "minimum": 0, "maximum": 100000 },
-            "bossHit": { "type": "integer", "minimum": 0, "maximum": 100000 },
-            "levelClear": { "type": "integer", "minimum": 0, "maximum": 100000 }
+            "enemyKill": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "pickup": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "bossHit": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "levelClear": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            }
           },
-          "required": ["enemyKill", "pickup", "bossHit", "levelClear"],
+          "required": [
+            "enemyKill",
+            "pickup",
+            "bossHit",
+            "levelClear"
+          ],
           "additionalProperties": false
         },
-        "timeBonusPerSecond": { "type": "integer", "minimum": 0, "maximum": 1000 }
+        "timeBonusPerSecond": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        }
       },
-      "required": ["events", "timeBonusPerSecond"],
+      "required": [
+        "events",
+        "timeBonusPerSecond"
+      ],
       "additionalProperties": false
     },
-    "difficulty": { "enum": ["chill", "standard", "spicy"] },
+    "difficulty": {
+      "enum": [
+        "chill",
+        "standard",
+        "spicy"
+      ]
+    },
     "platformerScale": {
       "description": "Platformer only. 'heroic' is a close, actor-forward 2x view and the default choice; use 'compact' only when a tiny hero, swarms, speed, or broad traversal is central to the premise. Omit for other archetypes.",
-      "enum": ["compact", "heroic"]
+      "enum": [
+        "compact",
+        "heroic"
+      ]
     },
     "platformerArtDensity": {
       "description": "Platformer only. With a likeness photo, 'detailed' is the default and enables higher-resolution generated player art without changing collision or world size. Use 'chunky' without a photo or for a deliberately coarse, tiny, toy-like, or early-console pixel aesthetic. Omit for other archetypes.",
-      "enum": ["chunky", "detailed"]
+      "enum": [
+        "chunky",
+        "detailed"
+      ]
     },
     "movementProfile": {
       "description": "Platformer only. Choose one bounded engine-owned movement style: balanced for general play, precision for crisp exact control, momentum for speed with retained inertia, floaty for airy/moonlike motion, or heavy for weighty armored/industrial motion. Omit for other archetypes.",
-      "enum": ["balanced", "precision", "momentum", "floaty", "heavy"]
+      "enum": [
+        "balanced",
+        "precision",
+        "momentum",
+        "floaty",
+        "heavy"
+      ]
     },
     "abilityLoadout": {
       "description": "Always present. For platformers, choose one or two distinct engine-owned ability behaviors and give each a premise-specific display name and visual identity. For every other archetype, return an empty array.",
@@ -239,8 +613,19 @@
       "items": {
         "type": "object",
         "properties": {
-          "kind": { "enum": ["doubleJump", "projectile", "shield"] },
-          "name": { "type": "string", "minLength": 1, "maxLength": 16, "pattern": "^[ -~]+$" },
+          "kind": {
+            "enum": [
+              "doubleJump",
+              "projectile",
+              "shield"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16,
+            "pattern": "^[ -~]+$"
+          },
           "visualConcept": {
             "type": "string",
             "minLength": 8,
@@ -248,7 +633,11 @@
             "pattern": "^[ -~]+$"
           }
         },
-        "required": ["kind", "name", "visualConcept"],
+        "required": [
+          "kind",
+          "name",
+          "visualConcept"
+        ],
         "additionalProperties": false
       }
     },
@@ -280,47 +669,212 @@
   },
   "allOf": [
     {
-      "if": { "properties": { "archetype": { "const": "platformer" } }, "required": ["archetype"] },
+      "if": {
+        "properties": {
+          "archetype": {
+            "const": "platformer"
+          }
+        },
+        "required": [
+          "archetype"
+        ]
+      },
       "else": {
         "not": {
           "anyOf": [
-            { "required": ["playStyle"] },
-            { "required": ["mechanics"] },
-            { "required": ["chargeShot"] },
-            { "required": ["presentationFamily"] }
+            {
+              "required": [
+                "playStyle"
+              ]
+            },
+            {
+              "required": [
+                "mechanics"
+              ]
+            },
+            {
+              "required": [
+                "chargeShot"
+              ]
+            },
+            {
+              "required": [
+                "presentationFamily"
+              ]
+            }
           ]
         }
       }
     },
     {
-      "if": { "properties": { "archetype": { "const": "hshooter" } }, "required": ["archetype"] },
-      "then": { "required": ["vehicleConcept"] }
+      "if": {
+        "properties": {
+          "archetype": {
+            "const": "hshooter"
+          }
+        },
+        "required": [
+          "archetype"
+        ]
+      },
+      "then": {
+        "required": [
+          "vehicleConcept"
+        ]
+      }
     },
     {
-      "if": { "properties": { "archetype": { "const": "shooter" } }, "required": ["archetype"] },
-      "then": { "required": ["vehicleConcept", "shooterStyle"] },
-      "else": { "not": { "required": ["shooterStyle"] } }
+      "if": {
+        "properties": {
+          "archetype": {
+            "const": "shooter"
+          }
+        },
+        "required": [
+          "archetype"
+        ]
+      },
+      "then": {
+        "required": [
+          "vehicleConcept",
+          "shooterStyle"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "shooterStyle"
+          ]
+        }
+      }
     },
     {
-      "if": { "properties": { "archetype": { "const": "fighter" } }, "required": ["archetype"] },
-      "then": { "required": ["fighterArtDirection", "fighterStyle"] },
-      "else": { "not": { "required": ["fighterStyle"] } }
+      "if": {
+        "properties": {
+          "archetype": {
+            "const": "fighter"
+          }
+        },
+        "required": [
+          "archetype"
+        ]
+      },
+      "then": {
+        "required": [
+          "fighterArtDirection",
+          "fighterStyle"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "fighterStyle"
+          ]
+        }
+      }
     },
     {
-      "if": { "properties": { "archetype": { "const": "adventure" } }, "required": ["archetype"] },
-      "then": { "required": ["combatKit"] },
-      "else": { "not": { "required": ["adventureStyle"] } }
+      "if": {
+        "properties": {
+          "archetype": {
+            "const": "adventure"
+          }
+        },
+        "required": [
+          "archetype"
+        ]
+      },
+      "then": {
+        "required": [
+          "combatKit"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "adventureStyle"
+          ]
+        }
+      }
     },
     {
-      "if": { "properties": { "archetype": { "const": "platformer" } }, "required": ["archetype"] },
+      "if": {
+        "properties": {
+          "archetype": {
+            "const": "platformer"
+          }
+        },
+        "required": [
+          "archetype"
+        ]
+      },
       "then": {
         "properties": {
-          "abilityLoadout": { "type": "array", "minItems": 1, "maxItems": 2 }
+          "abilityLoadout": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 2
+          }
         }
       },
       "else": {
         "properties": {
-          "abilityLoadout": { "type": "array", "maxItems": 0 }
+          "abilityLoadout": {
+            "type": "array",
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "archetype": {
+            "const": "racing"
+          }
+        },
+        "required": [
+          "archetype"
+        ]
+      },
+      "then": {
+        "properties": {
+          "levelPlan": {
+            "description": "Exactly 3 entries, one per cup circuit in race order; the finale rival closes circuit 3.",
+            "maxItems": 3
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "levelPlan": {
+            "description": "Exactly 4 entries: level 1, level 2, level 3, boss.",
+            "minItems": 4
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "archetype": {
+            "const": "racing"
+          }
+        },
+        "required": [
+          "archetype"
+        ]
+      },
+      "then": {
+        "required": [
+          "racingIdentity"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "racingIdentity"
+          ]
         }
       }
     }

@@ -343,8 +343,11 @@ live in `packages/server/src/providers/meta.ts` (text/audio) and
    passes `npx tsx scripts/check-golden.mts <id>` with zero repairs.
 4. Add the archetype to the design prompt's menu (`prompts/design.md`).
 
-Deferred archetypes (documented, not built): see [docs/EXTENDING.md](docs/EXTENDING.md), including
-the canonical **racing** control map (B accelerate, Y brake, A item/boost, L/R hop/drift).
+Supported archetypes now include the **racing** hover cup: 3 template circuits × 3 laps
+against 4 AI rivals, with generated worlds, track materials, five vehicle identities,
+and a cup-wide choice of boost pads, banked energy pickups, or reserve-only boost
+(see `docs/EXTENDING.md`). Deferred archetypes (documented, not built):
+see [docs/EXTENDING.md](docs/EXTENDING.md).
 
 ## On-device smoke checklist (hardware-only — cannot be tested in CI)
 
@@ -373,8 +376,8 @@ the canonical **racing** control map (B accelerate, Y brake, A item/boost, L/R h
 
 Manual `sparkade update` on the login user is fine for a hobbyist cabinet. A hardened install
 would add: a dedicated service user, checksummed release archives with atomic-symlink updates and
-rollback, CI-built artifacts, and a read-only root. Also out of scope: racing, multiplayer, public
-player accounts, localization, touch, analytics.
+rollback, CI-built artifacts, and a read-only root. Also out of scope: kart items, racing
+multiplayer, public player accounts, localization, touch, analytics.
 
 ## License notes
 

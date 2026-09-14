@@ -248,6 +248,11 @@ const ROLE_LIB_FALLBACK: Record<ArchetypeId, Record<string, string>> = {
     hero: 'lib:hero_squire',
     boss: 'lib:boss_titan',
   },
+  racing: {
+    // Racing craft are procedural; hero/boss assigns are unused placeholders.
+    hero: 'lib:hero_squire',
+    boss: 'lib:boss_titan',
+  },
 };
 
 const GENERIC_FALLBACK: Record<ArchetypeId, string> = {
@@ -256,6 +261,7 @@ const GENERIC_FALLBACK: Record<ArchetypeId, string> = {
   adventure: 'lib:enemy_walker',
   hshooter: 'lib:foe_popcorn',
   fighter: 'lib:enemy_walker',
+  racing: 'lib:enemy_walker',
 };
 
 export function spriteProblem(
@@ -667,6 +673,7 @@ const ASSIGN_ROLES: Record<ArchetypeId, ReadonlySet<string>> = {
   adventure: ADVENTURE_ASSIGN_ROLES,
   hshooter: HSHOOTER_ASSIGN_ROLES,
   fighter: new Set(['hero', 'boss']),
+  racing: new Set(['hero', 'boss']),
 };
 
 const ROLE_ALIASES: Record<ArchetypeId, Readonly<Record<string, string>>> = {
@@ -701,6 +708,7 @@ const ROLE_ALIASES: Record<ArchetypeId, Readonly<Record<string, string>>> = {
     tile_decoration: 'tile_deco',
   },
   fighter: {},
+  racing: {},
 };
 
 const SHOOTER_BACKDROP_ALIASES: Readonly<Record<string, NonNullable<ShooterSpec['backdrop']>>> = {

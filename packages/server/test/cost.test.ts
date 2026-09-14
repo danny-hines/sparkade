@@ -23,6 +23,10 @@ describe('cost calculator', () => {
     expect(estimateImageCount(true, 'hshooter')).toBe(18);
     expect(estimateImageCount(false, 'shooter')).toBe(16);
     expect(estimateImageCount(true, 'shooter')).toBe(18);
+    // Racing: 15 gameplay calls (5 strips + 3 panos + 6 objects + 1
+    // materials) + key art + 4 story scenes; a photo adds 2 portraits.
+    expect(estimateImageCount(false, 'racing')).toBe(20);
+    expect(estimateImageCount(true, 'racing')).toBe(22);
     expect(estimateImageCount(true)).toBe(40);
   });
 
@@ -109,8 +113,12 @@ describe('cost calculator', () => {
       adventureEnemyJudge: true,
       adventureObjectJudge: true,
     });
+    const racing = estimateGenerationCost('muse-spark-1.1', SNAPSHOT, {
+      racingRosterJudge: true,
+    });
     expect(est).not.toBeNull();
     expect(platformer).toBeGreaterThan(est!);
+    expect(racing).toBeGreaterThan(est!);
     expect(hshooter).toBeGreaterThan(est!);
     expect(adventureWithoutPhoto).toBeGreaterThan(est!);
     expect(adventureWithPhoto).toBeGreaterThan(adventureWithoutPhoto!);

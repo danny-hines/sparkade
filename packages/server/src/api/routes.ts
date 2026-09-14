@@ -303,6 +303,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
         : hasAsset('head16Back'),
       portrait: hasGeneratedManifest ? generatedAssets.generatedPortrait : hasAsset('portrait'),
       ...generatedAssets,
+      racingArtRequired: meta?.racingArt?.mode === 'generated',
       fighterArenaPresentationBaked:
         fighterArenaAsset !== null &&
         fighterArenaPresentationIsBaked(fighterArenaAsset.promptVersion),

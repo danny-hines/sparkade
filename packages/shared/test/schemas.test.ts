@@ -12,18 +12,14 @@ import {
 
 describe('archetype schemas', () => {
   it('share byte-identical common $defs (prompt/validator sync guard)', () => {
-    const [plat, shoot, adv] = [
-      ARCHETYPE_SCHEMAS.platformer,
-      ARCHETYPE_SCHEMAS.shooter,
-      ARCHETYPE_SCHEMAS.adventure,
-    ].map((s) => (s as { $defs: Record<string, unknown> }).$defs);
+    const defs = Object.values(ARCHETYPE_SCHEMAS).map(
+      (s) => (s as { $defs: Record<string, unknown> }).$defs,
+    );
     for (const name of COMMON_DEF_NAMES) {
-      expect(JSON.stringify(plat![name]), `def ${name} platformer vs shooter`).toBe(
-        JSON.stringify(shoot![name]),
-      );
-      expect(JSON.stringify(plat![name]), `def ${name} platformer vs adventure`).toBe(
-        JSON.stringify(adv![name]),
-      );
+      const first = JSON.stringify(defs[0]![name]);
+      defs.forEach((d, i) => {
+        expect(JSON.stringify(d![name]), `def ${name} schema 0 vs schema ${i}`).toBe(first);
+      });
     }
   });
 
@@ -55,6 +51,12 @@ describe('archetype schemas', () => {
   it('backdrop enum matches the engine variant list (schema/engine sync guard)', () => {
     for (const [id, schema] of Object.entries(ARCHETYPE_SCHEMAS)) {
       const s = schema as { properties: Record<string, { enum?: string[] }>; required: string[] };
+      // Racing draws authored skies per circuit, so it omits the backdrop
+      // promise instead of advertising an effect it never applies.
+      if (id === 'racing') {
+        expect(s.properties['backdrop'], 'racing omits backdrop').toBeUndefined();
+        continue;
+      }
       // The shooter is a vertical scroller and uses its own top-down variant set;
       // platformer/adventure use the shared horizontal list.
       const expected = id === 'shooter' ? [...SHOOTER_BACKDROP_VARIANTS] : [...BACKDROP_VARIANTS];
@@ -294,7 +296,7 @@ describe('archetype schemas', () => {
   });
 
   it('stageSchema extracts self-contained per-stage schemas', () => {
-    for (const archetype of ['platformer', 'shooter', 'adventure'] as const) {
+    for (const archetype of ['platformer', 'shooter', 'adventure', 'racing'] as const) {
       for (const stage of ['levels', 'entities', 'music'] as const) {
         const s = stageSchema(archetype, stage) as {
           properties: Record<string, unknown>;

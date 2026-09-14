@@ -571,7 +571,155 @@ export interface HShooterSpec extends GameSpecBase {
   boss: ShooterBoss;
 }
 
-export type GameSpec = PlatformerSpec | ShooterSpec | AdventureSpec | HShooterSpec | FighterSpec;
+// ---------------------------------------------------------------------------
+// Racing spec (hover cup: exactly 3 proven circuits, 4 AI rivals, a named
+// final-rival finale with no combat — geometry always comes from templates)
+// ---------------------------------------------------------------------------
+
+/** Proven closed-circuit template id (matches the archetype's RACE_CIRCUITS). */
+export type RacingTemplateId = 'ember' | 'coral' | 'ratchet';
+/** Roadside dressing variant per circuit. */
+export type RacingScenery = 'posts' | 'pines' | 'crystals';
+
+/** Optional per-circuit theme override; omitted fields keep template art. */
+export interface RacingThemeOverride {
+  scenery?: RacingScenery;
+  skyTop?: string;
+  skyBottom?: string;
+  sun?: string;
+  ridgeFar?: string;
+  ridgeNear?: string;
+  ground?: string;
+  accent?: string;
+}
+
+/** One AI rival: display name plus bounded top-speed scale (≤ player pace). */
+export interface RacingRival {
+  name: string;
+  topScale: number;
+}
+
+/** Authored player-craft silhouette (procedural originals only). */
+export type RacingCraftShape = 'dart' | 'twinpod' | 'wedge';
+
+export interface RacingCircuitSpec {
+  name: string;
+  template: RacingTemplateId;
+  laps: 3;
+  /** Key of music.songs, played while this race runs. */
+  musicSong: string;
+  /** Exactly the 4 AI rivals, in grid order. */
+  rivals: RacingRival[];
+  theme?: RacingThemeOverride;
+  /** Race clock limit (s); omitted → template default. */
+  timeoutS?: number;
+  /** Lap length in units (2800-3600); omitted → template length. */
+  length?: number;
+  /** Mirror the template (reverses turn direction); omitted → false. */
+  mirror?: boolean;
+  /** Player-craft silhouette; omitted → twinpod. */
+  craftShape?: RacingCraftShape;
+  /** Free-text environment visual concept for this circuit (world dressing,
+   *  panorama/scenery generation input for a later milestone). Omitted →
+   *  template dressing. Never geometry. */
+  envConcept?: string;
+  /** Authored track-material colors; omitted fields keep the template theme.
+   *  Consumed by the pack renderer (road/ground/curb/edge/pad). */
+  materials?: RacingTrackMaterials;
+}
+
+/** Final-rival metadata only: no HP, phases, or attacks — an honest race. */
+export interface RacingBoss {
+  /** Must match the finale-circuit rival at rivalIndex (same driver all cup). */
+  name: string;
+  /** Separate display title for the finale (e.g. VEX becomes VEX PRIME). */
+  title: string;
+  /** Which finale-circuit rival (1-4, never the player) carries name+pace. */
+  rivalIndex: number;
+  topScale: number;
+  titleQuote?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Racing identity (M1 authored contract for generated racing games)
+// ---------------------------------------------------------------------------
+
+/** The one primary boost supply for a cup: pads, banked pickups, or none. */
+export type RacingBoostMode = 'pads' | 'pickups' | 'none';
+
+/** Bounded engine-voice family for the later audio milestone. Stored only. */
+export type RacingEngineFamily = 'electric' | 'combustion' | 'arcane';
+
+/** Stored engine-voice profile. Not consumed by the runtime until M3. */
+export interface RacingEngineProfile {
+  family: RacingEngineFamily;
+  /** Timbre brightness 0..1; omitted → 0.5. Stored only. */
+  tone?: number;
+  /** Pitch offset in semitones (-12..+12); omitted → 0. Stored only. */
+  pitch?: number;
+}
+
+/** Cup-wide boost supply: exactly one primary source, with its in-world
+ *  display name and concrete appearance concept. */
+export interface RacingBoostSupply {
+  mode: RacingBoostMode;
+  /** In-world display name (e.g. "Surge Pads", "Ember Cells"). */
+  displayName: string;
+  /** Concrete appearance concept for the source in the world. */
+  appearanceConcept: string;
+}
+
+/** One rival's vehicle concept, in stable cast order (slot i matches every
+ *  circuit's rivals[i]). Names must match the cup cast. */
+export interface RacingRivalCraft {
+  name: string;
+  /** Concrete rear-view vehicle art direction for this rival. */
+  vehicleConcept: string;
+}
+
+/** Authored track-material styling (hex colors). The pack renderer consumes
+ *  these; without a pack the template theme renders. */
+export interface RacingTrackMaterials {
+  road: string;
+  ground: string;
+  curb: string;
+  edge: string;
+  pad: string;
+}
+
+/**
+ * Authored identity contract for a generated racing game. Optional and
+ * backwards-compatible: omitted on every legacy spec and fixture, which
+ * keep legacy pads, procedural craft, and the shared soundscape. Only new
+ * generated racing designs author this; non-racing outputs must not carry it.
+ */
+export interface RacingIdentity {
+  /** The player's pilot display name. */
+  pilotName: string;
+  /** Shared visual/art direction across world, craft, and later key art. */
+  artDirection: string;
+  /** Free-text world concept: what this racing world is. */
+  worldConcept: string;
+  /** Player vehicle concept (likeness-independent rear-view craft brief). */
+  playerCraftConcept: string;
+  /** Exactly the 4 rival vehicle concepts, in stable cast order. */
+  rivalCrafts: RacingRivalCraft[];
+  /** Sound identity. Stored now; the audio milestone consumes it. */
+  sound: { engine: RacingEngineProfile };
+  /** The cup's one primary boost supply. */
+  boost: RacingBoostSupply;
+}
+
+export interface RacingSpec extends GameSpecBase {
+  archetype: 'racing';
+  /** The cup: exactly the 3 circuits in race order. */
+  levels: RacingCircuitSpec[];
+  boss: RacingBoss;
+  /** Authored identity contract; omitted → legacy pads/procedural look. */
+  identity?: RacingIdentity;
+}
+
+export type GameSpec = PlatformerSpec | ShooterSpec | AdventureSpec | HShooterSpec | FighterSpec | RacingSpec;
 
 // ---------------------------------------------------------------------------
 // Design doc (output of the design pass; design.schema.json)
@@ -600,6 +748,9 @@ export interface DesignDoc {
   fighterStyle?: import('./fighter-styles').FighterCombatProfile;
   /** Fighter-only roster-wide visual language. Required by the design schema. */
   fighterArtDirection?: FighterArtDirection;
+  /** Racing-only authored identity contract. Required for new racing
+   *  generation; absent on legacy designs and every other archetype. */
+  racingIdentity?: RacingIdentity;
   story: StoryBlock;
   levelPlan: { name: string; summary: string }[];
   cast: { role: string; concept: string }[];
@@ -710,6 +861,11 @@ export interface GameMetaFile {
   imagePriceSnapshot?: { model: string; perImageUsd: number | null };
   /** Confirms that the required generated Fighter roster was published. */
   fighterArt?: {
+    mode: 'generated';
+    attempted: true;
+  };
+  /** Confirms that the required ten-file generated racing pack was published. */
+  racingArt?: {
     mode: 'generated';
     attempted: true;
   };

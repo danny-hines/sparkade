@@ -34,6 +34,7 @@ const GAME_TYPE_LABELS: Record<ArchetypeId, string> = {
   adventure: 'Adventure',
   hshooter: 'H-Shooter',
   fighter: 'Fighter',
+  racing: 'Racing',
 };
 
 function statusLabel(s: GameListItem['status']): string {

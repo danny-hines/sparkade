@@ -336,10 +336,11 @@ import {
   buildRacingBankEditReference,
   correctRacingBankPoses,
   extractRacingNeutralCell,
+  swapRacingBankCells,
 } from '../assets/racing-bank';
 import { processGeneratedRacingPanorama } from '../assets/racing-scenery';
 import { generateRacingSceneryPack } from '../assets/racing-scenery-pack';
-import { processGeneratedRacingMaterials } from '../assets/racing-materials';
+import { generateRacingJetskiMaterialsPack, processGeneratedRacingMaterials } from '../assets/racing-materials';
 import {
   RACING_PACK_REQUIRED_ROLES,
   reviewPendingRacingStrips,
@@ -2677,6 +2678,7 @@ export class GenerationRunner {
             ...buildRacingRosterJudgePrompt(
               reviewSlots,
               references.map(({ slot }) => slot),
+              racingSpec?.identity?.discipline === 'jetski' ? 'jetski' : 'hover',
             ),
             jsonSchema: buildRacingRosterJudgeSchema(reviewSlots),
             maxTokens: 1600,
@@ -2737,13 +2739,14 @@ export class GenerationRunner {
                   artDirection: playerIdentity.artDirection,
                   colors: racingSpec.palette.join(', '),
                   retryGuidance: playerGuidance,
+                  discipline: playerIdentity.discipline === 'jetski' ? 'jetski' : undefined,
                   rolePrefix: 'racing-craft-player',
-                  generate: (prompt, pose) =>
+                  generate: (prompt, pose, posedReference) =>
                     callImage({
                       role: `racing-craft-player-bank-${pose}`,
                       label: `Player bank ${pose === 'bankLeft' ? 'left' : 'right'} correction`,
                       prompt,
-                      reference: strip.presentationReference,
+                      reference: posedReference ?? strip.presentationReference,
                       size: '1024x1024',
                     }),
                   checkActive: throwIfSuspended,
@@ -2762,6 +2765,15 @@ export class GenerationRunner {
                 playerSlots,
                 'Spark re-reviews the player vehicle',
               );
+              // Image edits sometimes return correct opposite rolls under
+              // the wrong labels. Try one cell-order repair, then demand
+              // the same complete review; never mirror or waive a verdict.
+              if (!decision.accepted && decision.correctionKinds['player'] === 'banking') {
+                strip = { ...strip, gameplay: await swapRacingBankCells(strip.gameplay) };
+                decision = await reviewRacingStrips(
+                  [strip.gameplay], playerSlots, 'Spark verifies the player bank order',
+                );
+              }
             }
             if (!decision.accepted) {
               throw new PipelineError(
@@ -3706,7 +3718,9 @@ export class GenerationRunner {
               drain(plan.rivalStrips.map((entry) => generateStrip(entry))),
               drain(
                 plan.panoramas.map((entry) =>
-                  generateEntry(entry, (raw) => processGeneratedRacingPanorama(raw), keyArt),
+                  generateEntry(entry, (raw) => processGeneratedRacingPanorama(raw,
+                    racingSpec.identity?.discipline),
+                    entry.reference === 'keyArt' ? keyArt : undefined),
                 ),
               ),
               generateRacingSceneryPack({
@@ -3726,9 +3740,21 @@ export class GenerationRunner {
               })
                 .catch(racingAssetFailure)
                 .then((image) => [image]),
-              generateEntry(plan.materials, (raw) => processGeneratedRacingMaterials(raw)).then(
-                (image) => [image],
-              ),
+              (racingSpec.identity?.discipline === 'jetski'
+                ? generateRacingJetskiMaterialsPack({
+                    spec: racingSpec,
+                    workspace: assetWorkspace,
+                    generate: (prompt, slot) => callImage({
+                      role: `racing-material-tile-${slot + 1}`,
+                      label: `Water material ${slot + 1} of 4`,
+                      prompt,
+                      size: '1024x1024',
+                    }),
+                    checkActive: throwIfSuspended,
+                    validationFailure,
+                  }).catch(racingAssetFailure)
+                : generateEntry(plan.materials, (raw) => processGeneratedRacingMaterials(raw)))
+                .then((image) => [image]),
             ]);
             // Rival-only review: the player strip was already reviewed
             // before its reference froze into key/story art, so it rides
@@ -3829,13 +3855,14 @@ export class GenerationRunner {
                       artDirection: rivalIdentity.artDirection,
                       colors: racingSpec.palette.join(', '),
                       retryGuidance: guidance,
+                      discipline: rivalIdentity.discipline === 'jetski' ? 'jetski' : undefined,
                       rolePrefix: `racing-craft-${slot.id}`,
-                      generate: (prompt, pose) =>
+                      generate: (prompt, pose, posedReference) =>
                         callImage({
                           role: `racing-craft-${slot.id}-bank-${pose}`,
                           label: `${slot.name} bank ${pose === 'bankLeft' ? 'left' : 'right'} correction`,
                           prompt,
-                          reference: bankReference,
+                          reference: posedReference ?? bankReference,
                           size: '1024x1024',
                         }),
                       checkActive: throwIfSuspended,
@@ -3860,6 +3887,16 @@ export class GenerationRunner {
               // Each approval is already durable. Only remaining rejected
               // candidates are targets; all unchanged slots are references.
               decision = await reviewPending('Spark re-reviews the corrected vehicles');
+              if (!decision.accepted) {
+                let reordered = false;
+                for (let k = 1; k < slots.length; k++) {
+                  const id = slots[k]!.id;
+                  if (approvedIds.has(id) || decision.correctionKinds[id] !== 'banking') continue;
+                  buffers[k] = await swapRacingBankCells(buffers[k]!);
+                  reordered = true;
+                }
+                if (reordered) decision = await reviewPending('Spark verifies the rival bank order');
+              }
             }
             if (!decision.accepted) {
               throw new PipelineError(

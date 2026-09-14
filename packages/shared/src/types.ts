@@ -647,6 +647,14 @@ export interface RacingBoss {
 /** The one primary boost supply for a cup: pads, banked pickups, or none. */
 export type RacingBoostMode = 'pads' | 'pickups' | 'none';
 
+/**
+ * Runtime movement discipline: hover craft vs jet-ski. Optional everywhere
+ * authoring touches it — omission means 'hover' with byte-for-byte legacy
+ * behavior. Movement presentation (art/audio) stays separate; this only
+ * selects the physics profile the simulation steps.
+ */
+export type RacingDiscipline = 'hover' | 'jetski';
+
 /** Bounded engine-voice family for the later audio milestone. Stored only. */
 export type RacingEngineFamily = 'electric' | 'combustion' | 'arcane';
 
@@ -708,6 +716,8 @@ export interface RacingIdentity {
   sound: { engine: RacingEngineProfile };
   /** The cup's one primary boost supply. */
   boost: RacingBoostSupply;
+  /** Movement discipline for the whole cup. Omitted → 'hover' (legacy). */
+  discipline?: RacingDiscipline;
 }
 
 export interface RacingSpec extends GameSpecBase {

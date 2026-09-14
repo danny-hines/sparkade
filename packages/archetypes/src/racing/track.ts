@@ -10,7 +10,12 @@
 // compileTrack is reusable: the next milestone adds two more bounded
 // templates by supplying different control points. Arbitrary model-authored
 // geometry stays out; templates are hand-authored and validated here.
-import type { RacingBoostMode, RacingCraftShape, RacingTrackMaterials } from '@sparkade/shared';
+import type {
+  RacingBoostMode,
+  RacingCraftShape,
+  RacingDiscipline,
+  RacingTrackMaterials,
+} from '@sparkade/shared';
 
 export interface TrackPoint {
   x: number;
@@ -259,6 +264,13 @@ export interface RaceCircuit {
   craftShape?: RacingCraftShape;
   /** Authored track-material styling, consumed by the pack renderer. */
   materials?: RacingTrackMaterials;
+  /**
+   * Movement discipline this circuit steps: hover craft or jet-ski. Always
+   * present after compilation ('hover' when the spec omits identity or the
+   * discipline), so the simulation never guesses — omission preserves legacy
+   * hover behavior exactly.
+   */
+  discipline: RacingDiscipline;
 }
 
 /** Numeric audit of a compiled circuit for tests and generation bounds. */
@@ -513,7 +525,7 @@ export function mirrorPoints(control: TrackPoint[]): TrackPoint[] {
  */
 export function compileTrackVariant(
   templateId: string,
-  opts: { length?: number; mirror?: boolean } = {},
+  opts: { length?: number; mirror?: boolean; discipline?: RacingDiscipline } = {},
 ): RaceCircuit {
   const def = TEMPLATE_DEFS.find((d) => d.id === templateId) ?? TEMPLATE_DEFS[0]!;
   const control = opts.mirror ? mirrorPoints(def.control) : def.control;
@@ -531,6 +543,7 @@ export function compileTrackVariant(
     aiScales: [...def.aiScales],
     names: [...def.names],
     theme: def.theme,
+    discipline: opts.discipline ?? 'hover',
   };
 }
 

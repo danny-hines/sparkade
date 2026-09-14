@@ -19,6 +19,15 @@ import {
 } from './fighter-pose';
 
 export const RACING_PANORAMA_PROMPT_VERSION = 'racing-panorama-v3';
+/**
+ * Jetski panorama fingerprint. v1 painted near-field water that the
+ * south-anchored crop reduced to a skyless buoy lane; v3 preserves the
+ * complete distant-horizon composition in the wide runtime plate.
+ * Hover keeps v3 byte-identical.
+ */
+export const RACING_JETSKI_PANORAMA_PROMPT_VERSION = 'racing-jetski-panorama-v3';
+
+export type RacingWorldDiscipline = 'hover' | 'jetski';
 /** Generated plates at least this wide are accepted and cover-cropped. */
 export const RACING_PANORAMA_MIN_ASPECT = 1.6;
 export const RACING_SCENERY_PROMPT_VERSION = 'racing-scenery-atlas-v2';
@@ -38,6 +47,8 @@ export interface RacingPanoramaPromptOptions {
   colors?: string;
   candidateId?: string;
   retryGuidance?: string;
+  /** Omitted (or 'hover') preserves the exact legacy hover-world prompt. */
+  discipline?: RacingWorldDiscipline;
 }
 
 function clean(value: string | undefined, max: number): string | null {
@@ -53,10 +64,33 @@ function clean(value: string | undefined, max: number): string | null {
 export function buildRacingPanoramaPrompt(options: RacingPanoramaPromptOptions): string {
   const course = clean(options.courseName, 24) ?? 'Course';
   const artDirection = clean(options.artDirection, 280);
-  const world = clean(options.worldConcept, 280) ?? 'a distinctive hover-racing world';
+  const jetski = options.discipline === 'jetski';
+  const world =
+    clean(options.worldConcept, 280) ??
+    (jetski ? 'a distinctive jet-ski racing waterscape' : 'a distinctive hover-racing world');
   const env = clean(options.envConcept, 280) ?? 'a distinctive racing locale';
   const colors = clean(options.colors, 300);
   const retry = clean(options.retryGuidance, 320);
+  if (jetski) {
+    return [
+      `Create exactly ONE wide panoramic backdrop for the jetski-cup course ${course}: the distant water world seen ABOVE the waterline horizon, painted as if from a rider's eye level sitting on the water and looking at the far shore. Sky fills the TOP half of the frame, a straight horizon with distant shoreline and landmark silhouettes sits in the MIDDLE band, and only a narrow near-water band runs along the bottom. Coherent harbor, lagoon, stilt-house, mangrove, cliff, or open-water shapes rooted in the locale.`,
+      artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
+      `World identity: ${world}. This course locale: ${env}. Root every shape and color in that locale, distinct from the other two cup courses.`,
+      colors ? `Use this limited game color direction with strong contrast: ${colors}.` : '',
+      'Polished high-density 16-bit SNES-era pixel art: crisp square pixel clusters, hard edges, limited flat color ramps, no antialiasing, blur, gradients, or photorealism.',
+      'This is a distant-horizon panorama plate, NOT a screenshot, race scene, map, diagram, turnaround, collage, or story illustration. No painted road, track, lane, asphalt, curb, guardrail, vehicle, craft, wake, spray, buoy, buoy lane, course marker, foreground dock, pier, person, pilot, face, crowd, building interior, HUD, text, letters, numbers, logo, watermark, signature, UI, border, or frame. The runtime owns all water detail and course markers — paint only sky, horizon, and the far shore.',
+      'Composition contract: the complete frame will be fitted into a wide panorama strip. Keep the far shoreline visible across the lower third, with recognizable landmark silhouettes above it; never an aerial, oblique, or top-down view of the water, and never a close-up of docks, piers, or the near shore.',
+      'The image must be a FULLY OPAQUE painting edge to edge: sky meets the far shore across the whole frame with no transparency, no solid-color backdrop, and no green screen of any kind.',
+      options.candidateId
+        ? `Generate independent panorama candidate ${clean(options.candidateId, 12) ?? 'A'} for evaluation. Do not render this label.`
+        : '',
+      retry
+        ? `ART DIRECTOR CORRECTION: ${retry}. Apply only this correction while preserving world identity, locale, and pixel technique.`
+        : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
   return [
     `Create exactly ONE wide panoramic backdrop for the hover-cup course ${course}: the distant world seen ABOVE the road horizon. Camera looks toward the horizon at eye level; sky, far ridgelines, and landmark silhouettes fill the frame.`,
     artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
@@ -132,8 +166,16 @@ export function buildRacingSceneryPrompt(options: RacingSceneryPromptOptions): s
     .join(' ');
 }
 
-/** Normalize one opaque generated panorama to fixed runtime geometry. */
-export async function processGeneratedRacingPanorama(image: Buffer): Promise<Buffer> {
+/**
+ * Normalize one opaque generated panorama to fixed runtime geometry.
+ * Hover anchors south (the proven 2:1 skyline behavior, unchanged); jetski
+ * preserves the full frame. Provider-native aspect ratios otherwise force
+ * a choice between throwing away the sky or throwing away the far shore.
+ */
+export async function processGeneratedRacingPanorama(
+  image: Buffer,
+  discipline: RacingWorldDiscipline = 'hover',
+): Promise<Buffer> {
   let metadata;
   try {
     metadata = await sharp(image).metadata();
@@ -167,11 +209,11 @@ export async function processGeneratedRacingPanorama(image: Buffer): Promise<Buf
       );
     }
   }
-  // Anchor at the horizon-bearing bottom: center cropping removes the
-  // skyline from ordinary provider-native 2:1 panoramas.
+  // Preserve the full jetski composition; the runtime makes its own
+  // fixed camera crop. Hover retains its existing skyline normalization.
   return sharp(image)
     .resize(RACING_PANORAMA_WIDTH, RACING_PANORAMA_HEIGHT, {
-      fit: 'cover',
+      fit: discipline === 'jetski' ? 'fill' : 'cover',
       position: 'south',
       kernel: sharp.kernel.nearest,
     })

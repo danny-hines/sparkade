@@ -14,6 +14,20 @@ import {
 } from './fighter-pose';
 
 export const RACING_CRAFT_STRIP_PROMPT_VERSION = 'racing-craft-strip-v3';
+/**
+ * Jetski strip prompt fingerprint. Hover keeps v3 byte-identical so old
+ * approved assets reuse correctly; jetski semantics (required rider, water
+ * hull) are a separate cache lineage.
+ */
+export const RACING_JETSKI_STRIP_PROMPT_VERSION = 'racing-jetski-strip-v1';
+
+/** Runtime movement discipline selecting hover vs jetski strip semantics. */
+export type RacingStripDiscipline = 'hover' | 'jetski';
+
+/** Prompt version owning the given discipline's cache lineage. */
+export function racingCraftStripPromptVersion(discipline: RacingStripDiscipline = 'hover'): string {
+  return discipline === 'jetski' ? RACING_JETSKI_STRIP_PROMPT_VERSION : RACING_CRAFT_STRIP_PROMPT_VERSION;
+}
 /** Gutter search half-window around each expected third divider (fraction of width). */
 export const RACING_STRIP_GUTTER_SEARCH_FRACTION = 0.11;
 /** A column counts as gutter when this fraction of its pixels key green. */
@@ -36,6 +50,11 @@ export interface RacingCraftStripPromptOptions {
   colors?: string;
   candidateId?: string;
   retryGuidance?: string;
+  /**
+   * Movement discipline. Omitted (or 'hover') preserves the exact legacy
+   * vehicle-only hovercraft prompt; 'jetski' requires a visible seated rider.
+   */
+  discipline?: RacingStripDiscipline;
 }
 
 function clean(value: string | undefined, max: number): string | null {
@@ -48,13 +67,41 @@ function clean(value: string | undefined, max: number): string | null {
  * One 3-pose rear-view strip for a single roster vehicle. The premise governs
  * the vehicle; the camera stays behind and slightly above, every pose points
  * away toward the horizon, and no pilot is ever shown on the chassis.
+ * Jetski discipline instead requires one visible seated adult rider astride
+ * each watercraft (same rider and hull across all three cells).
  */
 export function buildRacingCraftStripPrompt(options: RacingCraftStripPromptOptions): string {
   const name = clean(options.name, 24) ?? 'Racer';
-  const concept = clean(options.vehicleConcept, 280) ?? 'distinctive rear-view hovercraft';
+  const jetski = options.discipline === 'jetski';
+  const concept =
+    clean(options.vehicleConcept, 280) ??
+    (jetski ? 'distinctive compact jet-ski watercraft with a seated rider' : 'distinctive rear-view hovercraft');
   const artDirection = clean(options.artDirection, 280);
   const colors = clean(options.colors, 300);
   const retry = clean(options.retryGuidance, 320);
+  if (jetski) {
+    return [
+      `Create exactly ONE isolated rear-view jetski turnaround strip for ${name}: THREE poses of the SAME watercraft plus its SAME seated rider side by side in one row, left to right: neutral-rear cruise, banking LEFT, banking RIGHT. Do not render pose labels.`,
+      artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
+      `Watercraft and rider identity: ${concept}. Keep one identical compact-hull watercraft with handlebars across all three cells: same silhouette, materials, markings, and livery. The hull touches the water with a small waterline contact patch. The SAME adult rider sits astride it in every cell: same outfit, same rear head, leaning physically together with the hull. Banking poses tilt rider and craft together gently, roughly 8-12 degrees, and shift them sideways; never redesign either and never mirror an asymmetric livery into a missing pose.`,
+      'Rear camera orientation: the camera sits behind and slightly above every craft and all three point directly AWAY toward the horizon. Rear-view composition only: rider back, watercraft stern, jet nozzle, and tail markings are visible; no bow front, cockpit front, or face-on view. The rider may show the rear of the head; never paste a face into the hull and never render the rider standing, detached, floating beside, or facing the camera.',
+      'No baked wakes, spray plumes, or exhaust flames on the neutral-rear cruise pose — the runtime owns all water and boost VFX. Banking poses may show a small idle spray hint at most.',
+      'No second person, passenger, portrait, initials, text, letters, numbers, logo, watermark, signature, UI, border, or scenery.',
+      colors ? `Use this limited game color direction with strong contrast: ${colors}.` : '',
+      'Polished high-density 16-bit SNES-era pixel art: crisp square pixel clusters, hard edges, limited flat color ramps, strong outline separation, no antialiasing, blur, gradients, or photorealism.',
+      'This is one rigid rider-plus-watercraft in three rear states, NOT three different craft, a character sheet, sequence, collage, story scene, icon, card, screenshot, or concept-art page.',
+      'Each craft must be complete and fully visible with ample clear green gutters and margins: fully empty green bands between the poses and around the outer edges, several percent of image width, so each craft cuts out without touching a neighbor. Nothing may be cropped and poses must not touch or overlap each other.',
+      'The entire empty background, including every gap around or enclosed by each silhouette, must be perfectly flat solid #00ff00. No craft may use #00ff00 or a near-neon imitation; darker natural greens are allowed.',
+      options.candidateId
+        ? `Generate independent strip candidate ${clean(options.candidateId, 12) ?? 'A'} for evaluation. Do not render this label.`
+        : '',
+      retry
+        ? `ART DIRECTOR CORRECTION: ${retry}. Apply only this correction while preserving rider and watercraft identity, rear orientation, scale, and pixel technique.`
+        : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
   return [
     `Create exactly ONE isolated rear-view hovercraft turnaround strip for ${name}: THREE poses of the SAME vehicle side by side in one row, left to right: neutral-rear cruise, banking LEFT, banking RIGHT. Do not render pose labels.`,
     artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',

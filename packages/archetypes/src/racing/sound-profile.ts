@@ -9,14 +9,28 @@
 // Legacy rule: an absent profile (undefined/null) resolves to the exact
 // pre-identity mix (combustion-family sawtooth at the original constants),
 // so legacy cups sound byte-identical to before.
-import type { RacingEngineFamily, RacingEngineProfile } from '@sparkade/shared';
+import type {
+  RacingDiscipline,
+  RacingEngineFamily,
+  RacingEngineProfile,
+} from '@sparkade/shared';
 
 /** Oscillator timbre per family: the strongest audible differentiator. */
 export type EngineOscType = 'sine' | 'sawtooth' | 'square';
 
+/** Presentation-layer discipline for engine voices. Lenient on purpose:
+ *  only 'jetski' selects the watercraft mix — omitted, null, or anything
+ *  else stays 'hover' (byte-identical legacy). Unlike the simulation's
+ *  throwing resolver, audio must never break a race over a bad string. */
+export function normalizeEngineDiscipline(value: unknown): RacingDiscipline {
+  return value === 'jetski' ? 'jetski' : 'hover';
+}
+
 /** Clamped + derived voice parameters. No audio nodes held. */
 export interface ResolvedEngineProfile {
   family: RacingEngineFamily;
+  /** Watercraft vs hovercraft mix. 'hover' is the exact legacy voice. */
+  discipline: RacingDiscipline;
   /** Timbre brightness 0..1 (clamped, default 0.5). */
   tone: number;
   /** Pitch offset in semitones -12..+12 (clamped, default 0). */
@@ -139,9 +153,17 @@ function clamp(n: number, lo: number, hi: number, fallback: number): number {
  * Clamp + derive a stored profile. Unknown families fall back to the
  * legacy combustion mix; out-of-range tone/pitch clamp to their bounds.
  * Null/undefined input is the legacy cup: exact legacy constants.
+ *
+ * The optional discipline selects the watercraft mix: 'hover' (or any
+ * omitted/invalid value) returns the family voice verbatim, while 'jetski'
+ * retunes the same family into a marine motor — deeper idle, wider
+ * speed/throttle load sweep, stronger carve bite, and a hissier
+ * water-rush noise band. Family/tone/pitch ordering is preserved, so a
+ * jetski still sounds like its authored family, just on water.
  */
 export function resolveEngineProfile(
   input?: RacingEngineProfile | null,
+  discipline?: RacingDiscipline | null,
 ): ResolvedEngineProfile {
   const family: RacingEngineFamily =
     input?.family === 'electric' || input?.family === 'arcane' || input?.family === 'combustion'
@@ -149,25 +171,70 @@ export function resolveEngineProfile(
       : 'combustion';
   const tone = clamp(input?.tone ?? 0.5, 0, 1, 0.5);
   const pitch = clamp(input?.pitch ?? 0, -12, 12, 0);
+  const resolved: RacingDiscipline = normalizeEngineDiscipline(discipline);
   const voice = FAMILY_VOICES[family];
+  const jetski = resolved === 'jetski';
   return {
     family,
+    discipline: resolved,
     tone,
     pitch,
     oscType: voice.oscType,
     pitchRatio: 2 ** (pitch / 12),
     filterScale: 0.6 + tone * 0.8,
-    baseHz: voice.baseHz,
-    speedHz: voice.speedHz,
-    throttleHz: voice.throttleHz,
-    driftHz: voice.driftHz,
-    filterBase: voice.filterBase,
-    filterSpeed: voice.filterSpeed,
-    filterThrottle: voice.filterThrottle,
-    filterBoost: voice.filterBoost,
-    burnerCutoff: voice.burnerCutoff,
-    burnerGain: voice.burnerGain,
+    baseHz: jetski ? voice.baseHz * 0.9 : voice.baseHz,
+    speedHz: jetski ? voice.speedHz * 1.15 : voice.speedHz,
+    throttleHz: jetski ? voice.throttleHz * 1.5 : voice.throttleHz,
+    driftHz: jetski ? voice.driftHz * 3 : voice.driftHz,
+    filterBase: jetski ? voice.filterBase * 0.85 : voice.filterBase,
+    filterSpeed: jetski ? voice.filterSpeed * 1.1 : voice.filterSpeed,
+    filterThrottle: jetski ? voice.filterThrottle * 1.1 : voice.filterThrottle,
+    filterBoost: jetski ? voice.filterBoost * 1.1 : voice.filterBoost,
+    burnerCutoff: jetski ? voice.burnerCutoff * 1.8 : voice.burnerCutoff,
+    burnerGain: jetski ? Math.min(0.5, voice.burnerGain * 0.9) : voice.burnerGain,
   };
+}
+
+/** Speed norm at or below which the jetski water rush stays fully silent. */
+export const JETSKI_WATER_REST_NORM = 0.02;
+
+/** Hard ceiling on the jetski water-rush gain: never clips, never buries
+ *  the motor or the music bus. */
+export const JETSKI_WATER_GAIN_CAP = 0.44;
+
+/**
+ * Jetski water-rush gain from live craft state: silent at rest, swelling
+ * with speed, extra wash while carving (drift held at speed), and a
+ * stronger deep-thrust surge under boost. Always 0 at rest unless
+ * boosting, and capped so the rush supports the motor instead of
+ * overpowering it. Pure math — no audio nodes.
+ */
+export function jetskiWaterGain(
+  speedNorm: number,
+  carving: boolean,
+  boosting: boolean,
+  voice: ResolvedEngineProfile,
+): number {
+  const norm = clamp(speedNorm, 0, 1, 0);
+  if (!boosting && norm <= JETSKI_WATER_REST_NORM) return 0;
+  const cruise = norm * 0.26;
+  const wake = carving && norm > 0.05 ? 0.07 : 0;
+  const thrust = boosting ? voice.burnerGain * 0.85 : 0;
+  return Math.min(JETSKI_WATER_GAIN_CAP, cruise + wake + thrust);
+}
+
+/**
+ * Jetski water-rush filter cutoff from live craft state: the hiss
+ * brightens with speed and opens further under boost (rushing waterjet).
+ * Pure math — no audio nodes.
+ */
+export function jetskiWaterCutoff(
+  speedNorm: number,
+  boosting: boolean,
+  voice: ResolvedEngineProfile,
+): number {
+  const norm = clamp(speedNorm, 0, 1, 0);
+  return voice.burnerCutoff + norm * 800 + (boosting ? 600 : 0);
 }
 
 /**

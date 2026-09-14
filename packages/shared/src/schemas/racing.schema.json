@@ -1292,6 +1292,13 @@
         },
         "boost": {
           "$ref": "#/$defs/racingBoostSupply"
+        },
+        "discipline": {
+          "description": "Runtime movement discipline for the cup: hover craft or jet-ski. Omit for hover (legacy behavior preserved exactly).",
+          "enum": [
+            "hover",
+            "jetski"
+          ]
         }
       },
       "required": [

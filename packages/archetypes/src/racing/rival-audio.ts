@@ -1,9 +1,14 @@
 // The race soundscape owns at most three continuous sources: the player,
 // boost roar, and up to two nearby rivals. Four music voices and one transient
 // still fit the shared eight-voice budget. No physics or player assists here.
-import type { RacingEngineProfile } from '@sparkade/shared';
+import type { RacingDiscipline, RacingEngineProfile } from '@sparkade/shared';
 import { HoverEngine, type HoverEngineCaps, type HoverEngineState } from './audio';
-import { LEGACY_RIVAL, resolveEngineProfile, type ResolvedEngineProfile } from './sound-profile';
+import {
+  LEGACY_RIVAL,
+  normalizeEngineDiscipline,
+  resolveEngineProfile,
+  type ResolvedEngineProfile,
+} from './sound-profile';
 
 export interface AudibleRacer {
   s: number;
@@ -30,6 +35,7 @@ export function rivalSound(
   index: number,
   length: number,
   profile?: RacingEngineProfile | null,
+  discipline?: RacingDiscipline | null,
 ): RivalSound | null {
   if (rival.finished || !(length > 0)) return null;
   const ds = ((((rival.s - player.s + length / 2) % length) + length) % length) - length / 2;
@@ -41,17 +47,21 @@ export function rivalSound(
   const closing = Math.sign(ds) * (player.speed - rival.speed);
   const doppler = 1 + Math.max(-0.065, Math.min(0.065, closing / 500));
   const ratio = resolveEngineProfile(profile ?? null).pitchRatio;
+  const jetski = normalizeEngineDiscipline(discipline) === 'jetski';
+  // Jetski rivals run the same proximity/stereo rules through a marine
+  // motor: the whole pitch shape sits 8% deeper with a softer wash gain.
+  // Proportional (never additive), so the jetski voice stays separated
+  // from hover at every speed instead of crossing over mid-range.
+  const shape =
+    LEGACY_RIVAL.baseHz +
+    Math.min(LEGACY_RIVAL.speedCap, Math.abs(rival.speed)) * LEGACY_RIVAL.speedCoef +
+    index * LEGACY_RIVAL.indexStep;
   return {
     index,
     distance,
     pan: Math.max(-0.9, Math.min(0.9, dx / (5 + Math.abs(ds) * 0.16))),
-    gain: envelope * (0.025 + motion * 0.11),
-    pitchHz:
-      (LEGACY_RIVAL.baseHz +
-        Math.min(LEGACY_RIVAL.speedCap, Math.abs(rival.speed)) * LEGACY_RIVAL.speedCoef +
-        index * LEGACY_RIVAL.indexStep) *
-      doppler *
-      ratio,
+    gain: envelope * (jetski ? 0.02 + motion * 0.095 : 0.025 + motion * 0.11),
+    pitchHz: shape * (jetski ? 0.92 : 1) * doppler * ratio,
   };
 }
 
@@ -65,27 +75,30 @@ class RivalVoice {
   private rawFamily: RacingEngineProfile['family'] | undefined = undefined;
   private rawTone: number | undefined = undefined;
   private rawPitch: number | undefined = undefined;
+  private rawDiscipline: RacingDiscipline | null | undefined = undefined;
   private held = false;
   constructor(private caps: HoverEngineCaps) {}
 
   /**
    * Voice this rival's timbre. Stores parameters only (no nodes, no
    * claim); a running voice switches timbre live. Steady-state repeats
-   * with the same input return after three field compares, so per-update
+   * with the same input return after four field compares, so per-update
    * calls allocate no nodes and no parameter objects.
    */
-  setProfile(profile?: RacingEngineProfile | null): void {
+  setProfile(profile?: RacingEngineProfile | null, discipline?: RacingDiscipline | null): void {
     if (
       profile?.family === this.rawFamily &&
       profile?.tone === this.rawTone &&
-      profile?.pitch === this.rawPitch
+      profile?.pitch === this.rawPitch &&
+      (discipline ?? null) === (this.rawDiscipline ?? null)
     ) {
       return;
     }
     this.rawFamily = profile?.family;
     this.rawTone = profile?.tone;
     this.rawPitch = profile?.pitch;
-    this.voice = resolveEngineProfile(profile ?? null);
+    this.rawDiscipline = discipline ?? null;
+    this.voice = resolveEngineProfile(profile ?? null, discipline ?? null);
     try {
       if (this.osc) this.osc.type = this.voice.oscType;
     } catch {
@@ -165,38 +178,52 @@ export class RaceEngineAudio {
   private held = 0;
   private playerProfile: RacingEngineProfile | null | undefined = undefined;
   private rivalProfiles: (RacingEngineProfile | null | undefined)[] = [];
+  private discipline: RacingDiscipline = 'hover';
 
   /**
    * Optional authored timbres: the player voice plus per-rival voices in
    * stable cast order (entry 0 voices the first non-player racer).
    * Omit/null anywhere for the exact legacy mix on that voice; a missing
-   * rival entry falls back to the player profile.
+   * rival entry falls back to the player profile. The optional
+   * discipline (identity.discipline, cup-wide) selects the watercraft
+   * mix for every voice; omit/null it for the exact legacy hover mix.
    */
   constructor(
     player?: RacingEngineProfile | null,
     rivals?: (RacingEngineProfile | null | undefined)[],
+    discipline?: RacingDiscipline | null,
   ) {
-    this.setProfile(player, rivals);
+    this.setProfile(player, rivals, discipline);
   }
 
   /**
    * Select timbres (identity.sound.engine for the player, themed voices
-   * per rival). Stores parameters only: no nodes, no claims. Safe to call
-   * before attach and while voices are playing.
+   * per rival) and optionally the discipline. Stores parameters only:
+   * no nodes, no claims. Safe to call before attach and while voices
+   * are playing. An omitted discipline keeps the current mix; pass
+   * explicit null for the exact legacy hover mix.
    */
   setProfile(
     player?: RacingEngineProfile | null,
     rivals?: (RacingEngineProfile | null | undefined)[],
+    discipline?: RacingDiscipline | null,
   ): void {
     this.playerProfile = player ?? null;
     this.rivalProfiles = rivals ? [...rivals] : [];
-    this.player.setProfile(this.playerProfile);
+    if (discipline !== undefined) this.discipline = normalizeEngineDiscipline(discipline);
+    this.player.setProfile(this.playerProfile, this.discipline);
     for (let i = 0; i < this.voices.length; i++) {
       const sounding = this.voices[i]!.info;
       this.voices[i]!.setProfile(
         this.rivalProfileFor(sounding ? sounding.index : i),
+        this.discipline,
       );
     }
+  }
+
+  /** Current mix ('hover' unless 'jetski' was selected). */
+  voiceDiscipline(): RacingDiscipline {
+    return this.discipline;
   }
 
   /** Last player slot seen (PLAYER_INDEX is constant per game; defaults to 0). */
@@ -237,7 +264,7 @@ export class RaceEngineAudio {
     this.voices = [new RivalVoice(limited), new RivalVoice(limited)];
     // Fresh voices start legacy; re-voice them from the stored profiles so
     // setProfile-before-attach (the game.ts call order) still applies.
-    for (const voice of this.voices) voice.setProfile(this.playerProfile);
+    for (const voice of this.voices) voice.setProfile(this.playerProfile, this.discipline);
   }
 
   status() {
@@ -257,8 +284,9 @@ export class RaceEngineAudio {
     length: number,
   ): void {
     this.lastPlayerIndex = playerIndex;
-    // Free the quieter rival before igniting a second player source.
-    if (state.boosting) {
+    // Free the quieter rival before igniting a second player source
+    // (boost roar, or the jetski water rush while moving).
+    if (this.player.wantsNoise(state)) {
       const sounding = this.voices.filter((v) => v.info);
       if (sounding.length > 1) sounding.sort((a, b) => a.info!.gain - b.info!.gain)[0]!.stop();
     }
@@ -266,7 +294,14 @@ export class RaceEngineAudio {
     const count = Math.min(state.boosting ? 1 : 2, Math.max(0, 3 - this.player.sources));
     const candidates = racers.flatMap((r, i) => {
       if (i === playerIndex) return [];
-      const s = rivalSound(racers[playerIndex]!, r, i, length, this.rivalProfileFor(i));
+      const s = rivalSound(
+        racers[playerIndex]!,
+        r,
+        i,
+        length,
+        this.rivalProfileFor(i),
+        this.discipline,
+      );
       return s ? [s] : [];
     });
     const priority = (r: RivalSound) =>
@@ -281,9 +316,9 @@ export class RaceEngineAudio {
       const voice =
         this.voices.find((v) => v.info?.index === candidate.index) ??
         this.voices.find((v) => !v.info);
-      // Voice the slot for this rival (steady-state: three field compares,
+      // Voice the slot for this rival (steady-state: four field compares,
       // no allocation); the pitch already carries the same profile.
-      voice?.setProfile(this.rivalProfileFor(candidate.index));
+      voice?.setProfile(this.rivalProfileFor(candidate.index), this.discipline);
       voice?.update(candidate);
     }
   }

@@ -11,9 +11,11 @@ import {
   RACING_BANK_PROMPT_VERSION,
   assembleRacingBankStrip,
   buildRacingBankEditPrompt,
+  buildRacingBankPoseGuide,
   correctRacingBankPoses,
   extractRacingNeutralCell,
   normalizeRacingBankPose,
+  swapRacingBankCells,
 } from '../src/assets/racing-bank';
 
 async function greenCanvasWithRect(
@@ -42,6 +44,16 @@ async function alphaMask(cell: Buffer): Promise<Buffer> {
   return mask;
 }
 
+it('repairs reversed bank labels without mirroring either pose or changing the neutral cell', async () => {
+  const source = (await processGeneratedRacingCraftStrip(await mockRacingCraftStripSource())).png;
+  const repaired = await swapRacingBankCells(source);
+  const pixels = (png: Buffer, index: number) => sharp(png)
+    .extract({ left: index * 64, top: 0, width: 64, height: 64 }).ensureAlpha().raw().toBuffer();
+  expect(await pixels(repaired, 0)).toEqual(await pixels(source, 0));
+  expect(await pixels(repaired, 1)).toEqual(await pixels(source, 2));
+  expect(await pixels(repaired, 2)).toEqual(await pixels(source, 1));
+});
+
 const baseOptions = {
   vehicleName: 'Pippa Vane',
   artDirection: 'test direction',
@@ -51,6 +63,27 @@ const baseOptions = {
   checkActive: () => undefined,
   validationFailure: () => undefined,
 };
+
+it('gives jetski image edits opposite roll guides while retaining asymmetric identity', async () => {
+  const marker = (color: string) => sharp({ create: { width: 8, height: 8, channels: 4, background: color } }).png().toBuffer();
+  const neutral = await sharp({ create: { width: 64, height: 64, channels: 4,
+    background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+    .composite([{ input: await marker('#ff0000'), left: 28, top: 8 },
+      { input: await marker('#0000ff'), left: 28, top: 48 },
+      { input: await marker('#ffffff'), left: 8, top: 28 }]).png().toBuffer();
+  for (const pose of ['bankLeft', 'bankRight'] as const) {
+    const { data, info } = await sharp(await buildRacingBankPoseGuide(neutral, pose)).raw().toBuffer({ resolveWithObject: true });
+    const centers = [[0, 0], [0, 0], [0, 0]];
+    for (let i = 0; i < info.width * info.height; i++) {
+      const [r, g, b] = data.subarray(i * info.channels, i * info.channels + 3);
+      const k = r! > 240 && g! < 10 && b! < 10 ? 0 : b! > 240 && r! < 10 && g! < 10 ? 1 : r! > 240 && g! > 240 && b! > 240 ? 2 : -1;
+      if (k >= 0) { centers[k]![0]! += i % info.width; centers[k]![1]!++; }
+    }
+    const [head, stern, port] = centers.map(([sum, count]) => sum! / count!);
+    expect(Math.sign(head! - stern!)).toBe(pose === 'bankLeft' ? -1 : 1);
+    expect(port!).toBeLessThan(head!); // asymmetric port marking stays on the same side
+  }
+});
 
 describe('racing bank edit prompts', () => {
   it('pins opposite rolls with a yaw lock and shared identity', () => {

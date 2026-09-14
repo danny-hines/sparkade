@@ -46,7 +46,9 @@ export function geometrySignature(track: {
  * identity, and boost supply mode. Pads-mode keys are byte-identical to
  * the legacy scheme (no mode segment); pickups/none append their mode and
  * pickups appends the cell layout, so different boost rules never share a
- * record. Never a bare template id or display name.
+ * record. Jet-ski courses append a discipline segment; hover keys (explicit
+ * or omitted discipline) stay byte-identical to the legacy scheme. Never a
+ * bare template id or display name.
  */
 export function recordKey(gameId: string, courseId: string, circuit: RaceCircuit): string {
   const pads = circuit.pads.map((p) => `${Math.round(p.start)}+${Math.round(p.length)}`).join(',');
@@ -67,6 +69,7 @@ export function recordKey(gameId: string, courseId: string, circuit: RaceCircuit
       .join(',');
     segs.push(`cells${cells}`);
   }
+  if ((circuit.discipline ?? 'hover') === 'jetski') segs.push('discjetski1');
   return segs.join('|');
 }
 

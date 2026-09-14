@@ -17,6 +17,7 @@ import {
   INTERNAL_HEIGHT,
   INTERNAL_WIDTH,
   type LogicalButton,
+  type RacingCraftPose,
   type RacingCraftShape,
   type RacingSpec,
 } from '@sparkade/shared';
@@ -56,7 +57,8 @@ import {
   scaleRgb,
   sceneryAtlasCell,
   scenerySlotFor,
-  selectCraftPose,
+  selectCraftPoseSteady,
+  packResidualLean,
   sortArtSprites,
   stableRosterNames,
   isLandmarkSlot,
@@ -109,6 +111,7 @@ import {
   type RaceState,
   type RacerInput,
 } from './simulation';
+import { resolveDiscipline } from './movement';
 
 const W = INTERNAL_WIDTH;
 const H = INTERNAL_HEIGHT;
@@ -365,6 +368,24 @@ export interface WorldMarker {
  * far-to-near for overdraw. Pure function of (camS mod trackLength), so
  * camS and camS + trackLength render identical lattices.
  */
+/**
+ * Route-buoy lattice density: buoys every ~150 units, with the count rounded
+ * so spacing divides the lap exactly (length/count). A fixed 150-unit grid
+ * would pop phase at the seam whenever the lap is not a multiple of 150;
+ * tying the lattice to the track length through worldMarkerSlots keeps it
+ * periodic like every other world-anchored marker.
+ */
+export const BUOY_TARGET_SPACING = 150;
+
+export function buoyCountFor(trackLength: number): number {
+  return Math.max(8, Math.round(trackLength / BUOY_TARGET_SPACING));
+}
+
+/** Alternating route side per lattice id (stable across laps and mirrors). */
+export function buoySide(k: number): -1 | 1 {
+  return ((k % 2) + 2) % 2 === 0 ? -1 : 1;
+}
+
 export function worldMarkerSlots(camS: number, trackLength: number, count: number): WorldMarker[] {
   const spacing = trackLength / count;
   const out: WorldMarker[] = [];
@@ -391,6 +412,62 @@ export function markerGate(k: number, n: number): number {
 export function steerVisScale(speed: number): number {
   const t = Math.max(0, Math.min(1, Math.abs(speed) / 30));
   return t * t * (3 - 2 * t);
+}
+
+/**
+ * Continuous steering lean around the baked pose switch (hybrid steering
+ * experiment). Residual visual transform only: a bounded extra roll plus a
+ * lateral shift (fraction of hull width) and a vertical squash, all linear
+ * in the already-smoothed, speed-scaled steer value v (-1..1). Zero at v=0
+ * (stopped, straight, or released-and-settled craft show nothing), so there
+ * is no cornering animation at zero speed and no pose chatter — the baked
+ * pose still carries the read, this only smooths between and within poses.
+ * Single vector, never crossfaded, never stacked past VIS_ROLL_MAX.
+ */
+export interface CraftLean {
+  /** Extra roll in radians (|.| <= 0.05). */
+  tilt: number;
+  /** Lateral shift as a fraction of hull width (|.| <= 0.06). */
+  shift: number;
+  /** Vertical scale around the hull base ([0.97, 1]). */
+  squash: number;
+}
+
+export function craftLean(v: number): CraftLean {
+  const c = v < -1 ? -1 : v > 1 ? 1 : v;
+  return {
+    tilt: c * 0.05,
+    shift: c * 0.06,
+    squash: 1 - Math.min(0.03, Math.abs(c) * 0.03),
+  };
+}
+
+/** Hard cap on combined roll (existing roll + lean) to avoid stacked lean. */
+export const VIS_ROLL_MAX = 0.22;
+
+export function clampVisRoll(roll: number): number {
+  return roll < -VIS_ROLL_MAX ? -VIS_ROLL_MAX : roll > VIS_ROLL_MAX ? VIS_ROLL_MAX : roll;
+}
+
+/**
+ * Baked-pose bank threshold per discipline: hover keeps the legacy 0.12 so
+ * existing packs read exactly as before; jet-ski holds the neutral pose to
+ * stronger steering and lets the continuous lean carry small inputs.
+ */
+export function poseBankThreshold(discipline: string | undefined): number {
+  return discipline === 'jetski' ? 0.2 : 0.12;
+}
+
+/** Offroad HUD flag per discipline: asphaltcraft go OFFROAD, ski runs SHALLOWS. */
+export function offroadLabel(discipline: string | undefined): string {
+  return discipline === 'jetski' ? 'SHALLOWS' : 'OFFROAD';
+}
+
+/** Title-screen control line per discipline (carve, not airbrake, on water). */
+export function helpControlsLine(discipline: string | undefined): string {
+  return discipline === 'jetski'
+    ? 'D-PAD STEER - B THROTTLE - Y BRAKE - A BOOST (HALF METER) - L/R CARVE'
+    : 'D-PAD STEER - B ACCEL - Y BRAKE - A BOOST (HALF METER) - L/R DRIFT';
 }
 
 /**
@@ -426,6 +503,20 @@ function drawTrap(
   ctx.fill();
 }
 
+/**
+ * Route buoy: orange float with a white band. Genuinely world-located — the
+ * caller passes the strip-interpolated position, so buoys approach and pass
+ * exactly like every other landmark.
+ */
+function drawBuoy(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
+  ctx.fillStyle = '#ff7a2e';
+  ctx.beginPath();
+  ctx.ellipse(x, y - s * 0.5, s * 0.42, s * 0.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(x - s * 0.42, y - s * 0.62, s * 0.84, Math.max(1, s * 0.2));
+}
+
 export type RacingCupPhase = 'title' | 'countdown' | 'race' | 'results' | 'cupEnd';
 
 /** Read-only playtest snapshot for the DEV-only diagnostics panel. */
@@ -458,6 +549,20 @@ export interface RacingDevSnapshot {
     offroad: boolean;
     /** Smoothed steering position (-1..1) for handling playtests. */
     steerPos: number;
+    /** Lateral velocity (world units/s); hover craft always read 0. */
+    latV: number;
+    /** Movement discipline of the current circuit. */
+    discipline: string;
+    /**
+     * Residual rotation (rad) applied to the generated player blit:
+     * desired smoothed lean minus the shown pose's baked lean. Zero at
+     * rest; net orientation with the baked cell always equals the lean.
+     */
+    visTilt: number;
+    /** Last rendered continuous lean: lateral shift (fraction of width). */
+    visShift: number;
+    /** Last rendered continuous lean: vertical squash around the hull base. */
+    visSquash: number;
     /** True while drift/airbrake is actively held at speed. */
     drifting: boolean;
     /** Continuous engine voice active (read-only audio activity). */
@@ -593,6 +698,9 @@ export function resolveCupRaces(spec?: RacingSpec): ResolvedCupRace[] {
   // compiled pads, pickups keep the compiled cell layout, none keeps
   // neither — the simulation gates triggers by this same mode.
   const mode = spec.identity?.boost.mode ?? 'pads';
+  // Movement discipline for the whole cup (omitted → hover, legacy).
+  // Invalid values throw here rather than silently racing the wrong physics.
+  const discipline = resolveDiscipline(spec.identity?.discipline);
   return spec.levels.map((level) => {
     const base = RACE_CIRCUITS.find((c) => c.id === level.template) ?? RACE_CIRCUITS[0]!;
     // Bounded geometry variation recompiles the template (same renderer and
@@ -600,7 +708,7 @@ export function resolveCupRaces(spec?: RacingSpec): ResolvedCupRace[] {
     const length = Math.min(3600, Math.max(2800, Math.round(level.length ?? base.track.length)));
     const template =
       length !== Math.round(base.track.length) || level.mirror === true
-        ? compileTrackVariant(base.id, { length, mirror: level.mirror === true })
+        ? compileTrackVariant(base.id, { length, mirror: level.mirror === true, discipline })
         : base;
     const circuit: RaceCircuit = {
       ...template,
@@ -616,6 +724,7 @@ export function resolveCupRaces(spec?: RacingSpec): ResolvedCupRace[] {
       names: ['YOU', ...level.rivals.map((r) => r.name)],
       theme: { ...template.theme, ...level.theme },
       craftShape: level.craftShape ?? template.craftShape,
+      discipline,
       boostMode: mode,
       pads: mode === 'pads' ? template.pads : [],
       pickups: mode === 'pickups' ? template.pickups : [],
@@ -654,13 +763,17 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       // Audio must never break the race.
     }
   }
-  // Continuous hover hum: guarded like sfx (DEV harnesses have no audio),
+  // Continuous engine and surface sound, guarded like sfx (DEV harnesses have no audio),
   // and never in attract/library previews. Created lazily on the first
   // racing update; driven from update only, never from render.
   const hover = new RaceEngineAudio();
   if ((engine as unknown as { attract?: boolean }).attract !== true) {
     hover.attach((engine as unknown as { audio?: HoverEngineCaps }).audio ?? null);
-    hover.setProfile(spec?.identity?.sound?.engine ?? null);
+    hover.setProfile(
+      spec?.identity?.sound?.engine ?? null,
+      undefined,
+      spec?.identity?.discipline ?? null,
+    );
   }
   const cup: CupState = createCup();
   const cupRaces = resolveCupRaces(spec);
@@ -679,6 +792,14 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
   let lastCells = 0;
   let scrapeSfxT = 0;
   let steerVis = 0;
+  /** Last rendered player lean (hybrid steering telemetry; frozen on pause). */
+  let lastVisLean: CraftLean = { tilt: 0, shift: 0, squash: 1 };
+  /** Residual rotation applied to the generated player blit (telemetry). */
+  let lastVisRot = 0;
+  /** Per-racer pack-pose memory for hysteresis (index = racer slot). */
+  const rivalPoses: RacingCraftPose[] = [];
+  /** Race the pose memory belongs to; a new race resets the switch state. */
+  let poseRace: RaceState | null = null;
   /** Total cup elapsed (countdown + racing, never results/title): scores the time bonus. */
   let cupElapsed = 0;
   /** Cup elapsed when the current race started: restarts rewind to here. */
@@ -801,7 +922,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
   /** Authored base palette (refreshed with raceArt, never per frame). */
   let paletteCache: ReturnType<typeof authoredPalette> = null;
   /** Player pose selected this frame (readonly DEV/art diagnostic). */
-  let lastPlayerPose: 'rear' | 'bankLeft' | 'bankRight' = 'rear';
+  let lastPlayerPose: RacingCraftPose = 'rear';
   // Combined far-to-near sprite queue: 64 markers x 2 sides + cells + rivals
   // + player, preallocated once. Legacy path never touches it.
   const spriteQueue: ArtSprite[] = makeArtSpriteQueue(144);
@@ -866,8 +987,29 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     w: number,
     flame: 0 | 1 | 2,
     flick: number,
+    wake = 0,
+    waterMode = false,
   ): void {
     if (w < 2) return;
+    if (waterMode) {
+      // Waterborne hull: never a detached black hover ellipse — wake at
+      // pace, a subtle contact ripple at rest. Spray (not flame) goes
+      // through the spark pool; the flame parameter is ignored on water.
+      const ripple = wake > 0;
+      ctx.fillStyle = ripple ? `rgba(225,243,255,${0.4 * wake})` : 'rgba(225,243,255,0.18)';
+      ctx.beginPath();
+      ctx.ellipse(cx, baseY, w * (ripple ? 0.55 : 0.5), w * 0.07, 0, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    if (wake > 0) {
+      // Legacy-pack wake ellipse (pre-discipline packs calling with wake).
+      ctx.fillStyle = `rgba(225,243,255,${0.4 * wake})`;
+      ctx.beginPath();
+      ctx.ellipse(cx, baseY, w * 0.55, w * 0.07, 0, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
     ctx.fillStyle = 'rgba(0,0,0,0.45)';
     ctx.beginPath();
     ctx.ellipse(cx, baseY, w * 0.5, w * 0.09, 0, 0, Math.PI * 2);
@@ -916,31 +1058,56 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     shape: RacingCraftShape = 'twinpod',
     roll = 0,
     flick = 1,
+    lean: CraftLean = { tilt: 0, shift: 0, squash: 1 },
+    water = false,
   ): void {
     if (w < 2) return;
-    // Banking roll around the craft center: lean into steered turns, harder
-    // while drifting. One save/restore per craft, no allocation.
+    // Banking roll around the craft top: lean into steered turns, harder
+    // while drifting. The continuous lean folds into the same capped roll
+    // (never stacked past VIS_ROLL_MAX); shift/squash apply separately
+    // around the hull base so the waterline stays planted. One
+    // save/restore per craft, no allocation; every block is guarded so a
+    // zero lean restores the exact legacy transform.
     ctx.save();
-    if (roll !== 0) {
+    const effRoll = clampVisRoll(roll + lean.tilt);
+    if (effRoll !== 0) {
       ctx.translate(x, y);
-      ctx.rotate(roll);
+      ctx.rotate(effRoll);
       ctx.translate(-x, -y);
     }
     const h = w * 0.44;
     // Authored silhouette variants: dart darts narrow, wedge runs wide aft.
     const rearW = shape === 'wedge' ? 0.5 : shape === 'dart' ? 0.34 : 0.42;
     const noseW = shape === 'dart' ? 0.16 : 0.3;
-    // Hover shadow + skirt glow.
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    ctx.beginPath();
-    ctx.ellipse(x, y + h * 0.44, w * 0.5, h * 0.2, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = boosting ? 'rgba(255,247,192,0.5)' : 'rgba(53,224,255,0.22)';
-    ctx.beginPath();
-    ctx.ellipse(x, y + h * 0.36, w * 0.42, h * 0.13, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // Boost flame. Flicker is race-clock derived (frozen under pause).
-    if (boosting) {
+    // Lateral shift + squash around the hull base (waterline): guarded so a
+    // zero lean draws exactly the legacy pixels.
+    const baseY = y + h * 0.4;
+    if (lean.shift !== 0 || lean.squash !== 1) {
+      ctx.translate(x, baseY);
+      ctx.transform(1, 0, 0, lean.squash, lean.shift * w, 0);
+      ctx.translate(-x, -baseY);
+    }
+    if (water) {
+      // Waterborne hull: no detached hover shadow or skirt glow — the hull
+      // sits on its own wake ellipse at the waterline.
+      ctx.fillStyle = 'rgba(225,243,255,0.5)';
+      ctx.beginPath();
+      ctx.ellipse(x, baseY, w * 0.55, h * 0.12, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Hover shadow + skirt glow.
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      ctx.beginPath();
+      ctx.ellipse(x, y + h * 0.44, w * 0.5, h * 0.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = boosting ? 'rgba(255,247,192,0.5)' : 'rgba(53,224,255,0.22)';
+      ctx.beginPath();
+      ctx.ellipse(x, y + h * 0.36, w * 0.42, h * 0.13, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Boost flame (hover only — watercraft vent spray through sparks, never
+    // a flame). Flicker is race-clock derived (frozen under pause).
+    if (boosting && !water) {
       const fw = w * 0.44;
       const fl = h * (0.9 + 0.5 * flick);
       ctx.fillStyle = '#fff7c0';
@@ -995,8 +1162,9 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     ctx.fillStyle = engineGlow ? '#ffffff' : color;
     ctx.fillRect(x - w * 0.46 + tilt * 0.4, y + h * 0.22, w * 0.12, h * 0.16);
     ctx.fillRect(x + w * 0.34 + tilt * 0.4, y + h * 0.22, w * 0.12, h * 0.16);
-    // Accel exhaust plume: small restrained glow behind the thrusters.
-    if (engineGlow && !boosting) {
+    // Accel exhaust plume: small restrained glow behind the thrusters
+    // (hover only — watercraft show throttle as spray, never exhaust).
+    if (engineGlow && !boosting && !water) {
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
       ctx.fillRect(x - w * 0.3, y + h * 0.3, w * 0.6, h * 0.1);
     }
@@ -1052,6 +1220,26 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
     }
     ctx.globalAlpha = 1;
+  }
+  /** Race clock of the last wake/spray emission; frozen frames emit nothing. */
+  let lastWakeT = -1;
+  /**
+   * Hull-contact spray for watercraft: speed/throttle/turn-scaled white water
+   * at the waterline, strengthening to a waterjet blue under boost. Uses the
+   * same race-clock-gated spark pool as the hover VFX (never a flame).
+   */
+  function emitWake(
+    cx: number,
+    baseY: number,
+    w: number,
+    speed: number,
+    steerPos: number,
+    boosting: boolean,
+  ): void {
+    if (Math.abs(speed) < 10) return;
+    const strength = Math.min(1, Math.abs(speed) / 60);
+    const spread = (1.2 + strength * 2 + Math.abs(steerPos) * 1.5) * (boosting ? 1.6 : 1);
+    emitSparks(cx, baseY, boosting ? 3 : 2, boosting ? '#bff1ff' : '#dff3ff', spread);
   }
 
   // Minimap outline follows the current race's circuit (recomputed per
@@ -1160,6 +1348,17 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     const circuit = race.circuit;
     const theme = circuit.theme;
     const player = race.racers[PLAYER_INDEX]!;
+    // Water presentation (buoys, wake, hull contact) keys off the compiled
+    // circuit discipline; hover renders exactly the legacy asphalt course.
+    const water = (circuit.discipline ?? 'hover') === 'jetski';
+    const bankThreshold = poseBankThreshold(circuit.discipline);
+    // Pose-switch memory belongs to one race: a fresh grid re-arms neutral
+    // so the first bank reads cleanly on either renderer.
+    if (poseRace !== race) {
+      poseRace = race;
+      rivalPoses.length = 0;
+      lastPlayerPose = 'rear';
+    }
     // Generated pack refs refresh only on race/bundle change — never per frame.
     const bundle = (engine as unknown as { racingArt?: unknown }).racingArt as
       import('@sparkade/engine').RacingArtBundle | null | undefined;
@@ -1259,79 +1458,96 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     const rB = palette && paletteB ? paletteB.roadB : roadB;
     const cA = palette ? palette.curb : ([200, 60, 60] as [number, number, number]);
     const cB = palette && paletteB ? paletteB.curbB : ([235, 235, 230] as [number, number, number]);
+    // Procedural jet-ski fallback palette: deep water course flanked by
+    // sandy shallows (fixed hues so the fallback reads as water on every
+    // pack, authored or not).
+    const wtrA: [number, number, number] = [27, 78, 128];
+    const wtrB: [number, number, number] = [23, 68, 114];
+    const shoA: [number, number, number] = [199, 181, 133];
+    const shoB: [number, number, number] = [189, 169, 121];
     if (art === null) {
       for (let i = SEGMENTS; i >= 1; i--) {
         const near = strips[i - 1]!;
         const far = strips[i]!;
         const band = Math.floor((camS + far.z) / SEG_LEN) % 2 === 0;
-        // Grass slice (authored ground hex on the pack path).
-        ctx.fillStyle = shade(band ? gA : gB, 0.4 + 0.6 * (1 - i / SEGMENTS));
+        const dim = 0.45 + 0.55 * (1 - i / SEGMENTS);
+        const curbW = (ROAD_HALF + CURB_WIDTH) / ROAD_HALF;
+        // Shallows slice (fixed sand on the water course, ground otherwise).
+        ctx.fillStyle = shade(water ? (band ? shoA : shoB) : band ? gA : gB, 0.4 + 0.6 * (1 - i / SEGMENTS));
         ctx.fillRect(0, far.y, W, near.y - far.y + 1);
         const ws = camS + far.z;
-        // Rumble: authored curb contrast on the pack path, legacy red/white.
-        const rum = palette
-          ? shade(band ? cA : cB, 0.5 + 0.5 * (1 - i / SEGMENTS))
-          : Math.floor(ws / SEG_LEN) % 2 === 0
-            ? '#c33'
-            : '#ddd';
-        ctx.fillStyle = rum;
-        drawTrap(ctx, near.cx, far.cx, near.half * 1.18, far.half * 1.18, near.y, far.y);
-        // Shoulder: dark band between rumble and curb; the offroad onset
-        // lives past the curb paint (|x| > ROAD_HALF + CURB_WIDTH).
-        const dim = 0.45 + 0.55 * (1 - i / SEGMENTS);
-        ctx.fillStyle = shade(band ? rA : rB, dim * 0.42);
-        drawTrap(ctx, near.cx, far.cx, near.half * 1.08, far.half * 1.08, near.y, far.y);
-        // Curb/apron: band just past the asphalt matching the forgiving
-        // physics curb exactly (no penalty inside it), alternating per band.
-        const curbW = (ROAD_HALF + CURB_WIDTH) / ROAD_HALF;
-        if (palette) {
-          ctx.fillStyle = shade(band ? cA : cB, dim);
+        if (water) {
+          // Buoy-marked water course: deep water with a foam edge riding the
+          // forgiving boundary width. No rumble, curbs, rails, glow, paint,
+          // or center stripes — the foam ring is the readable boundary.
+          ctx.fillStyle = `rgba(235,245,250,${0.5 * dim})`;
+          drawTrap(ctx, near.cx, far.cx, near.half * curbW, far.half * curbW, near.y, far.y);
+          ctx.fillStyle = shade(band ? wtrA : wtrB, dim);
+          drawTrap(ctx, near.cx, far.cx, near.half, far.half, near.y, far.y);
         } else {
-          ctx.fillStyle = band
-            ? `rgba(200,60,60,${0.55 * dim})`
-            : `rgba(235,235,230,${0.55 * dim})`;
-        }
-        drawTrap(ctx, near.cx, far.cx, near.half * curbW, far.half * curbW, near.y, far.y);
-        // Asphalt.
-        ctx.fillStyle = shade(band ? rA : rB, dim);
-        drawTrap(ctx, near.cx, far.cx, near.half, far.half, near.y, far.y);
-        // Crisp edge lines: safety white on the legacy path (generated
-        // surfaces render in the pack branch above). Two narrow bands riding
-        // the asphalt edges — never an expanded filled road (that repainted
-        // the asphalt). Always paints after surfaces.
-        ctx.fillStyle = palette
-          ? withAlpha(palette.edge, 0.85 * dim)
-          : `rgba(240,240,235,${0.85 * dim})`;
-        for (const edgeSide of [-1, 1]) {
-          drawTrap(
-            ctx,
-            near.cx + edgeSide * near.half,
-            far.cx + edgeSide * far.half,
-            Math.max(1, near.half * 0.03),
-            Math.max(1, far.half * 0.03),
-            near.y,
-            far.y,
-          );
-        }
-        // Edge glow line in the circuit accent color.
-        ctx.fillStyle = theme.accent;
-        ctx.globalAlpha = 0.35 * dim;
-        for (const side of [-1, 1]) {
-          drawTrap(
-            ctx,
-            near.cx + side * near.half,
-            far.cx + side * far.half,
-            near.half * 0.04,
-            far.half * 0.04,
-            near.y,
-            far.y,
-          );
-        }
-        ctx.globalAlpha = 1;
-        // Center dashes.
-        if (Math.floor(ws / SEG_LEN) % 4 < 2) {
-          ctx.fillStyle = `rgba(240,240,220,${0.7 * dim})`;
-          drawTrap(ctx, near.cx, far.cx, near.half * 0.035 + 0.5, far.half * 0.035, near.y, far.y);
+          // Rumble: authored curb contrast on the pack path, legacy red/white.
+          const rum = palette
+            ? shade(band ? cA : cB, 0.5 + 0.5 * (1 - i / SEGMENTS))
+            : Math.floor(ws / SEG_LEN) % 2 === 0
+              ? '#c33'
+              : '#ddd';
+          ctx.fillStyle = rum;
+          drawTrap(ctx, near.cx, far.cx, near.half * 1.18, far.half * 1.18, near.y, far.y);
+          // Shoulder: dark band between rumble and curb; the offroad onset
+          // lives past the curb paint (|x| > ROAD_HALF + CURB_WIDTH).
+          ctx.fillStyle = shade(band ? rA : rB, dim * 0.42);
+          drawTrap(ctx, near.cx, far.cx, near.half * 1.08, far.half * 1.08, near.y, far.y);
+          // Curb/apron: band just past the asphalt matching the forgiving
+          // physics curb exactly (no penalty inside it), alternating per band.
+          if (palette) {
+            ctx.fillStyle = shade(band ? cA : cB, dim);
+          } else {
+            ctx.fillStyle = band
+              ? `rgba(200,60,60,${0.55 * dim})`
+              : `rgba(235,235,230,${0.55 * dim})`;
+          }
+          drawTrap(ctx, near.cx, far.cx, near.half * curbW, far.half * curbW, near.y, far.y);
+          // Asphalt.
+          ctx.fillStyle = shade(band ? rA : rB, dim);
+          drawTrap(ctx, near.cx, far.cx, near.half, far.half, near.y, far.y);
+          // Crisp edge lines: safety white on the legacy path (generated
+          // surfaces render in the pack branch above). Two narrow bands riding
+          // the asphalt edges — never an expanded filled road (that repainted
+          // the asphalt). Always paints after surfaces.
+          ctx.fillStyle = palette
+            ? withAlpha(palette.edge, 0.85 * dim)
+            : `rgba(240,240,235,${0.85 * dim})`;
+          for (const edgeSide of [-1, 1]) {
+            drawTrap(
+              ctx,
+              near.cx + edgeSide * near.half,
+              far.cx + edgeSide * far.half,
+              Math.max(1, near.half * 0.03),
+              Math.max(1, far.half * 0.03),
+              near.y,
+              far.y,
+            );
+          }
+          // Edge glow line in the circuit accent color.
+          ctx.fillStyle = theme.accent;
+          ctx.globalAlpha = 0.35 * dim;
+          for (const side of [-1, 1]) {
+            drawTrap(
+              ctx,
+              near.cx + side * near.half,
+              far.cx + side * far.half,
+              near.half * 0.04,
+              far.half * 0.04,
+              near.y,
+              far.y,
+            );
+          }
+          ctx.globalAlpha = 1;
+          // Center dashes.
+          if (Math.floor(ws / SEG_LEN) % 4 < 2) {
+            ctx.fillStyle = `rgba(240,240,220,${0.7 * dim})`;
+            drawTrap(ctx, near.cx, far.cx, near.half * 0.035 + 0.5, far.half * 0.035, near.y, far.y);
+          }
         }
         // Boost pad overlay: same lane fraction the physics trigger uses, with
         // white lane rails and a forward chevron every fourth strip.
@@ -1400,16 +1616,22 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
               const gx = near.cx + (far.cx - near.cx) * ft;
               const gy = near.y + (far.y - near.y) * ft;
               const gh = Math.max(2, far.half * 0.5);
-              ctx.fillStyle = '#f2f4ff';
-              ctx.fillRect(gx - far.half * 1.35 - 1, gy - gh, 2, gh);
-              ctx.fillRect(gx + far.half * 1.35 - 1, gy - gh, 2, gh);
-              ctx.fillStyle = theme.accent;
-              ctx.fillRect(
-                gx - far.half * 1.35 - 1,
-                gy - gh,
-                far.half * 2.7 + 2,
-                Math.max(1.5, gh * 0.22),
-              );
+              if (water) {
+                // Gate buoys mark the checkpoint line on water.
+                drawBuoy(ctx, gx - far.half * 1.35, gy, gh * 0.55);
+                drawBuoy(ctx, gx + far.half * 1.35, gy, gh * 0.55);
+              } else {
+                ctx.fillStyle = '#f2f4ff';
+                ctx.fillRect(gx - far.half * 1.35 - 1, gy - gh, 2, gh);
+                ctx.fillRect(gx + far.half * 1.35 - 1, gy - gh, 2, gh);
+                ctx.fillStyle = theme.accent;
+                ctx.fillRect(
+                  gx - far.half * 1.35 - 1,
+                  gy - gh,
+                  far.half * 2.7 + 2,
+                  Math.max(1.5, gh * 0.22),
+                );
+              }
               break;
             }
           }
@@ -1474,7 +1696,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         const rumL1 = cx - half * curbW;
         const rumR0 = cx + half * curbW;
         const rumR1 = cx + half * 1.18;
-        if (rumL1 - rumL0 >= 1 || rumR1 - rumR0 >= 1) {
+        if (!water && (rumL1 - rumL0 >= 1 || rumR1 - rumR0 >= 1)) {
           ctx.fillStyle = shade(cA, 0.5 + 0.5 * depthF);
           if (rumL1 - rumL0 >= 1) ctx.fillRect(rumL0, y, rumL1 - rumL0, 1);
           if (rumR1 - rumR0 >= 1) ctx.fillRect(rumR0, y, rumR1 - rumR0, 1);
@@ -1482,7 +1704,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         // Curb base plus texture per side, U anchored across each side's own
         // span (never an enclosing bbox).
         const curbHalf = (half * (curbW - 1)) / 2;
-        if (curbHalf >= 0.5 && tileWorldEff > 0) {
+        if (!water && curbHalf >= 0.5 && tileWorldEff > 0) {
           ctx.fillStyle = shade(cA, dim);
           const curbRow = rowAtlasRow(wrapped, tileWorldEff, cq.size);
           for (const side of [-1, 1]) {
@@ -1532,28 +1754,34 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
             0.5 * dim + 0.35,
           );
         }
-        // Crisp edge lines over every texture: authored edge hex on the pack
-        // path, safety white otherwise. Always paints after surfaces.
-        ctx.fillStyle = palette
-          ? withAlpha(palette.edge, 0.85 * dim)
-          : `rgba(240,240,235,${0.85 * dim})`;
-        const edgeW = Math.max(1, half * 0.03);
-        ctx.fillRect(cx - half - edgeW / 2, y, edgeW, 1);
-        ctx.fillRect(cx + half - edgeW / 2, y, edgeW, 1);
-        const glowW = half * 0.04;
-        if (glowW >= 1) {
-          ctx.globalAlpha = 0.35 * dim;
-          ctx.fillStyle = theme.accent;
-          ctx.fillRect(cx - half - glowW / 2, y, glowW, 1);
-          ctx.fillRect(cx + half - glowW / 2, y, glowW, 1);
-          ctx.globalAlpha = 1;
-        }
-        // Center dashes: world-anchored phase from the row's own distance, so
-        // dash boundaries never snap when they pass a segment edge.
-        if (Math.floor(sRow / SEG_LEN) % 4 < 2) {
-          ctx.fillStyle = `rgba(240,240,220,${0.7 * dim})`;
-          const dashW = half * 0.035 + 0.5;
-          ctx.fillRect(cx - dashW, y, dashW * 2, 1);
+        // Asphalt furniture (edge lines, glow rails, center dashes) is
+        // skipped on the water course: the generated road quadrant reads as
+        // open water and buoys mark the route instead. Textured surfaces
+        // keep their world-anchored mapping either way.
+        if (!water) {
+          // Crisp edge lines over every texture: authored edge hex on the pack
+          // path, safety white otherwise. Always paints after surfaces.
+          ctx.fillStyle = palette
+            ? withAlpha(palette.edge, 0.85 * dim)
+            : `rgba(240,240,235,${0.85 * dim})`;
+          const edgeW = Math.max(1, half * 0.03);
+          ctx.fillRect(cx - half - edgeW / 2, y, edgeW, 1);
+          ctx.fillRect(cx + half - edgeW / 2, y, edgeW, 1);
+          const glowW = half * 0.04;
+          if (glowW >= 1) {
+            ctx.globalAlpha = 0.35 * dim;
+            ctx.fillStyle = theme.accent;
+            ctx.fillRect(cx - half - glowW / 2, y, glowW, 1);
+            ctx.fillRect(cx + half - glowW / 2, y, glowW, 1);
+            ctx.globalAlpha = 1;
+          }
+          // Center dashes: world-anchored phase from the row's own distance, so
+          // dash boundaries never snap when they pass a segment edge.
+          if (Math.floor(sRow / SEG_LEN) % 4 < 2) {
+            ctx.fillStyle = `rgba(240,240,220,${0.7 * dim})`;
+            const dashW = half * 0.035 + 0.5;
+            ctx.fillRect(cx - dashW, y, dashW * 2, 1);
+          }
         }
         if (onPad) {
           ctx.fillStyle = `rgba(255,255,255,${0.6 * dim})`;
@@ -1585,6 +1813,11 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         const proj = projectAtZ(strips, rel);
         if (proj === null || proj.half <= 4) continue;
         const gh = Math.max(2, proj.half * 0.5);
+        if (water) {
+          drawBuoy(ctx, proj.cx - proj.half * 1.35, proj.y, gh * 0.55);
+          drawBuoy(ctx, proj.cx + proj.half * 1.35, proj.y, gh * 0.55);
+          continue;
+        }
         ctx.fillStyle = '#f2f4ff';
         ctx.fillRect(proj.cx - proj.half * 1.35 - 1, proj.y - gh, 2, gh);
         ctx.fillRect(proj.cx + proj.half * 1.35 - 1, proj.y - gh, 2, gh);
@@ -1595,6 +1828,22 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           proj.half * 2.7 + 2,
           Math.max(1.5, gh * 0.22),
         );
+      }
+    }
+
+    // Shared route-buoy pass for BOTH water surfaces (procedural and
+    // generated): one periodic lattice tied to the track length through
+    // worldMarkerSlots, projected at each marker's exact depth through the
+    // same strip buffer as the road. A single call site, so the two
+    // renderers can never disagree about buoy phase — and the lap seam is
+    // seamless because the spacing divides the lap exactly.
+    if (water) {
+      const buoyCount = buoyCountFor(circuit.track.length);
+      for (const m of worldMarkerSlots(camS, circuit.track.length, buoyCount)) {
+        const proj = projectAtZ(strips, m.z);
+        if (proj === null || proj.half <= 3) continue;
+        const side = buoySide(m.k);
+        drawBuoy(ctx, proj.cx + side * proj.half * 1.15, proj.y, Math.max(2, proj.half * 0.3));
       }
     }
 
@@ -1624,6 +1873,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       dw: number,
       dh: number,
       alpha: number,
+      rot = 0,
     ): void => {
       if (spriteCount >= spriteQueue.length) return;
       const e = spriteQueue[spriteCount]!;
@@ -1639,6 +1889,9 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       e.dw = dw;
       e.dh = dh;
       e.alpha = alpha;
+      // Reassigned on every push: a reused entry can never leak a stale
+      // rotation into scenery, pickups, or a later straight-running craft.
+      e.rot = rot;
       spriteCount++;
     };
     for (const m of worldMarkerSlots(camS, trackLen, RACING_SCENERY_COUNT)) {
@@ -1872,6 +2125,10 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     // into the combined far-to-near queue; legacy draws immediately as before.
     // Signed gaps keep slightly-behind rivals visible instead of clipping
     // them below the screen; projectAtZ culls anything outside the strips.
+    // Wake/spray emits at most once per race-clock tick for the whole frame:
+    // frozen (paused) frames emit nothing and stay pixel-identical.
+    const wakeFrame = water && race.t !== lastWakeT;
+    if (wakeFrame) lastWakeT = race.t;
     let rivalCount = 0;
     for (let i = 0; i < race.racers.length; i++) {
       if (i === PLAYER_INDEX) continue;
@@ -1884,17 +2141,31 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         if (proj === null) continue;
         const cx = proj.cx + r.x * proj.ppu;
         const w = Math.max(4, CRAFT_WORLD_W * proj.ppu);
-        const pose = selectCraftPose(r.steerPos * steerVisScale(r.speed), r.speed);
+        const rVis = r.steerPos * steerVisScale(r.speed);
+        const rivalLean = craftLean(rVis);
+        const pose = selectCraftPoseSteady(rivalPoses[i] ?? 'rear', rVis, r.speed, bankThreshold);
+        rivalPoses[i] = pose;
+        const residual = packResidualLean(rVis, pose);
         // Body fill compensation: the keyed body spans ~52/64 of its cell,
         // so the blit is widened to restore the true physical world width.
+        // The continuous lean shifts/squashes the blit around its base (no
+        // rotation, no crossfade: crisp pixels preserved).
         const bw = w / STRIP_BODY_FILL;
-        drawStripShadow(
-          cx,
-          proj.y - w * 0.075,
-          w,
-          exhaustFlame(r.speed, r.boostT),
-          visHash(race.t * 3 + i),
-        );
+        const leanDx = cx - bw / 2 + rivalLean.shift * bw;
+        const leanDh = bw * rivalLean.squash;
+        const leanDy = proj.y - w * 0.075 - bw + (bw - leanDh);
+        if (water) {
+          drawStripShadow(cx, proj.y - w * 0.075, w, 0, 0, Math.min(1, Math.abs(r.speed) / 60), true);
+          if (wakeFrame) emitWake(cx, proj.y - w * 0.075, w, r.speed, r.steerPos, r.boostT > 0);
+        } else {
+          drawStripShadow(
+            cx,
+            proj.y - w * 0.075,
+            w,
+            exhaustFlame(r.speed, r.boostT),
+            visHash(race.t * 3 + i),
+          );
+        }
         pushSprite(
           z,
           2000 + i,
@@ -1903,11 +2174,12 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           0,
           64,
           64,
-          cx - bw / 2,
-          proj.y - w * 0.075 - bw,
+          leanDx,
+          leanDy,
           bw,
-          bw,
+          leanDh,
           1,
+          residual,
         );
         continue;
       }
@@ -1939,6 +2211,8 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         if (proj === null) continue;
         const cx = proj.cx + r.x * proj.ppu;
         const w = Math.max(4, CRAFT_WORLD_W * proj.ppu);
+        const rLean = craftLean(r.steerPos * steerVisScale(r.speed));
+        if (wakeFrame) emitWake(cx, proj.y - w * 0.075, w, r.speed, r.steerPos, r.boostT > 0);
         drawCraft(
           cx,
           proj.y - w * 0.075,
@@ -1946,11 +2220,13 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           craftHulls[slot.idx % craftHulls.length]!,
           craftDarks[slot.idx % craftDarks.length]!,
           0,
-          r.boostT > 0,
-          r.speed > 20,
+          !water && r.boostT > 0,
+          !water && r.speed > 20,
           'twinpod',
           r.steerPos * 0.14 * steerVisScale(r.speed),
           visHash(race.t * 3 + slot.idx),
+          rLean,
+          water,
         );
       }
     }
@@ -1961,6 +2237,16 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     // scrape jitter and flame flicker derive from the frozen-when-paused
     // race clock, so pause renders identical frames.
     const visK = steerVisScale(player.speed);
+    // Hybrid steering: the eased steerVis value (already smoothed through
+    // attack/release/countersteer in update) scaled to zero at a stop, so
+    // small inputs lean continuously and the baked pose only switches at
+    // the bank threshold. Telemetry snapshots read this same vector.
+    lastVisLean = craftLean(steerVis * visK);
+    // Pack pose with hysteresis plus the compensating residual: net
+    // orientation always equals the desired smoothed lean, so the sprite
+    // switch changes pixels but never heading. Telemetry reads the same.
+    lastPlayerPose = selectCraftPoseSteady(lastPlayerPose, steerVis * visK, player.speed, bankThreshold);
+    lastVisRot = packResidualLean(steerVis * visK, lastPlayerPose);
     const tilt = player.steerPos * 12 * (inputBuf[PLAYER_INDEX]!.drift ? 1.5 : 1) * visK;
     const roll = (player.steerPos * 0.14 + (player.drifting ? player.steerPos * 0.08 : 0)) * visK;
     const scrape = Math.abs(player.x) >= BARRIER_X - 0.05 && Math.abs(player.speed) > 20;
@@ -1988,17 +2274,24 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         }
         stepSparks(1 / 60);
       }
+      if (water && wakeFrame) emitWake(px, py, pw, player.speed, player.steerPos, player.boostT > 0);
       if (art !== null) {
-        // Generated player strip: baked bank pose, never rotated or mirrored.
-        lastPlayerPose = selectCraftPose(steerVis * visK, player.speed);
+        // Generated player strip: hysteresis pose plus the residual rotation
+        // about the blit base (never mirrored, never crossfaded). Shift and
+        // squash ride along; crisp pixels via disabled smoothing in flush.
         const pbw = pw / STRIP_BODY_FILL;
-        drawStripShadow(
-          px,
-          py,
-          pw,
-          exhaustFlame(player.speed, player.boostT),
-          visHash(race.t * 7 + 1),
-        );
+        const leanDh = pbw * lastVisLean.squash;
+        if (water) {
+          drawStripShadow(px, py, pw, 0, 0, Math.min(1, Math.abs(player.speed) / 60), true);
+        } else {
+          drawStripShadow(
+            px,
+            py,
+            pw,
+            exhaustFlame(player.speed, player.boostT),
+            visHash(race.t * 7 + 1),
+          );
+        }
         pushSprite(
           RACING_CAM_BACK,
           3000,
@@ -2007,11 +2300,12 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           0,
           64,
           64,
-          px - pbw / 2,
-          py - pbw,
+          px - pbw / 2 + lastVisLean.shift * pbw,
+          py - pbw + (pbw - leanDh),
           pbw,
-          pbw,
+          leanDh,
           1,
+          lastVisRot,
         );
       } else {
         drawCraft(
@@ -2021,11 +2315,13 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           craftHulls[0]!,
           craftDarks[0]!,
           tilt,
-          player.boostT > 0,
-          player.speed > 1,
+          !water && player.boostT > 0,
+          !water && player.speed > 1,
           race.circuit.craftShape ?? 'twinpod',
           roll,
           visHash(race.t * 7 + 1),
+          lastVisLean,
+          water,
         );
       }
     }
@@ -2036,13 +2332,24 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       sortArtSprites(spriteQueue, spriteCount);
       for (let q = 0; q < spriteCount; q++) {
         const e = spriteQueue[q]!;
-        if (e.alpha !== 1) {
-          ctx.globalAlpha = e.alpha;
-          ctx.drawImage(e.img, e.sx, e.sy, e.sw, e.sh, e.dx, e.dy, e.dw, e.dh);
-          ctx.globalAlpha = 1;
+        if (e.alpha !== 1) ctx.globalAlpha = e.alpha;
+        if (e.rot !== 0) {
+          // Residual craft lean: one save/restore around the blit base
+          // center only for rotated craft. Smoothing stays off so generated
+          // pixels stay crisp; restore returns smoothing and alpha, and the
+          // trailing reset keeps later sprites and the HUD unaffected.
+          const bx = e.dx + e.dw / 2;
+          const by = e.dy + e.dh;
+          ctx.save();
+          ctx.translate(bx, by);
+          ctx.rotate(e.rot);
+          ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(e.img, e.sx, e.sy, e.sw, e.sh, -e.dw / 2, -e.dh, e.dw, e.dh);
+          ctx.restore();
         } else {
           ctx.drawImage(e.img, e.sx, e.sy, e.sw, e.sh, e.dx, e.dy, e.dw, e.dh);
         }
+        if (e.alpha !== 1) ctx.globalAlpha = 1;
       }
     }
     drawSparks();
@@ -2092,7 +2399,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     ctx.fillText(`BOOST ${boostValue(player.boostT > 0, player.boost)}`, 114, H - 21);
     if (player.offroad) {
       ctx.fillStyle = '#ffb02e';
-      ctx.fillText('OFFROAD', 198, H - 21);
+      ctx.fillText(offroadLabel(circuit.discipline), 198, H - 21);
     }
     if (player.lapTimes.length > 0) {
       ctx.fillStyle = '#aee9f1';
@@ -2156,7 +2463,8 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       ctx.textBaseline = 'middle';
       ctx.font = 'bold 26px monospace';
       ctx.fillStyle = '#ffd94d';
-      const title = `RACE ${displayRaceNumber()}/${raceCount}: ${truncateName(circuit.name.toUpperCase(), 20)}`;
+      const waterTitle = (circuit.discipline ?? 'hover') === 'jetski' ? ' - JET SKI' : '';
+      const title = `RACE ${displayRaceNumber()}/${raceCount}: ${truncateName(circuit.name.toUpperCase(), 20)}${waterTitle}`;
       ctx.fillText(title, W / 2 - title.length * 7.8, 110);
       ctx.font = '10px monospace';
       ctx.fillStyle = '#ffffff';
@@ -2174,7 +2482,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           .map((n) => truncateName(n, 10))
           .join(' / ')}`,
         ...(isFinale ? [bossLine] : []),
-        'D-PAD STEER - B ACCEL - Y BRAKE - A BOOST (HALF METER) - L/R DRIFT',
+        helpControlsLine(circuit.discipline),
         'PRESS A OR B TO RACE',
       ];
       for (const [li, line] of lines.entries()) {
@@ -2744,6 +3052,11 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           boostT: player.boostT,
           offroad: player.offroad,
           steerPos: player.steerPos,
+          latV: player.latV,
+          discipline: race.circuit.discipline ?? 'hover',
+          visTilt: lastVisRot,
+          visShift: lastVisLean.shift,
+          visSquash: lastVisLean.squash,
           drifting: player.drifting,
           engineOn: hover.status().on,
           enginePitchHz: Math.round(hover.status().pitchHz),

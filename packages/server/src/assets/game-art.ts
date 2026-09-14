@@ -20,6 +20,7 @@ import { GENERATED_SHOOTER_ENEMIES, SHOOTER_ENEMY_BOARD_SIZE } from './shooter-e
 import { FIGHTER_POSE_SHEET_SIZE, fighterPoseSheetCellRect } from './fighter-pose-sheet';
 import {
   mockRacingCraftStripSource,
+  mockRacingJetskiStripSource,
   mockRacingMaterialsSource,
   mockRacingPanoramaSource,
   mockRacingScenerySheetSource,
@@ -35,6 +36,16 @@ export const STORY_ART_ASPECT_HINT = '1792x768';
 export type StoryArtRole = 'intro' | 'boss' | 'victory' | 'defeat';
 export interface PlayerCraftArtBrief {
   visualConcept: string;
+}
+
+/**
+ * True for jetski cups: the rider sits astride the watercraft, so key/story
+ * prompts must require the seated rider instead of forbidding any body on
+ * the craft. Hover cups keep the legacy vehicle-only contract. Omitted
+ * discipline means hover.
+ */
+export function isJetskiSpec(spec: GameSpec): boolean {
+  return spec.archetype === 'racing' && spec.identity?.discipline === 'jetski';
 }
 
 function clean(value: string): string {
@@ -85,6 +96,28 @@ function visualBrief(
   ].join(' ');
 }
 
+/**
+ * Player-craft identity paragraph for key art. Shooter, hshooter, and hover
+ * racing keep the legacy vehicle-only contract (never merge pilot and
+ * craft). Jetski racing instead requires the seated adult rider astride the
+ * hull while still forbidding a face pasted into the hull.
+ */
+function jetskiCraftBrief(
+  spec: GameSpec,
+  playerCraft: PlayerCraftArtBrief,
+  hasPlayerPhoto: boolean,
+): string {
+  const concept = clean(playerCraft.visualConcept);
+  if (isJetskiSpec(spec)) {
+    return hasPlayerPhoto
+      ? `The BOTTOM PANEL is the presentation-scale identity reference for the player watercraft plus its seated rider. Preserve its signature compact hull, handlebars, materials, colors, markings, and the rider outfit, but RE-RENDER rider and craft naturally inside the scene at a physically plausible scale, perspective, and lighting: one visible adult rider seated astride the hull with hands on the handlebars, hull touching the water. Do not paste, trace, enlarge, or copy the isolated reference pixels or its strict rear pose. Never paste a face into the hull and never render the rider standing, detached, or facing the camera. Use the TOP PANEL photo likeness for the rider identity. Watercraft concept: ${concept}.`
+      : `The reference image is the presentation-scale identity reference for the player watercraft plus its seated rider. Preserve its signature compact hull, handlebars, materials, colors, markings, and the rider outfit, but RE-RENDER rider and craft naturally inside the scene at a physically plausible scale, perspective, and lighting: one visible adult rider seated astride the hull with hands on the handlebars, hull touching the water. Do not paste, trace, enlarge, or copy the isolated reference pixels or its strict rear pose. Never give the watercraft a human face pasted into the hull. Watercraft concept: ${concept}.`;
+  }
+  return hasPlayerPhoto
+    ? 'The BOTTOM PANEL is the presentation-scale identity reference for the player craft. Preserve its signature silhouette, canopy, fins, engines, materials, colors, and markings, but RE-RENDER the vehicle naturally inside the scene at a physically plausible scale, perspective, and lighting. Do not paste, trace, enlarge, or copy the isolated reference pixels or its strict side-profile pose. The pilot and craft are separate identities: never put the pilot face, head, or body onto the vehicle.'
+    : 'The reference image is the presentation-scale identity reference for the player craft. Preserve its signature silhouette, canopy, fins, engines, materials, colors, and markings, but RE-RENDER the vehicle naturally inside the scene at a physically plausible scale, perspective, and lighting. Do not paste, trace, enlarge, or copy the isolated reference pixels or its strict side-profile pose. Never give the vehicle a human face, head, or body.';
+}
+
 /** The photo is supplied as the edit reference when `hasPlayerPhoto` is true. */
 export function buildKeyArtPrompt(
   spec: GameSpec,
@@ -100,9 +133,7 @@ export function buildKeyArtPrompt(
       : 'Create a distinctive original PLAYER HERO suited to this game premise.',
     visualBrief(spec, heroConcept, playerCraft),
     playerCraft
-      ? hasPlayerPhoto
-        ? 'The BOTTOM PANEL is the presentation-scale identity reference for the player craft. Preserve its signature silhouette, canopy, fins, engines, materials, colors, and markings, but RE-RENDER the vehicle naturally inside the scene at a physically plausible scale, perspective, and lighting. Do not paste, trace, enlarge, or copy the isolated reference pixels or its strict side-profile pose. The pilot and craft are separate identities: never put the pilot face, head, or body onto the vehicle.'
-        : 'The reference image is the presentation-scale identity reference for the player craft. Preserve its signature silhouette, canopy, fins, engines, materials, colors, and markings, but RE-RENDER the vehicle naturally inside the scene at a physically plausible scale, perspective, and lighting. Do not paste, trace, enlarge, or copy the isolated reference pixels or its strict side-profile pose. Never give the vehicle a human face, head, or body.'
+      ? jetskiCraftBrief(spec, playerCraft, hasPlayerPhoto)
       : '',
     spec.archetype === 'adventure'
       ? spec.combatKit.primary.unarmed
@@ -145,7 +176,9 @@ export function buildKeyArtPolicyFallbackPrompt(
       ? `Immutable Fighter art direction: ${fighterArtDirectionPrompt(spec.artDirection)}`
       : '',
     playerCraft
-      ? `Preserve the separate player vehicle identity shown in the ${hasPlayerPhoto ? 'BOTTOM PANEL' : 'reference image'}: ${clean(playerCraft.visualConcept)}. Re-render it as an integrated part of the scene at natural scale, perspective, and lighting; never paste or enlarge the isolated reference. Never merge the person and vehicle identities.`
+      ? isJetskiSpec(spec)
+        ? `Preserve the player watercraft plus its seated rider shown in the ${hasPlayerPhoto ? 'BOTTOM PANEL' : 'reference image'}: ${clean(playerCraft.visualConcept)}. Re-render rider and craft as an integrated part of the scene at natural scale, perspective, and lighting: one visible adult rider seated astride the hull, hull touching the water. Never paste or enlarge the isolated reference. Never paste a face into the hull.`
+        : `Preserve the separate player vehicle identity shown in the ${hasPlayerPhoto ? 'BOTTOM PANEL' : 'reference image'}: ${clean(playerCraft.visualConcept)}. Re-render it as an integrated part of the scene at natural scale, perspective, and lighting; never paste or enlarge the isolated reference. Never merge the person and vehicle identities.`
       : '',
     `Create polished landscape key art for a colorful ${spec.archetype} game world using this limited palette: ${spec.palette.join(', ')}.`,
     'Use a calm, adventurous composition with the player character as the central focal point. Keep every complete face, head, hairstyle, and headwear inside the middle 60% of the image height; reserve the outer 20% at both the top and bottom for expendable scenery only.',
@@ -183,7 +216,9 @@ export function buildStoryArtPrompt(
       ? `Immutable Fighter art direction: ${fighterArtDirectionPrompt(spec.artDirection)}`
       : '',
     playerCraft
-      ? `Whenever the player vehicle is visible, preserve the BOTTOM PANEL's separate craft identity: ${clean(playerCraft.visualConcept)}. RE-RENDER it naturally at the scene's scale, perspective, pose, and lighting. Do not paste, trace, enlarge, or copy the isolated reference pixels. Never place the pilot's face or body onto the craft.`
+      ? isJetskiSpec(spec)
+        ? `Whenever the player watercraft is visible, preserve the BOTTOM PANEL's rider-plus-hull identity: ${clean(playerCraft.visualConcept)}. RE-RENDER it naturally at the scene's scale, perspective, pose, and lighting with one visible adult rider seated astride the hull, hull touching the water. Do not paste, trace, enlarge, or copy the isolated reference pixels. Never paste a face into the hull and never render the rider standing or detached.`
+        : `Whenever the player vehicle is visible, preserve the BOTTOM PANEL's separate craft identity: ${clean(playerCraft.visualConcept)}. RE-RENDER it naturally at the scene's scale, perspective, pose, and lighting. Do not paste, trace, enlarge, or copy the isolated reference pixels. Never place the pilot's face or body onto the craft.`
       : '',
     spec.archetype === 'adventure'
       ? role === 'intro'
@@ -232,7 +267,9 @@ export function buildStoryArtPolicyFallbackPrompt(
       ? `Immutable Fighter art direction: ${fighterArtDirectionPrompt(spec.artDirection)}`
       : '',
     playerCraft
-      ? `If the vehicle appears, preserve this craft identity and never merge it with the pilot: ${clean(playerCraft.visualConcept)}. Re-render it as part of the scene at natural scale, perspective, and lighting; never paste or enlarge the isolated reference.`
+      ? isJetskiSpec(spec)
+        ? `If the watercraft appears, preserve this rider-plus-hull identity: ${clean(playerCraft.visualConcept)}. Show one visible adult rider seated astride the hull, hull touching the water. Re-render it as part of the scene at natural scale, perspective, and lighting; never paste or enlarge the isolated reference. Never paste a face into the hull.`
+        : `If the vehicle appears, preserve this craft identity and never merge it with the pilot: ${clean(playerCraft.visualConcept)}. Re-render it as part of the scene at natural scale, perspective, and lighting; never paste or enlarge the isolated reference.`
       : '',
     spec.archetype === 'adventure'
       ? role === 'intro'
@@ -278,17 +315,28 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
       .png()
       .toBuffer();
   }
+  if (prompt.includes('rear-view jetski turnaround strip')) {
+    let seed = 7;
+    for (const char of prompt) seed = (Math.imul(seed, 31) + char.charCodeAt(0)) >>> 0;
+    return mockRacingJetskiStripSource(seed);
+  }
   if (prompt.includes('rear-view hovercraft turnaround strip')) {
     return mockRacingCraftStripSource();
   }
   if (prompt.includes('roadside-object sheet')) {
     return mockRacingScenerySheetSource();
   }
-  if (prompt.includes('panoramic backdrop for the hover-cup course')) {
+  if (/panoramic backdrop for the (?:hover-cup|jetski-cup) course/.test(prompt)) {
     return mockRacingPanoramaSource();
   }
   if (prompt.includes('top-down seamless material sheet')) {
     return mockRacingMaterialsSource();
+  }
+  if (prompt.includes('square top-down seamless water texture tile')) {
+    const slot = Math.max(0, Math.min(3, Number(/Tile (\d) of 4/.exec(prompt)?.[1] ?? 1) - 1));
+    return sharp(await mockRacingMaterialsSource())
+      .extract({ left: (slot % 2) * 128, top: Math.floor(slot / 2) * 128, width: 128, height: 128 })
+      .resize(256, 256, { kernel: sharp.kernel.nearest }).png().toBuffer();
   }
   if (prompt.includes('ADVENTURE THEMED OBJECT BOARD CONTRACT')) {
     return mockGeneratedAdventureObjectBoard();

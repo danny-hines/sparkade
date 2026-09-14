@@ -51,16 +51,83 @@ export function resolveRaceArt(
  * otherwise a small dead zone keeps straightaways on the rear cell. The
  * caller passes already-smoothed steer (steerVis / steerPos scaled).
  */
-export function selectCraftPose(smoothedSteer: number, speed: number): RacingCraftPose {
+export function selectCraftPose(
+  smoothedSteer: number,
+  speed: number,
+  bankThreshold = 0.12,
+): RacingCraftPose {
   if (Math.abs(speed) < 1) return 'rear';
-  if (smoothedSteer > 0.12) return 'bankRight';
-  if (smoothedSteer < -0.12) return 'bankLeft';
+  if (smoothedSteer > bankThreshold) return 'bankRight';
+  if (smoothedSteer < -bankThreshold) return 'bankLeft';
   return 'rear';
 }
 
 /** Source-x of a pose cell inside a 3-cell strip. Never mirrored. */
 export function craftPoseSourceX(pose: RacingCraftPose): number {
   return pose === 'rear' ? 0 : pose === 'bankLeft' ? RACING_CRAFT_CELL : RACING_CRAFT_CELL * 2;
+}
+
+/**
+ * Nominal baked bank lean per generated pose (radians, ~9deg). The runtime
+ * residual transform compensates this expected angle: neutral gradually
+ * leans toward the bank frame, which carries a compensating residual.
+ * Generated poses can vary from the nominal angle and need visual review.
+ */
+export const BAKED_POSE_LEAN = 0.16;
+
+/** Baked lean contribution of one pose cell (rear reads neutral). */
+export function bakedPoseLean(pose: RacingCraftPose): number {
+  return pose === 'bankRight' ? BAKED_POSE_LEAN : pose === 'bankLeft' ? -BAKED_POSE_LEAN : 0;
+}
+
+/** Pose-switch hysteresis band (same units as smoothed steer): the banked
+ *  pose holds until steering falls this far back below the threshold, so
+ *  inputs hovering at the boundary cannot chatter between cells. */
+export const POSE_HYSTERESIS = 0.04;
+
+/**
+ * Pose switch with hysteresis around the bank threshold. Stopped craft stay
+ * neutral; from neutral the plain threshold applies; a banked pose holds
+ * until steering retreats past threshold minus hysteresis (or crosses hard
+ * to the opposite bank). Pure function of (prev, steer, speed).
+ */
+export function selectCraftPoseSteady(
+  prev: RacingCraftPose,
+  smoothedSteer: number,
+  speed: number,
+  bankThreshold = 0.12,
+  hyst: number = POSE_HYSTERESIS,
+): RacingCraftPose {
+  if (Math.abs(speed) < 1) return 'rear';
+  if (prev === 'bankRight') {
+    if (smoothedSteer < -bankThreshold) return 'bankLeft';
+    if (smoothedSteer < bankThreshold - hyst) return 'rear';
+    return 'bankRight';
+  }
+  if (prev === 'bankLeft') {
+    if (smoothedSteer > bankThreshold) return 'bankRight';
+    if (smoothedSteer > -(bankThreshold - hyst)) return 'rear';
+    return 'bankLeft';
+  }
+  return selectCraftPose(smoothedSteer, speed, bankThreshold);
+}
+
+/** Peak continuous lean toward a bank frame (radians, ~10deg at full lock). */
+export const VIS_LEAN_MAX = 0.18;
+
+/**
+ * Residual rotation for a generated blit: desired smoothed lean minus the
+ * nominal baked lean of the currently shown pose cell. Net orientation
+ * (residual + nominal baked lean) equals the desired lean. This avoids
+ * doubling the expected bank angle and stays exactly neutral at rest.
+ */
+export function packResidualLean(smoothedSteer: number, pose: RacingCraftPose): number {
+  const c = smoothedSteer < -1 ? -1 : smoothedSteer > 1 ? 1 : smoothedSteer;
+  const residual = c * VIS_LEAN_MAX - bakedPoseLean(pose);
+  // Snap float dust: a settled stick must emit exactly zero so reused queue
+  // entries and paused frames carry no phantom transform.
+  if (Math.abs(residual) < 1e-9) return 0;
+  return residual < -0.22 ? -0.22 : residual > 0.22 ? 0.22 : residual;
 }
 
 /**
@@ -407,6 +474,12 @@ export interface ArtSprite {
   dw: number;
   dh: number;
   alpha: number;
+  /**
+   * Residual rotation (radians) about the blit base center. Zero for every
+   * non-craft sprite; reassigned on every push so reused queue entries can
+   * never leak a stale transform into scenery, pickups, or the HUD path.
+   */
+  rot: number;
 }
 
 /** Preallocated sprite queue (no per-frame allocation in the renderer). */
@@ -424,6 +497,7 @@ export function makeArtSpriteQueue(capacity: number): ArtSprite[] {
     dw: 0,
     dh: 0,
     alpha: 1,
+    rot: 0,
   }));
 }
 

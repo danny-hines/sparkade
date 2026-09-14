@@ -23,6 +23,7 @@ import {
   type EnergyPickup,
   type RaceCircuit,
 } from './track';
+import { boundaryCapTop, movementFor } from './movement';
 
 export const RACE_LAPS = 3;
 export const RACER_COUNT = 5;
@@ -52,6 +53,13 @@ export interface RacerState {
    * craft while a held press still reaches full lateral authority.
    */
   steerPos: number;
+  /**
+   * Lateral velocity (world units/s). The hover discipline never reads it
+   * (direct slide, legacy behavior); the jet-ski discipline integrates it so
+   * steering carries momentum that settles with drag. Never recenters the
+   * hull on its own — no auto-steer.
+   */
+  latV: number;
   /** Forward speed (negative only when reversing from standstill). */
   speed: number;
   /** Boost meter 0..1. */
@@ -111,7 +119,9 @@ export const OFFROAD_BOOST_TOP_SPEED = 85;
 /** Craft body length (track units) for contact resolution. */
 const CRAFT_LENGTH = 6;
 const CRAFT_SIDE = 1.7;
-const ACCEL = 36;
+// Longitudinal pace, steering ramps, drag, and surface caps now live per
+// discipline in movement.ts (HOVER_MOVEMENT repeats the legacy hover tuning
+// unchanged). Only the values shared across disciplines stay here.
 /** Base scale for the shared speed-dependent steering response. */
 export const STEER_GAIN = 0.115;
 /**
@@ -123,25 +133,12 @@ export const STEER_GAIN = 0.115;
  * bend slowed holds at strong lock.
  */
 export const CURVE_PUSH = 0.25;
-/**
- * Smoothed-steering ramp rates (per second): attack toward a held press,
- * faster release back to center, fastest countersteer when the input
- * opposes the current position (prompt recovery from a wrong-side press).
- */
-const STEER_ATTACK = 6.5;
-const STEER_RELEASE = 8;
-const STEER_COUNTER = 13;
 /** Drift/airbrake: yaw multiplier, longitudinal drag, slide-out grip. */
 const DRIFT_YAW = 2.1;
 const DRIFT_DRAG = 0.38;
 const DRIFT_SLIDE_GRIP = 0.6;
-/** Offroad steering floor: a bogged craft can still steer home to recover. */
-const OFFROAD_AUTH_FLOOR = 26;
-const BOOST_ACCEL = 66;
+/** Shared braking model for AI corner planning (default; AI passes its own). */
 const BRAKE_DECEL = 70;
-const REVERSE_DECEL = 18;
-const MAX_REVERSE = -12;
-const DRAG = 0.28;
 /**
  * One manual burst costs half the meter: a full meter holds roughly two
  * sustainable uses. Recovery is slow (0.04/s refills a burst in 12.5 s) and
@@ -174,6 +171,7 @@ export function makeRacer(topScale: number, startS: number): RacerState {
     s: startS,
     x: 0,
     steerPos: 0,
+    latV: 0,
     speed: 0,
     boost: START_BOOST,
     boostT: 0,
@@ -312,20 +310,19 @@ export function stepRacer(race: RaceState, r: RacerState, input: RacerInput, dt:
   // fast craft cannot tunnel past a cell lane between frames.
   const stepX0 = r.x;
   const curve = race.circuit.track.curvatureAt(r.s);
+  const profile = movementFor(race.circuit.discipline);
   // Shoulder depth past the asphalt; the curb band counts as on-road.
   const depth = Math.max(0, Math.abs(r.x) - ROAD_HALF);
   r.offroad = depth > CURB_WIDTH;
 
-  let top = PLAYER_TOP_SPEED * r.topScale;
-  if (r.boostT > 0) top = BOOST_TOP_SPEED;
+  let top = profile.topSpeed * r.topScale;
+  if (r.boostT > 0) top = profile.boostTopSpeed;
   // Depth-ramped surface penalty: full road pace through the curb band,
   // easing to the deep-shoulder cap at the barrier. Continuous in x, so
   // crossing the edge never snaps and shallow brushes keep most pace.
+  // (Jet-ski smoothsteps the same span; see movement.ts.)
   if (r.offroad) {
-    const deepCap = r.boostT > 0 ? OFFROAD_BOOST_TOP_SPEED : OFFROAD_TOP_SPEED;
-    const span = Math.max(1e-6, BARRIER_X - ROAD_HALF - CURB_WIDTH);
-    const f = clamp((depth - CURB_WIDTH) / span, 0, 1);
-    top = Math.min(top, top + (deepCap - top) * f);
+    top = boundaryCapTop(profile, top, r.boostT > 0, depth, ROAD_HALF, CURB_WIDTH, BARRIER_X);
   }
 
   // Edge-triggered by the caller: fires only with a full burst banked, so a
@@ -336,10 +333,13 @@ export function stepRacer(race: RaceState, r: RacerState, input: RacerInput, dt:
     r.boostDelay = BOOST_REGEN_DELAY;
   }
 
-  const accelRate = (r.boostT > 0 ? BOOST_ACCEL : ACCEL) * (r.offroad ? 0.75 : 1);
+  const accelRate = (r.boostT > 0 ? profile.boostAccel : profile.accel) * (r.offroad ? profile.shallowAccelScale : 1);
   if (input.accel) r.speed += accelRate * dt;
-  if (input.brake) r.speed -= (r.speed > 1 ? BRAKE_DECEL : REVERSE_DECEL) * dt;
-  r.speed -= r.speed * DRAG * dt;
+  if (input.brake) r.speed -= (r.speed > 1 ? profile.brakeDecel : profile.reverseDecel) * dt;
+  r.speed -= r.speed * profile.drag * dt;
+  // Jet-ski water drag: off-throttle pace bleeds off faster than a hover
+  // craft coasts. Guarded so the hover path executes no extra arithmetic.
+  if (profile.coastDrag > 0 && !input.accel && r.boostT <= 0) r.speed -= r.speed * profile.coastDrag * dt;
   // Converge toward the cap AFTER accel so top speed means top speed.
   // Open-road caps converge hard (equilibrium overshoot is accelRate/8,
   // under 9 units even while boosting); far above a surface cap the excess
@@ -351,7 +351,7 @@ export function stepRacer(race: RaceState, r: RacerState, input: RacerInput, dt:
   }
   r.drifting = input.drift && Math.abs(r.speed) > 1;
   if (input.drift) r.speed -= r.speed * DRIFT_DRAG * dt;
-  r.speed = clamp(r.speed, MAX_REVERSE, BOOST_TOP_SPEED + 20);
+  r.speed = clamp(r.speed, profile.maxReverse, BOOST_TOP_SPEED + 20);
 
   // Progressive digital steering: the smoothed position ramps toward the
   // input (quick attack, quicker release, quickest countersteer) so a brief
@@ -362,19 +362,18 @@ export function stepRacer(race: RaceState, r: RacerState, input: RacerInput, dt:
   // at the cost of drag and grips against centrifugal slide-out.
   const opposing = Math.sign(input.steer) !== 0 && Math.sign(r.steerPos) !== 0 && Math.sign(input.steer) !== Math.sign(r.steerPos);
   const rampingUp = Math.abs(input.steer) > Math.abs(r.steerPos);
-  const rampRate = opposing ? STEER_COUNTER : rampingUp ? STEER_ATTACK : STEER_RELEASE;
+  const rampRate = opposing ? profile.steerCounter : rampingUp ? profile.steerAttack : profile.steerRelease;
   r.steerPos += clamp(input.steer - r.steerPos, -rampRate * dt, rampRate * dt);
   // Offroad recovery floor: only with real motion or propulsion intent, so a
   // stopped craft cannot crab sideways on steering alone.
   const pushing = input.accel || input.brake || Math.abs(r.speed) > 0.5;
-  const authSpeed = r.offroad && pushing ? Math.max(Math.abs(r.speed), OFFROAD_AUTH_FLOOR) : Math.abs(r.speed);
+  const authSpeed = r.offroad && pushing ? Math.max(Math.abs(r.speed), profile.authFloor) : Math.abs(r.speed);
   // Speed-shaped authority (shared helper below): zero at a stop, rising
   // promptly, strongest at corner-entry pace, easing off toward full
   // throttle — slowing down genuinely tightens turning while high-speed
   // understeer and braking usefulness are preserved.
   const steerAuthority = steerAuthorityAt(authSpeed);
   const dir = r.speed >= 0 ? 1 : -1;
-  r.x += r.steerPos * steerAuthority * (input.drift ? DRIFT_YAW : 1) * dir * dt;
   // Outward load: +curve is a right turn whose outside is -x, so a fast
   // craft is carried outward (away from the turn direction). The shove
   // scales with v*|v| against speed-shaped steering authority, so holding a bend
@@ -382,7 +381,24 @@ export function stepRacer(race: RaceState, r: RacerState, input: RacerInput, dt:
   // even at full ordinary steering; lifting/braking cuts the load
   // quadratically. Drift grips against it (trading speed for a tighter
   // held line via yaw plus drag), never a free straight-line gain.
-  r.x -= curve * r.speed * Math.abs(r.speed) * CURVE_PUSH * (input.drift ? DRIFT_SLIDE_GRIP : 1) * dt;
+  const bendLoad =
+    curve * r.speed * Math.abs(r.speed) * CURVE_PUSH * (input.drift ? DRIFT_SLIDE_GRIP : 1);
+  if (profile.lateralResponse <= 0) {
+    // Hover: the smoothed input slides the hull directly (legacy behavior,
+    // exact legacy arithmetic — this branch must not change).
+    r.x += r.steerPos * steerAuthority * (input.drift ? DRIFT_YAW : 1) * dir * dt;
+    r.x -= bendLoad * dt;
+  } else {
+    // Jet-ski: steering chases a target lateral velocity, so the hull
+    // carries momentum that settles with drag once input releases. Only
+    // velocity decays — the line never recenters, so this never auto-steers.
+    // Authority is still zero at a stop, so stopped input cannot move the
+    // hull; the snap keeps a released craft bit-stable at rest.
+    const targetV = r.steerPos * steerAuthority * (input.drift ? DRIFT_YAW : 1) * dir - bendLoad;
+    r.latV += (targetV - r.latV) * Math.min(1, profile.lateralResponse * dt);
+    if (targetV === 0 && Math.abs(r.latV) < profile.lateralSnap) r.latV = 0;
+    r.x += r.latV * dt;
+  }
   // Shoulder flag follows the post-steer position (curb band counts as
   // on-road); pace loss is handled progressively by the surface
   // convergence above, never an edge snap.
@@ -391,6 +407,7 @@ export function stepRacer(race: RaceState, r: RacerState, input: RacerInput, dt:
   if (Math.abs(r.x) > BARRIER_X) {
     r.x = Math.sign(r.x) * BARRIER_X;
     r.speed -= Math.abs(r.speed) * 2.2 * dt + 8 * dt;
+    if (profile.lateralResponse > 0) r.latV = 0;
   }
 
   const prevW = wrapS(race, r.s);
@@ -778,7 +795,12 @@ export function cornerHoldSpeed(curvature: number, drift: boolean): number {
  * stopping-distance envelope lets the driver carry speed until braking
  * is needed. Reserve distance for digital input response and line setup.
  */
-function plannedCornerSpeed(track: CompiledTrack, s: number, speed: number): number {
+function plannedCornerSpeed(
+  track: CompiledTrack,
+  s: number,
+  speed: number,
+  brakeDecel = BRAKE_DECEL,
+): number {
   const look = 40 + Math.abs(speed) * 0.9;
   let limit = BOOST_TOP_SPEED;
   for (let k = 0; k <= 10; k++) {
@@ -786,7 +808,7 @@ function plannedCornerSpeed(track: CompiledTrack, s: number, speed: number): num
     const curve = Math.abs(track.curvatureAt(s + distance));
     const hold = cornerHoldSpeed(curve, curve > 0.007) * 0.96;
     const brakingDistance = Math.max(0, distance - Math.abs(speed) * 0.1 - 3);
-    limit = Math.min(limit, Math.sqrt(hold * hold + 2 * BRAKE_DECEL * brakingDistance));
+    limit = Math.min(limit, Math.sqrt(hold * hold + 2 * brakeDecel * brakingDistance));
   }
   return limit;
 }
@@ -881,8 +903,18 @@ export function aiInputFor(race: RaceState, i: number, out?: RacerInput): RacerI
     (blocked && targetGap < 25 && r.speed > target!.speed + 1) || (closing && targetGap < 12);
   // Plan actual braking distance and the drift the driver will use in a
   // tight bend; rivals share the player's steering, grip and brake limits.
-  const topSpeed = PLAYER_TOP_SPEED * r.topScale;
-  const cornerSafe = Math.min(topSpeed, plannedCornerSpeed(race.circuit.track, r.s, r.speed));
+  // The pace target follows the race discipline so jet-ski rivals plan for
+  // jet-ski pace through the same driver logic (hover is unchanged).
+  const topSpeed = movementFor(race.circuit.discipline).topSpeed * r.topScale;
+  const cornerSafe = Math.min(
+    topSpeed,
+    plannedCornerSpeed(
+      race.circuit.track,
+      r.s,
+      r.speed,
+      movementFor(race.circuit.discipline).brakeDecel,
+    ),
+  );
   const currentCurve = race.circuit.track.curvatureAt(r.s);
   const drift = Math.abs(currentCurve) > 0.007 && Math.abs(r.speed) > 35;
   // Subtle per-rival brake point so the field does not concertina as one.

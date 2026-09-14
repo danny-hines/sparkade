@@ -69,8 +69,10 @@ Racing is now a supported archetype: the model authors bounded cup data (circuit
 one-of-each templates, same-slot rival cast, fair pace, themes) while the hand-written
 simulation owns tracks, physics, and cup scoring. New designs commit a `racingIdentity`
 for the pilot, art direction, world, five vehicle concepts, sound profile, and one boost
-supply mode. Validation and repair preserve that identity verbatim in the game spec.
-Each course adds an environment concept and road/ground/curb/edge/pad color treatment.
+supply mode. Validation and repair preserve that identity verbatim in the game spec,
+including the optional `discipline` (`hover` when omitted, `jetski` for water cups).
+Each course adds an environment concept and road/ground/curb/edge/pad color treatment
+(water roles — open water, shallows bank, shore edge, boost-surface water — for jetski).
 
 The generated racing pack has ten required PNGs: three course panoramas, five vehicle
 strips (rear, bank left, bank right), a roadside/collectible atlas, and a material atlas.
@@ -81,6 +83,21 @@ The player vehicle is reviewed before it becomes the reference for key and story
 new rival art is checked against the approved roster before the game becomes ready.
 Bank corrections preserve the neutral vehicle and regenerate its left/right poses;
 concept or silhouette rejections regenerate the full strip before another review.
+Jetski cups require one visible seated adult rider astride each distinct compact-hull
+watercraft (same rider and hull across rear/left/right, leaning together, hull touching
+water; no face pasted into the hull) while hover cups stay vehicle-only; panoramas show
+coherent water worlds, materials use water roles with no asphalt or curbs, and scenery
+is floating or shoreline objects. Jetski prompts carry their own cache versions so old
+hover approvals keep reusing correctly.
+Water material tiles are generated independently and assembled into the same four-slot
+atlas; water panoramas keep the sky and far shore and exclude course markers. Bank
+repairs use a posed neutral reference for jetskis, then require the full roster review.
+The runtime resolves discipline into a movement profile: jetskis carry lateral momentum,
+coast down more readily, and use a gradual shallows response. They render wakes and
+buoys and mix motor/water sound; legacy hover physics and record keys stay unchanged.
+Steering presentation eases a continuous lean through the three sprite poses, with
+hysteresis at pose switches and neutral presentation at rest. Jet-ski personal bests
+use a separate record key. Elevation, jumping, and branching routes remain separate work.
 Incomplete new packs fail generation or loading. Reviewed selections survive retries
 of unrelated assets. Legacy cups
 without generated-art metadata keep their procedural renderer.

@@ -10,12 +10,39 @@ import {
   type RacingPanoramaRole,
   type RacingSpec,
 } from '@sparkade/shared';
-import { RACING_CRAFT_STRIP_PROMPT_VERSION, buildRacingCraftStripPrompt } from './racing-craft';
-import { RACING_PANORAMA_PROMPT_VERSION, buildRacingPanoramaPrompt } from './racing-scenery';
-import { RACING_MATERIALS_PROMPT_VERSION, buildRacingMaterialsPrompt } from './racing-materials';
-import { RACING_SCENERY_OBJECTS_VERSION, racingSceneryObjectPrompts } from './racing-scenery-pack';
+import {
+  RACING_CRAFT_STRIP_PROMPT_VERSION,
+  RACING_JETSKI_STRIP_PROMPT_VERSION,
+  buildRacingCraftStripPrompt,
+  type RacingStripDiscipline,
+} from './racing-craft';
+import {
+  RACING_JETSKI_PANORAMA_PROMPT_VERSION,
+  RACING_PANORAMA_PROMPT_VERSION,
+  buildRacingPanoramaPrompt,
+} from './racing-scenery';
+import {
+  RACING_JETSKI_MATERIAL_TILES_VERSION,
+  RACING_MATERIALS_PROMPT_VERSION,
+  buildRacingMaterialsPrompt,
+  racingJetskiMaterialTilePrompts,
+} from './racing-materials';
+import {
+  RACING_JETSKI_SCENERY_OBJECTS_VERSION,
+  RACING_SCENERY_OBJECTS_VERSION,
+  racingSceneryObjectPrompts,
+} from './racing-scenery-pack';
 
 export const RACING_JUDGE_PROMPT_VERSION = 'racing-roster-judge-v1';
+/** Jetski roster-judge fingerprint; hover keeps v1 byte-identical. */
+export const RACING_JETSKI_JUDGE_PROMPT_VERSION = 'racing-jetski-judge-v1';
+
+export type RacingPackDiscipline = 'hover' | 'jetski';
+
+/** Discipline for a spec: omitted identity discipline means hover (legacy). */
+export function racingPackDiscipline(spec: RacingSpec): RacingPackDiscipline {
+  return spec.identity?.discipline === 'jetski' ? 'jetski' : 'hover';
+}
 
 /** The ten runtime files in manifest order: 3 panoramas, 5 strips, scenery, materials. */
 export const RACING_PACK_REQUIRED_ROLES: readonly GeneratedGameAssetRole[] = [
@@ -50,6 +77,13 @@ export interface RacingPackPlan {
   /** The six individually generated scenery objects, in atlas order. */
   sceneryObjects: RacingPackEntry[];
   materials: RacingPackEntry;
+  /**
+   * The four independently generated jetski material tiles, in
+   * RACING_MATERIAL_SLOTS order. Empty for hover (single-sheet path).
+   * The runner's ten-file check reads only `materials.role`; these entries
+   * match the generator byte-for-byte like `sceneryObjects`.
+   */
+  materialTiles: RacingPackEntry[];
 }
 
 function colorsOf(spec: RacingSpec): string {
@@ -60,18 +94,38 @@ function colorsOf(spec: RacingSpec): string {
  * Complete generation plan for an identity-bearing racing spec. Every
  * authored concept lands in exactly one prompt: art direction everywhere,
  * per-slot vehicle concepts in their strips, per-course envConcept in its
- * panorama, world/env/materials in the materials sheet, boost identity in
+ * panorama, world/env/materials in the materials entry, boost identity in
  * the sixth scenery object. Scenery is six individually generated objects
- * (see `generateRacingSceneryPack`), never a sheet. Legacy specs (no
- * identity) never reach this function.
+ * (see `generateRacingSceneryPack`), never a sheet; jetski materials are
+ * four individually generated tiles (see
+ * `generateRacingJetskiMaterialsPack`), never a grid the model must honor.
+ * Legacy specs (no identity) never reach this function.
  */
 export function buildRacingPackPlan(spec: RacingSpec): RacingPackPlan {
   const identity = spec.identity!;
   const colors = colorsOf(spec);
+  const discipline: RacingStripDiscipline =
+    identity.discipline === 'jetski' ? 'jetski' : 'hover';
+  const stripVersion =
+    discipline === 'jetski' ? RACING_JETSKI_STRIP_PROMPT_VERSION : RACING_CRAFT_STRIP_PROMPT_VERSION;
+  const panoramaVersion =
+    discipline === 'jetski' ? RACING_JETSKI_PANORAMA_PROMPT_VERSION : RACING_PANORAMA_PROMPT_VERSION;
+  const sceneryVersion =
+    discipline === 'jetski' ? RACING_JETSKI_SCENERY_OBJECTS_VERSION : RACING_SCENERY_OBJECTS_VERSION;
   // Single source of truth shared with the generator: the plan advertises
-  // the exact prompts generateRacingSceneryPack will issue.
+  // the exact prompts generateRacingSceneryPack will issue — and, for
+  // jetski, the exact tile prompts generateRacingJetskiMaterialsPack will
+  // issue (the single-sheet prompt cannot be trusted to honor a 2x2 grid).
   const objectPrompts = racingSceneryObjectPrompts(spec);
+  const tilePrompts =
+    discipline === 'jetski' ? racingJetskiMaterialTilePrompts(spec) : [];
+  const materialsVersion =
+    discipline === 'jetski' ? RACING_JETSKI_MATERIAL_TILES_VERSION : RACING_MATERIALS_PROMPT_VERSION;
   const craftRole = (index: number): RacingCraftRole => RACING_CRAFT_ROLES[index]!;
+  const cameraLock =
+    discipline === 'jetski'
+      ? ' CAMERA LOCK: all three views show the rider back and the watercraft stern with the jet nozzle facing the viewer, with the bow farthest away. Banking is ROLL of rider and craft together, never yaw to a side view. Cell 2 lowers the screen-left edge and raises the screen-right edge; cell 3 does the exact opposite. Keep the rider, hull length, handlebars and livery unchanged. The two bank poses must tilt in visibly opposite directions.'
+      : ' CAMERA LOCK: all three views show the REAR bumper and exhaust facing the viewer, with the nose farthest away. Banking is ROLL, never yaw to a side view. Cell 2 lowers the screen-left edge and raises the screen-right edge; cell 3 does the exact opposite. Keep the canopy, body length, wing count and livery unchanged. The two bank poses must tilt in visibly opposite directions.';
   const stripEntry = (
     role: RacingCraftRole,
     name: string,
@@ -79,15 +133,15 @@ export function buildRacingPackPlan(spec: RacingSpec): RacingPackPlan {
     label: string,
   ): RacingPackEntry => ({
     role,
-    promptVersion: RACING_CRAFT_STRIP_PROMPT_VERSION,
+    promptVersion: stripVersion,
     prompt:
       buildRacingCraftStripPrompt({
         name,
         vehicleConcept,
         artDirection: identity.artDirection,
         colors,
-      }) +
-      ' CAMERA LOCK: all three views show the REAR bumper and exhaust facing the viewer, with the nose farthest away. Banking is ROLL, never yaw to a side view. Cell 2 lowers the screen-left edge and raises the screen-right edge; cell 3 does the exact opposite. Keep the canopy, body length, wing count and livery unchanged. The two bank poses must tilt in visibly opposite directions.',
+        discipline,
+      }) + cameraLock,
     label,
     size: '1536x1024',
   });
@@ -105,22 +159,25 @@ export function buildRacingPackPlan(spec: RacingSpec): RacingPackPlan {
       const role: RacingPanoramaRole = RACING_PANORAMA_ROLES[k]!;
       return {
         role,
-        promptVersion: RACING_PANORAMA_PROMPT_VERSION,
+        promptVersion: panoramaVersion,
         prompt: buildRacingPanoramaPrompt({
           courseName: level.name,
           artDirection: identity.artDirection,
           worldConcept: identity.worldConcept,
           envConcept: level.envConcept ?? `Cup course ${k + 1} in the shared world`,
           colors,
+          discipline,
         }),
         label: `${level.name} panorama`,
         size: '1792x1024',
-        reference: 'keyArt',
+        // A watercourse story image carries foreground docks and buoys;
+        // use the authored world/style text for the distant horizon plate.
+        ...(discipline === 'jetski' ? {} : { reference: 'keyArt' as const }),
       };
     }),
     scenery: {
       role: 'racingSceneryAtlas',
-      promptVersion: RACING_SCENERY_OBJECTS_VERSION,
+      promptVersion: sceneryVersion,
       prompt: objectPrompts.join('\n'),
       label: 'Roadside scenery atlas (6 generated objects)',
       size: '1024x1024',
@@ -129,34 +186,52 @@ export function buildRacingPackPlan(spec: RacingSpec): RacingPackPlan {
     sceneryObjects: objectPrompts.map((prompt, index): RacingPackEntry => ({
       // Informational role: all six compose the single public atlas.
       role: 'racingSceneryAtlas',
-      promptVersion: RACING_SCENERY_OBJECTS_VERSION,
+      promptVersion: sceneryVersion,
       prompt,
       label: `Roadside object ${index + 1} of 6`,
       size: '1024x1024',
       reference: 'keyArt',
     })),
-    materials: {
+    materials:
+      discipline === 'jetski'
+        ? {
+            role: 'racingMaterialAtlas',
+            promptVersion: materialsVersion,
+            prompt: tilePrompts.join('\n'),
+            label: 'Water material atlas (4 generated tiles)',
+            size: '1024x1024',
+          }
+        : {
+            role: 'racingMaterialAtlas',
+            promptVersion: materialsVersion,
+            prompt: buildRacingMaterialsPrompt({
+              artDirection: identity.artDirection,
+              worldConcept: identity.worldConcept,
+              envContext: spec.levels
+                .map((level, k) => `course ${k + 1} ${level.name}: ${level.envConcept ?? 'shared world'}`)
+                .join('; '),
+              materials: spec.levels[0]!.materials ?? {
+                road: '#5c5e6e',
+                ground: '#2f4a26',
+                curb: '#d8d8cc',
+                edge: '#35e0ff',
+                pad: '#35e0ff',
+              },
+              boostMode: identity.boost.mode,
+              colors,
+              discipline,
+            }),
+            label: 'Track material atlas',
+            size: '1024x1024',
+          },
+    materialTiles: tilePrompts.map((prompt, index): RacingPackEntry => ({
+      // Informational role: all four compose the single public atlas.
       role: 'racingMaterialAtlas',
-      promptVersion: RACING_MATERIALS_PROMPT_VERSION,
-      prompt: buildRacingMaterialsPrompt({
-        artDirection: identity.artDirection,
-        worldConcept: identity.worldConcept,
-        envContext: spec.levels
-          .map((level, k) => `course ${k + 1} ${level.name}: ${level.envConcept ?? 'shared world'}`)
-          .join('; '),
-        materials: spec.levels[0]!.materials ?? {
-          road: '#5c5e6e',
-          ground: '#2f4a26',
-          curb: '#d8d8cc',
-          edge: '#35e0ff',
-          pad: '#35e0ff',
-        },
-        boostMode: identity.boost.mode,
-        colors,
-      }),
-      label: 'Track material atlas',
+      promptVersion: materialsVersion,
+      prompt,
+      label: `Water material tile ${index + 1} of 4`,
       size: '1024x1024',
-    },
+    })),
   };
 }
 
@@ -187,22 +262,33 @@ export function racingRosterSlots(spec: RacingSpec): RacingRosterSlotDescriptor[
 export function buildRacingRosterJudgePrompt(
   slots: readonly RacingRosterSlotDescriptor[],
   references: readonly RacingRosterSlotDescriptor[] = [],
+  discipline: RacingPackDiscipline = 'hover',
 ): {
   system: string;
   user: string;
 } {
+  const subject =
+    discipline === 'jetski' ? 'rear-view jetski (rider plus watercraft) strips' : 'rear-view hovercraft strips';
+  const required =
+    discipline === 'jetski'
+      ? 'Required: true rear camera (behind and slightly above, craft pointing away), the SAME watercraft plus its SAME seated adult rider across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent hulls across rows, readable rear camera, no green panels, no text, no cropping. Every row must show exactly one seated rider astride the hull: a missing rider, a standing or detached rider, or a face pasted into the hull is fatal.'
+      : 'Required: true rear camera (behind and slightly above, craft pointing away), the SAME vehicle across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent vehicles across rows, no green panels, no people, no text, no cropping.';
+  const fatal =
+    discipline === 'jetski'
+      ? 'Score concept fidelity, exact rear orientation, same rider-plus-hull coherence, small gameplay readability, and technical pixel-art quality from 1 to 5. A fatal issue is a wrong camera direction, mismatched poses within a row, same-direction banks, duplicated hulls across rows, a missing or doubled rider, a detached rider, a face pasted into the hull, cropped/multiple craft, or broken transparency.'
+      : 'Score concept fidelity, exact rear orientation, same-vehicle coherence, small gameplay readability, and technical pixel-art quality from 1 to 5. A fatal issue is a wrong camera direction, mismatched poses within a row, same-direction banks, duplicated vehicles across rows, cropped/multiple craft, a person, or broken transparency.';
   return {
     system:
       'You are Muse Spark, the art director selecting gameplay vehicle art. Judge only the labeled TARGET rows; REFERENCE rows are frozen prior approvals shown for distinctness comparison. Return strict JSON.',
     user: [
-      `Review the ${slots.length} TARGET rear-view hovercraft strips in order: ${slots.map((s) => `${s.id} (${s.name})`).join(', ')}.`,
+      `Review the ${slots.length} TARGET ${subject} in order: ${slots.map((s) => `${s.id} (${s.name})`).join(', ')}.`,
       ...slots.map((s) => `${s.id} concept: ${s.vehicleConcept}.`),
       references.length
         ? `Frozen REFERENCE rows (already approved, never judge, never list in slotReviews or rejectedIds): ${references.map((s) => `${s.id} (${s.name})`).join(', ')}. Compare every target against the references for distinctness — a target duplicating a reference vehicle is fatal.`
         : '',
-      'Required: true rear camera (behind and slightly above, craft pointing away), the SAME vehicle across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent vehicles across rows, no green panels, no people, no text, no cropping.',
+      required,
       'Banking is opposite ROLL, never yaw and never a mirrored livery: the banking-left cell leans left (left side low, right side high) and the banking-right cell leans right (right side low, left side high). Two banks yawing the same way, yawed side profiles, or mirrored asymmetric markings are fatal.',
-      'Score concept fidelity, exact rear orientation, same-vehicle coherence, small gameplay readability, and technical pixel-art quality from 1 to 5. A fatal issue is a wrong camera direction, mismatched poses within a row, same-direction banks, duplicated vehicles across rows, cropped/multiple craft, a person, or broken transparency.',
+      fatal,
       'accepted should be true only when every target row has no fatal issue and is production quality. Even when accepted is false, retryGuidance must describe the single most important correction for the rejected rows.',
       'For EACH target row, set correction to "banking" ONLY when its neutral-rear cell is accepted as the right vehicle, rear camera, and concept and only the bank rolls are wrong; otherwise — bad neutral camera or concept, a duplicate of another vehicle, or any doubt — set "vehicle". Give the per-row fix in guidance.',
     ]

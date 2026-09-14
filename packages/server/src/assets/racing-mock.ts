@@ -76,6 +76,27 @@ export async function mockRacingCraftStripSource(seed = 7): Promise<Buffer> {
     .toBuffer();
 }
 
+/** Deterministic mock watercraft with a visible seated rider in three rear poses. */
+export async function mockRacingJetskiStripSource(seed = 7): Promise<Buffer> {
+  const colors = ['#237cb2', '#cc6839', '#7055a8', '#288d82', '#c49c3a'];
+  const color = colors[seed % colors.length]!;
+  const cells = [0, -10, 10].map((angle, index) => `
+    <g transform="translate(${index * 128},0)">
+      <g transform="rotate(${angle},64,94)" stroke="#172638" stroke-width="3" stroke-linejoin="round">
+        <path fill="${color}" d="M 41 58 L 49 50 L 79 50 L 87 58 L 94 98 L 34 98 Z"/>
+        <path fill="#e7e8d8" d="M 43 73 L 85 73 L 88 91 L 40 91 Z"/>
+        <path fill="#172638" d="M 52 62 L 76 62 L 79 86 L 49 86 Z"/>
+        <path fill="none" d="M 43 55 L 85 55"/>
+        <path fill="#ed9755" d="M 50 48 L 44 55 L 49 63 L 56 54 M 78 48 L 84 55 L 79 63 L 72 54"/>
+        <path fill="#e5e8d7" d="M 52 44 L 76 44 L 78 70 L 69 78 L 59 78 L 50 70 Z"/>
+        <circle fill="#b37550" cx="64" cy="36" r="10"/>
+        <path fill="#253345" d="M 54 34 Q 54 21 64 25 Q 76 24 74 36 Z"/>
+        <rect fill="#172638" x="58" y="91" width="12" height="7"/>
+      </g>
+    </g>`).join('');
+  return sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="384" height="128"><rect width="384" height="128" fill="#00ff00"/>${cells}</svg>`)).png().toBuffer();
+}
+
 /** Deterministic single rear craft on green (256px) for reference tests. */
 export async function mockRacingCraftRearSource(seed = 7): Promise<Buffer> {
   const subject = await blob(168, 112, '#3a6fd8', 0, seed);

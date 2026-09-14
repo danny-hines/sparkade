@@ -102,6 +102,29 @@ const EXPECTED_DIMS: Record<string, { width: number; height: number }> = {
 };
 
 describe.sequential('mock racing pack pipeline', () => {
+  it('generates a personalized jetski cup from photo, name and description', async () => {
+    const { db, files, runner } = createHarness();
+    const photo = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#ab8060' } }).jpeg().toBuffer();
+    const details = 'Jet skiing across a tropical lagoon, collect floating Tide Cells for boost';
+    const { jobId, gameId } = runner.createJob({
+      promptText: details,
+      photo,
+      creationBrief: { version: 1, heroName: 'Rin', archetype: 'racing', details },
+      sourceKind: 'preset',
+      requestedArchetype: 'racing',
+      idempotencyKey: 'mock-jetski-personalized',
+    });
+    const terminal = await waitForTerminal(db, jobId);
+    expect(terminal, JSON.stringify(terminal.error)).toMatchObject({ status: 'done' });
+    const spec = files.readSpec(gameId) as RacingSpec;
+    expect(spec.identity).toMatchObject({ discipline: 'jetski', pilotName: 'Rin', boost: { mode: 'pickups' } });
+    expect(spec.levels).toHaveLength(3);
+    const assetsDir = join(files.gameDir(gameId), 'assets');
+    for (const role of RACING_PACK_REQUIRED_ROLES) expect(generatedAssetForRole(assetsDir, role)).not.toBeNull();
+    const player = generatedAssetForRole(assetsDir, 'racingCraftPlayer');
+    expect(player!.promptVersion).toBe('racing-jetski-strip-v1-approved-v1');
+  }, 90_000);
+
   it('publishes the complete ten-file pack with manifest, metadata, and private reference', async () => {
     const originalStorePrivate = GameAssetWorkspace.prototype.storePrivate;
     const privateStored: string[] = [];

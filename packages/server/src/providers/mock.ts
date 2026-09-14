@@ -32,11 +32,59 @@ import type {
 } from '@sparkade/shared';
 
 /**
+ * True when the creation request asks for jet skiing / personal watercraft /
+ * an explicitly water-racing cup. The mock mirrors the design-stage contract:
+ * only such premises earn the jetski discipline.
+ */
+export function mockJetskiRequested(requestText: string): boolean {
+  if (/jet[ -]?ski|personal watercraft|wave[ -]?runn/i.test(requestText)) return true;
+  if (/\bhover(?:craft)?\b|\bkart\b/i.test(requestText)) return false;
+  return /\bwater[ -]?rac(?:e|ing)\b|\brac(?:e|ing)\s+(?:on|across|through)\s+(?:the\s+)?water\b/i.test(requestText);
+}
+
+/** Hero name from the approved creation brief block, when the caller supplied one. */
+export function mockBriefHeroName(user: string): string | null {
+  const hit = /HERO NAME:\s*([^\n]+)/i.exec(user);
+  if (!hit) return null;
+  const name = hit[1]!.trim();
+  if (!name || /\(Spark decides\)/i.test(name)) return null;
+  return name.slice(0, 48);
+}
+
+/**
  * Racing identity for the mock design stage: the golden's authored contract
  * when it has one, else a deterministic legacy-shape pads fallback derived
- * from the golden's own cast (same names, same slots).
+ * from the golden's own cast (same names, same slots). A jetski creation
+ * request earns a deterministic jetski cup (combustion motors, floating
+ * Tide-Cell pickups, seated-rider watercraft concepts) so integration tests
+ * can exercise photo/name/details all the way to the final identity.
  */
-function mockRacingIdentity(golden: GameSpec): RacingIdentity {
+function mockRacingIdentity(golden: GameSpec, requestText = '', user = ''): RacingIdentity {
+  const briefName = user ? mockBriefHeroName(user) : null;
+  if (mockJetskiRequested(requestText)) {
+    const cast = ['VEX', 'JUNO', 'PIP', 'KAZ'];
+    const hulls = [
+      'teal compact jet-ski hull with orange trim and a seated rider in a white vest, rear view',
+      'pearl-white jet-ski hull with coral side pods and a seated rider in a coral vest, rear view',
+      'mint-green jet-ski hull with a yellow checker tail and a seated rider in a navy vest, rear view',
+      'deep violet jet-ski hull with gold trim and a seated rider in a black vest, rear view',
+    ];
+    return {
+      pilotName: briefName ?? 'RIN',
+      artDirection: 'Sunlit turquoise water cup: glossy hulls, orange buoys, sand and vegetated banks',
+      worldConcept: 'A sunlit jet-ski cup across a limestone lagoon, a stilt-house harbor, and emerald mangroves at sunset',
+      playerCraftConcept:
+        'Privateer turquoise jet-ski hull with orange trim and a seated rider in a white vest, compact hull touching turquoise water, rear view',
+      rivalCrafts: cast.map((name, k) => ({ name, vehicleConcept: hulls[k]! })),
+      sound: { engine: { family: 'combustion', tone: 0.7, pitch: 2 } },
+      boost: {
+        mode: 'pickups',
+        displayName: 'Tide Cells',
+        appearanceConcept: 'Small floating turquoise energy cells bobbing on the water surface',
+      },
+      discipline: 'jetski',
+    };
+  }
   if (golden.archetype === 'racing') {
     const spec = golden as RacingSpec;
     if (spec.identity) return structuredClone(spec.identity);
@@ -46,7 +94,7 @@ function mockRacingIdentity(golden: GameSpec): RacingIdentity {
     }));
     while (cast.length < 4) cast.push({ name: `RIVAL${cast.length + 1}`, vehicleConcept: 'Spare cup hovercraft in reserve livery' });
     return {
-      pilotName: 'ROOKIE',
+      pilotName: briefName ?? 'ROOKIE',
       artDirection: 'Flat-shaded procedural hover cup in the template theme colors',
       worldConcept: 'A legacy-rules hover cup run on the three proven circuits',
       playerCraftConcept: 'Privateer twin-pod hovercraft in track-day colors, rear-view silhouette',
@@ -64,7 +112,7 @@ function mockRacingIdentity(golden: GameSpec): RacingIdentity {
     vehicleConcept: `${name} cup rival hovercraft in a distinct helmet-color livery, rear-view wedge silhouette`,
   }));
   return {
-    pilotName: 'ROOKIE',
+    pilotName: briefName ?? 'ROOKIE',
     artDirection: 'Flat-shaded procedural hover cup in the template theme colors',
     worldConcept: 'A legacy-rules hover cup run on the three proven circuits',
     playerCraftConcept: 'Privateer twin-pod hovercraft in track-day colors, rear-view silhouette',
@@ -302,10 +350,13 @@ export class MockProvider implements Provider {
           ...(golden.archetype === 'fighter'
             ? { fighterArtDirection: structuredClone(golden.artDirection), fighterStyle }
             : {}),
-          // Racing identity is exercisable end-to-end: the golden's authored
-          // contract when present, else a deterministic pads-mode fallback so
-          // legacy goldens still travel the new path.
-          ...(archetype === 'racing' ? { racingIdentity: mockRacingIdentity(golden) } : {}),
+          // Racing identity is exercisable end-to-end: a jetski creation
+          // request earns the deterministic jetski cup, else the golden's
+          // authored contract when present, else a deterministic pads-mode
+          // fallback so legacy goldens still travel the new path.
+          ...(archetype === 'racing'
+            ? { racingIdentity: mockRacingIdentity(golden, requestText, req.user) }
+            : {}),
           story: structuredClone(golden.story),
           levelPlan:
             archetype === 'racing'
@@ -431,7 +482,8 @@ export class MockProvider implements Provider {
   private pickArchetype(prompt: string): ArchetypeId {
     // Saved-game catalogs must not steer the fallback guess either.
     const p = (prompt.split('GAMES ALREADY ON THIS CABINET')[0] ?? prompt).toLowerCase();
-    if (/\brace\b|racing|kart|\bhover\b|f-?zero|grand.?prix/.test(p)) return 'racing';
+    if (/\brace\b|racing|kart|\bhover\b|f-?zero|grand.?prix|jet.?ski|personal watercraft|wave.?runn/.test(p))
+      return 'racing';
     if (
       /(fight|versus|brawl|duel|karate|kung.?fu|boxer|boxing|martial|kombat|tournament.*(fight|duel)|street.?fight)/.test(
         p,
@@ -488,8 +540,10 @@ function detectArchetype(req: CompleteRequest): ArchetypeId | null {
   // catalogs, and excerpts must never steer detection.
   const premise = req.user.split('GAMES ALREADY ON THIS CABINET')[0] ?? req.user;
   // Racing keywords first: "race" would otherwise fall through to the
-  // spaceship/shooter fallback below.
-  if (/\brace\b|racing|kart|\bhover\b|f-?zero|grand.?prix/i.test(premise)) return 'racing';
+  // spaceship/shooter fallback below. Jet-ski wording routes to racing too,
+  // where the design stage selects the jetski discipline.
+  if (/\brace\b|racing|kart|\bhover\b|f-?zero|grand.?prix|jet.?ski|personal watercraft|wave.?runn/i.test(premise))
+    return 'racing';
   const m =
     /(hshooter|horizontal shooter|fighting game|fighter|platformer|shooter|adventure)/i.exec(premise);
   if (!m) return null;

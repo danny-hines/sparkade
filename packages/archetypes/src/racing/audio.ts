@@ -1,14 +1,21 @@
 // Continuous engine and afterburner for the racing archetype.
 //
-// A harmonic engine tone and a boost-only noise source share the SFX bus, so
+// A harmonic engine tone and a second noise source share the SFX bus, so
 // bus volume and mute apply with no extra plumbing. Pitch and gain follow
 // the real craft state (speed, throttle, boost, drift) with smoothed WebAudio
 // ramps; everything is created lazily on the first racing update and torn
 // down on pause/results/restart/dispose. At most two voices are held, and
 // a spent voice budget (or missing capability) stays silent instead of loud.
+// On hover the noise source is boost-only; on jetski the same source is
+// repurposed as the water rush (silent at rest, swelling with speed and
+// carve, surging under boost). Omit the discipline for the exact legacy mix.
 
-import type { RacingEngineProfile } from '@sparkade/shared';
+import type { RacingDiscipline, RacingEngineProfile } from '@sparkade/shared';
 import {
+  JETSKI_WATER_REST_NORM,
+  jetskiWaterCutoff,
+  jetskiWaterGain,
+  normalizeEngineDiscipline,
   renderEngineNoise,
   resolveEngineProfile,
   type ResolvedEngineProfile,
@@ -47,11 +54,19 @@ function pitchFor(s: HoverEngineState, v: ResolvedEngineProfile): number {
   const norm = Math.max(0, Math.min(1, Math.abs(s.speed) / TOP_SPEED));
   const rpm =
     v.baseHz + norm * v.speedHz + (s.throttle ? v.throttleHz : 0) + (s.drifting ? v.driftHz : 0);
-  return rpm * v.pitchRatio * (s.boosting ? 0.84 : 1);
+  // The voice already carries the jetski retune (deeper idle, wider load
+  // sweep); boost digs deeper on water for the loaded marine thrust.
+  const boostLoad = v.discipline === 'jetski' ? 0.78 : 0.84;
+  return rpm * v.pitchRatio * (s.boosting ? boostLoad : 1);
 }
 
-function gainFor(s: HoverEngineState): number {
+function gainFor(s: HoverEngineState, v: ResolvedEngineProfile): number {
   const norm = Math.max(0, Math.min(1, Math.abs(s.speed) / TOP_SPEED));
+  if (v.discipline === 'jetski') {
+    // Slightly softer motor than hover: the water rush shares this voice's
+    // headroom, so the pair stays under the hover peak and off the music.
+    return 0.02 + norm * 0.11 + (s.boosting ? 0.04 : 0) + (s.throttle ? 0.1 : 0);
+  }
   return 0.025 + norm * 0.14 + (s.boosting ? 0.055 : 0) + (s.throttle ? 0.12 : 0);
 }
 
@@ -66,6 +81,10 @@ function filterFor(s: HoverEngineState, v: ResolvedEngineProfile): number {
   );
 }
 
+function speedNormFor(s: HoverEngineState): number {
+  return Math.max(0, Math.min(1, Math.abs(s.speed) / TOP_SPEED));
+}
+
 export class HoverEngine {
   private caps: HoverEngineCaps | null = null;
   private osc: OscillatorNode | null = null;
@@ -73,28 +92,54 @@ export class HoverEngine {
   private filter: BiquadFilterNode | null = null;
   private voiceHeld = false;
   private pitchHz = 0;
+  private discipline: RacingDiscipline = 'hover';
   private voice: ResolvedEngineProfile = resolveEngineProfile();
   private burner = new Afterburner();
 
-  /** Optional authored timbre; omit/null for the exact legacy mix. */
-  constructor(profile?: RacingEngineProfile | null) {
-    this.setProfile(profile);
+  /**
+   * Optional authored timbre; omit/null for the exact legacy mix. The
+   * optional discipline selects the watercraft mix ('jetski'); omit/null
+   * (or anything but 'jetski') for the exact legacy hover voice.
+   */
+  constructor(profile?: RacingEngineProfile | null, discipline?: RacingDiscipline | null) {
+    this.setProfile(profile, discipline);
   }
 
   /**
-   * Select the engine timbre (identity.sound.engine). Stores parameters
-   * only: no nodes are created, no voice is claimed, and a running voice
-   * keeps playing with its timbre switched live. Null/undefined restores
-   * the exact legacy mix.
+   * Select the engine timbre (identity.sound.engine) and optionally the
+   * discipline (identity.discipline). Stores parameters only: no nodes
+   * are created, no voice is claimed, and a running voice keeps playing
+   * with its timbre switched live. Null/undefined restores the exact
+   * legacy mix. Reads the current discipline back via voiceDiscipline().
    */
-  setProfile(profile?: RacingEngineProfile | null): void {
-    this.voice = resolveEngineProfile(profile ?? null);
+  setProfile(profile?: RacingEngineProfile | null, discipline?: RacingDiscipline | null): void {
+    // An explicit discipline (including null → hover) switches the mix;
+    // an omitted one keeps the current mix, so live timbre switches
+    // mid-race never splash a jetski back to hover by accident.
+    if (discipline !== undefined) this.discipline = normalizeEngineDiscipline(discipline);
+    this.voice = resolveEngineProfile(profile ?? null, this.discipline);
     this.burner.setProfile(this.voice);
     try {
       if (this.osc) this.osc.type = this.voice.oscType;
     } catch {
       // A dead voice must never break a profile switch; next update retries.
     }
+  }
+
+  /** Current mix ('hover' unless 'jetski' was selected). */
+  voiceDiscipline(): RacingDiscipline {
+    return this.discipline;
+  }
+
+  /**
+   * Whether this update wants the second (noise) voice: boost on any
+   * mix, or the jetski water rush while moving. Lets the race mixer
+   * free a rival slot first, exactly like boost priority, so the
+   * player's own craft never starves behind distant rivals.
+   */
+  wantsNoise(s: HoverEngineState): boolean {
+    if (s.boosting) return true;
+    return this.discipline === 'jetski' && speedNormFor(s) > JETSKI_WATER_REST_NORM;
   }
 
   /** Remember the capability; creates no nodes and claims no voice. */
@@ -131,9 +176,9 @@ export class HoverEngine {
       this.pitchHz = pitchFor(s, this.voice);
       const response = s.throttle ? 0.07 : 0.18;
       this.osc!.frequency.setTargetAtTime(this.pitchHz, t, response);
-      this.gain!.gain.setTargetAtTime(gainFor(s), t, response);
+      this.gain!.gain.setTargetAtTime(gainFor(s, this.voice), t, response);
       this.filter!.frequency.setTargetAtTime(filterFor(s, this.voice), t, response);
-      this.burner.update(s.boosting);
+      this.burner.update(s);
     } catch {
       // Dead context or parameters must never crash racing: drop the broken
       // voice quietly; a later update retries from a clean claim.
@@ -245,7 +290,11 @@ export class HoverEngine {
   }
 }
 
-/** Boost-only filtered noise. One cached buffer, one claimed source while burning. */
+/**
+ * Boost-only filtered noise on hover; water-rush noise on jetski. Either
+ * way one cached buffer and at most one claimed source — the second player
+ * voice is repurposed, never duplicated, so the player still holds <= 2.
+ */
 class Afterburner {
   private caps: HoverEngineCaps | null = null;
   private source: AudioBufferSourceNode | null = null;
@@ -269,10 +318,20 @@ class Afterburner {
     return this.held ? 1 : 0;
   }
 
-  update(burning: boolean): void {
-    if (!this.caps) return;
+  update(s: HoverEngineState): void {
+    const caps = this.caps;
+    if (!caps) return;
+    if (this.voice.discipline === 'jetski') {
+      this.updateWater(s, caps);
+      return;
+    }
+    this.updateBoost(s.boosting, caps);
+  }
+
+  /** Exact legacy behavior: boost-only lowpassed roar with a short tail. */
+  private updateBoost(burning: boolean, caps: HoverEngineCaps): void {
     try {
-      const ctx = this.caps.context();
+      const ctx = caps.context();
       const now = ctx.currentTime;
       if (burning) this.lastBurnAt = now;
       if (!burning && now - this.lastBurnAt > 0.16) {
@@ -280,25 +339,8 @@ class Afterburner {
         return;
       }
       if (!this.source) {
-        if (!burning || !this.caps.claimVoice()) return;
-        this.held = true;
-        if (!this.buffer || this.bufferContext !== ctx) {
-          this.buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-          this.bufferContext = ctx;
-          renderEngineNoise(this.buffer.getChannelData(0));
-        }
-        this.source = ctx.createBufferSource();
-        this.source.buffer = this.buffer;
-        this.source.loop = true;
-        this.filter = ctx.createBiquadFilter();
-        this.filter.type = 'lowpass';
-        this.filter.frequency.value = this.voice.burnerCutoff;
-        this.gain = ctx.createGain();
-        this.gain.gain.value = 0;
-        this.source.connect(this.filter);
-        this.filter.connect(this.gain);
-        this.gain.connect(this.caps.sfxBus);
-        this.source.start();
+        if (!burning || !caps.claimVoice()) return;
+        this.startSource(caps, ctx, this.voice.burnerCutoff);
       }
       this.filter!.frequency.setTargetAtTime(this.voice.burnerCutoff, now, 0.05);
       this.gain!.gain.setTargetAtTime(
@@ -309,6 +351,65 @@ class Afterburner {
     } catch {
       this.stop();
     }
+  }
+
+  /**
+   * Jetski water rush on the same single source: silent at rest, swelling
+   * with speed, extra wake wash while carving, and a stronger rushing
+   * waterjet under boost (deep thrust, never flame or bell). A spent
+   * voice budget stays silent and retries on a later update.
+   */
+  private updateWater(s: HoverEngineState, caps: HoverEngineCaps): void {
+    try {
+      const ctx = caps.context();
+      const now = ctx.currentTime;
+      const norm = speedNormFor(s);
+      const burning = s.boosting;
+      if (burning) this.lastBurnAt = now;
+      const running = burning || norm > JETSKI_WATER_REST_NORM;
+      if (!running && now - this.lastBurnAt > 0.16) {
+        this.stop();
+        return;
+      }
+      if (!this.source) {
+        if (!running || !caps.claimVoice()) return;
+        this.startSource(caps, ctx, jetskiWaterCutoff(norm, burning, this.voice));
+      }
+      this.filter!.frequency.setTargetAtTime(
+        jetskiWaterCutoff(norm, burning, this.voice),
+        now,
+        0.08,
+      );
+      this.gain!.gain.setTargetAtTime(
+        running ? jetskiWaterGain(norm, s.drifting, burning, this.voice) : 0,
+        now,
+        burning ? 0.025 : 0.06,
+      );
+    } catch {
+      this.stop();
+    }
+  }
+
+  /** Claim one looped-noise voice through the SFX bus (throws → caller stops). */
+  private startSource(caps: HoverEngineCaps, ctx: AudioContext, cutoffHz: number): void {
+    this.held = true;
+    if (!this.buffer || this.bufferContext !== ctx) {
+      this.buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+      this.bufferContext = ctx;
+      renderEngineNoise(this.buffer.getChannelData(0));
+    }
+    this.source = ctx.createBufferSource();
+    this.source.buffer = this.buffer;
+    this.source.loop = true;
+    this.filter = ctx.createBiquadFilter();
+    this.filter.type = 'lowpass';
+    this.filter.frequency.value = cutoffHz;
+    this.gain = ctx.createGain();
+    this.gain.gain.value = 0;
+    this.source.connect(this.filter);
+    this.filter.connect(this.gain);
+    this.gain.connect(caps.sfxBus);
+    this.source.start();
   }
 
   stop(): void {

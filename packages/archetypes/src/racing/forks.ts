@@ -71,7 +71,7 @@ export const FORK_FRACTION = 0.4;
 /** Keep-out around the start/finish line and checkpoint gates. */
 export const FORK_KEEPOUT = 120;
 /** Keep-out around compiled ramp zones (approach + landing margin). */
-export const FORK_RAMP_KEEPOUT = 90;
+export const FORK_RAMP_KEEPOUT = 150;
 /** Max |curvature| tolerated over the zone plus its approach margin. */
 export const FORK_CURVE_MAX = 0.0015;
 /** Curvature approach margin past each zone end (track units). */
@@ -122,6 +122,7 @@ function zoneClear(
   s: number,
   gates: number[],
   ramps: readonly { s: number; length: number }[],
+  pads: readonly BoostPad[],
 ): boolean {
   if (s <= 0 || s + FORK_ZONE >= track.length) return false;
   for (const g of gates) {
@@ -129,13 +130,16 @@ function zoneClear(
     if (wrappedDist(s, g, track.length) < FORK_KEEPOUT) return false;
     if (wrappedDist(s + FORK_ZONE, g, track.length) < FORK_KEEPOUT) return false;
   }
+  for (const pad of pads) {
+    if (pad.start < s + FORK_ZONE && pad.start + pad.length > s) return false;
+  }
   for (const r of ramps) {
-    if (r.s - FORK_RAMP_KEEPOUT < s + FORK_ZONE && r.s + r.length + FORK_RAMP_KEEPOUT > s)
-      return false;
-    const lip = (r.s + r.length) % track.length;
-    for (const p of [r.s, lip]) {
-      if (wrappedDist(s, p, track.length) < FORK_RAMP_KEEPOUT) return false;
-      if (wrappedDist(s + FORK_ZONE, p, track.length) < FORK_RAMP_KEEPOUT) return false;
+    const start = ((r.s % track.length) + track.length) % track.length;
+    // Include the wrapped tail and a complete high-speed flight margin.
+    for (const shift of [-track.length, 0, track.length]) {
+      const lo = start + shift - FORK_RAMP_KEEPOUT;
+      const hi = start + shift + r.length + FORK_RAMP_KEEPOUT;
+      if (lo < s + FORK_ZONE && hi > s) return false;
     }
   }
   for (let k = s - FORK_CURVE_MARGIN; k <= s + FORK_ZONE + FORK_CURVE_MARGIN; k += 5) {
@@ -154,6 +158,7 @@ function zoneClear(
 export function forkFor(
   track: CompiledTrack,
   ramps?: readonly { s: number; length: number }[],
+  retainedPads: readonly BoostPad[] = [],
 ): ForkLayout | undefined {
   const gates = gatePositions(track.length);
   const rampList = ramps ?? [];
@@ -162,7 +167,7 @@ export function forkFor(
   let closest = Infinity;
   for (let s = 5; s < track.length; s += 5) {
     const distance = wrappedDist(s + FORK_ZONE / 2, center, track.length);
-    if (distance >= closest || !zoneClear(track, s, gates, rampList)) continue;
+    if (distance >= closest || !zoneClear(track, s, gates, rampList, retainedPads)) continue;
     closest = distance;
     placed = s;
   }
@@ -312,4 +317,13 @@ export function applyForkSupplies(
     pickups[best]!.s = mid;
     pickups[best]!.x = FORK_RIGHT_CENTER;
   }
+}
+
+/** Same painted and triggered pad interval, including a fork's inner/outer edges. */
+export function forkPadLane(section: ForkSection, center: number, halfWidth: number, out: { lo: number; hi: number }): void {
+  out.lo = center - halfWidth;
+  out.hi = center + halfWidth;
+  if (section.blend <= 0) return;
+  out.lo = Math.max(out.lo, center >= 0 ? section.rightLo : section.leftLo);
+  out.hi = Math.min(out.hi, center >= 0 ? section.rightHi : section.leftHi);
 }

@@ -29,6 +29,7 @@ import {
   clampForkX,
   forkBranchSide,
   forkCrossSection,
+  forkPadLane,
   type ForkSection,
 } from './forks';
 import { trackGradeAt, trackHeightAt } from './elevation';
@@ -334,6 +335,7 @@ function blankForkSection(): ForkSection {
 const forkStepSec: ForkSection = blankForkSection();
 const forkContactSec: ForkSection = blankForkSection();
 const forkAiSec: ForkSection = blankForkSection();
+const forkPadSpan = { lo: 0, hi: 0 };
 
 /**
  * Shoulder depth past the asphalt, fork-aware: inside the split it reads
@@ -595,7 +597,12 @@ export function stepRacer(race: RaceState, r: RacerState, input: RacerInput, dt:
   // lane reads the branch-relative pad.x (omitted means road center, so the
   // legacy trigger is exact).
   const pad = mode === 'pads' && driving && !isAirborne(r) ? padAt(race, newW) : null;
-  const onPad = pad !== null && Math.abs(r.x - (pad.x ?? 0)) <= PAD_HALF_X;
+  let onPad = pad !== null && Math.abs(r.x - (pad.x ?? 0)) <= PAD_HALF_X;
+  if (onPad && pad !== null && fork !== undefined) {
+    forkCrossSection(fork, newW, ROAD_HALF, forkStepSec);
+    forkPadLane(forkStepSec, pad.x ?? 0, PAD_HALF_X, forkPadSpan);
+    onPad = r.x >= forkPadSpan.lo && r.x <= forkPadSpan.hi;
+  }
   if (onPad && !r.padOn && r.boostT <= 0) r.boostT = Math.max(r.boostT, 0.8);
   r.padOn = onPad;
   // Banked energy cells: forward swept progress only, lateral overlap at the

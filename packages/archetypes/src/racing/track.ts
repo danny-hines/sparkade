@@ -623,8 +623,8 @@ export function compileTrackVariant(
   // them and keeps its keep-out from every ramp approach/landing. A 'split'
   // request with no safe interval compiles no fork rather than forcing one.
   const forkOpt = resolveForks(opts.forks);
-  const fork = forkOpt === undefined ? undefined : (forkFor(track, ramps) ?? undefined);
   const pads = padsFor(track);
+  const fork = forkOpt === undefined ? undefined : (forkFor(track, ramps, pads.slice(1)) ?? undefined);
   const pickups = pickupsFor(track);
   if (fork !== undefined) applyForkSupplies(pads, pickups, fork, track.length);
   return {

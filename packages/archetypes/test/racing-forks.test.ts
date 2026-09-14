@@ -11,6 +11,8 @@ import {
   forkBranchSide,
   forkCenterS,
   forkCrossSection,
+  forkFor,
+  type CompiledTrack,
   FORK_CURVE_MAX,
   FORK_ENTER,
   FORK_EXIT,
@@ -59,6 +61,7 @@ describe('racing fork splits', () => {
           if (c.fork === undefined) continue;
           expect(c.fork).toEqual(compileTrackVariant(t, { length, mirror, forks: 'split' }).fork);
           const { start, length: len } = c.fork;
+          expect(c.pads.slice(1).some(p => p.start < start + len && p.start + p.length > start)).toBe(false);
           expect(len).toBe(FORK_ZONE);
           expect(start).toBeGreaterThan(0);
           expect(start + len).toBeLessThan(c.track.length);
@@ -261,6 +264,26 @@ describe('racing fork splits', () => {
     expect(lintRacing(spec).filter(e => e.code === 'RACING_FORK_LAYOUT')).toHaveLength(0);
     course.jumps = 'ramps';
     expect(lintRacing(spec).some(e => e.code === 'RACING_FORK_LAYOUT')).toBe(true);
+  });
+
+  it('only triggers the branch pad within its visibly painted road interval', () => {
+    for (const [x, expected] of [[-1.5, false], [5.8, true], [6.2, false]] as const) {
+      const c = splitCircuit();
+      const race = createRaceFor(c, 0), p = race.racers[0]!;
+      p.s = forkCenterS(c.fork!); p.x = x; p.speed = 70; p.boostT = 0;
+      stepRacer(race, p, idle, DT);
+      expect(p.padOn).toBe(expected);
+      expect(p.boostT > 0).toBe(expected);
+    }
+  });
+
+  it('rejects a fork in the landing margin of a ramp wrapping through the finish', () => {
+    const track = {
+      length: 3200,
+      curvatureAt: (s: number) => s >= 90 && s <= 470 ? 0 : 1,
+    } as CompiledTrack;
+    expect(forkFor(track)).toBeDefined();
+    expect(forkFor(track, [{ s: 3190, length: 30 }])).toBeUndefined();
   });
 
 });

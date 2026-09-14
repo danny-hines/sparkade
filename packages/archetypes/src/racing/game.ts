@@ -38,7 +38,7 @@ import {
 import type { HoverEngineCaps } from './audio';
 import { resolveElevation } from './elevation';
 import { resolveJumps } from './jumps';
-import { resolveForks, forkCrossSection } from './forks';
+import { resolveForks, forkCrossSection, forkPadLane } from './forks';
 import {
   buildElevationFrame,
   createElevationFrame,
@@ -1141,6 +1141,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
   const groundSpans: GroundSpan[] = [];
   const surfaceRow = { cx: 0, half: 0, ppu: 0 };
   const forkRow = forkCrossSection({ start: 0, length: 1 }, -1, ROAD_HALF);
+  const forkPadSpan = { lo: 0, hi: 0 };
   const forkMarker = forkCrossSection({ start: 0, length: 1 }, -1, ROAD_HALF);
   // Elevation scratch: dense forward samples + one entry per integer screen
   // row, allocated once and rewritten per frame (never per-frame canvas or
@@ -1466,9 +1467,10 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           const p = race.circuit.track.pointAt(s);
           const heading = race.circuit.track.headingAt(s);
           const sec = forkCrossSection(fork, s, ROAD_HALF, forkMarker);
+          // Exaggerate the split at minimap scale; racer dots use the same factor.
           const offset = (side < 0 ? sec.leftCenter : sec.rightCenter) * 3;
-          const x = ox + (p.x - Math.sin(heading) * offset) * sc;
-          const y = oy + (p.y + Math.cos(heading) * offset) * sc;
+          const x = ox + (p.x + Math.cos(heading) * offset) * sc;
+          const y = oy + (p.y + Math.sin(heading) * offset) * sc;
           if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
         }
         ctx.stroke();
@@ -1480,8 +1482,12 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
     for (const [i, racer] of race.racers.entries()) {
       const p = race.circuit.track.pointAt(racer.s);
       ctx.fillStyle = craftHulls[i % craftHulls.length]!;
-      const dx = ox + p.x * sc;
-      const dy = oy + p.y * sc;
+      const fork = race.circuit.fork;
+      const inFork = fork !== undefined && forkCrossSection(fork, race.circuit.track.wrap(racer.s), ROAD_HALF, forkMarker).blend > 0;
+      const heading = inFork ? race.circuit.track.headingAt(racer.s) : 0;
+      const offset = inFork ? racer.x * 3 : 0;
+      const dx = ox + (p.x + Math.cos(heading) * offset) * sc;
+      const dy = oy + (p.y + Math.sin(heading) * offset) * sc;
       if (i === PLAYER_INDEX) {
         ctx.fillRect(dx - 3, dy - 3, 6, 6);
         ctx.strokeStyle = '#ffffff';
@@ -2207,8 +2213,8 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         for (const pad of circuit.pads) {
           if (w < pad.start || w > pad.start + pad.length) continue;
           const px = pad.x ?? 0;
-          const lo = Math.max(px - PAD_HALF_X, px >= 0 ? sec.rightLo : sec.leftLo);
-          const hi = Math.min(px + PAD_HALF_X, px >= 0 ? sec.rightHi : sec.leftHi);
+          forkPadLane(sec, px, PAD_HALF_X, forkPadSpan);
+          const { lo, hi } = forkPadSpan;
           const dx = row.cx + lo * row.ppu, dw = (hi - lo) * row.ppu;
           ctx.fillStyle = palette ? withAlpha(palette.pad, .75 * dim) : withAlpha(theme.accent, .75 * dim);
           ctx.fillRect(dx, y, dw, 1);

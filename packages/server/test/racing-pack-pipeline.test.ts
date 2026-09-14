@@ -104,6 +104,8 @@ const EXPECTED_DIMS: Record<string, { width: number; height: number }> = {
 describe.sequential('mock racing pack pipeline', () => {
   it.each([
     ['bicycle', 'grip', 'ground', 'seated', 'human'],
+    ['motorcycle', 'grip', 'ground', 'seated', 'motor'],
+    ['on-foot runner', 'flow', 'ground', 'onFoot', 'human'],
     ['skateboard', 'carve', 'ground', 'standing', 'human'],
     ['invented leaf', 'flow', 'water', 'standing', 'magic'],
   ])(

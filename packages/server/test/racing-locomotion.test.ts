@@ -62,10 +62,12 @@ describe('generated motion atlas', () => {
     const base = (await processGeneratedRacingCraftStrip(await mockRacingCraftStripSource())).png;
     const generate = vi.fn().mockResolvedValueOnce(Buffer.from('invalid')).mockResolvedValueOnce(await mockRacingLocomotionSource());
     const review = vi.fn().mockResolvedValue({ accepted: true });
-    const atlas = await generateReviewedRacingLocomotion({ base, prompt: 'Original motion contract', generate, review });
+    const atlas = await generateReviewedRacingLocomotion({ base, prompt: 'Original motion contract', motion: 'pedal', generate, review });
     expect(await sharp(atlas).metadata()).toMatchObject({ width: 192, height: 192 });
     expect(generate).toHaveBeenCalledTimes(2);
     expect(generate.mock.calls[1]![0]).toContain('Original motion contract');
+    expect(generate.mock.calls[1]![0]).toContain('never splay legs or kick feet sideways');
+    expect(generate.mock.calls[1]![0]).toContain('ONLY pixel technique and palette');
     expect(generate.mock.calls[1]![1]).toBe(true);
     expect(review).toHaveBeenCalledTimes(1);
   });
@@ -73,7 +75,7 @@ describe('generated motion atlas', () => {
   it('fails closed after two malformed sheets', async () => {
     const generate = vi.fn().mockResolvedValue(Buffer.from('invalid'));
     const review = vi.fn();
-    await expect(generateReviewedRacingLocomotion({ base: Buffer.alloc(0), prompt: 'contract', generate, review })).rejects.toBeInstanceOf(RacingLocomotionImageError);
+    await expect(generateReviewedRacingLocomotion({ base: Buffer.alloc(0), prompt: 'contract', motion: 'pedal', generate, review })).rejects.toBeInstanceOf(RacingLocomotionImageError);
     expect(generate).toHaveBeenCalledTimes(2);
     expect(review).not.toHaveBeenCalled();
   });
@@ -81,7 +83,7 @@ describe('generated motion atlas', () => {
   it('propagates a provider refusal immediately without a correction', async () => {
     const refusal = new Error('provider content policy refusal');
     const generate = vi.fn().mockRejectedValue(refusal);
-    await expect(generateReviewedRacingLocomotion({ base: Buffer.alloc(0), prompt: 'contract', generate, review: vi.fn() })).rejects.toBe(refusal);
+    await expect(generateReviewedRacingLocomotion({ base: Buffer.alloc(0), prompt: 'contract', motion: 'pedal', generate, review: vi.fn() })).rejects.toBe(refusal);
     expect(generate).toHaveBeenCalledTimes(1);
   });
 });

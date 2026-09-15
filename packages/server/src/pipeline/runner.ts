@@ -4263,7 +4263,7 @@ export class GenerationRunner {
                   const reference = await buildRacingBankEditReference(await extractRacingNeutralCell(buffers[i]!));
                   try {
                     atlas = await generateReviewedRacingLocomotion({
-                      base: buffers[i]!, prompt,
+                      base: buffers[i]!, prompt, motion,
                       generate: async (candidatePrompt, correction) => {
                         const candidate = await callImage({
                           role: `racing-motion-${i}`,

@@ -115,12 +115,21 @@ export class RacingLocomotionImageError extends Error {}
 export async function generateReviewedRacingLocomotion(options: {
   base: Buffer;
   prompt: string;
+  motion: RacingMotion;
   generate: (prompt: string, correction: boolean) => Promise<Buffer>;
   review: (atlas: Buffer) => Promise<unknown>;
 }): Promise<Buffer> {
   let reason = '';
   for (let attempt = 0; attempt < 2; attempt++) {
-    const prompt = attempt === 0 ? options.prompt : `${options.prompt} MOTION SHEET CORRECTION: ${reason.slice(0, 320)}. Keep all six complete subjects inside their individual cells, with solid green margins on every outer edge and a wide empty horizontal gutter between rows. Preserve the approved rear identity and all six distinct temporal phases.`;
+    const prompt = attempt === 0 ? options.prompt : [
+      options.prompt,
+      `MOTION SHEET CORRECTION: ${reason.slice(0, 320)}.`,
+      'The art direction supplies ONLY pixel technique and palette. Omit all landscape, architecture, mountains, trees and background scenery mentioned in it. The grid is imaginary: never draw boxes, panels, borders or dividing lines. Each cell contains only the isolated subject on identical flat #00ff00.',
+      'Keep all six complete subjects inside their individual cells, with solid green margins on every outer edge and a wide empty horizontal gutter between rows. Preserve the approved rear identity and all six distinct temporal phases.',
+      options.motion === 'pedal'
+        ? 'Rear-view pedal mechanics: knees bend and feet alternate mainly UP and DOWN close to the conveyance centerline, in the forward/backward plane of travel. Feet stay attached to the rotating pedals; never splay legs or kick feet sideways. The rigid frame, wheel alignment, pannier width, torso and hands stay fixed while the knees and feet cycle. Use six successive crank phases at 60-degree intervals, with left and right pedals opposite each other.'
+        : '',
+    ].filter(Boolean).join(' ');
     // Deliberately outside the quality catch: refusals and transport errors
     // must never turn into a rephrased image request.
     const raw = await options.generate(prompt, attempt > 0);

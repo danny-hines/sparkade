@@ -27,6 +27,10 @@ import {
 } from './racing-scenery';
 import { racingArtSubject, racingTraversalCameraLock } from './racing-traversal-art';
 import {
+  RACING_FOUNDATION_PROMPT_VERSION,
+  buildRacingFoundationPrompt,
+} from './racing-foundation';
+import {
   RACING_JETSKI_MATERIAL_TILES_VERSION,
   RACING_MATERIALS_PROMPT_VERSION,
   buildRacingMaterialsPrompt,
@@ -147,6 +151,11 @@ export function buildRacingPackPlan(spec: RacingSpec): RacingPackPlan {
     : discipline === 'jetski'
       ? ' CAMERA LOCK: all three views show the rider back and the watercraft stern with the jet nozzle facing the viewer, with the bow farthest away. Banking is ROLL of rider and craft together, never yaw to a side view. Cell 2 lowers the screen-left edge and raises the screen-right edge; cell 3 does the exact opposite. Keep the rider, hull length, handlebars and livery unchanged. The two bank poses must tilt in visibly opposite directions.'
       : ' CAMERA LOCK: all three views show the REAR bumper and exhaust facing the viewer, with the nose farthest away. Banking is ROLL, never yaw to a side view. Cell 2 lowers the screen-left edge and raises the screen-right edge; cell 3 does the exact opposite. Keep the canopy, body length, wing count and livery unchanged. The two bank poses must tilt in visibly opposite directions.';
+  // Animated cups (authored non-static motion) run on the single-rear
+  // foundation: the engine owns lean, so no bank poses are generated. Same
+  // roles, motion-only prompt lineage, square size. Static or absent motion
+  // keeps the legacy three-pose strips byte-identical (camera lock kept).
+  const useFoundation = !!traversal && !!traversal.motion && traversal.motion !== 'static';
   const stripEntry = (
     role: RacingCraftRole,
     name: string,
@@ -154,18 +163,25 @@ export function buildRacingPackPlan(spec: RacingSpec): RacingPackPlan {
     label: string,
   ): RacingPackEntry => ({
     role,
-    promptVersion: stripVersion,
-    prompt:
-      buildRacingCraftStripPrompt({
-        name,
-        vehicleConcept,
-        artDirection: identity.artDirection,
-        colors,
-        discipline,
-        ...(traversal ? { traversal } : {}),
-      }) + cameraLock,
+    promptVersion: useFoundation ? RACING_FOUNDATION_PROMPT_VERSION : stripVersion,
+    prompt: useFoundation
+      ? buildRacingFoundationPrompt({
+          name,
+          concept: vehicleConcept,
+          artDirection: identity.artDirection,
+          colors,
+          traversal,
+        })
+      : buildRacingCraftStripPrompt({
+          name,
+          vehicleConcept,
+          artDirection: identity.artDirection,
+          colors,
+          discipline,
+          ...(traversal ? { traversal } : {}),
+        }) + cameraLock,
     label,
-    size: '1536x1024',
+    size: useFoundation ? '1024x1024' : '1536x1024',
   });
   return {
     playerStrip: stripEntry(

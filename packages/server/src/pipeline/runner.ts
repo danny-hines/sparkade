@@ -1,5 +1,5 @@
 import sharp from 'sharp';
-import { RACING_BASE_ROLES, RACING_MOTION_ROLES, RACING_LOCOMOTION_VERSION, buildRacingLocomotionPrompt, processRacingLocomotion, composeRacingLocomotion, racingLocomotionJudgePrompt, racingLocomotionJudgeSchema } from '../assets/racing-locomotion';
+import { RACING_BASE_ROLES, RACING_MOTION_ROLES, RACING_LOCOMOTION_VERSION, buildRacingLocomotionPrompt, generateReviewedRacingLocomotion, RacingLocomotionImageError, racingLocomotionJudgePrompt, racingLocomotionJudgeSchema } from '../assets/racing-locomotion';
 // The durable generation job runner (one job at a time — this is a 1 GB device).
 // Jobs are persisted BEFORE work starts; all output goes to staging/<jobId>/
 // and is atomically renamed into games/<gameId>/ only after every gate passes.
@@ -340,6 +340,13 @@ import {
   extractRacingNeutralCell,
   swapRacingBankCells,
 } from '../assets/racing-bank';
+import {
+  assembleRacingFoundationStrip,
+  buildRacingFoundationJudgePrompt,
+  buildRacingFoundationJudgeSchema,
+  normalizeRacingFoundationDecision,
+  processGeneratedRacingFoundation,
+} from '../assets/racing-foundation';
 import { processGeneratedRacingPanorama } from '../assets/racing-scenery';
 import { generateRacingSceneryPack } from '../assets/racing-scenery-pack';
 import { generateRacingJetskiMaterialsPack, processGeneratedRacingMaterials } from '../assets/racing-materials';
@@ -901,6 +908,160 @@ interface SpecParts {
     juice?: unknown;
   };
   music?: unknown;
+}
+
+/** One player-strip candidate: gameplay strip plus its HR reference. */
+export interface RacingPlayerStripCandidate {
+  gameplay: Buffer;
+  presentationReference: Buffer;
+}
+
+/** Semantic verdict for one player-strip review, in judge vocabulary. */
+export interface RacingPlayerStripVerdict {
+  accepted: boolean;
+  /** Fail-closed category: 'none' on a reject means a full repaint. */
+  kind: RacingSlotCorrectionKind;
+  guidance: string;
+}
+
+export type RacingPlayerReviewPhase = 'initial' | 'corrected' | 'verify';
+
+/**
+ * Injected player-strip operations. Every review MUST run the same complete
+ * semantic gate; repairBanks MUST preserve the accepted neutral cell and its
+ * HR presentation reference (no unrelated story/portrait regeneration).
+ * Provider policy refusals propagate out of every op — the sequence never
+ * catches them into another repair attempt.
+ */
+export interface RacingPlayerStripRepairOps {
+  generateInitial(): Promise<RacingPlayerStripCandidate>;
+  review(gameplay: Buffer, phase: RacingPlayerReviewPhase): Promise<RacingPlayerStripVerdict>;
+  repaint(guidance: string): Promise<RacingPlayerStripCandidate>;
+  repairBanks(
+    current: RacingPlayerStripCandidate,
+    guidance: string,
+  ): Promise<RacingPlayerStripCandidate>;
+  swapBankCells(gameplay: Buffer): Promise<Buffer>;
+  onRepair(kind: 'banking' | 'vehicle' | 'swap'): void;
+}
+
+/**
+ * Bounded category-aware player-strip repair BEFORE the reference freezes.
+ * Re-reads the CURRENT verdict category every round: at most one full
+ * repaint (vehicle verdict) and one two-image bank repair (banking verdict).
+ * The bank cell swap runs at most once, only after a bank correction and
+ * only while the verdict is still banking. Every candidate — initial,
+ * repaint, bank repair, swap — passes the SAME complete semantic gate; a
+ * still-rejected strip fails loudly with image-invalid, never a loosened
+ * gate or a silent artless fallback. Image budget: 1 initial + 1 repaint +
+ * 2 bank edits; reviews: at most 4.
+ */
+export async function runRacingPlayerStripRepair(
+  ops: RacingPlayerStripRepairOps,
+): Promise<RacingPlayerStripCandidate> {
+  let candidate = await ops.generateInitial();
+  let verdict = await ops.review(candidate.gameplay, 'initial');
+  let didRepaint = false;
+  let didBankRepair = false;
+  let didSwap = false;
+  while (!verdict.accepted) {
+    const banking = verdict.kind === 'banking';
+    if (banking && !didBankRepair) {
+      ops.onRepair('banking');
+      candidate = await ops.repairBanks(candidate, verdict.guidance);
+      didBankRepair = true;
+      verdict = await ops.review(candidate.gameplay, 'corrected');
+    } else if (!banking && !didRepaint) {
+      ops.onRepair('vehicle');
+      candidate = await ops.repaint(verdict.guidance);
+      didRepaint = true;
+      verdict = await ops.review(candidate.gameplay, 'corrected');
+    } else if (banking && didBankRepair && !didSwap) {
+      // Image edits sometimes return correct opposite rolls under the wrong
+      // labels. One cell-order repair after the bank correction, then the
+      // same complete review; never mirror or waive a verdict.
+      ops.onRepair('swap');
+      candidate = { ...candidate, gameplay: await ops.swapBankCells(candidate.gameplay) };
+      didSwap = true;
+      verdict = await ops.review(candidate.gameplay, 'verify');
+    } else {
+      break;
+    }
+  }
+  if (!verdict.accepted) {
+    throw new PipelineError(
+      'image-invalid',
+      `Player vehicle review rejected the strip${verdict.guidance ? `: ${verdict.guidance.slice(0, 200)}` : ''}`,
+      'building-assets',
+    );
+  }
+  return candidate;
+}
+
+/** One rival's correction in a repair round. `exhausted` spends no call. */
+export type RacingRivalRepairAction = 'repaint' | 'bank' | 'swap' | 'exhausted';
+
+/** Per-rival repair budgets consumed by the round loop below. */
+export interface RacingRivalRepairState {
+  didRepaint: boolean;
+  didBankRepair: boolean;
+  didSwap: boolean;
+}
+
+export function freshRacingRivalRepairState(): RacingRivalRepairState {
+  return { didRepaint: false, didBankRepair: false, didSwap: false };
+}
+
+/** Backstop on correction rounds; natural termination needs at most 4
+ * (repaint, bank, swap, then an all-exhausted pass that breaks). */
+export const RACING_RIVAL_REPAIR_MAX_ROUNDS = 4;
+
+/**
+ * One rival's repair for the CURRENT verdict category: a banking verdict
+ * takes the neutral-preserving two-image bank correction, anything else
+ * (vehicle, none, unknown — fail-closed) takes one full repaint, and the
+ * cell-order swap runs only after a bank correction while the verdict is
+ * still banking. Each budget spends once; afterwards the rival is exhausted
+ * and must not be retried.
+ */
+export function planRacingRivalRepair(
+  kind: RacingSlotCorrectionKind,
+  state: RacingRivalRepairState,
+): RacingRivalRepairAction {
+  if (kind === 'banking' && !state.didBankRepair) return 'bank';
+  if (kind !== 'banking' && !state.didRepaint) return 'repaint';
+  if (kind === 'banking' && state.didBankRepair && !state.didSwap) return 'swap';
+  return 'exhausted';
+}
+
+export interface RacingRivalRoundAction {
+  id: string;
+  action: RacingRivalRepairAction;
+}
+
+/**
+ * Pure per-round plan for the rival repair loop. Re-reads the CURRENT
+ * rejected ids and categories every round: approved rivals (durable
+ * selections riding as reference-only rows) are never redone, and each
+ * pending rival gets exactly its planner action — including `exhausted`,
+ * which the loop must answer with no call.
+ */
+export function planRacingRivalRepairRound(
+  rejectedIds: readonly string[],
+  correctionKinds: Readonly<Record<string, RacingSlotCorrectionKind>>,
+  approvedIds: ReadonlySet<string>,
+  states: ReadonlyMap<string, RacingRivalRepairState>,
+): RacingRivalRoundAction[] {
+  const actions: RacingRivalRoundAction[] = [];
+  for (const id of rejectedIds) {
+    if (approvedIds.has(id)) continue;
+    const kind = correctionKinds[id] ?? 'vehicle';
+    actions.push({
+      id,
+      action: planRacingRivalRepair(kind, states.get(id) ?? freshRacingRivalRepairState()),
+    });
+  }
+  return actions;
 }
 
 export class GenerationRunner {
@@ -2389,10 +2550,16 @@ export class GenerationRunner {
           } catch (error) {
             throwIfSuspended();
             if (error instanceof PipelineError) {
+              // Racing preserves provider content-policy refusals as
+              // terminal failures: a refused racing image (key art, story
+              // scenes, strips) must stop the job immediately, never
+              // rephrase into a fallback prompt. Other archetypes keep the
+              // existing safe-rephrase behavior.
               if (
                 error.code === 'image-content-policy' &&
                 opts.policyFallbackPrompt &&
-                !usedPolicyFallback
+                !usedPolicyFallback &&
+                spec.archetype !== 'racing'
               ) {
                 lastError = error;
                 usedPolicyFallback = true;
@@ -2697,6 +2864,75 @@ export class GenerationRunner {
         );
         return normalizeRacingRosterJudgeDecision(rawDecision, reviewSlots);
       };
+      // Animated cups (authored non-static traversal.motion): the engine
+      // owns continuous steering lean, so identity is one approved
+      // neutral-rear foundation per racer — never generated bank poses.
+      // Static or absent motion keeps the legacy three-pose strips.
+      const foundationMotion = racingSpec?.identity?.traversal?.motion;
+      const useFoundation = !!foundationMotion && foundationMotion !== 'static';
+      const generatePlayerFoundation = async (retryGuidance = ''): Promise<PlayerCraftAssets> => {
+        if (!racingSpec) throw new Error('racing pack needs an identity-bearing racing spec');
+        const entry = buildRacingPackPlan(racingSpec).playerStrip;
+        const prompt = retryGuidance
+          ? `${entry.prompt} ART DIRECTOR CORRECTION: ${retryGuidance.slice(0, 320)}.`
+          : entry.prompt;
+        const result = await cachedGeneratedAsset({
+          role: entry.role,
+          promptVersion: entry.promptVersion,
+          prompt,
+          label: entry.label,
+          ...(entry.size ? { size: entry.size } : {}),
+          normalize: async (raw) =>
+            assembleRacingFoundationStrip((await processGeneratedRacingFoundation(raw)).png),
+          privateCompanion: {
+            role: 'racingCraftReference',
+            normalize: (raw) => processGeneratedRacingFoundation(raw).then((foundation) => foundation.reference),
+          },
+        });
+        return { gameplay: result.image, presentationReference: result.companion };
+      };
+      // Bank-free foundation gate over the neutral cells: strips stay
+      // strip-shaped end to end (approval stores, restore, locomotion), so
+      // only cell 0 is judged — never a bank angle.
+      const reviewRacingFoundation = async (
+        strips: Buffer[],
+        reviewSlots: readonly RacingRosterSlotDescriptor[],
+        label: string,
+        references: readonly { slot: RacingRosterSlotDescriptor; png: Buffer }[] = [],
+      ): Promise<ReturnType<typeof normalizeRacingFoundationDecision>> => {
+        const toFoundationSlot = (slot: RacingRosterSlotDescriptor) => ({
+          id: slot.id,
+          name: slot.name,
+          concept: slot.vehicleConcept,
+        });
+        const board = await buildRacingRosterJudgeBoard([
+          ...await Promise.all(strips.map(async (png, k) => ({ id: reviewSlots[k]!.id, png: await extractRacingNeutralCell(png) }))),
+          ...await Promise.all(references.map(async ({ slot, png }) => ({ id: slot.id, png: await extractRacingNeutralCell(png), referenceOnly: true }))),
+        ]);
+        if (mockImages) {
+          return { accepted: true, rejectedIds: [], retryGuidance: '', slotGuidance: {} };
+        }
+        const rawDecision = await callLlm(
+          'design',
+          {
+            ...buildRacingFoundationJudgePrompt(
+              reviewSlots.map(toFoundationSlot),
+              references.map(({ slot }) => toFoundationSlot(slot)),
+              racingSpec?.identity?.traversal,
+            ),
+            jsonSchema: buildRacingFoundationJudgeSchema(reviewSlots.map(toFoundationSlot)),
+            maxTokens: 1600,
+            timeoutMs: 120_000,
+          },
+          {
+            stage: 'building-assets',
+            label,
+            image: board,
+            reasoningEffort: 'low',
+          },
+        );
+        return normalizeRacingFoundationDecision(rawDecision, reviewSlots.map(toFoundationSlot));
+      };
       const racingPlayerStripTask: Promise<PlayerCraftAssets | null> = racingIdentity
         ? (async () => {
             if (!racingSpec) throw new Error('racing pack needs an identity-bearing racing spec');
@@ -2717,32 +2953,78 @@ export class GenerationRunner {
               emit('building-assets', 'Restored the reviewed player vehicle');
               return { gameplay: acceptedImage, presentationReference: acceptedReference };
             }
-            emit('building-assets', 'Painting the player vehicle strip…');
+            emit('building-assets', useFoundation ? 'Painting the player foundation…' : 'Painting the player vehicle strip…');
             const playerSlots = racingRosterSlots(racingSpec).slice(0, 1);
-            let strip = await generatePlayerStrip();
-            let decision = await reviewRacingStrips(
-              [strip.gameplay],
-              playerSlots,
-              'Spark reviews the player vehicle',
-            );
-            if (!decision.accepted) {
-              // Category-aware correction BEFORE the reference freezes.
-              // Banking keeps the accepted neutral cell and its HR
-              // presentation reference; a vehicle rejection repaints the
-              // full strip (with a fresh HR companion) while key/story art
-              // can still render from it.
-              const playerKind: RacingSlotCorrectionKind =
-                decision.correctionKinds['player'] ?? 'vehicle';
-              const playerGuidance = decision.slotGuidance['player'] || decision.retryGuidance || 'Correct the rejected player vehicle to match its concept and rear camera.';
-              const playerIdentity = racingSpec.identity!;
-              if (playerKind === 'banking') {
-                emit('building-assets', 'Correcting the player banking poses…');
+            // Foundation cups: one approved neutral rear, bank-free gate,
+            // at most one identity repaint — bank correction never runs,
+            // even on a malformed banking verdict. A still-rejected rear
+            // fails loudly; it is never accepted.
+            const strip = useFoundation
+              ? await (async () => {
+                  let foundation = await generatePlayerFoundation();
+                  let verdict = await reviewRacingFoundation(
+                    [foundation.gameplay],
+                    playerSlots,
+                    'Spark reviews the player foundation',
+                  );
+                  if (!verdict.accepted) {
+                    const guidance =
+                      verdict.slotGuidance['player'] ||
+                      verdict.retryGuidance ||
+                      'Correct the rejected player rear identity to match its concept and rear camera.';
+                    emit('building-assets', 'Repainting the player foundation…');
+                    foundation = await generatePlayerFoundation(guidance).catch(racingAssetFailure);
+                    verdict = await reviewRacingFoundation(
+                      [foundation.gameplay],
+                      playerSlots,
+                      'Spark re-reviews the player foundation',
+                    );
+                  }
+                  if (!verdict.accepted) {
+                    throw new PipelineError(
+                      'image-invalid',
+                      `Player foundation review rejected the rear${verdict.retryGuidance ? `: ${verdict.retryGuidance.slice(0, 200)}` : ''}`,
+                      'building-assets',
+                    );
+                  }
+                  return foundation;
+                })()
+              // Bounded category-aware repair BEFORE the reference freezes:
+              // the CURRENT verdict picks a full repaint (vehicle) or the
+              // neutral-preserving two-image bank repair (banking), at most
+              // one of each, then at most one cell-order swap after a bank
+              // correction. Every candidate faces the same complete review.
+              : await runRacingPlayerStripRepair({
+              generateInitial: () => generatePlayerStrip(),
+              review: async (gameplay, phase) =>
+                reviewRacingStrips(
+                  [gameplay],
+                  playerSlots,
+                  phase === 'initial'
+                    ? 'Spark reviews the player vehicle'
+                    : phase === 'verify'
+                      ? 'Spark verifies the player bank order'
+                      : 'Spark re-reviews the player vehicle',
+                ).then((reviewed) => ({
+                  accepted: reviewed.accepted,
+                  kind: reviewed.correctionKinds['player'] ?? 'vehicle',
+                  guidance:
+                    reviewed.slotGuidance['player'] ||
+                    reviewed.retryGuidance ||
+                    'Correct the rejected player vehicle to match its concept and rear camera.',
+                })),
+              repaint: (guidance) => generatePlayerStrip(guidance).catch(racingAssetFailure),
+              repairBanks: async (current, guidance) => {
+                // Banking keeps the accepted neutral cell and its HR
+                // presentation reference; only the two banks are remade
+                // while key/story art can still render from the reference.
+                const playerIdentity = racingSpec.identity!;
                 const correctedPlayer = await correctRacingBankPoses({
-                  strip: strip.gameplay,
+                  strip: current.gameplay,
                   vehicleName: playerSlots[0]!.name,
                   artDirection: playerIdentity.artDirection,
                   colors: racingSpec.palette.join(', '),
-                  retryGuidance: playerGuidance,
+                  retryGuidance: guidance,
                   discipline: racingPackDiscipline(racingSpec),
                   traversal: playerIdentity.traversal,
                   rolePrefix: 'racing-craft-player',
@@ -2751,42 +3033,25 @@ export class GenerationRunner {
                       role: `racing-craft-player-bank-${pose}`,
                       label: `Player bank ${pose === 'bankLeft' ? 'left' : 'right'} correction`,
                       prompt,
-                      reference: posedReference ?? strip.presentationReference,
+                      reference: posedReference ?? current.presentationReference,
                       size: '1024x1024',
                     }),
                   checkActive: throwIfSuspended,
                   validationFailure,
                 }).catch(racingAssetFailure);
-                strip = {
+                return {
                   gameplay: correctedPlayer,
-                  presentationReference: strip.presentationReference,
+                  presentationReference: current.presentationReference,
                 };
-              } else {
-                emit('building-assets', 'Repainting the player vehicle strip…');
-                strip = await generatePlayerStrip(playerGuidance).catch(racingAssetFailure);
-              }
-              decision = await reviewRacingStrips(
-                [strip.gameplay],
-                playerSlots,
-                'Spark re-reviews the player vehicle',
-              );
-              // Image edits sometimes return correct opposite rolls under
-              // the wrong labels. Try one cell-order repair, then demand
-              // the same complete review; never mirror or waive a verdict.
-              if (!decision.accepted && decision.correctionKinds['player'] === 'banking') {
-                strip = { ...strip, gameplay: await swapRacingBankCells(strip.gameplay) };
-                decision = await reviewRacingStrips(
-                  [strip.gameplay], playerSlots, 'Spark verifies the player bank order',
-                );
-              }
-            }
-            if (!decision.accepted) {
-              throw new PipelineError(
-                'image-invalid',
-                `Player vehicle review rejected the strip${decision.retryGuidance ? `: ${decision.retryGuidance.slice(0, 200)}` : ''}`,
-                'building-assets',
-              );
-            }
+              },
+              swapBankCells: (gameplay) => swapRacingBankCells(gameplay),
+              onRepair: (kind) => {
+                if (kind === 'banking')
+                  emit('building-assets', 'Correcting the player banking poses…');
+                else if (kind === 'vehicle')
+                  emit('building-assets', 'Repainting the player vehicle strip…');
+              },
+            });
             await assetWorkspace.storePrivate(
               'racingCraftReference',
               strip.presentationReference,
@@ -3684,8 +3949,11 @@ export class GenerationRunner {
                 prompt: entry.prompt,
                 label: entry.label,
                 ...(entry.size ? { size: entry.size } : {}),
-                normalize: (raw) =>
-                  processGeneratedRacingCraftStrip(raw).then((strip) => strip.png),
+                normalize: useFoundation
+                  ? async (raw) =>
+                      assembleRacingFoundationStrip((await processGeneratedRacingFoundation(raw)).png)
+                  : (raw) =>
+                      processGeneratedRacingCraftStrip(raw).then((strip) => strip.png),
               });
             };
             const generateEntry = (
@@ -3778,7 +4046,21 @@ export class GenerationRunner {
               slots,
               buffers,
               approvedIds,
-              review: (pending, targets, references) => reviewRacingStrips(pending, targets, label, references),
+              review: async (pending, targets, references) => {
+                if (!useFoundation) return reviewRacingStrips(pending, targets, label, references);
+                // Foundation rejects are always identity rejects (the gate
+                // has no banking vocabulary), so every pending rival maps to
+                // a full repaint. The existing round planner then gives at
+                // most one repaint and never a bank correction or swap —
+                // even a malformed banking verdict cannot occur here.
+                const verdict = await reviewRacingFoundation(pending, targets, label, references);
+                return {
+                  ...verdict,
+                  correctionKinds: Object.fromEntries(
+                    targets.map((target) => [target.id, 'vehicle' as const]),
+                  ),
+                };
+              },
               approve: async (id, png) => {
                 const index = slots.findIndex((slot) => slot.id === id);
                 const entry = plan.rivalStrips[index - 1]!;
@@ -3787,56 +4069,87 @@ export class GenerationRunner {
               },
             });
             let decision = await reviewPending('Spark reviews the vehicle roster');
-            if (!decision.accepted) {
+            // Bounded category-aware rival repair. The CURRENT rejected ids
+            // and categories are re-read every round: per rival at most one
+            // full repaint (vehicle verdict — bad neutral identity, the
+            // distinctness case, or any doubt) and one two-image bank
+            // correction (banking verdict, neutral cell preserved), then at
+            // most one cell-order swap after a bank correction. No exhausted
+            // category is ever retried. Approvals persist immediately inside
+            // reviewPending, so approved rivals ride as reference-only rows
+            // and are never redone; every round re-runs the same full
+            // pending-vs-approved reference gate. Guidance is always the
+            // judge's own slot wording — never a new invented theme.
+            // Provider policy refusals propagate out of the correction calls
+            // below (racingAssetFailure rethrows); the loop never catches
+            // them into another attempt.
+            const rivalRepairStates = new Map<string, RacingRivalRepairState>();
+            for (
+              let round = 0;
+              round < RACING_RIVAL_REPAIR_MAX_ROUNDS && !decision.accepted;
+              round++
+            ) {
+              if (decision.rejectedIds.includes(slots[0]!.id)) {
+                throw new PipelineError(
+                  'image-invalid',
+                  'Vehicle roster review rejected the frozen player strip; key and story art already rendered from it',
+                  'building-assets',
+                );
+              }
               const retryIds = decision.rejectedIds.length
                 ? decision.rejectedIds
                 : slots.filter((slot) => !approvedIds.has(slot.id)).map((slot) => slot.id);
-              const retryKinds = retryIds.map(
-                (id): RacingSlotCorrectionKind => decision.correctionKinds[id] ?? 'vehicle',
-              );
+              const roundActions = planRacingRivalRepairRound(
+                retryIds,
+                decision.correctionKinds,
+                approvedIds,
+                rivalRepairStates,
+              ).filter(({ action }) => action !== 'exhausted');
+              if (!roundActions.length) break;
               emit(
                 'building-assets',
-                retryKinds.every((kind) => kind === 'banking')
+                roundActions.every(
+                  ({ id }) => (decision.correctionKinds[id] ?? 'vehicle') === 'banking',
+                )
                   ? 'Correcting rejected rival banking poses…'
                   : 'Correcting rejected rival vehicles…',
               );
-              for (const id of retryIds) {
+              let swapsOnly = true;
+              for (const { id, action } of roundActions) {
                 const k = slots.findIndex((slot) => slot.id === id);
-                if (k === 0) {
+                if (k <= 0) {
                   throw new PipelineError(
                     'image-invalid',
                     'Vehicle roster review rejected the frozen player strip; key and story art already rendered from it',
                     'building-assets',
                   );
                 }
-                if (k > 0) {
-                  // Category-aware correction per the review. Banking
-                  // preserves the accepted neutral cell and regenerates only
-                  // the two banks; a vehicle rejection (bad neutral identity
-                  // — the garden distinctness case — or any doubt) takes one
-                  // full-strip regeneration with the slot-specific guidance.
-                  const entry = plan.rivalStrips[k - 1]!;
-                  const slot = slots[k]!;
-                  const kind: RacingSlotCorrectionKind =
-                    decision.correctionKinds[id] ?? 'vehicle';
-                  const guidance = decision.slotGuidance[id] || decision.retryGuidance || 'Correct this rejected vehicle to match its concept, rear camera and distinct silhouette.';
-                  if (kind === 'vehicle') {
-                    // One full-strip regeneration with the slot-specific
-                    // distinctness guidance, cached under the correction
-                    // hash by cachedGeneratedAsset. No loops: a single
-                    // bounded correction pass, then re-review or fail.
-                    buffers[k] = await cachedGeneratedAsset({
-                      role: entry.role,
-                      promptVersion: entry.promptVersion,
-                      prompt: `${entry.prompt} ART DIRECTOR VEHICLE CORRECTION: ${guidance.slice(0, 320)}.`,
-                      label: entry.label,
-                      ...(entry.size ? { size: entry.size } : {}),
-                      normalize: (raw) =>
-                        processGeneratedRacingCraftStrip(raw).then((strip) => strip.png),
-                    }).catch(racingAssetFailure);
-                    await assetWorkspace.store(entry.role, buffers[k]!, entry.promptVersion, imagePromptHash(entry.prompt));
-                    continue;
-                  }
+                const state = rivalRepairStates.get(id) ?? freshRacingRivalRepairState();
+                rivalRepairStates.set(id, state);
+                const entry = plan.rivalStrips[k - 1]!;
+                const slot = slots[k]!;
+                const guidance = decision.slotGuidance[id] || decision.retryGuidance || 'Correct this rejected vehicle to match its concept, rear camera and distinct silhouette.';
+                if (action === 'repaint') {
+                  // One full-strip regeneration with the slot-specific
+                  // distinctness guidance, cached under the correction
+                  // hash by cachedGeneratedAsset.
+                  buffers[k] = await cachedGeneratedAsset({
+                    role: entry.role,
+                    promptVersion: entry.promptVersion,
+                    prompt: `${entry.prompt} ART DIRECTOR VEHICLE CORRECTION: ${guidance.slice(0, 320)}.`,
+                    label: entry.label,
+                    ...(entry.size ? { size: entry.size } : {}),
+                    normalize: useFoundation
+                      ? async (raw) =>
+                          assembleRacingFoundationStrip((await processGeneratedRacingFoundation(raw)).png)
+                      : (raw) => processGeneratedRacingCraftStrip(raw).then((strip) => strip.png),
+                  }).catch(racingAssetFailure);
+                  await assetWorkspace.store(entry.role, buffers[k]!, entry.promptVersion, imagePromptHash(entry.prompt));
+                  state.didRepaint = true;
+                  swapsOnly = false;
+                  continue;
+                }
+                if (action === 'bank') {
                   // Targeted banking correction: preserve the accepted
                   // neutral cell, regenerate only the two banks as
                   // single-object edits of the enlarged rear cell. The
@@ -3890,21 +4203,24 @@ export class GenerationRunner {
                       imagePromptHash(entry.prompt),
                     );
                   }
+                  state.didBankRepair = true;
+                  swapsOnly = false;
+                  continue;
                 }
+                // Image edits sometimes return correct opposite rolls under
+                // the wrong labels. One cell-order repair after the bank
+                // correction, then the same complete review; never mirror
+                // or waive a verdict.
+                buffers[k] = await swapRacingBankCells(buffers[k]!);
+                state.didSwap = true;
               }
               // Each approval is already durable. Only remaining rejected
               // candidates are targets; all unchanged slots are references.
-              decision = await reviewPending('Spark re-reviews the corrected vehicles');
-              if (!decision.accepted) {
-                let reordered = false;
-                for (let k = 1; k < slots.length; k++) {
-                  const id = slots[k]!.id;
-                  if (approvedIds.has(id) || decision.correctionKinds[id] !== 'banking') continue;
-                  buffers[k] = await swapRacingBankCells(buffers[k]!);
-                  reordered = true;
-                }
-                if (reordered) decision = await reviewPending('Spark verifies the rival bank order');
-              }
+              decision = await reviewPending(
+                swapsOnly
+                  ? 'Spark verifies the rival bank order'
+                  : 'Spark re-reviews the corrected vehicles',
+              );
             }
             if (!decision.accepted) {
               throw new PipelineError(
@@ -3945,14 +4261,32 @@ export class GenerationRunner {
                 if (!atlas) {
                   emit('building-assets', `Animating ${slots[i]!.name}: ${motion} cycle…`);
                   const reference = await buildRacingBankEditReference(await extractRacingNeutralCell(buffers[i]!));
-                  const raw = await callImage({ role: `racing-motion-${i}`, label: `${slots[i]!.name} locomotion`, prompt, reference, size: '1536x1024' });
-                  atlas = await composeRacingLocomotion(buffers[i]!, await processRacingLocomotion(raw));
-                  const verdict = mockImages ? { accepted: true } : await callLlm('design', {
-                    system: racingLocomotionJudgePrompt(motion), user: `Subject: ${concept}. Art direction: ${racingIdentity.artDirection}.`,
-                    jsonSchema: racingLocomotionJudgeSchema, maxTokens: 700, timeoutMs: 120_000,
-                  }, { stage: 'building-assets', label: `Spark reviews ${slots[i]!.name} locomotion`, image: await sharp(atlas).resize(768, 768, { kernel: 'nearest' }).png().toBuffer(), reasoningEffort: 'low' });
-                  if (!verdict || typeof verdict !== 'object' || !('accepted' in verdict) || verdict.accepted !== true)
-                    throw new PipelineError('image-invalid', `Locomotion review rejected ${slots[i]!.name}`, 'building-assets');
+                  try {
+                    atlas = await generateReviewedRacingLocomotion({
+                      base: buffers[i]!, prompt,
+                      generate: async (candidatePrompt, correction) => {
+                        const candidate = await callImage({
+                          role: `racing-motion-${i}`,
+                          label: `${slots[i]!.name} locomotion${correction ? ' correction' : ''}`,
+                          prompt: candidatePrompt, reference, size: '1536x1024',
+                        });
+                        // Preserve the latest sheet for failed-job diagnosis;
+                        // this private, unapproved version is never restored
+                        // as an accepted atlas or copied into a ready game.
+                        await assetWorkspace.storePrivate(RACING_MOTION_ROLES[i]!, candidate,
+                          `${RACING_LOCOMOTION_VERSION}-candidate`, imagePromptHash(candidatePrompt, reference));
+                        return candidate;
+                      },
+                      review: async (candidate) => mockImages ? { accepted: true } : callLlm('design', {
+                        system: racingLocomotionJudgePrompt(motion), user: `Subject: ${concept}. Art direction: ${racingIdentity.artDirection}.`,
+                        jsonSchema: racingLocomotionJudgeSchema, maxTokens: 700, timeoutMs: 120_000,
+                      }, { stage: 'building-assets', label: `Spark reviews ${slots[i]!.name} locomotion`, image: await sharp(candidate).resize(768, 768, { kernel: 'nearest' }).png().toBuffer(), reasoningEffort: 'low' }),
+                    });
+                  } catch (error) {
+                    if (error instanceof RacingLocomotionImageError)
+                      throw new PipelineError('image-invalid', `Locomotion review rejected ${slots[i]!.name}: ${error.message.slice(0, 240)}`, 'building-assets');
+                    throw error;
+                  }
                   await assetWorkspace.storePrivate(RACING_MOTION_ROLES[i]!, atlas, version, hash);
                 }
                 await assetWorkspace.store(entry.role, atlas, version, hash);

@@ -1,6 +1,5 @@
 import { panoramaLandmarkX } from './art';
-import { locomotionFrame } from './locomotion';
-import { racingMotionCell } from '@sparkade/shared';
+import { animatedAtlasCell, locomotionFrame } from './locomotion';
 // Racing game shell: GameInstance wrapper around the pure simulation with a
 // behind-vehicle pseudo-3D road projection (bounded Canvas2D segment strips),
 // rival craft sprites, HUD, and minimap. Only engine.renderer is used, so the
@@ -2632,10 +2631,13 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         const rivalLean = craftLean(rVis);
         const pose = selectCraftPoseSteady(rivalPoses[i] ?? 'rear', rVis, r.speed, bankThreshold);
         rivalPoses[i] = pose;
-        const frame = (art.strips[i] as { height?: number }).height === 192
+        // Animated atlases steer on the engine: rear row-0 cell plus full
+        // residual lean against rear. Legacy height-64 strips keep banks.
+        const animated = (art.strips[i] as { height?: number }).height === 192;
+        const frame = animated
           ? locomotionFrame(circuit.traversal?.motion, r.s, r.speed, (r.air?.height ?? 0) > 0 ? 'air' : inputBuf[i]?.brake ? 'brake' : inputBuf[i]?.accel ? 'effort' : 'cruise') : null;
-        const cell = frame === null ? { sx: craftPoseSourceX(pose), sy: 0 } : racingMotionCell(frame);
-        const residual = packResidualLean(rVis, frame === null ? pose : 'rear');
+        const cell = animated ? animatedAtlasCell(frame) : { sx: craftPoseSourceX(pose), sy: 0 };
+        const residual = packResidualLean(rVis, frame === null && !animated ? pose : 'rear');
         // Body fill compensation: the keyed body spans ~52/64 of its cell,
         // so the blit is widened to restore the true physical world width.
         // The continuous lean shifts/squashes the blit around its base (no
@@ -2794,10 +2796,14 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         // Generated player strip: hysteresis pose plus the residual rotation
         // about the blit base (never mirrored, never crossfaded). Shift and
         // squash ride along; crisp pixels via disabled smoothing in flush.
-        const frame = (art.strips[PLAYER_INDEX] as { height?: number }).height === 192
+        // Animated atlases steer on the engine: rear row-0 cell at
+        // idle/brake/air plus full residual lean against rear. Legacy
+        // height-64 strips keep their generated bank cells.
+        const animated = (art.strips[PLAYER_INDEX] as { height?: number }).height === 192;
+        const frame = animated
           ? locomotionFrame(circuit.traversal?.motion, player.s, player.speed, liftPx > 0 ? 'air' : inputBuf[PLAYER_INDEX]!.brake ? 'brake' : inputBuf[PLAYER_INDEX]!.accel ? 'effort' : 'cruise') : null;
-        const cell = frame === null ? { sx: craftPoseSourceX(lastPlayerPose), sy: 0 } : racingMotionCell(frame);
-        if (frame !== null) lastVisRot = packResidualLean(steerVis * visK, 'rear');
+        const cell = animated ? animatedAtlasCell(frame) : { sx: craftPoseSourceX(lastPlayerPose), sy: 0 };
+        if (frame !== null || animated) lastVisRot = packResidualLean(steerVis * visK, 'rear');
         const pbw = pw / STRIP_BODY_FILL;
         const leanDh = pbw * lastVisLean.squash;
         if (water) {

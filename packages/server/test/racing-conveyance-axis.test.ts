@@ -16,7 +16,9 @@ import {
   RACING_JETSKI_STRIP_PROMPT_VERSION,
   RACING_TRAVERSAL_STRIP_PROMPT_VERSION,
   buildRacingCraftStripPrompt,
+  processGeneratedRacingCraftStrip,
 } from '../src/assets/racing-craft';
+import { mockGeneratedImage } from '../src/assets/game-art';
 import {
   RACING_BANK_PROMPT_VERSION,
   RACING_JETSKI_BANK_PROMPT_VERSION,
@@ -129,8 +131,8 @@ describe('racing conveyance-axis contract', () => {
   });
 
   it('bumps traversal/motion lineages while legacy prompts stay byte-identical', () => {
-    expect(RACING_TRAVERSAL_STRIP_PROMPT_VERSION).toBe('racing-traversal-strip-v2');
-    expect(RACING_TRAVERSAL_BANK_PROMPT_VERSION).toBe('racing-traversal-bank-v2');
+    expect(RACING_TRAVERSAL_STRIP_PROMPT_VERSION).toBe('racing-traversal-strip-v3');
+    expect(RACING_TRAVERSAL_BANK_PROMPT_VERSION).toBe('racing-traversal-bank-v3');
     expect(RACING_TRAVERSAL_JUDGE_PROMPT_VERSION).toBe('racing-traversal-judge-v2');
     expect(RACING_LOCOMOTION_VERSION).toBe('racing-locomotion-v2');
     expect(RACING_CRAFT_STRIP_PROMPT_VERSION).toBe('racing-craft-strip-v3');
@@ -153,5 +155,60 @@ describe('racing conveyance-axis contract', () => {
       buildRacingRosterJudgePrompt(SLOTS, [], 'jetski').user,
     ];
     for (const prompt of legacy) expect(prompt).not.toMatch(/nose-tail/);
+  });
+
+  it('frames the traversal strip as a rear-camera steering strip with per-cell roll', () => {
+    for (const traversal of [BICYCLE_TRAVERSAL, SKATEBOARD_TRAVERSAL, MAGIC_BOARD_TRAVERSAL, STRIDE_TRAVERSAL]) {
+      const prompt = strip(traversal);
+      expect(prompt).toContain('rear-view steering strip');
+      expect(prompt).not.toMatch(/turnaround strip/);
+      expect(prompt).toMatch(/SAME rear view direction/);
+      expect(prompt).toMatch(/screen-left edge low, screen-right edge high/);
+      expect(prompt).toMatch(/screen-right edge low, screen-left edge high/);
+      expect(prompt).toMatch(/front\/side\/back turnaround sheet/);
+      // The concept's motion wording is scoped by the contract, never cut.
+      expect(prompt).toMatch(/does NOT add poses/);
+      expect(prompt).not.toContain(traversal.label);
+    }
+  });
+
+  it('freezes one stride phase with rear-only anatomy for on-foot strips', () => {
+    const animatedConcept =
+      'Rin mid-stride with a six-frame run cycle, opposite arm and leg swing, footfalls and breath';
+    const prompt = buildRacingCraftStripPrompt({
+      name: 'Rin',
+      vehicleConcept: animatedConcept,
+      artDirection: 'crisp test cup',
+      traversal: STRIDE_TRAVERSAL,
+    });
+    // User text lands verbatim — the contract below, not sanitizing, owns orientation.
+    expect(prompt).toContain(animatedConcept);
+    expect(prompt).toMatch(/ONE identical mid-stride phase/);
+    expect(prompt).toMatch(/Do NOT advance the stride across cells/);
+    expect(prompt).toMatch(/produced separately from the approved strip/);
+    expect(prompt).toMatch(/back of the head/);
+    expect(prompt).toMatch(/heels/);
+    expect(prompt).toMatch(/No face, eyes, chest/);
+    expect(prompt).toMatch(/separate portrait art/);
+  });
+
+  it('keeps on-foot steering sentences out of conveyance strips', () => {
+    for (const traversal of [BICYCLE_TRAVERSAL, SKATEBOARD_TRAVERSAL, MAGIC_BOARD_TRAVERSAL]) {
+      const prompt = strip(traversal);
+      expect(prompt).not.toMatch(/ONE identical mid-stride phase/);
+      expect(prompt).not.toMatch(/separate portrait art/);
+      // Generic steering contract still applies to every traversal.
+      expect(prompt).toContain('rear-view steering strip');
+      expect(prompt).toMatch(/does NOT add poses/);
+    }
+  });
+
+  it('still routes traversal steering strips to strip fixtures in mock', async () => {
+    for (const traversal of [SKATEBOARD_TRAVERSAL, STRIDE_TRAVERSAL]) {
+      const processed = await processGeneratedRacingCraftStrip(
+        await mockGeneratedImage(strip(traversal)),
+      );
+      expect(processed.png.length).toBeGreaterThan(0);
+    }
   });
 });

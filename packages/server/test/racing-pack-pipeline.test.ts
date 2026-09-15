@@ -189,7 +189,7 @@ describe.sequential('mock racing pack pipeline', () => {
       for (const role of RACING_PACK_REQUIRED_ROLES)
         expect(generatedAssetForRole(dir, role)).not.toBeNull();
       expect(generatedAssetForRole(dir, 'racingCraftPlayer')!.promptVersion).toBe(
-        'racing-traversal-strip-v2-approved-v1',
+        'racing-traversal-strip-v3-approved-v1',
       );
       if (surface === 'water')
         expect(generatedAssetForRole(dir, 'racingMaterialAtlas')!.promptVersion).toBe(

@@ -1,9 +1,11 @@
 import sharp from 'sharp';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildRacingLocomotionPrompt,
   composeRacingLocomotion,
   processRacingLocomotion,
+  generateReviewedRacingLocomotion,
+  RacingLocomotionImageError,
 } from '../src/assets/racing-locomotion';
 import { mockRacingCraftStripSource, mockRacingLocomotionSource } from '../src/assets/racing-mock';
 import { processGeneratedRacingCraftStrip } from '../src/assets/racing-craft';
@@ -54,5 +56,32 @@ describe('generated motion atlas', () => {
     );
     expect(buildRacingLocomotionPrompt(t, 'c', 'a')).toContain('SIX temporal frames');
     expect(() => buildRacingLocomotionPrompt(BICYCLE_TRAVERSAL, 'c', 'a')).toThrow();
+  });
+
+  it('corrects a malformed sheet once and reviews all repaired frames', async () => {
+    const base = (await processGeneratedRacingCraftStrip(await mockRacingCraftStripSource())).png;
+    const generate = vi.fn().mockResolvedValueOnce(Buffer.from('invalid')).mockResolvedValueOnce(await mockRacingLocomotionSource());
+    const review = vi.fn().mockResolvedValue({ accepted: true });
+    const atlas = await generateReviewedRacingLocomotion({ base, prompt: 'Original motion contract', generate, review });
+    expect(await sharp(atlas).metadata()).toMatchObject({ width: 192, height: 192 });
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(generate.mock.calls[1]![0]).toContain('Original motion contract');
+    expect(generate.mock.calls[1]![1]).toBe(true);
+    expect(review).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed after two malformed sheets', async () => {
+    const generate = vi.fn().mockResolvedValue(Buffer.from('invalid'));
+    const review = vi.fn();
+    await expect(generateReviewedRacingLocomotion({ base: Buffer.alloc(0), prompt: 'contract', generate, review })).rejects.toBeInstanceOf(RacingLocomotionImageError);
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(review).not.toHaveBeenCalled();
+  });
+
+  it('propagates a provider refusal immediately without a correction', async () => {
+    const refusal = new Error('provider content policy refusal');
+    const generate = vi.fn().mockRejectedValue(refusal);
+    await expect(generateReviewedRacingLocomotion({ base: Buffer.alloc(0), prompt: 'contract', generate, review: vi.fn() })).rejects.toBe(refusal);
+    expect(generate).toHaveBeenCalledTimes(1);
   });
 });

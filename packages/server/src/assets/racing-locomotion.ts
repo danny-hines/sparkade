@@ -107,6 +107,38 @@ export async function composeRacingLocomotion(strip: Buffer, frames: Buffer[]): 
     .toBuffer();
 }
 
+export class RacingLocomotionImageError extends Error {}
+
+/** One initial sheet and at most one quality correction. Provider errors
+ * from generation or review propagate immediately; only malformed pixels
+ * or a completed semantic rejection qualify for another candidate. */
+export async function generateReviewedRacingLocomotion(options: {
+  base: Buffer;
+  prompt: string;
+  generate: (prompt: string, correction: boolean) => Promise<Buffer>;
+  review: (atlas: Buffer) => Promise<unknown>;
+}): Promise<Buffer> {
+  let reason = '';
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const prompt = attempt === 0 ? options.prompt : `${options.prompt} MOTION SHEET CORRECTION: ${reason.slice(0, 320)}. Keep all six complete subjects inside their individual cells, with solid green margins on every outer edge and a wide empty horizontal gutter between rows. Preserve the approved rear identity and all six distinct temporal phases.`;
+    // Deliberately outside the quality catch: refusals and transport errors
+    // must never turn into a rephrased image request.
+    const raw = await options.generate(prompt, attempt > 0);
+    let atlas: Buffer;
+    try {
+      atlas = await composeRacingLocomotion(options.base, await processRacingLocomotion(raw));
+    } catch (error) {
+      reason = error instanceof Error ? error.message : 'Malformed six-frame motion sheet';
+      continue;
+    }
+    const verdict = await options.review(atlas);
+    if (verdict && typeof verdict === 'object' && 'accepted' in verdict && verdict.accepted === true) return atlas;
+    reason = verdict && typeof verdict === 'object' && 'reason' in verdict && typeof verdict.reason === 'string'
+      ? verdict.reason : 'The six-frame cycle did not pass the motion review';
+  }
+  throw new RacingLocomotionImageError(reason);
+}
+
 export const racingLocomotionJudgeSchema = {
   type: 'object',
   additionalProperties: false,
@@ -115,7 +147,7 @@ export const racingLocomotionJudgeSchema = {
 };
 
 export function racingLocomotionJudgePrompt(motion: RacingMotion): string {
-  return `Review this racing motion atlas. Row 1 contains the approved rear/left/right identity reference. Rows 2 and 3 are six temporal ${motion} frames, read left to right. Accept ONLY if all six preserve the exact reference subject, outfit/conveyance, rear orientation, scale, pixel art and support baseline, and form readable coherent ${motion} locomotion with meaningful limb/flexible-part changes and a plausible loop. No missing/extra limbs, identity drift, frozen duplicate poses, green screen residue, cropping or viewpoint changes. Independently verify the reference orientation itself: reject when any conveyance deck or board lies sideways across the road (screen-left to screen-right) instead of nose-tail aligned with travel into the screen (rear closest, nose farthest, foreshortened rear perspective); six frames faithfully copying a wrong reference still fail, since matching the reference never excuses a sideways deck. Return JSON accepted:boolean and reason:string. A visually attractive but mechanically wrong cycle must fail.`;
+  return `Review this racing motion atlas. Row 1 contains the approved identity reference: legacy rear/left/right cells or neutral placeholder cells repeating the approved rear. Rows 2 and 3 are six temporal ${motion} frames, read left to right. Accept ONLY if all six preserve the exact reference subject, outfit/conveyance, rear orientation, scale, pixel art and support baseline, and form readable coherent ${motion} locomotion with meaningful limb/flexible-part changes and a plausible loop. No missing/extra limbs, identity drift, frozen duplicate poses, green screen residue, cropping or viewpoint changes. Independently verify the reference orientation itself: reject when any conveyance deck or board lies sideways across the road (screen-left to screen-right) instead of nose-tail aligned with travel into the screen (rear closest, nose farthest, foreshortened rear perspective); six frames faithfully copying a wrong reference still fail, since matching the reference never excuses a sideways deck. Return JSON accepted:boolean and reason:string. A visually attractive but mechanically wrong cycle must fail.`;
 }
 
 export const RACING_BASE_ROLES = [

@@ -445,7 +445,10 @@ export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
   if (prompt.includes('rear-view hovercraft turnaround strip')) {
     return mockRacingCraftStripSource();
   }
-  if (prompt.includes('rear-view turnaround strip')) {
+  if (prompt.includes('RACING FOUNDATION:')) {
+    return mockRacingCraftRearSource();
+  }
+  if (prompt.includes('rear-view steering strip')) {
     let seed = 7;
     for (const char of prompt) seed = (Math.imul(seed, 31) + char.charCodeAt(0)) >>> 0;
     // Traversal strips: rider-bearing subjects reuse the rider watercraft

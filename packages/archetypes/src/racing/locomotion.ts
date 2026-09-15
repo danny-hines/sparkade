@@ -1,6 +1,18 @@
-import type { RacingMotion } from '@sparkade/shared';
+import { racingMotionCell, type RacingMotion } from '@sparkade/shared';
 
 export type LocomotionState = 'idle' | 'cruise' | 'effort' | 'brake' | 'air';
+
+/**
+ * Source cell for an animated (height-192) atlas: the live motion frame,
+ * else the rear row-0 identity cell. Rest, brake, and air states resolve to
+ * the rear cell — never an off-axis bank — while the engine applies full
+ * continuous lean against rear. Legacy height-64 strips keep their
+ * generated bank cells via craftPoseSourceX.
+ */
+export function animatedAtlasCell(frame: number | null): { sx: number; sy: number } {
+  if (frame === null) return { sx: 0, sy: 0 };
+  return racingMotionCell(frame);
+}
 
 /** Distance-driven cycles never jump phase when speed changes or advance on pause. */
 export function locomotionFrame(

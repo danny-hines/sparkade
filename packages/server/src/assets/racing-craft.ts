@@ -34,8 +34,12 @@ export const RACING_JETSKI_STRIP_PROMPT_VERSION = 'racing-jetski-strip-v1';
  * Traversal strip prompt fingerprint. Any present traversal takes this
  * lineage (enum-driven generic wording); absent traversal keeps the legacy
  * hover/jetski lineages byte-identical.
+ * v3 frames the strip as a rear-camera steering strip (never a
+ * front/side/back turnaround sheet), pins per-cell roll directions, scopes
+ * the concept's animation wording away from the orientation contract, and
+ * freezes one identical stride phase per on-foot strip.
  */
-export const RACING_TRAVERSAL_STRIP_PROMPT_VERSION = 'racing-traversal-strip-v2';
+export const RACING_TRAVERSAL_STRIP_PROMPT_VERSION = 'racing-traversal-strip-v3';
 
 /** Runtime movement discipline selecting hover vs jetski strip semantics. */
 export type RacingStripDiscipline = 'hover' | 'jetski';
@@ -162,6 +166,10 @@ export function buildRacingCraftStripPrompt(options: RacingCraftStripPromptOptio
  * the surface/rider/propulsion axes: rear, bank-left, and bank-right poses
  * with inward roll, rider-plus-conveyance consistency, and propulsion
  * fiction (never motor exhaust on human power). The label is never read.
+ * This is a rear-camera steering strip, never a front/side/back turnaround
+ * sheet: the roster concept supplies identity wording only, while the
+ * orientation contract below owns the camera, the pose count, and the
+ * per-cell roll directions.
  */
 function buildTraversalRacingCraftStripPrompt(
   options: RacingCraftStripPromptOptions,
@@ -182,17 +190,24 @@ function buildTraversalRacingCraftStripPrompt(
   const colors = clean(options.colors, 300);
   const retry = clean(options.retryGuidance, 320);
   return [
-    `Create exactly ONE isolated rear-view turnaround strip for ${name}: THREE poses of the SAME ${subject} side by side in one row, left to right: neutral-rear cruise, banking LEFT, banking RIGHT. Do not render pose labels.`,
+    `Create exactly ONE isolated rear-view steering strip for ${name}: THREE rear-camera views of the SAME ${subject} side by side in one row, left to right: neutral-rear cruise (upright), banking LEFT (screen-left edge low, screen-right edge high), banking RIGHT (screen-right edge low, screen-left edge high). Every cell shows the SAME rear view direction. Do not render pose labels.`,
     artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
     `${racingRiderIdentityLine(rider, concept)} ${racingBankLine(rider)}`,
+    'The roster concept above describes identity only: use its silhouette, outfit, markings, and color wording. Any run-cycle, animation-frame, stride-sequence, or motion wording in the concept does NOT add poses, advance motion across cells, or turn the camera.',
+    rider === 'onFoot'
+      ? 'On-foot steering pose: freeze ONE identical mid-stride phase — the same opposite arm-and-leg positions — in all three cells, then apply only the per-cell roll above. Do NOT advance the stride across cells and do NOT render a multi-frame run sequence; the full run cycle is produced separately from the approved strip.'
+      : '',
     racingRearCameraLine(rider),
+    rider === 'onFoot'
+      ? 'Rear anatomy only: the back of the head, back, clothes, arms, legs, and heels are visible. No face, eyes, chest, or front of the torso in any cell. Facial likeness belongs to the separate portrait art; this strip identifies the runner by outfit and rear silhouette only.'
+      : '',
     racingConveyanceAxisLine(rider),
     water ? 'Water cup: the subject touches the water with a small waterline contact patch.' : '',
     racingExhaustLine(traversal.propulsion, water),
     racingPeopleBanLine(rider),
     colors ? `Use this limited game color direction with strong contrast: ${colors}.` : '',
     'Polished high-density 16-bit SNES-era pixel art: crisp square pixel clusters, hard edges, limited flat color ramps, strong outline separation, no antialiasing, blur, gradients, or photorealism.',
-    `This is one rigid ${subject} in three rear states, NOT three different subjects, a character sheet, sequence, collage, story scene, icon, card, screenshot, or concept-art page.`,
+    `This is one rigid ${subject} in three rear states, NOT three different subjects, a front/side/back turnaround sheet, a character sheet, an animation sequence, collage, story scene, icon, card, screenshot, or concept-art page.`,
     'Each pose must be complete and fully visible with ample clear green gutters and margins: fully empty green bands between the poses and around the outer edges, several percent of image width, so each pose cuts out without touching a neighbor. Nothing may be cropped and poses must not touch or overlap each other.',
     'The entire empty background, including every gap around or enclosed by each silhouette, must be perfectly flat solid #00ff00. No subject may use #00ff00 or a near-neon imitation; darker natural greens are allowed.',
     options.candidateId

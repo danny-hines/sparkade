@@ -30,8 +30,11 @@ export const RACING_JETSKI_BANK_PROMPT_VERSION = 'racing-jetski-bank-v2';
 /**
  * Traversal bank-edit fingerprint. Any present traversal takes this
  * lineage; absent traversal keeps the legacy lineages byte-identical.
+ * v3 drops the whole-strip retry guidance from the single-pose edit (it
+ * names BOTH bank directions and can override the one pose being fixed),
+ * matching the jetski path.
  */
-export const RACING_TRAVERSAL_BANK_PROMPT_VERSION = 'racing-traversal-bank-v2';
+export const RACING_TRAVERSAL_BANK_PROMPT_VERSION = 'racing-traversal-bank-v3';
 
 export type RacingBankDiscipline = 'hover' | 'jetski';
 
@@ -136,7 +139,12 @@ function buildTraversalRacingBankEditPrompt(
   const name = clean(options.vehicleName, 24) ?? 'Racer';
   const artDirection = clean(options.artDirection, 280);
   const colors = clean(options.colors, 300);
-  const retry = clean(options.retryGuidance, 320);
+  // No whole-strip retry guidance here: the roster review's retryGuidance
+  // names BOTH bank directions, which can override this single-pose edit
+  // (e.g. "banking-right leans right" inside the bankLeft-only prompt). The
+  // bank contract below is the complete fix — same omission as jetski.
+  // (options.retryGuidance is intentionally unread here; the hover path
+  // still applies it and the option stays for that caller.)
   const rider = traversal.rider;
   const water = traversal.surface === 'water';
   const subject = racingSubjectNoun(rider);
@@ -165,9 +173,8 @@ function buildTraversalRacingBankEditPrompt(
     'Polished high-density 16-bit SNES-era pixel art: crisp square pixel clusters, hard edges, limited flat color ramps, strong outline separation, no antialiasing, blur, gradients, or photorealism.',
     'The subject must be complete and fully visible with ample clear green margins on every side, several percent of image width, so it cuts out cleanly. Nothing may be cropped.',
     'The entire empty background, including every gap around or enclosed by the silhouette, must be perfectly flat solid #00ff00. The subject must not use #00ff00 or a near-neon imitation; darker natural greens are allowed.',
-    retry
-      ? `ART DIRECTOR CORRECTION: ${retry}. Apply only this correction while preserving rider and conveyance identity, rear orientation, scale, and pixel technique.`
-      : '',
+    // Whole-strip judge guidance names BOTH directions, which can override
+    // this single-pose edit. The bank contract above is the complete fix.
     `Return ONLY the ${side}-bank pose. Preserve the reference identity and its rear camera.`,
   ]
     .filter(Boolean)

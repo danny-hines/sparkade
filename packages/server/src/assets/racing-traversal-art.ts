@@ -78,6 +78,21 @@ export function racingRiderIdentityLine(rider: RacingRider, concept: string): st
   return `Conveyance and rider identity: ${concept}. Keep one identical conveyance across all three cells: same silhouette, materials, markings, and livery. The SAME adult rider rides it in every cell: same outfit, same rear head, seated astride the conveyance and leaning physically together with it.`;
 }
 
+/**
+ * Longitudinal conveyance-axis invariant, driven ONLY by the rider axis
+ * (never the label or a sport name). A board or deck under a sideways
+ * rider stance must still run nose-to-tail with travel into the screen;
+ * the stance never turns the deck sideways across the road. Empty for
+ * onFoot (no conveyance to orient).
+ */
+export function racingConveyanceAxisLine(rider: RacingRider): string {
+  if (rider === 'onFoot') return '';
+  const axis =
+    'Conveyance longitudinal axis: the conveyance nose-tail axis stays aligned with travel into the screen toward the horizon — rear closest to the camera and nose farthest, in foreshortened rear perspective; a deck or board never lies sideways across the road from screen-left to screen-right.';
+  if (rider === 'none') return axis;
+  return `${axis} A rider's natural sideways stance may sit perpendicular to the deck without making the deck perpendicular to the road.`;
+}
+
 /** Banking coherence sentence shared by strips and bank edits. */
 export function racingBankLine(rider: RacingRider): string {
   const who =
@@ -134,7 +149,11 @@ export function racingTraversalCameraLock(rider: RacingRider): string {
       : rider === 'onFoot'
         ? 'Keep the runner outfit and stride unchanged.'
         : 'Keep the rider, conveyance length and livery unchanged.';
-  return ` CAMERA LOCK: all three views show ${subject} facing the viewer, with the front farthest away. Banking is ROLL, never yaw to a side view. Cell 2 lowers the screen-left edge and raises the screen-right edge; cell 3 does the exact opposite. ${keep} The two bank poses must tilt in visibly opposite directions.`;
+  const axis =
+    rider === 'onFoot'
+      ? ''
+      : ' Conveyance axis holds: nose-tail aligned with travel into the screen (rear closest, nose farthest, foreshortened rear perspective); never a deck or board sideways across the road.';
+  return ` CAMERA LOCK: all three views show ${subject} facing the viewer, with the front farthest away. Banking is ROLL, never yaw to a side view. Cell 2 lowers the screen-left edge and raises the screen-right edge; cell 3 does the exact opposite. ${keep} The two bank poses must tilt in visibly opposite directions.${axis}`;
 }
 
 /** People/text ban for the rider axis. */

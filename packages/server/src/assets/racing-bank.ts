@@ -13,6 +13,7 @@ import { FighterPoseImageError, processGeneratedFighterPose } from './fighter-po
 import { RACING_CRAFT_SCALE_TOLERANCE } from './racing-craft';
 import { resolveTraversal, type RacingTraversal } from '@sparkade/shared';
 import {
+  racingConveyanceAxisLine,
   racingExhaustLine,
   racingPeopleBanLine,
   racingRiderIdentityLine,
@@ -30,7 +31,7 @@ export const RACING_JETSKI_BANK_PROMPT_VERSION = 'racing-jetski-bank-v2';
  * Traversal bank-edit fingerprint. Any present traversal takes this
  * lineage; absent traversal keeps the legacy lineages byte-identical.
  */
-export const RACING_TRAVERSAL_BANK_PROMPT_VERSION = 'racing-traversal-bank-v1';
+export const RACING_TRAVERSAL_BANK_PROMPT_VERSION = 'racing-traversal-bank-v2';
 
 export type RacingBankDiscipline = 'hover' | 'jetski';
 
@@ -156,6 +157,7 @@ function buildTraversalRacingBankEditPrompt(
     artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
     `${racingRiderIdentityLine(rider, `the reference ${subject}`)} Never redesign it and never mirror an asymmetric livery into this pose.${water ? ' The subject touches the water with a small waterline contact patch.' : ''}`,
     `ROLL ONLY, NO YAW: ${options.posedReference ? 'The reference ALREADY has the exact desired 10-degree roll. Copy its orientation and silhouette; do not rotate it again or straighten it.' : `Tilt the subject roughly 8-12 degrees around the camera axis so its ${drop}.`} The subject still points directly AWAY toward the horizon with the rear camera behind and slightly above.`,
+    racingConveyanceAxisLine(rider),
     directionCheck,
     racingExhaustLine(traversal.propulsion, water),
     racingPeopleBanLine(rider),

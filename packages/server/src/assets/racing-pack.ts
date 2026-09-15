@@ -43,7 +43,7 @@ export const RACING_JUDGE_PROMPT_VERSION = 'racing-roster-judge-v1';
 /** Jetski roster-judge fingerprint; hover keeps v1 byte-identical. */
 export const RACING_JETSKI_JUDGE_PROMPT_VERSION = 'racing-jetski-judge-v1';
 /** Traversal roster-judge fingerprint; legacy judges keep their versions. */
-export const RACING_TRAVERSAL_JUDGE_PROMPT_VERSION = 'racing-traversal-judge-v1';
+export const RACING_TRAVERSAL_JUDGE_PROMPT_VERSION = 'racing-traversal-judge-v2';
 
 export type RacingPackDiscipline = 'hover' | 'jetski';
 
@@ -366,10 +366,17 @@ function buildTraversalRacingRosterJudgePrompt(
       : traversal.propulsion === 'magic'
         ? ' A magic conveyance showing mechanical exhaust or engine plumes is fatal.'
         : '';
+  const axisRule =
+    rider === 'onFoot'
+      ? ''
+      : ' Conveyance axis: every conveyance keeps its longitudinal nose-tail axis aligned with travel into the screen toward the horizon (rear closest, nose farthest, foreshortened rear perspective); a deck or board lying sideways across the road from screen-left to screen-right is fatal even when all three cells match.' +
+        (rider === 'none'
+          ? ''
+          : ' A rider\u2019s sideways stance may sit perpendicular to the deck without making the deck perpendicular to the road.');
   const fatal =
     rider === 'none'
-      ? `Score concept fidelity, exact rear orientation, same-vehicle coherence, small gameplay readability, and technical pixel-art quality from 1 to 5. A fatal issue is a wrong camera direction, mismatched poses within a row, same-direction banks, duplicated vehicles across rows, cropped/multiple craft, a person, or broken transparency.${exhaustFatal}`
-      : `Score concept fidelity, exact rear orientation, same-rider coherence, small gameplay readability, and technical pixel-art quality from 1 to 5. A fatal issue is a wrong camera direction, mismatched poses within a row, same-direction banks, duplicated ${plural} across rows, cropped/multiple subjects, or broken transparency.${exhaustFatal}`;
+      ? `Score concept fidelity, exact rear orientation, same-vehicle coherence, small gameplay readability, and technical pixel-art quality from 1 to 5. A fatal issue is a wrong camera direction, mismatched poses within a row, same-direction banks, duplicated vehicles across rows, cropped/multiple craft, a person, or broken transparency.${exhaustFatal} Consistently copying a wrong neutral base across all three cells is not coherence: a sideways deck is fatal and takes correction "vehicle", never "banking".`
+      : `Score concept fidelity, exact rear orientation, same-rider coherence, small gameplay readability, and technical pixel-art quality from 1 to 5. A fatal issue is a wrong camera direction, mismatched poses within a row, same-direction banks, duplicated ${plural} across rows, cropped/multiple subjects, or broken transparency.${exhaustFatal} Consistently copying a wrong neutral base across all three cells is not coherence: a sideways deck is fatal and takes correction "vehicle", never "banking".`;
   return {
     system:
       'You are Muse Spark, the art director selecting gameplay vehicle art. Judge only the labeled TARGET rows; REFERENCE rows are frozen prior approvals shown for distinctness comparison. Return strict JSON.',
@@ -380,10 +387,11 @@ function buildTraversalRacingRosterJudgePrompt(
         ? `Frozen REFERENCE rows (already approved, never judge, never list in slotReviews or rejectedIds): ${references.map((s) => `${s.id} (${s.name})`).join(', ')}. Compare every target against the references for distinctness — a target duplicating a reference vehicle is fatal.`
         : '',
       required,
+      axisRule,
       'Banking is opposite ROLL, never yaw and never a mirrored livery: the banking-left cell leans left (left side low, right side high) and the banking-right cell leans right (right side low, left side high). Two banks yawing the same way, yawed side profiles, or mirrored asymmetric markings are fatal.',
       fatal,
       'accepted should be true only when every target row has no fatal issue and is production quality. Even when accepted is false, retryGuidance must describe the single most important correction for the rejected rows.',
-      'For EACH target row, set correction to "banking" ONLY when its neutral-rear cell is accepted as the right vehicle, rear camera, and concept and only the bank rolls are wrong; otherwise — bad neutral camera or concept, a duplicate of another vehicle, or any doubt — set "vehicle". Give the per-row fix in guidance.',
+      'For EACH target row, set correction to "banking" ONLY when its neutral-rear cell is accepted as the right vehicle, rear camera, conveyance axis, and concept and only the bank rolls are wrong; otherwise — bad neutral camera, a sideways deck, or bad concept, a duplicate of another vehicle, or any doubt — set "vehicle". Give the per-row fix in guidance.',
     ]
       .filter(Boolean)
       .join(' '),

@@ -2,8 +2,9 @@ import sharp from 'sharp';
 import { RACING_MOTION_FRAMES, type RacingMotion, type RacingTraversal } from '@sparkade/shared';
 import { processGeneratedFighterPose } from './fighter-pose';
 import { splitRacingStripCells, validateRacingCraftStrip } from './racing-craft';
+import { racingConveyanceAxisLine } from './racing-traversal-art';
 
-export const RACING_LOCOMOTION_VERSION = 'racing-locomotion-v1';
+export const RACING_LOCOMOTION_VERSION = 'racing-locomotion-v2';
 const MOTION_BRIEFS: Record<Exclude<RacingMotion, 'static'>, string> = {
   pedal:
     'one complete alternating pedal rotation, with knees and feet moving through six evenly spaced crank positions while hands stay on the controls',
@@ -21,15 +22,19 @@ export function buildRacingLocomotionPrompt(
 ): string {
   const motion = traversal.motion;
   if (!motion || motion === 'static') throw new Error('Locomotion requires an authored motion');
+  const axis = racingConveyanceAxisLine(traversal.rider);
   return [
     'RACING LOCOMOTION SHEET: exactly SIX temporal frames in a rigid THREE-column TWO-row grid, read left to right then top to bottom.',
     `Animate ${MOTION_BRIEFS[motion]}.`,
     `The attached approved rear view is identity truth. Subject: ${concept}. Art direction: ${art}.`,
     `Keep identical adult proportions, outfit, conveyance, colors and rear-facing camera. Rider contract: ${traversal.rider}; propulsion: ${traversal.propulsion}; surface: ${traversal.surface}.`,
     'All frames face directly AWAY toward the horizon. No turns, banking, camera changes, face-on views, redesign, passengers or extra subjects. No conveyance when rider is onFoot; no rider when rider is none.',
+    axis,
     'Same framing, scale and grounded support baseline in every cell. Preserve the torso or rigid chassis while limbs and flexible parts visibly move. Final frame leads naturally into the first. Every complete subject has wide empty gutters; no cropping or overlapping cells.',
     'Crisp pixel art. No text, labels, scenery, shadows, exhaust or effects. All empty space including enclosed gaps must be perfectly flat #00ff00; no neon green on the subject.',
-  ].join(' ');
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 /** Cut real generated frames; never synthesize, mirror or duplicate missing motion. */
@@ -110,7 +115,7 @@ export const racingLocomotionJudgeSchema = {
 };
 
 export function racingLocomotionJudgePrompt(motion: RacingMotion): string {
-  return `Review this racing motion atlas. Row 1 contains the approved rear/left/right identity reference. Rows 2 and 3 are six temporal ${motion} frames, read left to right. Accept ONLY if all six preserve the exact reference subject, outfit/conveyance, rear orientation, scale, pixel art and support baseline, and form readable coherent ${motion} locomotion with meaningful limb/flexible-part changes and a plausible loop. No missing/extra limbs, identity drift, frozen duplicate poses, green screen residue, cropping or viewpoint changes. Return JSON accepted:boolean and reason:string. A visually attractive but mechanically wrong cycle must fail.`;
+  return `Review this racing motion atlas. Row 1 contains the approved rear/left/right identity reference. Rows 2 and 3 are six temporal ${motion} frames, read left to right. Accept ONLY if all six preserve the exact reference subject, outfit/conveyance, rear orientation, scale, pixel art and support baseline, and form readable coherent ${motion} locomotion with meaningful limb/flexible-part changes and a plausible loop. No missing/extra limbs, identity drift, frozen duplicate poses, green screen residue, cropping or viewpoint changes. Independently verify the reference orientation itself: reject when any conveyance deck or board lies sideways across the road (screen-left to screen-right) instead of nose-tail aligned with travel into the screen (rear closest, nose farthest, foreshortened rear perspective); six frames faithfully copying a wrong reference still fail, since matching the reference never excuses a sideways deck. Return JSON accepted:boolean and reason:string. A visually attractive but mechanically wrong cycle must fail.`;
 }
 
 export const RACING_BASE_ROLES = [

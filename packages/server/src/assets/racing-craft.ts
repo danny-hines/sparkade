@@ -15,6 +15,7 @@ import {
 import { resolveTraversal, type RacingTraversal } from '@sparkade/shared';
 import {
   racingBankLine,
+  racingConveyanceAxisLine,
   racingExhaustLine,
   racingPeopleBanLine,
   racingRearCameraLine,
@@ -34,7 +35,7 @@ export const RACING_JETSKI_STRIP_PROMPT_VERSION = 'racing-jetski-strip-v1';
  * lineage (enum-driven generic wording); absent traversal keeps the legacy
  * hover/jetski lineages byte-identical.
  */
-export const RACING_TRAVERSAL_STRIP_PROMPT_VERSION = 'racing-traversal-strip-v1';
+export const RACING_TRAVERSAL_STRIP_PROMPT_VERSION = 'racing-traversal-strip-v2';
 
 /** Runtime movement discipline selecting hover vs jetski strip semantics. */
 export type RacingStripDiscipline = 'hover' | 'jetski';
@@ -185,6 +186,7 @@ function buildTraversalRacingCraftStripPrompt(
     artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
     `${racingRiderIdentityLine(rider, concept)} ${racingBankLine(rider)}`,
     racingRearCameraLine(rider),
+    racingConveyanceAxisLine(rider),
     water ? 'Water cup: the subject touches the water with a small waterline contact patch.' : '',
     racingExhaustLine(traversal.propulsion, water),
     racingPeopleBanLine(rider),

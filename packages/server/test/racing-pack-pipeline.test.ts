@@ -102,6 +102,55 @@ const EXPECTED_DIMS: Record<string, { width: number; height: number }> = {
 };
 
 describe.sequential('mock racing pack pipeline', () => {
+  it('restores approved base strips and cycles after a late motion publish failure', async () => {
+    const original = GameAssetWorkspace.prototype.store;
+    let fail = true;
+    const spy = vi.spyOn(GameAssetWorkspace.prototype, 'store').mockImplementation(async function(this: GameAssetWorkspace, role, image, version, hash) {
+      if (fail && role === 'racingCraftRival2' && version === 'racing-locomotion-v1-approved') throw new Error('synthetic late motion persistence failure');
+      return original.call(this, role, image, version, hash);
+    });
+    try {
+      const {db, files, runner} = createHarness();
+      const details = 'Race with handling grip, surface ground, rider seated, propulsion human, motion pedal';
+      const ids = runner.createJob({promptText:details,requestedArchetype:'racing',sourceKind:'preset',idempotencyKey:'motion-cache'});
+      expect(await waitForTerminal(db,ids.jobId)).toMatchObject({status:'failed'});
+      expect(files.readMeta(ids.gameId)?.status).not.toBe('ready');
+      fail = false;
+      const retry = runner.retryJob(ids.gameId)!;
+      const terminal = await waitForTerminal(db,retry.jobId);
+      expect(terminal,JSON.stringify(terminal.error)).toMatchObject({status:'done'});
+      const calls = db.usageForGame(ids.gameId).filter(r=>r.stage.startsWith('image:') && !r.failed);
+      for (let i=0;i<5;i++) expect(calls.filter(r=>r.stage===`image:racing-motion-${i}`)).toHaveLength(1);
+      for (const role of ['racingCraftPlayer','racingCraftRival1','racingCraftRival2','racingCraftRival3','racingCraftRival4'])
+        expect(calls.filter(r=>r.stage===`image:${role}`)).toHaveLength(1);
+    } finally {spy.mockRestore();}
+  },120_000);
+
+  it.each([
+    ['pedal', 'seated', 'human'], ['stride', 'onFoot', 'human'],
+    ['push', 'standing', 'human'], ['pulse', 'none', 'magic'],
+  ])('publishes a complete %s animation pack and authored forks', async (motion, rider, propulsion) => {
+    const { db, files, runner } = createHarness();
+    const details = `Racing with handling grip, surface ground, rider ${rider}, propulsion ${propulsion}, motion ${motion}. Include fork routes and rolling hills.`;
+    const { jobId, gameId } = runner.createJob({ promptText: details, requestedArchetype: 'racing', sourceKind: 'preset',
+      creationBrief: { version: 1, heroName: 'Rin', archetype: 'racing', details }, idempotencyKey: `motion-${motion}` });
+    const terminal = await waitForTerminal(db, jobId);
+    expect(terminal, JSON.stringify(terminal.error)).toMatchObject({status:'done'});
+    const spec = files.readSpec(gameId) as RacingSpec;
+    expect(spec.identity?.traversal?.motion).toBe(motion);
+    expect(spec.levels.every(l => l.forks === 'split' && l.length === 3600 && l.jumps === 'none')).toBe(true);
+    const dir = join(files.gameDir(gameId), 'assets');
+    for (let i = 0; i < 5; i++) {
+      expect(existsSync(join(dir, `.racing-base-${i}.png`))).toBe(false);
+      expect(existsSync(join(dir, `.racing-motion-${i}.png`))).toBe(false);
+    }
+    for (const role of RACING_PACK_REQUIRED_ROLES) {
+      const asset = generatedAssetForRole(dir, role)!;
+      expect(asset).not.toBeNull();
+      if (role.startsWith('racingCraft')) expect(asset).toMatchObject({width:192,height:192,promptVersion:'racing-locomotion-v1-approved'});
+    }
+  }, 90_000);
+
   it.each([
     ['bicycle', 'grip', 'ground', 'seated', 'human'],
     ['motorcycle', 'grip', 'ground', 'seated', 'motor'],

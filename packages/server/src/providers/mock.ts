@@ -65,6 +65,7 @@ export function mockTraversalRequested(text: string): RacingTraversal | undefine
   const propulsion = /\bpropulsion[\s:=]+(motor|human|magic)\b/i.exec(text)?.[1]?.toLowerCase();
   if (handling && surface && rider && propulsion) {
     return {
+      ...(/\bmotion[\s:=]+(static|pedal|stride|push|pulse)\b/i.exec(text)?.[1] ? { motion: /\bmotion[\s:=]+(static|pedal|stride|push|pulse)\b/i.exec(text)![1]!.toLowerCase() } : {}),
       label: 'Open Racing',
       handling,
       surface,
@@ -469,6 +470,7 @@ export class MockProvider implements Provider {
                       ? [`over ${mockElevationRequested(requestText)} hills`]
                       : []),
                     ...(mockJumpsRequested(requestText) ? ['with jump ramps'] : []),
+                    ...(/\bforks?|alternate routes?\b/i.test(requestText) ? ['with fork routes'] : []),
                   ].join(' '),
                 }))
               : [
@@ -555,11 +557,13 @@ export class MockProvider implements Provider {
         if (golden.archetype === 'racing') {
           const elevation = mockElevationRequested(req.user);
           const jumps = mockJumpsRequested(req.user);
-          if (elevation || jumps)
+          const forks = /\bforks?|alternate routes?\b/i.test(req.user);
+          if (elevation || jumps || forks)
             levels = (levels as RacingSpec['levels']).map((level) => ({
               ...level,
               ...(elevation ? { elevation } : {}),
               ...(jumps ? { jumps } : {}),
+              ...(forks ? { forks: 'split' as const, length: 3600, jumps: 'none' as const } : {}),
             }));
         }
         payload = {

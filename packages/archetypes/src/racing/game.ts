@@ -1,3 +1,6 @@
+import { panoramaLandmarkX } from './art';
+import { locomotionFrame } from './locomotion';
+import { racingMotionCell } from '@sparkade/shared';
 // Racing game shell: GameInstance wrapper around the pure simulation with a
 // behind-vehicle pseudo-3D road projection (bounded Canvas2D segment strips),
 // rival craft sprites, HUD, and minimap. Only engine.renderer is used, so the
@@ -1620,6 +1623,23 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           HORIZON,
         );
       }
+      // Separate generated silhouettes give the distant painting depth. Their
+      // world angles repeat after exactly one turn, never sliding with input.
+      if (circuit.traversal) {
+        for (let layer = 0; layer < 2; layer++) {
+          const source = sceneryAtlasCell(layer === 0 ? 'landmarkFar' : 'landmarkNear');
+          const period = layer === 0 ? 1250 : 1750;
+          const width = layer === 0 ? 88 : 146;
+          const x0 = panoramaLandmarkX(heading, layer === 0 ? 430 : 1240, period, 2);
+          ctx.globalAlpha = layer === 0 ? 0.6 : 0.88;
+          for (let copy = -1; copy <= 0; copy++) {
+            const x = x0 + copy * period;
+            if (x + width < 0 || x > W) continue;
+            ctx.drawImage(art.scenery, source.sx, source.sy, source.size, source.size,
+              x, HORIZON - width + (layer === 0 ? -3 : 8), width, width);
+          }
+        }
+      }
       ctx.globalAlpha = 1;
     } else {
       // Sky from the circuit theme.
@@ -2612,7 +2632,10 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         const rivalLean = craftLean(rVis);
         const pose = selectCraftPoseSteady(rivalPoses[i] ?? 'rear', rVis, r.speed, bankThreshold);
         rivalPoses[i] = pose;
-        const residual = packResidualLean(rVis, pose);
+        const frame = (art.strips[i] as { height?: number }).height === 192
+          ? locomotionFrame(circuit.traversal?.motion, r.s, r.speed, (r.air?.height ?? 0) > 0 ? 'air' : inputBuf[i]?.brake ? 'brake' : inputBuf[i]?.accel ? 'effort' : 'cruise') : null;
+        const cell = frame === null ? { sx: craftPoseSourceX(pose), sy: 0 } : racingMotionCell(frame);
+        const residual = packResidualLean(rVis, frame === null ? pose : 'rear');
         // Body fill compensation: the keyed body spans ~52/64 of its cell,
         // so the blit is widened to restore the true physical world width.
         // The continuous lean shifts/squashes the blit around its base (no
@@ -2640,8 +2663,8 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           z,
           2000 + i,
           art.strips[i]!,
-          craftPoseSourceX(pose),
-          0,
+          cell.sx,
+          cell.sy,
           64,
           64,
           leanDx,
@@ -2771,6 +2794,10 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
         // Generated player strip: hysteresis pose plus the residual rotation
         // about the blit base (never mirrored, never crossfaded). Shift and
         // squash ride along; crisp pixels via disabled smoothing in flush.
+        const frame = (art.strips[PLAYER_INDEX] as { height?: number }).height === 192
+          ? locomotionFrame(circuit.traversal?.motion, player.s, player.speed, liftPx > 0 ? 'air' : inputBuf[PLAYER_INDEX]!.brake ? 'brake' : inputBuf[PLAYER_INDEX]!.accel ? 'effort' : 'cruise') : null;
+        const cell = frame === null ? { sx: craftPoseSourceX(lastPlayerPose), sy: 0 } : racingMotionCell(frame);
+        if (frame !== null) lastVisRot = packResidualLean(steerVis * visK, 'rear');
         const pbw = pw / STRIP_BODY_FILL;
         const leanDh = pbw * lastVisLean.squash;
         if (water) {
@@ -2788,8 +2815,8 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           RACING_CAM_BACK,
           3000,
           art.strips[PLAYER_INDEX]!,
-          craftPoseSourceX(lastPlayerPose),
-          0,
+          cell.sx,
+          cell.sy,
           64,
           64,
           px - pbw / 2 + lastVisLean.shift * pbw,

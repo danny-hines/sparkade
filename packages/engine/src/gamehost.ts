@@ -137,6 +137,11 @@ export class GameHost {
   private engineCtx: EngineContext;
   private instance: GameInstance;
   private pause: PauseOverlay;
+  /** Read-only input context for accessible host controls, including paused menus. */
+  get menuInputActive(): boolean {
+    return this.state !== 'game' || this.engineCtx.cards.active;
+  }
+
   private state: HostState = 'howto';
   private howto: HowToPlayCard;
   private tally: ScoreTally | null = null;

@@ -287,3 +287,16 @@ describe('racing fork splits', () => {
   });
 
 });
+
+// New authoring coverage: every template retains quiet entry/exit on both directions.
+it('compiles generated split courses on all templates without weakening keepouts', () => {
+  for (const template of ['ember','coral','ratchet']) for (const mirror of [false,true]) for (const elevation of ['flat','ridge'] as const) {
+    const c = compileTrackVariant(template, {length:3600, mirror, elevation, forks:'split'});
+    expect(c.fork).toBeDefined();
+    const f = c.fork!;
+    for (let s=f.start-40;s<=f.start+f.length+40;s+=2)
+      expect(Math.abs(c.track.curvatureAt(s))).toBeLessThanOrEqual(0.0015);
+    for (const g of [0,900,1800,2700,3600])
+      expect(g <= f.start-120+1e-6 || g >= f.start+f.length+120-1e-6).toBe(true);
+  }
+});

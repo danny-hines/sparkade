@@ -34,6 +34,7 @@ import {
 } from './racing-materials';
 import {
   RACING_JETSKI_SCENERY_OBJECTS_VERSION,
+  RACING_TRAVERSAL_SCENERY_VERSION,
   RACING_SCENERY_OBJECTS_VERSION,
   racingSceneryObjectPrompts,
 } from './racing-scenery-pack';
@@ -128,7 +129,7 @@ export function buildRacingPackPlan(spec: RacingSpec): RacingPackPlan {
     : discipline === 'jetski'
       ? RACING_JETSKI_PANORAMA_PROMPT_VERSION
       : RACING_PANORAMA_PROMPT_VERSION;
-  const sceneryVersion = water
+  const sceneryVersion = subject.hasTraversal ? RACING_TRAVERSAL_SCENERY_VERSION : water
     ? RACING_JETSKI_SCENERY_OBJECTS_VERSION
     : RACING_SCENERY_OBJECTS_VERSION;
   // Single source of truth shared with the generator: the plan advertises

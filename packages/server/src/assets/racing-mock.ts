@@ -235,3 +235,9 @@ export async function mockRacingMaterialsSource(seed = 11): Promise<Buffer> {
     .png()
     .toBuffer();
 }
+
+/** Synthetic animation grid used ONLY by mock generation and processor tests. */
+export async function mockRacingLocomotionSource(): Promise<Buffer> {
+  const cells = Array.from({ length: 6 }, (_, i) => `<g transform="translate(${i % 3 * 128},${Math.floor(i / 3) * 128})"><path fill="#3a6fd8" d="M44 32 H84 V78 L${88 + i} 99 H${72 + i} L64 77 L${52 - i} 99 H${38 - i} L44 72 Z"/><rect x="58" y="20" width="12" height="18" fill="#b37550"/><rect x="${48 + i * 3}" y="46" width="8" height="12" fill="#f0c44c"/></g>`).join('');
+  return sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="384" height="256"><rect width="384" height="256" fill="#00ff00"/>${cells}</svg>`)).png().toBuffer();
+}

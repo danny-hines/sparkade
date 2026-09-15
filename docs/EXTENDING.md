@@ -78,7 +78,10 @@ The generated racing pack has ten required PNGs: three course panoramas, five ve
 strips (rear, bank left, bank right), a roadside/collectible atlas, and a material atlas.
 Roadside objects are generated separately, cached privately, and assembled locally into
 the fixed atlas; the image model does not control cell layout. Panoramas preserve their
-horizon-bearing lower band.
+horizon-bearing lower band. New traversal panoramas request compatible horizontal edges
+and a quiet distant horizon. Two heading-anchored bands reuse generated landmark
+silhouettes at different depths; both repeat at integer intervals around a full turn.
+This remains a layered wrapping backdrop, not a reconstructed 360-degree world.
 The player vehicle is reviewed before it becomes the reference for key and story art;
 new rival art is checked against the approved roster before the game becomes ready.
 Bank corrections preserve the neutral vehicle and regenerate its left/right poses;
@@ -102,9 +105,17 @@ Generic racers ride the composable `traversal` contract: `handling`
 (`direct`/`grip`/`carve`/`flow`) plus `surface` (`ground`/`water`) resolve physics
 through the shared bounded tables, while `rider`
 (`none`/`seated`/`standing`/`onFoot`) plus `propulsion` (`motor`/`human`/`magic`)
-are presentation-only and govern image fiction. On-foot runners use the basic
-bank-pose foundation mid-stride — never a dedicated run cycle — and human-powered
-conveyances show no motor exhaust. The creator offers Racing as a first-class
+are presentation-only and govern image fiction. Optional `motion`
+(`static`/`pedal`/`stride`/`push`/`pulse`) adds locomotion independently of the
+activity label; human-powered conveyances show no motor exhaust. Animated packs
+expand each approved 192×64 three-pose strip into a 192×192 atlas: the original
+row is preserved byte-for-byte, and two more rows hold six generated neutral-facing
+cycle frames. All six must be distinct, complete and consistently scaled, then pass
+an identity/anatomy/motion review. Animation advances with distance, eases through
+the shared lean transform, and falls back to the original poses at rest, while
+braking or airborne; push cycles require active acceleration. Player and rivals use
+the same playback. Missing/static motion retains the original asset contract.
+Approved bases and cycles have private per-racer retry caches, scrubbed on publish. The creator offers Racing as a first-class
 archetype choice alongside the others, and the surprise draw cycles through it.
 Bounded hills and ramps are authorable per course: `elevation`
 (`flat`/`rolling`/`ridge`) compiles a periodic analytic hill profile the engine
@@ -114,14 +125,21 @@ stage seeds these in `levelPlan` summaries only on an explicit hills/jumps ask
 (water courses stay flat by default); the levels stage authors them onto the three
 existing templates, omitting both for legacy flat racing exactly. Ramps launch
 racers off the lip at speed back onto the same circuit — no free flight, tricks,
-or hop button. An optional `forks: split` prototype offers coplanar branches on a safe
-interval (currently verified on `ember`, length 3200, without ramps on that
-course). It has a broad left route, narrower right route carrying the existing
+or hop button. Optional `forks: split` offers coplanar branches on a safe
+interval. Generation can select forks on all three templates at length 3600,
+without ramps on that course (hills remain compatible). Coral and Ratchet use
+explicit fork-compatible control cages; omitted forks retain the legacy geometry. It has a broad left route, narrower right route carrying the existing
 boost supply, a physical island, and a shared-progress rejoin. The linter rejects
-authored splits without a safe interval; normal generation does not select forks
-yet. Both sides use the same `s`, curvature, elevation, and lap gates. Still
+authored splits without a safe interval; curvature and checkpoint/landing
+keepouts are never relaxed to fit one. Both sides use the same `s`, curvature, elevation, and lap gates. Still
 unsupported: genuinely shorter shortcuts, per-branch elevation/overpasses,
-dedicated run/pedal cycles, combat items, and multiplayer.
+combat items, and multiplayer.
+Racing play and development playtest expose pointer controls on touch devices,
+including menu navigation, independently held steering/acceleration and cleanup on
+release, cancellation, blur and unmount. The game canvas fits portrait and landscape
+viewports. `?touch=1` forces the controls only in development for browser verification;
+the cabinet creator remains designed for its existing controller/voice workflow.
+
 Incomplete new packs fail generation or loading. Reviewed selections survive retries
 of unrelated assets. Legacy cups
 without generated-art metadata keep their procedural renderer.

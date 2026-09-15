@@ -608,3 +608,10 @@ export function stableRosterNames(
     i === 0 ? spec.identity!.pilotName : (spec.identity!.rivalCrafts[i - 1]?.name ?? name),
   );
 }
+
+/** Stable landmark bands: integer turns keep the full-lap seam continuous. */
+export function panoramaLandmarkX(heading: number, anchor: number, period: number, repeats: number): number {
+  if (!Number.isFinite(heading) || !Number.isFinite(anchor) || !Number.isFinite(period) || !(period > 0) || !Number.isInteger(repeats) || repeats < 1) return 0;
+  const x = anchor - heading / (2 * Math.PI) * repeats * period;
+  return ((x % period) + period) % period;
+}

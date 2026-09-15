@@ -483,6 +483,50 @@ const RATCHET_CHICANE_CONTROL: TrackPoint[] = [
   { x: -140, y: -380 },
 ];
 
+// Fork variants retain each template's corner rhythm and add a straight outer
+// return. Their start is on the quiet approach so quarter-lap gates leave
+// room for a full split. Only explicit forks use these authored cages.
+const CORAL_FORK_CONTROL: TrackPoint[] = [
+  { x: -320, y: -520 },
+  { x: -120, y: -520 },
+  { x: 0, y: -520 },
+  { x: 320, y: -500 },
+  { x: 520, y: -360 },
+  { x: 560, y: -140 },
+  { x: 460, y: 60 },
+  { x: 520, y: 260 },
+  { x: 400, y: 440 },
+  { x: 180, y: 520 },
+  { x: -80, y: 480 },
+  { x: -300, y: 520 },
+  { x: -560, y: 420 },
+  { x: -560, y: 200 },
+  { x: -560, y: -20 },
+  { x: -560, y: -240 },
+  { x: -560, y: -460 },
+];
+const RATCHET_FORK_CONTROL: TrackPoint[] = [
+  { x: -280, y: -480 },
+  { x: -140, y: -480 },
+  { x: 0, y: -480 },
+  { x: 240, y: -480 },
+  { x: 420, y: -420 },
+  { x: 420, y: -240 },
+  { x: 300, y: -140 },
+  { x: 300, y: 40 },
+  { x: 440, y: 140 },
+  { x: 440, y: 320 },
+  { x: 260, y: 440 },
+  { x: 60, y: 380 },
+  { x: -40, y: 440 },
+  { x: -260, y: 440 },
+  { x: -520, y: 340 },
+  { x: -520, y: 140 },
+  { x: -520, y: -60 },
+  { x: -520, y: -260 },
+  { x: -520, y: -460 },
+];
+
 const TEMPLATE_DEFS: CircuitTemplateDef[] = [
   {
     id: 'ember',
@@ -587,7 +631,9 @@ export function compileTrackVariant(
   } = {},
 ): RaceCircuit {
   const def = TEMPLATE_DEFS.find((d) => d.id === templateId) ?? TEMPLATE_DEFS[0]!;
-  const control = opts.mirror ? mirrorPoints(def.control) : def.control;
+  const cage = opts.forks === 'split' && def.id === 'coral' ? CORAL_FORK_CONTROL
+    : opts.forks === 'split' && def.id === 'ratchet' ? RATCHET_FORK_CONTROL : def.control;
+  const control = opts.mirror ? mirrorPoints(cage) : cage;
   const base = compileTrack(control, opts.length ?? def.targetLength);
   // Optional bounded elevation: validated here (unknown values throw);
   // omission/'flat' keeps the exact legacy track object and arithmetic.

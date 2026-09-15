@@ -1,3 +1,4 @@
+import { mockRacingLocomotionSource } from './racing-mock';
 import sharp, { type OverlayOptions } from 'sharp';
 import { FIGHTER_POSES, type FighterPose, type GameSpec } from '@sparkade/shared';
 import { fighterArtDirectionPrompt } from './fighter-art-direction';
@@ -428,6 +429,7 @@ async function normalizeLandscape(image: Buffer, width: number, height: number):
  * pretending that a local placeholder came from Muse Image. Racing fixtures
  * come from the MOCK-ONLY racing-mock module, never from a real provider. */
 export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
+  if (prompt.includes("RACING LOCOMOTION SHEET:")) return mockRacingLocomotionSource();
   if (prompt.startsWith('Create exactly ONE isolated racing scenery object.')) {
     const slot = Math.max(0, Math.min(5, Number(prompt.match(/Slot (\d)/)?.[1] ?? 1) - 1));
     return sharp(await mockRacingScenerySheetSource())

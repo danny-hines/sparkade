@@ -33,6 +33,7 @@ import {
   type PlatformerPlayStyle,
 } from '@sparkade/shared';
 import { api } from '../api';
+import { RacingTouch } from '../racing-touch';
 import { loadLikenessAssets } from '../likeness-assets';
 import goldenHshooter from '../../../generation/golden/golden-hshooter.json';
 
@@ -58,6 +59,7 @@ export function PlaytestScreen(): ComponentChildren {
     new URLSearchParams(location.search).has('style');
   const ref = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState('');
+  const [touch, setTouch] = useState<{ input: InputBroker; host: GameHost; spec: GameSpec } | null>(null);
   const [artNote, setArtNote] = useState('');
   useEffect(() => {
     const canvas = ref.current;
@@ -190,6 +192,7 @@ export function PlaytestScreen(): ComponentChildren {
             submitScore: async () => [],
           },
         });
+        if (spec.archetype === 'racing') setTouch({ input, host, spec });
         host.start();
         // Dev-only inspection point for deterministic input replay and canvas diagnostics.
         (window as Window & { sparkadePlaytest?: GameHost }).sparkadePlaytest = host;
@@ -206,7 +209,7 @@ export function PlaytestScreen(): ComponentChildren {
     };
   }, []);
   return (
-    <div style="display:flex;flex-direction:column;align-items:center;min-height:600px;background:#000">
+    <div class="playtest-screen" style="display:flex;flex-direction:column;align-items:center;width:100vw;min-height:100dvh;justify-content:center;background:#000">
       {fighterComparison && (
         <nav
           style="display:flex;gap:20px;padding:12px;font:14px monospace"
@@ -280,11 +283,12 @@ export function PlaytestScreen(): ComponentChildren {
           style={
             comparison
               ? `image-rendering:pixelated;width:min(1024px,100vw,calc((100vh - ${fighterComparison ? 104 : 64}px) * 1.706667));height:auto;aspect-ratio:1024/600`
-              : 'image-rendering:pixelated;width:1024px;height:600px'
+              : 'image-rendering:pixelated;width:min(1024px,100vw,calc(100dvh * 1.706667));height:auto;aspect-ratio:1024/600'
           }
           tabIndex={0}
         />
       )}
+      {touch?.spec.archetype === 'racing' && <RacingTouch input={touch.input} host={touch.host} traversal={touch.spec.identity?.traversal} />}
     </div>
   );
 }

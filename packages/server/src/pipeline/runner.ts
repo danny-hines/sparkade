@@ -1,3 +1,5 @@
+import sharp from 'sharp';
+import { RACING_BASE_ROLES, RACING_MOTION_ROLES, RACING_LOCOMOTION_VERSION, buildRacingLocomotionPrompt, processRacingLocomotion, composeRacingLocomotion, racingLocomotionJudgePrompt, racingLocomotionJudgeSchema } from '../assets/racing-locomotion';
 // The durable generation job runner (one job at a time — this is a 1 GB device).
 // Jobs are persisted BEFORE work starts; all output goes to staging/<jobId>/
 // and is atomically renamed into games/<gameId>/ only after every gate passes.
@@ -2705,7 +2707,7 @@ export class GenerationRunner {
             const entry = buildRacingPackPlan(racingSpec).playerStrip;
             const acceptedVersion = `${entry.promptVersion}-approved-v1`;
             const acceptedHash = imagePromptHash(entry.prompt);
-            const acceptedImage = assetWorkspace.load(entry.role, acceptedVersion, acceptedHash);
+            const acceptedImage = assetWorkspace.load(entry.role, acceptedVersion, acceptedHash) ?? assetWorkspace.loadPrivate(RACING_BASE_ROLES[0], acceptedVersion, acceptedHash);
             const acceptedReference = assetWorkspace.loadPrivate(
               'racingCraftReference',
               acceptedVersion,
@@ -3673,7 +3675,9 @@ export class GenerationRunner {
                 `${entry.promptVersion}-approved-v1`,
                 imagePromptHash(entry.prompt),
               );
-              if (approved) return Promise.resolve(approved);
+              const baseIndex = plan.rivalStrips.indexOf(entry) + 1;
+              const savedBase = assetWorkspace.loadPrivate(RACING_BASE_ROLES[baseIndex]!, `${entry.promptVersion}-approved-v1`, imagePromptHash(entry.prompt));
+              if (approved || savedBase) return Promise.resolve((approved ?? savedBase)!);
               return cachedGeneratedAsset({
                 role: entry.role,
                 promptVersion: entry.promptVersion,
@@ -3766,7 +3770,7 @@ export class GenerationRunner {
             const buffers = [playerStrip.gameplay, ...rivalBuffers!];
             const approvedIds = new Set(['player']);
             for (const [index, entry] of plan.rivalStrips.entries()) {
-              if (assetWorkspace.load(entry.role, `${entry.promptVersion}-approved-v1`, imagePromptHash(entry.prompt))) {
+              if (assetWorkspace.load(entry.role, `${entry.promptVersion}-approved-v1`, imagePromptHash(entry.prompt)) || assetWorkspace.loadPrivate(RACING_BASE_ROLES[index + 1]!, `${entry.promptVersion}-approved-v1`, imagePromptHash(entry.prompt))) {
                 approvedIds.add(slots[index + 1]!.id);
               }
             }
@@ -3918,6 +3922,41 @@ export class GenerationRunner {
                 `${entry.promptVersion}-approved-v1`,
                 imagePromptHash(entry.prompt),
               );
+            }
+            const motion = racingIdentity.traversal?.motion;
+            if (motion && motion !== 'static') {
+              const entries = [plan.playerStrip, ...plan.rivalStrips];
+              if (entries.length !== RACING_BASE_ROLES.length || buffers.length !== entries.length)
+                throw new PipelineError('image-invalid', 'Locomotion requires one player and four approved rivals', 'building-assets');
+              // Keep approved identity strips private before publishing expanded atlases.
+              // A later unrelated retry restores both identity and animation without repainting.
+              for (let i = 0; i < entries.length; i++) {
+                const entry = entries[i]!;
+                await assetWorkspace.storePrivate(RACING_BASE_ROLES[i]!, buffers[i]!,
+                  `${entry.promptVersion}-approved-v1`, imagePromptHash(entry.prompt));
+              }
+              for (let i = 0; i < entries.length; i++) {
+                const entry = entries[i]!;
+                const concept = i === 0 ? racingIdentity.playerCraftConcept : racingIdentity.rivalCrafts[i - 1]!.vehicleConcept;
+                const prompt = buildRacingLocomotionPrompt(racingIdentity.traversal!, concept, racingIdentity.artDirection);
+                const hash = imagePromptHash(prompt, buffers[i]!);
+                const version = `${RACING_LOCOMOTION_VERSION}-approved`;
+                let atlas = assetWorkspace.loadPrivate(RACING_MOTION_ROLES[i]!, version, hash);
+                if (!atlas) {
+                  emit('building-assets', `Animating ${slots[i]!.name}: ${motion} cycle…`);
+                  const reference = await buildRacingBankEditReference(await extractRacingNeutralCell(buffers[i]!));
+                  const raw = await callImage({ role: `racing-motion-${i}`, label: `${slots[i]!.name} locomotion`, prompt, reference, size: '1536x1024' });
+                  atlas = await composeRacingLocomotion(buffers[i]!, await processRacingLocomotion(raw));
+                  const verdict = mockImages ? { accepted: true } : await callLlm('design', {
+                    system: racingLocomotionJudgePrompt(motion), user: `Subject: ${concept}. Art direction: ${racingIdentity.artDirection}.`,
+                    jsonSchema: racingLocomotionJudgeSchema, maxTokens: 700, timeoutMs: 120_000,
+                  }, { stage: 'building-assets', label: `Spark reviews ${slots[i]!.name} locomotion`, image: await sharp(atlas).resize(768, 768, { kernel: 'nearest' }).png().toBuffer(), reasoningEffort: 'low' });
+                  if (!verdict || typeof verdict !== 'object' || !('accepted' in verdict) || verdict.accepted !== true)
+                    throw new PipelineError('image-invalid', `Locomotion review rejected ${slots[i]!.name}`, 'building-assets');
+                  await assetWorkspace.storePrivate(RACING_MOTION_ROLES[i]!, atlas, version, hash);
+                }
+                await assetWorkspace.store(entry.role, atlas, version, hash);
+              }
             }
             racingArtStatus = { mode: 'generated', attempted: true };
             emit('building-assets', 'Finished the generated racing world and roster');

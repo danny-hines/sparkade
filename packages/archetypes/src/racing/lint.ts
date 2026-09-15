@@ -48,7 +48,7 @@ export function lintRacing(spec: RacingSpec): LintError[] {
         });
         if (compiled.fork === undefined) out.push(err(
           'RACING_FORK_LAYOUT', `${path}/forks`,
-          'No safe fork interval exists with these options. Use ember at length 3200 without ramps, or omit forks.',
+          'No safe fork interval exists with these options. Use length 3600 without ramps on this course, or omit forks.',
         ));
       } catch {
         out.push(err('RACING_FORK_LAYOUT', `${path}/forks`, 'Invalid course options for a fork layout.'));

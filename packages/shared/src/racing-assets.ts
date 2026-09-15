@@ -64,3 +64,11 @@ export const RACING_PANORAMA_ROLES = [
   'racingPanorama3',
 ] as const;
 export type RacingPanoramaRole = (typeof RACING_PANORAMA_ROLES)[number];
+
+/** Optional motion atlas: original pose row followed by six temporal frames. */
+export const RACING_MOTION_FRAMES = 6;
+export const RACING_MOTION_ATLAS_SIZE = 192;
+export function racingMotionCell(frame: number): { sx: number; sy: number; size: number } {
+  const f = ((Math.floor(frame) % 6) + 6) % 6;
+  return { sx: (f % 3) * 64, sy: (1 + Math.floor(f / 3)) * 64, size: 64 };
+}

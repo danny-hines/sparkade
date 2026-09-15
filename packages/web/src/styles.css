@@ -1719,8 +1719,9 @@ h2.pixel {
 }
 
 .play-screen canvas {
-  width: 1024px;
-  height: 600px;
+  width: min(1024px, 100vw, calc(100dvh * 1.706667));
+  height: auto;
+  aspect-ratio: 1024 / 600;
   image-rendering: pixelated;
 }
 
@@ -5015,4 +5016,24 @@ svg.icon-svg.spin {
   max-width: 390px;
   margin-top: 18px;
   font-size: 15px;
+}
+
+/* Held touch controls remain outside the canvas in portrait, overlay in landscape. */
+.racing-touch { position: fixed; z-index: 20; inset: auto 0 0; display: flex; justify-content: space-between; gap: 18px; padding: 12px max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); pointer-events: none; }
+.racing-touch-steering, .racing-touch-actions { display: grid; grid-template-columns: repeat(2, minmax(56px, 1fr)); gap: 8px; max-width: 230px; }
+.racing-touch-key { touch-action: none; user-select: none; -webkit-user-select: none; pointer-events: auto; min-height: 52px; border: 1px solid #8ad7de; border-radius: 12px; color: #eefbff; background: #152d40e8; font: 600 12px system-ui; padding: 10px; }
+.racing-touch-key:active { background: #256878; }
+.racing-touch-B { background: #175f55ee; }
+.racing-touch-START { font-size: 11px; }
+@media (orientation: landscape) and (max-height: 540px) {
+  .racing-touch { padding-top: 4px; padding-bottom: max(6px, env(safe-area-inset-bottom)); }
+  .racing-touch-key { min-height: 44px; padding: 8px; opacity: .88; }
+}
+
+@media (max-width: 1023px), (max-height: 599px) {
+  .play-screen { width: 100vw; height: 100dvh; }
+}
+
+html:has(.play-screen, .playtest-screen), body:has(.play-screen, .playtest-screen), #root:has(.play-screen, .playtest-screen) {
+  width: 100vw; height: 100dvh;
 }

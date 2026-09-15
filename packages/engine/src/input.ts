@@ -53,6 +53,8 @@ export class InputBroker {
 
   /** Raw keyboard codes currently down. */
   private keysDown = new Set<string>();
+  private virtual = new Map<string, LogicalButton>();
+  private virtualLatched = new Set<LogicalButton>();
   /** Codes pressed since the last poll — guarantees ultra-fast taps still register one frame. */
   private keysLatched = new Set<string>();
   /** Logical state from the previous poll, for edge detection. */
@@ -81,6 +83,8 @@ export class InputBroker {
   };
   private blurHandler = () => {
     this.keysDown.clear();
+    this.keysLatched.clear();
+    this.releaseVirtualInputs();
   };
 
   constructor(opts?: {
@@ -120,6 +124,19 @@ export class InputBroker {
     target.removeEventListener('keydown', this.keydownHandler);
     target.removeEventListener('keyup', this.keyupHandler);
     target.removeEventListener('blur', this.blurHandler);
+  }
+
+  /** Independent pointer/accessibility sources merge with physical controls. */
+  setVirtualButton(source: string, button: LogicalButton, held: boolean): void {
+    if (held) {
+      this.virtual.set(source, button);
+      this.virtualLatched.add(button);
+    } else this.virtual.delete(source);
+  }
+
+  releaseVirtualInputs(): void {
+    this.virtual.clear();
+    this.virtualLatched.clear();
   }
 
   /** All raw inputs currently active (for the remap wizard + remap hold trigger). */
@@ -180,6 +197,9 @@ export class InputBroker {
       });
     }
 
+    for (const button of this.virtual.values()) heldNow[button] = true;
+    for (const button of this.virtualLatched) heldNow[button] = true;
+    this.virtualLatched.clear();
     this.physicalHeld = heldNow;
     // Release swallowed buttons once they are physically up.
     for (const b of [...this.swallowed]) if (!heldNow[b]) this.swallowed.delete(b);

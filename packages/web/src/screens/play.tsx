@@ -9,6 +9,7 @@ import type { GameSpec } from '@sparkade/shared';
 import { api, type SettingsPayload } from '../api';
 import { shellInput } from '../shell-input';
 import { Btn } from '../icons';
+import { RacingTouch } from '../racing-touch';
 import type { Screen } from '../app';
 import { loadLikenessAssets } from '../likeness-assets';
 
@@ -20,6 +21,8 @@ export function PlayScreen(props: {
 }): ComponentChildren {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState('');
+  const [gameHost, setGameHost] = useState<GameHost | null>(null);
+  const [playingSpec, setPlayingSpec] = useState<GameSpec | null>(null);
 
   useEffect(() => {
     let host: GameHost | null = null;
@@ -63,6 +66,8 @@ export function PlayScreen(props: {
             },
           },
         });
+        setPlayingSpec(spec);
+        setGameHost(host);
         host.start();
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load the game.');
@@ -95,6 +100,7 @@ export function PlayScreen(props: {
       ) : (
         <canvas ref={canvasRef} width={1024} height={600} />
       )}
+      {!error && gameHost && playingSpec?.archetype === 'racing' && <RacingTouch input={shellInput.broker} host={gameHost} traversal={playingSpec.identity?.traversal} />}
     </div>
   );
 }

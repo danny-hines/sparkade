@@ -20,6 +20,15 @@ export type RacingSurface = 'ground' | 'water';
 export type RacingRider = 'none' | 'seated' | 'standing' | 'onFoot';
 /** Presentation-only propulsion fiction. Never affects physics. */
 export type RacingPropulsion = 'motor' | 'human' | 'magic';
+/** Optional generated locomotion; presentation only, never physics. */
+export type RacingMotion = 'static' | 'pedal' | 'stride' | 'push' | 'pulse';
+export const RACING_MOTIONS: readonly RacingMotion[] = [
+  'static',
+  'pedal',
+  'stride',
+  'push',
+  'pulse',
+];
 
 /**
  * Composable traversal authoring. label is a short freeform user-facing
@@ -31,11 +40,22 @@ export interface RacingTraversal {
   surface: RacingSurface;
   rider: RacingRider;
   propulsion: RacingPropulsion;
+  motion?: RacingMotion;
 }
 
-export const RACING_HANDLINGS: readonly RacingHandling[] = ['direct', 'grip', 'carve', 'flow'] as const;
+export const RACING_HANDLINGS: readonly RacingHandling[] = [
+  'direct',
+  'grip',
+  'carve',
+  'flow',
+] as const;
 export const RACING_SURFACES: readonly RacingSurface[] = ['ground', 'water'] as const;
-export const RACING_RIDERS: readonly RacingRider[] = ['none', 'seated', 'standing', 'onFoot'] as const;
+export const RACING_RIDERS: readonly RacingRider[] = [
+  'none',
+  'seated',
+  'standing',
+  'onFoot',
+] as const;
 export const RACING_PROPULSIONS: readonly RacingPropulsion[] = ['motor', 'human', 'magic'] as const;
 
 /**
@@ -128,7 +148,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function asciiText(value: unknown): boolean {
-  return typeof value === 'string' && value.length >= 1 && value.length <= 48 && /^[ -~]+$/.test(value);
+  return (
+    typeof value === 'string' && value.length >= 1 && value.length <= 48 && /^[ -~]+$/.test(value)
+  );
 }
 
 /**
@@ -138,24 +160,37 @@ function asciiText(value: unknown): boolean {
  */
 export function resolveTraversal(value: unknown): RacingTraversal | undefined {
   if (value === undefined) return undefined;
-  if (!isRecord(value)) throw new Error('unknown racing traversal (expected an object or omission)');
+  if (!isRecord(value))
+    throw new Error('unknown racing traversal (expected an object or omission)');
   const { label, handling, surface, rider, propulsion } = value;
   if (!asciiText(label)) {
     throw new Error('unknown racing traversal label (expected 1-48 printable ASCII characters)');
   }
   if (!RACING_HANDLINGS.includes(handling as RacingHandling)) {
-    throw new Error(`unknown racing traversal handling "${String(handling)}" (expected ${RACING_HANDLINGS.join(' | ')})`);
+    throw new Error(
+      `unknown racing traversal handling "${String(handling)}" (expected ${RACING_HANDLINGS.join(' | ')})`,
+    );
   }
   if (!RACING_SURFACES.includes(surface as RacingSurface)) {
-    throw new Error(`unknown racing traversal surface "${String(surface)}" (expected ${RACING_SURFACES.join(' | ')})`);
+    throw new Error(
+      `unknown racing traversal surface "${String(surface)}" (expected ${RACING_SURFACES.join(' | ')})`,
+    );
   }
   if (!RACING_RIDERS.includes(rider as RacingRider)) {
-    throw new Error(`unknown racing traversal rider "${String(rider)}" (expected ${RACING_RIDERS.join(' | ')})`);
+    throw new Error(
+      `unknown racing traversal rider "${String(rider)}" (expected ${RACING_RIDERS.join(' | ')})`,
+    );
   }
   if (!RACING_PROPULSIONS.includes(propulsion as RacingPropulsion)) {
-    throw new Error(`unknown racing traversal propulsion "${String(propulsion)}" (expected ${RACING_PROPULSIONS.join(' | ')})`);
+    throw new Error(
+      `unknown racing traversal propulsion "${String(propulsion)}" (expected ${RACING_PROPULSIONS.join(' | ')})`,
+    );
+  }
+  if (value.motion !== undefined && !RACING_MOTIONS.includes(value.motion as RacingMotion)) {
+    throw new Error('unknown racing motion (expected static | pedal | stride | push | pulse)');
   }
   return {
+    ...(value.motion === undefined ? {} : { motion: value.motion as RacingMotion }),
     label: label as string,
     handling: handling as RacingHandling,
     surface: surface as RacingSurface,

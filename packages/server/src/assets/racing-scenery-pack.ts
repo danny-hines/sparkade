@@ -7,6 +7,7 @@ import { racingArtSubject } from './racing-traversal-art';
 export const RACING_SCENERY_OBJECTS_VERSION = 'racing-scenery-objects-v1';
 /** Jetski scenery-object fingerprint; hover keeps v1 byte-identical. */
 export const RACING_JETSKI_SCENERY_OBJECTS_VERSION = 'racing-jetski-objects-v1';
+export const RACING_TRAVERSAL_SCENERY_VERSION = 'racing-traversal-objects-v2';
 const PRIVATE_ROLES = [
   'racingLandmarkFar',
   'racingLandmarkNear',
@@ -55,6 +56,7 @@ export function racingSceneryObjectPrompts(spec: RacingSpec): string[] {
       `Create exactly ONE isolated racing scenery object. Slot ${index + 1}: ${subject}.`,
       `World identity: ${identity.worldConcept}. Art direction: ${identity.artDirection}. Palette: ${spec.palette.join(', ')}.`,
       styleLine,
+      identity.traversal && index < 2 ? "Layered panorama landmark: a clean isolated silhouette, no background rectangle, horizon strip, terrain floor or baked atmosphere. The far landmark should read clearly when small; the near landmark should have a different contour and open negative space. Both belong to the same world and palette." : "",
       'Complete, centered silhouette with at least 15% empty margin on every side. One object only, no sheet, grid, collage, labels, letters, logo, frame or shadow.',
       'Crisp 16-bit pixel art, readable silhouette and flat color ramps. Background and all empty gaps must be perfectly flat #00ff00. No neon green on the object.',
     ].join(' '),
@@ -99,7 +101,7 @@ export async function generateRacingSceneryPack(options: {
 }): Promise<Buffer> {
   const { workspace, reference } = options;
   const prompts = racingSceneryObjectPrompts(options.spec);
-  const version = racingArtSubject(options.spec.identity).water
+  const version = options.spec.identity?.traversal ? RACING_TRAVERSAL_SCENERY_VERSION : racingArtSubject(options.spec.identity).water
     ? RACING_JETSKI_SCENERY_OBJECTS_VERSION
     : RACING_SCENERY_OBJECTS_VERSION;
   const hash = imagePromptHash(JSON.stringify(prompts), reference);

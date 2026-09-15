@@ -33,7 +33,7 @@ export const RACING_JETSKI_PANORAMA_PROMPT_VERSION = 'racing-jetski-panorama-v3'
  * (generic water/ground wording driven by the surface axis); absent
  * traversal keeps the legacy lineages byte-identical.
  */
-export const RACING_TRAVERSAL_PANORAMA_PROMPT_VERSION = 'racing-traversal-panorama-v1';
+export const RACING_TRAVERSAL_PANORAMA_PROMPT_VERSION = 'racing-traversal-panorama-v2';
 
 export type RacingWorldDiscipline = 'hover' | 'jetski';
 /** Generated plates at least this wide are accepted and cover-cropped. */
@@ -136,6 +136,7 @@ function buildTraversalRacingPanoramaPrompt(
   course: string,
   artDirection: string | null,
 ): string {
+  const wrap = 'HORIZONTAL WRAP CONTRACT: this panorama repeats edge to edge. Match horizon height, sky colors and distant terrain at left and right margins. Keep the outer 15 percent quiet and compatible; no cropped dominant landmark at either edge. Distribute several distinct distant silhouettes across the middle, never one central hero object. No near foreground: nearer landmarks are separate transparent sprites layered by the engine.';
   const water = traversal.surface === 'water';
   const world =
     clean(options.worldConcept, 280) ??
@@ -145,6 +146,7 @@ function buildTraversalRacingPanoramaPrompt(
   const retry = clean(options.retryGuidance, 320);
   if (water) {
     return [
+      wrap,
       `Create exactly ONE wide panoramic backdrop for the water course ${course}: the distant water world seen ABOVE the waterline horizon, painted as if from rider eye level at the water surface looking at the far shore. Sky fills the TOP half of the frame, a straight horizon with distant shoreline and landmark silhouettes sits in the MIDDLE band, and only a narrow near-water band runs along the bottom. Coherent harbor, lagoon, stilt-house, mangrove, cliff, or open-water shapes rooted in the locale.`,
       artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
       `World identity: ${world}. This course locale: ${env}. Root every shape and color in that locale, distinct from the other two cup courses.`,
@@ -164,6 +166,7 @@ function buildTraversalRacingPanoramaPrompt(
       .join(' ');
   }
   return [
+    wrap,
     `Create exactly ONE wide panoramic backdrop for the ground course ${course}: the distant world seen ABOVE the road horizon. Camera looks toward the horizon at eye level; sky, far ridgelines, and landmark silhouettes fill the frame.`,
     artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
     `World identity: ${world}. This course locale: ${env}. Root every shape and color in that locale, distinct from the other two cup courses.`,

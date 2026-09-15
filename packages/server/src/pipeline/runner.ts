@@ -1,5 +1,5 @@
 import sharp from 'sharp';
-import { RACING_BASE_ROLES, RACING_MOTION_ROLES, RACING_LOCOMOTION_VERSION, buildRacingLocomotionPrompt, generateReviewedRacingLocomotion, RacingLocomotionImageError, racingLocomotionJudgePrompt, racingLocomotionJudgeSchema } from '../assets/racing-locomotion';
+import { RACING_BASE_ROLES, RACING_MOTION_ROLES, RACING_LOCOMOTION_VERSION, buildRacingLocomotionPrompt, buildRacingLocomotionReference, generateReviewedRacingLocomotion, RacingLocomotionImageError, racingLocomotionJudgePrompt, racingLocomotionJudgeSchema } from '../assets/racing-locomotion';
 // The durable generation job runner (one job at a time — this is a 1 GB device).
 // Jobs are persisted BEFORE work starts; all output goes to staging/<jobId>/
 // and is atomically renamed into games/<gameId>/ only after every gate passes.
@@ -4265,16 +4265,17 @@ export class GenerationRunner {
                     atlas = await generateReviewedRacingLocomotion({
                       base: buffers[i]!, prompt, motion,
                       generate: async (candidatePrompt, correction) => {
+                        const activeReference = correction ? await buildRacingLocomotionReference(buffers[i]!) : reference;
                         const candidate = await callImage({
                           role: `racing-motion-${i}`,
                           label: `${slots[i]!.name} locomotion${correction ? ' correction' : ''}`,
-                          prompt: candidatePrompt, reference, size: '1536x1024',
+                          prompt: candidatePrompt, reference: activeReference, size: '1536x1024',
                         });
                         // Preserve the latest sheet for failed-job diagnosis;
                         // this private, unapproved version is never restored
                         // as an accepted atlas or copied into a ready game.
                         await assetWorkspace.storePrivate(RACING_MOTION_ROLES[i]!, candidate,
-                          `${RACING_LOCOMOTION_VERSION}-candidate`, imagePromptHash(candidatePrompt, reference));
+                          `${RACING_LOCOMOTION_VERSION}-candidate`, imagePromptHash(candidatePrompt, activeReference));
                         return candidate;
                       },
                       review: async (candidate) => mockImages ? { accepted: true } : callLlm('design', {

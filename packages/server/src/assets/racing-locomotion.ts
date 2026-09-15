@@ -109,6 +109,18 @@ export async function composeRacingLocomotion(strip: Buffer, frames: Buffer[]): 
 
 export class RacingLocomotionImageError extends Error {}
 
+/** Editing scaffold only: repeat the approved rear in the target layout
+ * so a correction can articulate limbs without inventing a new scale or
+ * camera. These identical cells cannot pass the actual motion validator. */
+export async function buildRacingLocomotionReference(base: Buffer): Promise<Buffer> {
+  await validateRacingCraftStrip(base);
+  const neutral = await sharp(base).extract({ left: 0, top: 0, width: 64, height: 64 }).png().toBuffer();
+  const sheet = await sharp({ create: { width: 192, height: 128, channels: 4, background: '#00ff00' } })
+    .composite(Array.from({ length: 6 }, (_, i) => ({ input: neutral, left: i % 3 * 64, top: Math.floor(i / 3) * 64 })))
+    .png().toBuffer();
+  return sharp(sheet).resize(1536, 1024, { kernel: 'nearest' }).png().toBuffer();
+}
+
 /** One initial sheet and at most one quality correction. Provider errors
  * from generation or review propagate immediately; only malformed pixels
  * or a completed semantic rejection qualify for another candidate. */
@@ -124,6 +136,7 @@ export async function generateReviewedRacingLocomotion(options: {
     const prompt = attempt === 0 ? options.prompt : [
       options.prompt,
       `MOTION SHEET CORRECTION: ${reason.slice(0, 320)}.`,
+      'The attached six-cell editing scaffold repeats the approved neutral rear identity. Keep its exact body size, silhouette, camera, torso, outfit and rigid conveyance pixels. Change only the articulating limbs/flexible parts into six successive motion phases; do not return the unchanged scaffold or redesign the racer.',
       'The art direction supplies ONLY pixel technique and palette. Omit all landscape, architecture, mountains, trees and background scenery mentioned in it. The grid is imaginary: never draw boxes, panels, borders or dividing lines. Each cell contains only the isolated subject on identical flat #00ff00.',
       'Keep all six complete subjects inside their individual cells, with solid green margins on every outer edge and a wide empty horizontal gutter between rows. Preserve the approved rear identity and all six distinct temporal phases.',
       options.motion === 'pedal'

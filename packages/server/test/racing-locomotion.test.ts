@@ -6,6 +6,7 @@ import {
   processRacingLocomotion,
   generateReviewedRacingLocomotion,
   RacingLocomotionImageError,
+  buildRacingLocomotionReference,
 } from '../src/assets/racing-locomotion';
 import { mockRacingCraftStripSource, mockRacingLocomotionSource } from '../src/assets/racing-mock';
 import { processGeneratedRacingCraftStrip } from '../src/assets/racing-craft';
@@ -85,5 +86,12 @@ describe('generated motion atlas', () => {
     const generate = vi.fn().mockRejectedValue(refusal);
     await expect(generateReviewedRacingLocomotion({ base: Buffer.alloc(0), prompt: 'contract', motion: 'pedal', generate, review: vi.fn() })).rejects.toBe(refusal);
     expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it('provides an identity-and-scale scaffold that cannot masquerade as a valid cycle', async () => {
+    const base = (await processGeneratedRacingCraftStrip(await mockRacingCraftStripSource())).png;
+    const reference = await buildRacingLocomotionReference(base);
+    expect(await sharp(reference).metadata()).toMatchObject({ width: 1536, height: 1024 });
+    await expect(processRacingLocomotion(reference)).rejects.toThrow('six distinct');
   });
 });

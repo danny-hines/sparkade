@@ -129,6 +129,19 @@ class ShellInputImpl {
     this.broker.swallow();
   }
 
+  /**
+   * Report genuine user activity that never reaches the broker. Typed text,
+   * pointer clicks/taps, and natively handled keys (Enter/Space on a focused
+   * control) are invisible to the poll loop — text targets are ignored and
+   * pointer input isn't a cabinet command — so screens with real form
+   * controls must call this or an actively typing/clicking user still reads
+   * as idle (e.g. the attract timer). Cabinet input already reports through
+   * the loop; double-reporting it here is harmless.
+   */
+  pokeActivity(): void {
+    this.onAnyInput?.();
+  }
+
   /** Hand the broker to a GameHost (gameplay) and back. */
   setSuspended(v: boolean): void {
     this.suspended = v;

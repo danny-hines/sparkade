@@ -11,6 +11,11 @@ import { shellInput } from '../shell-input';
 import { buildCreationPrompt } from '../creation-brief';
 import { pickSurpriseArchetype } from '../surprise';
 import { normalizeTranscribedHeroName } from '../transcription';
+import {
+  decodePhotoFileToJpeg,
+  PhotoUploadError,
+  validatePhotoFileMeta,
+} from '../photo-upload';
 import type { Screen } from '../app';
 
 type PhotoMode = 'choice' | 'camera' | 'preview' | 'error';
@@ -116,9 +121,20 @@ export function WizardScreen(props: {
   const [online, setOnline] = useState(navigator.onLine);
   const [isPi, setIsPi] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const idempotencyKey = useRef(`ik-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const carouselRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const detailsInputRef = useRef<HTMLTextAreaElement>(null);
+  const mountedRef = useRef(true);
+  const uploadingRef = useRef(false);
+  const photoUrlRef = useRef<string | null>(null);
+  /** Bumped to invalidate a pending async photo decode (cancel/unmount/navigate). */
+  const uploadSeqRef = useRef(0);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -128,6 +144,8 @@ export function WizardScreen(props: {
 
   const chosenArchetype = requestedArchetype ? choiceFor(requestedArchetype) : null;
   const carouselChoice = ARCHETYPES[cursor] ?? ARCHETYPES[0]!;
+  photoUrlRef.current = photoUrl;
+  uploadingRef.current = uploading;
 
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -154,12 +172,38 @@ export function WizardScreen(props: {
 
   useEffect(
     () => () => {
+      mountedRef.current = false;
+      uploadSeqRef.current += 1;
       stopCamera();
       recordingCanceledRef.current = true;
       stopMic();
+      if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current);
     },
     [],
   );
+
+  // Carousel scroll discipline: centering is transform-based, so the
+  // viewport must never carry a scroll offset — but overflow:hidden still
+  // permits one (focus reveal, or an automation scrollIntoView ahead of a
+  // click, both of which predate any mousedown guard). The CSS uses
+  // overflow:clip to remove the scroll box entirely; this effect additionally
+  // zeroes any residual offset on every cursor/step change and keeps native
+  // focus on the centered card without scrolling. Cards are roving-tabindex
+  // so the centered card is the only tab stop.
+  useEffect(() => {
+    const viewport = carouselRef.current;
+    if (viewport && (viewport.scrollLeft !== 0 || viewport.scrollTop !== 0)) {
+      viewport.scrollLeft = 0;
+      viewport.scrollTop = 0;
+    }
+    if (step !== 'archetype') return;
+    const active = document.activeElement as HTMLElement | null;
+    if (!active || active.dataset.archetypeCard === undefined) return;
+    if (Number(active.dataset.archetypeCard) === cursor) return;
+    trackRef.current
+      ?.querySelector<HTMLElement>(`[data-archetype-card="${cursor}"]`)
+      ?.focus({ preventScroll: true });
+  }, [cursor, step]);
 
   useEffect(() => {
     if (step !== 'photo' || photoMode !== 'camera') return undefined;
@@ -227,16 +271,159 @@ export function WizardScreen(props: {
   };
 
   const goToDetails = (nextCursor = 0) => {
+    uploadSeqRef.current += 1;
+    setUploading(false);
     setStep('details');
     setEntryMode('choice');
     setCursor(nextCursor);
   };
 
   const goToPhoto = () => {
+    uploadSeqRef.current += 1;
+    setUploading(false);
     setStep('photo');
     setEntryMode('choice');
     setPhotoMode(photoUrl ? 'preview' : 'choice');
     setCursor(photoUrl ? 1 : 0);
+  };
+
+  const openFilePicker = () => {
+    if (uploadingRef.current) return;
+    fileInputRef.current?.click();
+  };
+
+  const handlePhotoFile = (file: File | null | undefined) => {
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (!file || uploadingRef.current) return; // picker canceled or a decode is in flight
+    const metaError = validatePhotoFileMeta(file);
+    if (metaError) {
+      setCameraError(metaError);
+      setPhotoMode('error');
+      setCursor(1);
+      shellInput.blip('error');
+      return;
+    }
+    const seq = (uploadSeqRef.current += 1);
+    const cancelled = () => seq !== uploadSeqRef.current || !mountedRef.current;
+    setUploading(true);
+    setCameraError('');
+    void decodePhotoFileToJpeg(file, { isCancelled: cancelled })
+      .then((blob) => {
+        if (cancelled() || !mountedRef.current) return;
+        shellInput.pokeActivity();
+        setPhotoBlob(blob);
+        setPhotoUrl((old) => {
+          if (old) URL.revokeObjectURL(old);
+          return URL.createObjectURL(blob);
+        });
+        setUploading(false);
+        stopCamera();
+        setPhotoMode('preview');
+        setCursor(1);
+        shellInput.blip('success');
+      })
+      .catch((error: unknown) => {
+        if (cancelled() || !mountedRef.current) return;
+        if (error instanceof PhotoUploadError && error.cancelled) return;
+        setUploading(false);
+        setCameraError(error instanceof Error ? error.message : 'Could not read that image.');
+        setPhotoMode('error');
+        setCursor(1);
+        shellInput.blip('error');
+      });
+  };
+
+  const speakField = (target: RecordTarget) => (event: Event) => {
+    event.stopPropagation();
+    if (entryMode !== 'choice') return;
+    shellInput.pokeActivity();
+    shellInput.blip('select');
+    setEntryMode('record');
+    setRecordTarget(target);
+    void startRecording(target);
+  };
+
+  const clickGenerate = () => {
+    if (!online || submitting) {
+      shellInput.blip('error');
+      return;
+    }
+    shellInput.blip('select');
+    generate();
+  };
+
+  // Single-source pointer/keyboard actions. Gamepad A routes to the same
+  // behavior through the shellInput handler, so all three inputs agree.
+  const chooseTakePhoto = () => {
+    setCursor(0);
+    shellInput.blip('select');
+    setPhotoMode('camera');
+  };
+  const chooseUploadPhoto = () => {
+    setCursor(1);
+    shellInput.blip('select');
+    openFilePicker();
+  };
+  const skipPhoto = () => {
+    setCursor(2);
+    shellInput.blip('select');
+    clearPhoto();
+    goToDetails();
+  };
+  const retakePhoto = () => {
+    setCursor(0);
+    shellInput.blip('select');
+    clearPhoto();
+    setPhotoMode('camera');
+  };
+  const usePhoto = () => {
+    setCursor(1);
+    shellInput.blip('select');
+    goToDetails();
+  };
+  const chooseType = () => {
+    setCursor(1);
+    shellInput.blip('select');
+    goToArchetype();
+  };
+  const createClicked = () => {
+    setCursor(3);
+    clickGenerate();
+  };
+  const selectArchetype = (choice: ArchetypeChoice, index: number) => {
+    setCursor(index);
+    shellInput.blip('select');
+    setRequestedArchetype(choice.id);
+    goToDetails(1);
+  };
+
+  // Keyboard operability for the clickable rows/cards. Enter/Space are
+  // stopped here so the shell broker (which would also turn them into a
+  // cabinet press against the cursor position) cannot double-fire.
+  // Native interaction reporting: typing, pointer, and natively handled
+  // keys never reach the broker, so the attract idle timer would fire on an
+  // actively drafting user. Root-level bubbling covers most of it; paths
+  // that stop propagation (keyboard activation, voice buttons) poke
+  // explicitly. No cabinet commands are mapped here.
+  const pokeIdle = () => shellInput.pokeActivity();
+
+  const keyboardAction = (action: () => void, tabIndex = 0) => ({
+    tabIndex,
+    role: 'button' as const,
+    onKeyDown: (event: KeyboardEvent) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        event.stopPropagation();
+        shellInput.pokeActivity();
+        action();
+      }
+    },
+  });
+
+  // Same guard for the real <button>s: native Enter/Space clicks them, and
+  // the broker must not also see the key as a cabinet press.
+  const swallowActivationKeys = (event: KeyboardEvent) => {
+    if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
   };
 
   const snapPhoto = () => {
@@ -435,10 +622,11 @@ export function WizardScreen(props: {
 
         if (mode.step === 'photo') {
           if (mode.photoMode === 'choice') {
-            if (nav(2)) return;
+            if (nav(3)) return;
             if (button === 'A') {
               shellInput.blip('select');
               if (mode.cursor === 0) setPhotoMode('camera');
+              else if (mode.cursor === 1) openFilePicker();
               else {
                 clearPhoto();
                 goToDetails();
@@ -469,10 +657,11 @@ export function WizardScreen(props: {
               setCursor(0);
             }
           } else if (mode.photoMode === 'error') {
-            if (nav(2, true)) return;
+            if (nav(3, true)) return;
             if (button === 'A') {
               shellInput.blip('select');
               if (mode.cursor === 0) setPhotoMode('camera');
+              else if (mode.cursor === 1) openFilePicker();
               else {
                 clearPhoto();
                 goToDetails();
@@ -590,9 +779,9 @@ export function WizardScreen(props: {
   const detailHelp = sttError
     ? sttError
     : ([
-        'Name your main character, or leave it to Spark.',
+        'Type or speak the hero name, or leave it to Spark.',
         'Choose how the game plays, or use Random for a varied surprise.',
-        'Describe the story, enemies, or visual style you want.',
+        'Type or speak the story, enemies, or visual style you want.',
         online
           ? estimate?.busy
             ? 'Another game is generating. This one will wait in line.'
@@ -601,7 +790,12 @@ export function WizardScreen(props: {
       ][cursor] ?? '');
 
   return (
-    <div class="screen">
+    <div
+      class="screen"
+      onPointerDown={pokeIdle}
+      onKeyDown={pokeIdle}
+      onInput={pokeIdle}
+    >
       <div class="screen-title wizard-title">
         <h2 class="pixel">NEW GAME</h2>
         <span class="status-chips">{stepChip}</span>
@@ -614,19 +808,46 @@ export function WizardScreen(props: {
               Your photo helps create your hero and is deleted after the game publishes.
             </div>
             <div class="menu-list" style="width:480px;margin-top:10px">
-              <div class={`focusable menu-item ${cursor === 0 ? 'focused' : ''}`}>
+              <div
+                class={`focusable menu-item ${cursor === 0 ? 'focused' : ''}`}
+                onClick={chooseTakePhoto}
+                {...keyboardAction(chooseTakePhoto)}
+              >
                 <span class="icon">
                   <Icon name="camera" />
                 </span>{' '}
                 Take photo
               </div>
-              <div class={`focusable menu-item ${cursor === 1 ? 'focused' : ''}`}>
+              <div
+                class={`focusable menu-item ${cursor === 1 ? 'focused' : ''}`}
+                onClick={chooseUploadPhoto}
+                {...keyboardAction(chooseUploadPhoto)}
+              >
+                <span class="icon">
+                  <Icon name="folder" />
+                </span>{' '}
+                Upload photo
+              </div>
+              <div
+                class={`focusable menu-item ${cursor === 2 ? 'focused' : ''}`}
+                onClick={skipPhoto}
+                {...keyboardAction(skipPhoto)}
+              >
                 <span class="icon">
                   <Icon name="arrowRight" />
                 </span>{' '}
                 Skip
               </div>
             </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              class="photo-upload-input"
+              aria-label="Upload a photo file"
+              onChange={(event) => handlePhotoFile(event.currentTarget.files?.[0])}
+            />
+            {uploading ? <div class="wizard-uploading">Reading photo…</div> : null}
           </div>
         )}
 
@@ -654,10 +875,20 @@ export function WizardScreen(props: {
               {photoUrl ? <img src={photoUrl} alt="Photo preview" /> : null}
             </div>
             <div class="modal-choices" style="display:flex;gap:18px">
-              <div class={`focusable ${cursor === 0 ? 'focused' : ''}`} style="padding:12px 28px">
+              <div
+                class={`focusable ${cursor === 0 ? 'focused' : ''}`}
+                style="padding:12px 28px"
+                onClick={retakePhoto}
+                {...keyboardAction(retakePhoto)}
+              >
                 Retake
               </div>
-              <div class={`focusable ${cursor === 1 ? 'focused' : ''}`} style="padding:12px 28px">
+              <div
+                class={`focusable ${cursor === 1 ? 'focused' : ''}`}
+                style="padding:12px 28px"
+                onClick={usePhoto}
+                {...keyboardAction(usePhoto)}
+              >
                 Use photo
               </div>
             </div>
@@ -668,13 +899,40 @@ export function WizardScreen(props: {
           <div class="center-col">
             <div style="font-size:24px;color:var(--danger)">{cameraError}</div>
             <div style="display:flex;gap:18px;margin-top:10px">
-              <div class={`focusable ${cursor === 0 ? 'focused' : ''}`} style="padding:12px 28px">
+              <div
+                class={`focusable ${cursor === 0 ? 'focused' : ''}`}
+                style="padding:12px 28px"
+                onClick={chooseTakePhoto}
+                {...keyboardAction(chooseTakePhoto)}
+              >
                 Retry
               </div>
-              <div class={`focusable ${cursor === 1 ? 'focused' : ''}`} style="padding:12px 28px">
+              <div
+                class={`focusable ${cursor === 1 ? 'focused' : ''}`}
+                style="padding:12px 28px"
+                onClick={chooseUploadPhoto}
+                {...keyboardAction(chooseUploadPhoto)}
+              >
+                Upload photo
+              </div>
+              <div
+                class={`focusable ${cursor === 2 ? 'focused' : ''}`}
+                style="padding:12px 28px"
+                onClick={skipPhoto}
+                {...keyboardAction(skipPhoto)}
+              >
                 Continue without photo
               </div>
             </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              class="photo-upload-input"
+              aria-label="Upload a photo file"
+              onChange={(event) => handlePhotoFile(event.currentTarget.files?.[0])}
+            />
+            {uploading ? <div class="wizard-uploading">Reading photo…</div> : null}
           </div>
         )}
 
@@ -682,22 +940,90 @@ export function WizardScreen(props: {
           <div class="game-details-stage">
             <div class="wizard-kicker">TELL SPARK WHAT MATTERS</div>
             <div class="game-details-grid">
-              <div class={`focusable game-detail-row ${cursor === 0 ? 'focused' : ''}`}>
-                <div class="game-detail-label">Hero Name</div>
-                <div class={`game-detail-value one-line ${heroName ? '' : 'spark-decides'}`}>
-                  {heroName || 'Spark decides'}
+              <div
+                class={`focusable game-detail-row ${cursor === 0 ? 'focused' : ''}`}
+                onClick={() => {
+                  setCursor(0);
+                  nameInputRef.current?.focus();
+                }}
+              >
+                <label class="game-detail-label" for="wizard-hero-name">
+                  Hero Name
+                </label>
+                <div class="game-detail-field">
+                  <input
+                    ref={nameInputRef}
+                    id="wizard-hero-name"
+                    class="wizard-text-input"
+                    type="text"
+                    maxLength={48}
+                    autoComplete="off"
+                    spellcheck={false}
+                    placeholder="Spark decides"
+                    aria-label="Hero Name — type a name, speak one, or leave it to Spark"
+                    value={heroName}
+                    onInput={(event) => setHeroName(event.currentTarget.value.slice(0, 48))}
+                    onFocus={() => setCursor(0)}
+                    onClick={(event) => event.stopPropagation()}
+                  />
+                  <button
+                    type="button"
+                    class="wizard-voice-btn"
+                    title="Speak"
+                    aria-label="Speak the hero name instead of typing"
+                    onClick={speakField('name')}
+                    onKeyDown={swallowActivationKeys}
+                  >
+                    <Icon name="mic" size={18} />
+                  </button>
                 </div>
               </div>
-              <div class={`focusable game-detail-row ${cursor === 1 ? 'focused' : ''}`}>
+              <div
+                class={`focusable game-detail-row ${cursor === 1 ? 'focused' : ''}`}
+                onClick={chooseType}
+                {...keyboardAction(chooseType)}
+              >
                 <div class="game-detail-label">Type</div>
                 <div class={`game-detail-value one-line ${chosenArchetype ? '' : 'spark-decides'}`}>
                   {chosenArchetype?.label ?? 'Random'}
                 </div>
               </div>
-              <div class={`focusable game-detail-row details ${cursor === 2 ? 'focused' : ''}`}>
-                <div class="game-detail-label">Details</div>
-                <div class={`game-detail-value multi-line ${details ? '' : 'spark-decides'}`}>
-                  {details || 'Spark decides'}
+              <div
+                class={`focusable game-detail-row details ${cursor === 2 ? 'focused' : ''}`}
+                onClick={() => {
+                  setCursor(2);
+                  detailsInputRef.current?.focus();
+                }}
+              >
+                <label class="game-detail-label" for="wizard-details">
+                  Details
+                </label>
+                <div class="game-detail-field">
+                  <textarea
+                    ref={detailsInputRef}
+                    id="wizard-details"
+                    class="wizard-text-input wizard-text-area"
+                    rows={3}
+                    maxLength={1200}
+                    autoComplete="off"
+                    spellcheck={false}
+                    placeholder="Spark decides"
+                    aria-label="Game details — type a description, speak one, or leave it to Spark"
+                    value={details}
+                    onInput={(event) => setDetails(event.currentTarget.value.slice(0, 1200))}
+                    onFocus={() => setCursor(2)}
+                    onClick={(event) => event.stopPropagation()}
+                  />
+                  <button
+                    type="button"
+                    class="wizard-voice-btn"
+                    title="Speak"
+                    aria-label="Speak the game details instead of typing"
+                    onClick={speakField('details')}
+                    onKeyDown={swallowActivationKeys}
+                  >
+                    <Icon name="mic" size={18} />
+                  </button>
                 </div>
               </div>
             </div>
@@ -708,6 +1034,8 @@ export function WizardScreen(props: {
             <div
               class={`focusable game-details-create ${cursor === 3 ? 'focused' : ''}`}
               style={!online ? 'opacity:0.45' : ''}
+              onClick={createClicked}
+              {...keyboardAction(createClicked)}
             >
               <span>
                 <Icon name="sparkle" /> {submitting ? 'Starting…' : 'Create Game'}
@@ -755,8 +1083,9 @@ export function WizardScreen(props: {
         {step === 'archetype' && (
           <div class="archetype-stage">
             <div class="wizard-kicker">CHOOSE HOW IT PLAYS</div>
-            <div class="archetype-carousel">
+            <div ref={carouselRef} class="archetype-carousel">
               <div
+                ref={trackRef}
                 class="archetype-track"
                 style={{
                   position: 'relative',
@@ -767,7 +1096,14 @@ export function WizardScreen(props: {
                 {ARCHETYPES.map((choice, index) => (
                   <div
                     key={choice.id}
+                    data-archetype-card={index}
                     class={`focusable archetype-card ${index === cursor ? 'focused selected' : ''}`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => selectArchetype(choice, index)}
+                    {...keyboardAction(
+                      () => selectArchetype(choice, index),
+                      index === cursor ? 0 : -1,
+                    )}
                   >
                     <img class="archetype-cover" src={choice.previewImage} alt="" />
                     <div class="archetype-name">{choice.cardLabel ?? choice.label}</div>

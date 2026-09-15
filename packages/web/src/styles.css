@@ -926,6 +926,84 @@ h2.pixel {
   text-align: right;
 }
 
+/* Creator pointer/keyboard affordances (compact wizard layout unchanged) */
+.photo-upload-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  opacity: 0;
+  overflow: hidden;
+}
+
+.wizard-uploading {
+  margin-top: 10px;
+  color: var(--text-dim);
+  font-size: 16px;
+}
+
+.menu-list .menu-item,
+.game-detail-row,
+.game-details-create,
+.archetype-card {
+  cursor: pointer;
+}
+
+.game-detail-field {
+  min-width: 0;
+  padding-left: 22px;
+  border-left: 2px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wizard-text-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+.wizard-text-input::placeholder {
+  color: var(--text-dim);
+}
+
+.wizard-text-input:focus {
+  outline: none;
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 2px rgba(53, 224, 255, 0.35);
+}
+
+.wizard-text-area {
+  min-height: 76px;
+  resize: vertical;
+}
+
+.wizard-voice-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cyan);
+  cursor: pointer;
+}
+
+.wizard-voice-btn:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
 .camera-stage {
   position: relative;
   width: 440px;
@@ -985,7 +1063,11 @@ h2.pixel {
 .archetype-carousel {
   width: 100%;
   height: 286px;
-  overflow: hidden;
+  /* overflow:clip (not hidden): the track centers the selected card purely
+     by transform, so the viewport must not be a scroll container at all —
+     hidden still permits focus-reveal and scrollIntoView offsets that fight
+     the centering and can swallow pointer clicks. */
+  overflow: clip;
   padding: 8px 0;
 }
 

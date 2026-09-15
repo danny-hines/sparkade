@@ -134,7 +134,7 @@ describe('racing conveyance-axis contract', () => {
     expect(RACING_TRAVERSAL_STRIP_PROMPT_VERSION).toBe('racing-traversal-strip-v3');
     expect(RACING_TRAVERSAL_BANK_PROMPT_VERSION).toBe('racing-traversal-bank-v3');
     expect(RACING_TRAVERSAL_JUDGE_PROMPT_VERSION).toBe('racing-traversal-judge-v2');
-    expect(RACING_LOCOMOTION_VERSION).toBe('racing-locomotion-v2');
+    expect(RACING_LOCOMOTION_VERSION).toBe('racing-locomotion-v3');
     expect(RACING_CRAFT_STRIP_PROMPT_VERSION).toBe('racing-craft-strip-v3');
     expect(RACING_JETSKI_STRIP_PROMPT_VERSION).toBe('racing-jetski-strip-v1');
     expect(RACING_BANK_PROMPT_VERSION).toBe('racing-craft-bank-v1');

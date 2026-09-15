@@ -7,6 +7,7 @@ import {
   generateReviewedRacingLocomotion,
   RacingLocomotionImageError,
   buildRacingLocomotionReference,
+  assertRacingMotionSilhouette,
 } from '../src/assets/racing-locomotion';
 import { mockRacingCraftStripSource, mockRacingLocomotionSource } from '../src/assets/racing-mock';
 import { processGeneratedRacingCraftStrip } from '../src/assets/racing-craft';
@@ -93,5 +94,10 @@ describe('generated motion atlas', () => {
     const reference = await buildRacingLocomotionReference(base);
     expect(await sharp(reference).metadata()).toMatchObject({ width: 1536, height: 1024 });
     await expect(processRacingLocomotion(reference)).rejects.toThrow('six distinct');
+  });
+
+  it('rejects an opaque matte even when the cell has transparent outer margins', async () => {
+    const panel = await sharp(Buffer.from('<svg width="64" height="64"><rect x="6" y="6" width="52" height="52" fill="black"/><rect x="6" y="6" width="1" height="52" fill="#001b00"/><rect x="25" y="10" width="14" height="44" fill="#b05030"/></svg>')).png().toBuffer();
+    await expect(assertRacingMotionSilhouette(panel)).rejects.toThrow('opaque rectangular background');
   });
 });

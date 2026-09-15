@@ -4,7 +4,9 @@ import { processGeneratedFighterPose } from './fighter-pose';
 import { splitRacingStripCells, validateRacingCraftStrip } from './racing-craft';
 import { racingConveyanceAxisLine } from './racing-traversal-art';
 
-export const RACING_LOCOMOTION_VERSION = 'racing-locomotion-v2';
+// v3 rejects opaque background panels, including previously approved v2
+// candidates. Old ready games are unchanged; generation approvals refresh.
+export const RACING_LOCOMOTION_VERSION = 'racing-locomotion-v3';
 const MOTION_BRIEFS: Record<Exclude<RacingMotion, 'static'>, string> = {
   pedal:
     'one complete alternating pedal rotation, with knees and feet moving through six evenly spaced crank positions while hands stay on the controls',
@@ -72,6 +74,7 @@ export async function processRacingLocomotion(raw: Buffer): Promise<Buffer[]> {
         maxSubjectFraction: 0.85,
         minSubjectSpanFraction: 0.1,
       });
+      await assertRacingMotionSilhouette(pose.png);
       spans.push(pose.metrics.sourceBounds.height);
       frames.push(pose.png);
     }
@@ -82,6 +85,33 @@ export async function processRacingLocomotion(raw: Buffer): Promise<Buffer[]> {
   if (new Set(frames.map((b) => b.toString('base64'))).size !== RACING_MOTION_FRAMES)
     throw new Error('Locomotion needs six distinct temporal frames');
   return frames;
+}
+
+/** Transparent outer padding is insufficient when a painted matte remains
+ * behind the subject. A nearly full large rectangle dominated by one flat
+ * color is a background panel, not a cutout. Small palette variations
+ * and a differently colored border must not conceal the matte. */
+export async function assertRacingMotionSilhouette(frame: Buffer): Promise<void> {
+  const { data, info } = await sharp(frame).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  let x0 = info.width, y0 = info.height, x1 = -1, y1 = -1;
+  for (let y = 0; y < info.height; y++) for (let x = 0; x < info.width; x++) {
+    if (data[(y * info.width + x) * 4 + 3]! < 128) continue;
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+  }
+  if (x1 < x0 || y1 < y0) throw new Error('Locomotion frame has no subject');
+  let opaque = 0;
+  const colors = new Map<number, number>();
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const offset = (y * info.width + x) * 4;
+    if (data[offset + 3]! < 128) continue;
+    opaque++;
+    const color = ((data[offset]! >> 3) << 10) | ((data[offset + 1]! >> 3) << 5) | (data[offset + 2]! >> 3);
+    colors.set(color, (colors.get(color) ?? 0) + 1);
+  }
+  const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+  const dominant = Math.max(...colors.values());
+  if (area >= info.width * info.height * 0.4 && opaque / area > 0.98 && dominant / area > 0.6)
+    throw new Error('Locomotion frame contains an opaque rectangular background; retain only the subject silhouette on transparency');
 }
 
 export async function composeRacingLocomotion(strip: Buffer, frames: Buffer[]): Promise<Buffer> {
@@ -169,7 +199,7 @@ export const racingLocomotionJudgeSchema = {
 };
 
 export function racingLocomotionJudgePrompt(motion: RacingMotion): string {
-  return `Review this racing motion atlas. Row 1 contains the approved identity reference: legacy rear/left/right cells or neutral placeholder cells repeating the approved rear. Rows 2 and 3 are six temporal ${motion} frames, read left to right. Accept ONLY if all six preserve the exact reference subject, outfit/conveyance, rear orientation, scale, pixel art and support baseline, and form readable coherent ${motion} locomotion with meaningful limb/flexible-part changes and a plausible loop. No missing/extra limbs, identity drift, frozen duplicate poses, green screen residue, cropping or viewpoint changes. Independently verify the reference orientation itself: reject when any conveyance deck or board lies sideways across the road (screen-left to screen-right) instead of nose-tail aligned with travel into the screen (rear closest, nose farthest, foreshortened rear perspective); six frames faithfully copying a wrong reference still fail, since matching the reference never excuses a sideways deck. Return JSON accepted:boolean and reason:string. A visually attractive but mechanically wrong cycle must fail.`;
+  return `Review this racing motion atlas. Row 1 contains the approved identity reference: legacy rear/left/right cells or neutral placeholder cells repeating the approved rear. Rows 2 and 3 are six temporal ${motion} frames, read left to right. Accept ONLY if all six preserve the exact reference subject, outfit/conveyance, rear orientation, scale, pixel art and support baseline, and form readable coherent ${motion} locomotion with meaningful limb/flexible-part changes and a plausible loop. No missing/extra limbs, identity drift, frozen duplicate poses, green screen residue, cropping or viewpoint changes. Every cell must have transparent negative space around the actual subject silhouette: reject any opaque black/green/colored panel or painted scenery behind it, even with transparent outer padding. Independently verify the reference orientation itself: reject when any conveyance deck or board lies sideways across the road (screen-left to screen-right) instead of nose-tail aligned with travel into the screen (rear closest, nose farthest, foreshortened rear perspective); six frames faithfully copying a wrong reference still fail, since matching the reference never excuses a sideways deck. Return JSON accepted:boolean and reason:string. A visually attractive but mechanically wrong cycle must fail.`;
 }
 
 export const RACING_BASE_ROLES = [

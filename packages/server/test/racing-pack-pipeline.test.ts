@@ -106,7 +106,7 @@ describe.sequential('mock racing pack pipeline', () => {
     const original = GameAssetWorkspace.prototype.store;
     let fail = true;
     const spy = vi.spyOn(GameAssetWorkspace.prototype, 'store').mockImplementation(async function(this: GameAssetWorkspace, role, image, version, hash) {
-      if (fail && role === 'racingCraftRival2' && version === 'racing-locomotion-v2-approved') throw new Error('synthetic late motion persistence failure');
+      if (fail && role === 'racingCraftRival2' && version === 'racing-locomotion-v3-approved') throw new Error('synthetic late motion persistence failure');
       return original.call(this, role, image, version, hash);
     });
     try {
@@ -147,7 +147,7 @@ describe.sequential('mock racing pack pipeline', () => {
     for (const role of RACING_PACK_REQUIRED_ROLES) {
       const asset = generatedAssetForRole(dir, role)!;
       expect(asset).not.toBeNull();
-      if (role.startsWith('racingCraft')) expect(asset).toMatchObject({width:192,height:192,promptVersion:'racing-locomotion-v2-approved'});
+      if (role.startsWith('racingCraft')) expect(asset).toMatchObject({width:192,height:192,promptVersion:'racing-locomotion-v3-approved'});
     }
   }, 90_000);
 

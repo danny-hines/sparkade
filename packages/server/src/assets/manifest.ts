@@ -53,6 +53,31 @@ export const PRIVATE_GENERATED_ASSET_FILENAMES = Object.freeze(
 );
 export type PrivateGeneratedAssetRole = keyof typeof PRIVATE_GENERATED_ASSET_FILES;
 
+/**
+ * Retry-only terminal outcomes for optional per-racer racing motion, keyed
+ * to the approved base plus prompt and locomotion version. A later unrelated
+ * retry restores the recorded refusal/failure instead of rerolling the
+ * animation. Never part of the public manifest; scrubbed at publication.
+ */
+const PRIVATE_MOTION_OUTCOME_FILES = {
+  racingMotionOutcome0: '.racing-motion-0.terminal.json',
+  racingMotionOutcome1: '.racing-motion-1.terminal.json',
+  racingMotionOutcome2: '.racing-motion-2.terminal.json',
+  racingMotionOutcome3: '.racing-motion-3.terminal.json',
+  racingMotionOutcome4: '.racing-motion-4.terminal.json',
+} as const;
+export type PrivateMotionOutcomeRole = keyof typeof PRIVATE_MOTION_OUTCOME_FILES;
+export const PRIVATE_MOTION_OUTCOME_FILENAMES = Object.freeze(
+  Object.values(PRIVATE_MOTION_OUTCOME_FILES),
+);
+export const RACING_MOTION_OUTCOME_ROLES: readonly PrivateMotionOutcomeRole[] = [
+  'racingMotionOutcome0',
+  'racingMotionOutcome1',
+  'racingMotionOutcome2',
+  'racingMotionOutcome3',
+  'racingMotionOutcome4',
+];
+
 interface PrivateGeneratedAssetMeta {
   model: string;
   promptVersion: string;
@@ -205,6 +230,35 @@ export class GameAssetWorkspace {
     } catch (error) {
       throw new GeneratedAssetStorageError(
         `could not persist private generated asset ${role}: ${error instanceof Error ? error.message : String(error)}`,
+        error,
+      );
+    }
+  }
+
+  /** Load a terminal optional-motion outcome recorded by an earlier attempt. */
+  loadMotionOutcome(role: PrivateMotionOutcomeRole): string | null {
+    const path = join(this.dir, PRIVATE_MOTION_OUTCOME_FILES[role]);
+    if (!existsSync(path)) return null;
+    try {
+      return readFileSync(path, 'utf8');
+    } catch (error) {
+      throw new GeneratedAssetStorageError(`could not read private motion outcome ${role}`, error);
+    }
+  }
+
+  /** Persist a terminal optional-motion outcome for later unrelated retries. */
+  async storeMotionOutcome(role: PrivateMotionOutcomeRole, document: string): Promise<void> {
+    const filename = PRIVATE_MOTION_OUTCOME_FILES[role];
+    const commit = async (): Promise<void> => {
+      atomicWriteFile(join(this.dir, filename), document);
+    };
+    const pending = this.writeTail.then(commit, commit);
+    this.writeTail = pending.catch(() => {});
+    try {
+      await pending;
+    } catch (error) {
+      throw new GeneratedAssetStorageError(
+        `could not persist private motion outcome ${role}: ${error instanceof Error ? error.message : String(error)}`,
         error,
       );
     }

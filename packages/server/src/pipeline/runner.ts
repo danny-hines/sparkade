@@ -1,5 +1,5 @@
 import sharp from 'sharp';
-import { RACING_BASE_ROLES, RACING_MOTION_ROLES, RACING_LOCOMOTION_VERSION, buildRacingLocomotionPrompt, buildRacingLocomotionReference, generateReviewedRacingLocomotion, RacingLocomotionImageError, racingLocomotionJudgePrompt, racingLocomotionJudgeSchema } from '../assets/racing-locomotion';
+import { RACING_BASE_ROLES, RACING_MOTION_ROLES, RACING_LOCOMOTION_VERSION, buildRacingLocomotionPrompt, buildRacingLocomotionReference, generateOptionalRacingMotion, parseRacingMotionTerminalOutcome, racingMotionTerminalKey, racingLocomotionJudgePrompt, racingLocomotionJudgeSchema } from '../assets/racing-locomotion';
 // The durable generation job runner (one job at a time — this is a 1 GB device).
 // Jobs are persisted BEFORE work starts; all output goes to staging/<jobId>/
 // and is atomically renamed into games/<gameId>/ only after every gate passes.
@@ -32,6 +32,7 @@ import {
   type FighterSpec,
   type GameMetaFile,
   type GeneratedGameAssetRole,
+  type RacingMotionRacerStatus,
   type GenerationFeedKind,
   type GameSpec,
   type JobEvent,
@@ -444,6 +445,7 @@ import {
   GameAssetWorkspace,
   GeneratedAssetStorageError,
   imagePromptHash,
+  RACING_MOTION_OUTCOME_ROLES,
   sha256,
   type PrivateGeneratedAssetRole,
 } from '../assets/manifest';
@@ -519,6 +521,8 @@ type PipelineLlmCall = (
     image?: Buffer;
     reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
     checkpoint?: RawStageName;
+    /** Optional enhancements skip provider retry/network waits. */
+    optional?: boolean;
     label: string;
     stage: JobStage;
   },
@@ -1509,7 +1513,7 @@ export class GenerationRunner {
           if (e instanceof ProviderAuthError) {
             throw new PipelineError('auth', e.message, opts.stage);
           }
-          if (e instanceof ProviderNetworkError) {
+          if (e instanceof ProviderNetworkError && !opts.optional) {
             // Offline: wait rather than fail. The hard cap still bounds the job.
             this.db.updateJob(jobId, { status: 'waiting-network' });
             emit(opts.stage, 'Waiting for network…', { waitingForNetwork: true });
@@ -1521,6 +1525,8 @@ export class GenerationRunner {
           }
           const transient = e instanceof ProviderHttpError && e.transient;
           const parseIssue = e instanceof Error && /JSON|parse/i.test(e.message);
+          if (opts.optional && !parseIssue && !(e instanceof ProviderHttpError) && !(e instanceof ProviderNetworkError))
+            throw e;
           this.db.insertUsage({
             jobId,
             gameId,
@@ -1533,7 +1539,7 @@ export class GenerationRunner {
             failed: true,
             repair: opts.repair ?? false,
           });
-          if ((transient || parseIssue) && attempt < GENERATION.maxTransientRetriesPerCall) {
+          if (!opts.optional && (transient || parseIssue) && attempt < GENERATION.maxTransientRetriesPerCall) {
             attempt++;
             if (parseIssue) {
               activePrompt = {
@@ -1554,7 +1560,7 @@ export class GenerationRunner {
           }
           const timedOut = e instanceof ProviderHttpError && e.status === 408;
           throw new PipelineError(
-            timedOut ? 'call-timeout' : transient ? 'provider-unavailable' : 'provider-error',
+            timedOut ? 'call-timeout' : transient || e instanceof ProviderNetworkError ? 'provider-unavailable' : 'provider-error',
             e instanceof Error ? e.message : String(e),
             opts.stage,
           );
@@ -1581,6 +1587,7 @@ export class GenerationRunner {
     };
     const imagePrice = mockImages ? 0 : imageSnapshot.perImageUsd;
     const callImage = async (opts: {
+      optional?: boolean;
       role: string;
       label: string;
       prompt: string;
@@ -1655,7 +1662,7 @@ export class GenerationRunner {
           if (error instanceof ProviderAuthError) {
             throw new PipelineError('auth', error.message, 'building-assets');
           }
-          if (error instanceof ProviderNetworkError) {
+          if (error instanceof ProviderNetworkError && !opts.optional) {
             this.db.updateJob(jobId, { status: 'waiting-network' });
             emit('building-assets', 'Waiting for network…', { waitingForNetwork: true });
             await sleep(8000, abort.signal).catch(() => {
@@ -1687,7 +1694,9 @@ export class GenerationRunner {
               error.message,
             );
           const transient = error instanceof ProviderHttpError && error.transient;
-          if ((transient || malformed) && attempt < GENERATION.maxTransientRetriesPerCall) {
+          if (opts.optional && !malformed && !(error instanceof ProviderHttpError) && !(error instanceof ProviderNetworkError))
+            throw error;
+          if (!opts.optional && (transient || malformed) && attempt < GENERATION.maxTransientRetriesPerCall) {
             attempt++;
             const rateLimited = error instanceof ProviderHttpError && error.status === 429;
             const retryAfter =
@@ -4240,6 +4249,7 @@ export class GenerationRunner {
               );
             }
             const motion = racingIdentity.traversal?.motion;
+            const motionStatuses: RacingMotionRacerStatus[] = [];
             if (motion && motion !== 'static') {
               const entries = [plan.playerStrip, ...plan.rivalStrips];
               if (entries.length !== RACING_BASE_ROLES.length || buffers.length !== entries.length)
@@ -4251,49 +4261,80 @@ export class GenerationRunner {
                 await assetWorkspace.storePrivate(RACING_BASE_ROLES[i]!, buffers[i]!,
                   `${entry.promptVersion}-approved-v1`, imagePromptHash(entry.prompt));
               }
+              // Motion is an optional per-racer enhancement: approved cycles
+              // publish as 192x192 atlases, while a quality rejection or an
+              // optional provider failure keeps the explicit approved 64x64
+              // neutral with an honest per-racer status. Required-art,
+              // suspension, cancellation, storage, and programming errors
+              // still fail the job.
               for (let i = 0; i < entries.length; i++) {
                 const entry = entries[i]!;
                 const concept = i === 0 ? racingIdentity.playerCraftConcept : racingIdentity.rivalCrafts[i - 1]!.vehicleConcept;
                 const prompt = buildRacingLocomotionPrompt(racingIdentity.traversal!, concept, racingIdentity.artDirection);
                 const hash = imagePromptHash(prompt, buffers[i]!);
                 const version = `${RACING_LOCOMOTION_VERSION}-approved`;
-                let atlas = assetWorkspace.loadPrivate(RACING_MOTION_ROLES[i]!, version, hash);
-                if (!atlas) {
-                  emit('building-assets', `Animating ${slots[i]!.name}: ${motion} cycle…`);
-                  const reference = await buildRacingBankEditReference(await extractRacingNeutralCell(buffers[i]!));
-                  try {
-                    atlas = await generateReviewedRacingLocomotion({
-                      base: buffers[i]!, prompt, motion,
-                      generate: async (candidatePrompt, correction) => {
-                        const activeReference = correction ? await buildRacingLocomotionReference(buffers[i]!) : reference;
-                        const candidate = await callImage({
-                          role: `racing-motion-${i}`,
-                          label: `${slots[i]!.name} locomotion${correction ? ' correction' : ''}`,
-                          prompt: candidatePrompt, reference: activeReference, size: '1536x1024',
-                        });
-                        // Preserve the latest sheet for failed-job diagnosis;
-                        // this private, unapproved version is never restored
-                        // as an accepted atlas or copied into a ready game.
-                        await assetWorkspace.storePrivate(RACING_MOTION_ROLES[i]!, candidate,
-                          `${RACING_LOCOMOTION_VERSION}-candidate`, imagePromptHash(candidatePrompt, activeReference));
-                        return candidate;
-                      },
-                      review: async (candidate) => mockImages ? { accepted: true } : callLlm('design', {
-                        system: racingLocomotionJudgePrompt(motion), user: `Subject: ${concept}. Art direction: ${racingIdentity.artDirection}.`,
-                        jsonSchema: racingLocomotionJudgeSchema, maxTokens: 700, timeoutMs: 120_000,
-                      }, { stage: 'building-assets', label: `Spark reviews ${slots[i]!.name} locomotion`, image: await sharp(candidate).resize(768, 768, { kernel: 'nearest' }).png().toBuffer(), reasoningEffort: 'low' }),
-                    });
-                  } catch (error) {
-                    if (error instanceof RacingLocomotionImageError)
-                      throw new PipelineError('image-invalid', `Locomotion review rejected ${slots[i]!.name}: ${error.message.slice(0, 240)}`, 'building-assets');
-                    throw error;
-                  }
-                  await assetWorkspace.storePrivate(RACING_MOTION_ROLES[i]!, atlas, version, hash);
+                const outcomeRole = RACING_MOTION_OUTCOME_ROLES[i]!;
+                const key = racingMotionTerminalKey(buffers[i]!, prompt);
+                const approved = assetWorkspace.loadPrivate(RACING_MOTION_ROLES[i]!, version, hash);
+                if (approved) {
+                  await assetWorkspace.store(entry.role, approved, version, hash);
+                  motionStatuses.push({ racer: slots[i]!.id, status: 'animated' });
+                  continue;
                 }
-                await assetWorkspace.store(entry.role, atlas, version, hash);
+                const terminal = parseRacingMotionTerminalOutcome(
+                  assetWorkspace.loadMotionOutcome(outcomeRole), key);
+                if (!terminal)
+                  emit('building-assets', `Animating ${slots[i]!.name}: ${motion} cycle…`);
+                const reference = await buildRacingBankEditReference(await extractRacingNeutralCell(buffers[i]!));
+                const result = await generateOptionalRacingMotion({
+                  base: buffers[i]!, prompt, motion, terminal,
+                  generate: async (candidatePrompt, correction) => {
+                    const activeReference = correction ? await buildRacingLocomotionReference(buffers[i]!) : reference;
+                    const candidate = await callImage({
+                      role: `racing-motion-${i}`,
+                      optional: true,
+                      label: `${slots[i]!.name} locomotion${correction ? ' correction' : ''}`,
+                      prompt: candidatePrompt, reference: activeReference, size: '1536x1024',
+                    });
+                    // Preserve the latest sheet for failed-job diagnosis;
+                    // this private, unapproved version is never restored
+                    // as an accepted atlas or copied into a ready game.
+                    await assetWorkspace.storePrivate(RACING_MOTION_ROLES[i]!, candidate,
+                      `${RACING_LOCOMOTION_VERSION}-candidate`, imagePromptHash(candidatePrompt, activeReference));
+                    return candidate;
+                  },
+                  review: async (candidate) => mockImages ? { accepted: true } : callLlm('design', {
+                    system: racingLocomotionJudgePrompt(motion), user: `Subject: ${concept}. Art direction: ${racingIdentity.artDirection}.`,
+                    jsonSchema: racingLocomotionJudgeSchema, maxTokens: 700, timeoutMs: 120_000,
+                  }, { stage: 'building-assets', label: `Spark reviews ${slots[i]!.name} locomotion`, image: await sharp(candidate).resize(768, 768, { kernel: 'nearest' }).png().toBuffer(), reasoningEffort: 'low', optional: true }),
+                  checkActive: throwIfSuspended,
+                  isCancelled: () => abort.signal.aborted,
+                });
+                if (result.kind === 'animated') {
+                  await assetWorkspace.storePrivate(RACING_MOTION_ROLES[i]!, result.atlas, version, hash);
+                  await assetWorkspace.store(entry.role, result.atlas, version, hash);
+                  motionStatuses.push({ racer: slots[i]!.id, status: 'animated' });
+                } else {
+                  // Terminal for this base+prompt: an unrelated later retry
+                  // restores the recorded outcome instead of rerolling it.
+                  if (!terminal)
+                    await assetWorkspace.storeMotionOutcome(outcomeRole, JSON.stringify({
+                      version: RACING_LOCOMOTION_VERSION, key,
+                      outcome: result.outcome, reason: result.reason,
+                    }));
+                  const neutral = await extractRacingNeutralCell(buffers[i]!).catch(racingAssetFailure);
+                  await assetWorkspace.store(entry.role, neutral, version, hash);
+                  validationFailure(`racing-motion-${i}`);
+                  motionStatuses.push({ racer: slots[i]!.id, status: 'neutral', reason: result.reason });
+                  emit('building-assets', `${slots[i]!.name} keeps the approved rear (${result.outcome})`);
+                }
               }
             }
-            racingArtStatus = { mode: 'generated', attempted: true };
+            racingArtStatus = {
+              mode: 'generated',
+              attempted: true,
+              ...(motionStatuses.length ? { motion: motionStatuses } : {}),
+            };
             emit('building-assets', 'Finished the generated racing world and roster');
           })
         : Promise.resolve();
@@ -8585,6 +8626,8 @@ export class GenerationRunner {
         repair?: boolean;
         reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
         checkpoint?: RawStageName;
+    /** Optional enhancements skip provider retry/network waits. */
+    optional?: boolean;
         label: string;
         stage: JobStage;
       },

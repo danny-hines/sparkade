@@ -68,6 +68,27 @@ export type RacingPanoramaRole = (typeof RACING_PANORAMA_ROLES)[number];
 /** Optional motion atlas: original pose row followed by six temporal frames. */
 export const RACING_MOTION_FRAMES = 6;
 export const RACING_MOTION_ATLAS_SIZE = 192;
+/** Explicit neutral fallback: one approved rear cell, no bank poses. */
+export const RACING_NEUTRAL_CELL_SIZE = RACING_CRAFT_CELL;
+
+/**
+ * Public per-vehicle craft geometry. Legacy 192x64 strips carry genuine
+ * generated bank poses; explicit 64x64 neutrals carry one approved rear and
+ * must render with full continuous lean; 192x192 atlases carry approved
+ * six-frame motion. Anything else is unusable — never guess poses from it.
+ */
+export type RacingCraftStripKind = 'neutral' | 'legacy-banks' | 'motion-atlas';
+export function racingCraftStripKind(
+  width: number | undefined,
+  height: number | undefined,
+): RacingCraftStripKind | null {
+  if (width === RACING_CRAFT_CELL && height === RACING_CRAFT_CELL) return 'neutral';
+  if (width === RACING_CRAFT_STRIP_WIDTH && height === RACING_CRAFT_STRIP_HEIGHT)
+    return 'legacy-banks';
+  if (width === RACING_MOTION_ATLAS_SIZE && height === RACING_MOTION_ATLAS_SIZE)
+    return 'motion-atlas';
+  return null;
+}
 export function racingMotionCell(frame: number): { sx: number; sy: number; size: number } {
   const f = ((Math.floor(frame) % 6) + 6) % 6;
   return { sx: (f % 3) * 64, sy: (1 + Math.floor(f / 3)) * 64, size: 64 };

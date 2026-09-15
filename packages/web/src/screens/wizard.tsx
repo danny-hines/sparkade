@@ -122,6 +122,10 @@ export function WizardScreen(props: {
   const [isPi, setIsPi] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // Last Create Game failure, shown in the details help slot until the next
+  // attempt or an input edit. Inputs, photo, chosen type, and the
+  // idempotency key are all preserved so a retry is safe.
+  const [createError, setCreateError] = useState('');
 
   const idempotencyKey = useRef(`ik-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -394,6 +398,7 @@ export function WizardScreen(props: {
     setCursor(index);
     shellInput.blip('select');
     setRequestedArchetype(choice.id);
+    clearCreateError();
     goToDetails(1);
   };
 
@@ -565,6 +570,11 @@ export function WizardScreen(props: {
   const generate = () => {
     if (submitting || !online) return;
     setSubmitting(true);
+    setCreateError('');
+    // The idempotency key is minted once per draft (useRef above) and
+    // deliberately NOT rotated here: a retry after an ambiguous network
+    // failure resubmits the same key (plus unchanged photo/name/details/
+    // type), so the server dedups instead of double-creating.
     const cleanHeroName = heroName.trim();
     const cleanDetails = details.trim();
     const resolvedArchetype = requestedArchetype ?? pickSurpriseArchetype();
@@ -594,10 +604,22 @@ export function WizardScreen(props: {
           publicGame: result.publicGame,
         });
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         setSubmitting(false);
+        // api.createGame throws Error(api error text), e.g. the server's
+        // `{ error }` body or `HTTP {status}` — surface it so the failure is
+        // actionable. Nothing is cleared: retry resubmits the same draft.
+        setCreateError(
+          error instanceof Error && error.message
+            ? error.message
+            : 'Could not start generation. Check the connection and try again.',
+        );
         shellInput.blip('error');
       });
+  };
+
+  const clearCreateError = () => {
+    if (createError) setCreateError('');
   };
 
   useEffect(
@@ -776,18 +798,24 @@ export function WizardScreen(props: {
     (cursor === 0 && !!heroName) ||
     (cursor === 1 && !!requestedArchetype) ||
     (cursor === 2 && !!details);
-  const detailHelp = sttError
-    ? sttError
-    : ([
-        'Type or speak the hero name, or leave it to Spark.',
-        'Choose how the game plays, or use Random for a varied surprise.',
-        'Type or speak the story, enemies, or visual style you want.',
-        online
-          ? estimate?.busy
-            ? 'Another game is generating. This one will wait in line.'
-            : `Start building your game${estimate ? ` · ${estimate.label}` : ''}.`
-          : 'Connect to WiFi before starting generation.',
-      ][cursor] ?? '');
+  // A failed Create takes the help slot (same convention as speech errors)
+  // until the next attempt or an input edit, so the failure is visible and
+  // the Create row stays focused for retry.
+  const detailsFailed = !!createError || !!sttError;
+  const detailHelp = createError
+    ? `Couldn't start generation: ${createError} Your photo, name, details, and type are kept — try Create again.`
+    : sttError
+      ? sttError
+      : ([
+          'Type or speak the hero name, or leave it to Spark.',
+          'Choose how the game plays, or use Random for a varied surprise.',
+          'Type or speak the story, enemies, or visual style you want.',
+          online
+            ? estimate?.busy
+              ? 'Another game is generating. This one will wait in line.'
+              : `Start building your game${estimate ? ` · ${estimate.label}` : ''}.`
+            : 'Connect to WiFi before starting generation.',
+        ][cursor] ?? '');
 
   return (
     <div
@@ -962,7 +990,10 @@ export function WizardScreen(props: {
                     placeholder="Spark decides"
                     aria-label="Hero Name — type a name, speak one, or leave it to Spark"
                     value={heroName}
-                    onInput={(event) => setHeroName(event.currentTarget.value.slice(0, 48))}
+                    onInput={(event) => {
+                      setHeroName(event.currentTarget.value.slice(0, 48));
+                      clearCreateError();
+                    }}
                     onFocus={() => setCursor(0)}
                     onClick={(event) => event.stopPropagation()}
                   />
@@ -1010,7 +1041,10 @@ export function WizardScreen(props: {
                     placeholder="Spark decides"
                     aria-label="Game details — type a description, speak one, or leave it to Spark"
                     value={details}
-                    onInput={(event) => setDetails(event.currentTarget.value.slice(0, 1200))}
+                    onInput={(event) => {
+                      setDetails(event.currentTarget.value.slice(0, 1200));
+                      clearCreateError();
+                    }}
                     onFocus={() => setCursor(2)}
                     onClick={(event) => event.stopPropagation()}
                   />
@@ -1027,8 +1061,11 @@ export function WizardScreen(props: {
                 </div>
               </div>
             </div>
-            <div class={`game-details-help ${sttError ? 'error' : ''}`}>
-              <Icon name={sttError ? 'warning' : 'sparkle'} size={19} />
+            <div
+              class={`game-details-help ${detailsFailed ? 'error' : ''}`}
+              role={createError ? 'alert' : undefined}
+            >
+              <Icon name={detailsFailed ? 'warning' : 'sparkle'} size={19} />
               <span>{detailHelp}</span>
             </div>
             <div

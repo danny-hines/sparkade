@@ -114,7 +114,15 @@ cycle frames. All six must be distinct, complete and consistently scaled, then p
 an identity/anatomy/motion review. Animation advances with distance, eases through
 the shared lean transform, and falls back to the original poses at rest, while
 braking or airborne; push cycles require active acceleration. Player and rivals use
-the same playback. Missing/static motion retains the original asset contract.
+the same playback. Motion is an optional per-racer enhancement: rejected/unavailable animation
+publishes the approved rear as an explicit 64×64 neutral image with full continuous lean.
+Legacy 192×64 strips retain their genuine bank poses; approved 192×192 atlases retain
+six distinct motion frames. `meta.racingArt.motion` records each racer as animated or
+neutral with a reason. Terminal optional outcomes persist across unrelated retries,
+including provider refusals (no automatic rephrase or repeat). Optional provider outages
+skip retry/network waits; cancellation, storage, and required-art failures still stop
+readiness. Private generation artifacts are scrubbed from the ready pack.
+Missing/static motion retains the original asset contract.
 Approved bases and cycles have private per-racer retry caches, scrubbed on publish. The creator offers Racing as a first-class
 archetype choice alongside the others, and the surprise draw cycles through it.
 Bounded hills and ramps are authorable per course: `elevation`

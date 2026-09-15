@@ -19,6 +19,7 @@ import {
 import {
   generatedAssetForRole,
   PRIVATE_GENERATED_ASSET_FILENAMES,
+  PRIVATE_MOTION_OUTCOME_FILENAMES,
   readGameAssetManifest,
 } from '../assets/manifest';
 import { atomicWriteFile, ensureDir, nowIso, readJson, repoRoot } from '../util';
@@ -231,7 +232,10 @@ export class GameFiles {
     const target = this.gameDir(gameId);
     rmSync(target, { recursive: true, force: true });
     renameSync(staging, target);
-    for (const filename of PRIVATE_GENERATED_ASSET_FILENAMES) {
+    for (const filename of [
+      ...PRIVATE_GENERATED_ASSET_FILENAMES,
+      ...PRIVATE_MOTION_OUTCOME_FILENAMES,
+    ]) {
       for (const privatePath of [
         join(target, 'assets', filename),
         join(target, 'assets', `${filename}.json`),

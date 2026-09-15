@@ -64,3 +64,21 @@ describe('animated atlas steering', () => {
     expect(packResidualLean(0, 'rear')).toBe(0);
   });
 });
+
+it('renders neutral fallback with full lean while legacy bank cells retain their compensation', async () => {
+  const { racingCraftStripKind } = await import('@sparkade/shared');
+  const { packCraftSource } = await import('../src/racing/art');
+  const neutral = racingCraftStripKind(64, 64);
+  const legacy = racingCraftStripKind(192, 64);
+  const animated = racingCraftStripKind(192, 192);
+  expect(racingCraftStripKind(128, 64)).toBeNull();
+  for (const pose of ['bankLeft', 'bankRight'] as const) {
+    const n = packCraftSource(neutral, pose, 4);
+    expect(n).toEqual({ sx: 0, sy: 0, leanPose: 'rear' });
+    expect(packResidualLean(1, n.leanPose)).toBeCloseTo(VIS_LEAN_MAX);
+    const bank = packCraftSource(legacy, pose, 4);
+    expect(bank).toEqual({ sx: pose === 'bankLeft' ? 64 : 128, sy: 0, leanPose: pose });
+    expect(packResidualLean(1, bank.leanPose)).not.toBeCloseTo(VIS_LEAN_MAX);
+    expect(packCraftSource(animated, pose, 4)).toEqual({ sx: 64, sy: 128, leanPose: 'rear' });
+  }
+});

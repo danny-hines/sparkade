@@ -1,6 +1,7 @@
 import sharp from 'sharp';
 import { RACING_MOTION_FRAMES, type RacingMotion, type RacingTraversal } from '@sparkade/shared';
 import { processGeneratedFighterPose } from './fighter-pose';
+import { GeneratedAssetStorageError, imagePromptHash } from './manifest';
 import { splitRacingStripCells, validateRacingCraftStrip } from './racing-craft';
 import { racingConveyanceAxisLine } from './racing-traversal-art';
 
@@ -216,3 +217,118 @@ export const RACING_MOTION_ROLES = [
   'racingMotion3',
   'racingMotion4',
 ] as const;
+
+/** Terminal per-racer motion outcome persisted across unrelated retries. */
+export interface RacingMotionTerminalOutcome {
+  version: string;
+  key: string;
+  outcome: 'refused' | 'rejected' | 'provider-failed';
+  reason: string;
+}
+
+/** Bind a terminal outcome to its approved base, prompt, and code version. */
+export function racingMotionTerminalKey(base: Buffer, prompt: string): string {
+  return imagePromptHash(`${RACING_LOCOMOTION_VERSION}\n${prompt}`, base);
+}
+
+/** Restore a terminal outcome only when it still describes this base+prompt. */
+export function parseRacingMotionTerminalOutcome(
+  raw: string | null | undefined,
+  key: string,
+): RacingMotionTerminalOutcome | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<RacingMotionTerminalOutcome>;
+    if (!parsed || typeof parsed.version !== 'string' || typeof parsed.key !== 'string')
+      throw new Error('Malformed terminal motion record');
+    if (parsed.version !== RACING_LOCOMOTION_VERSION || parsed.key !== key) return null;
+    if (parsed.outcome !== 'refused' && parsed.outcome !== 'rejected' && parsed.outcome !== 'provider-failed')
+      throw new Error('Invalid terminal motion outcome');
+    if (typeof parsed.reason !== 'string' || !parsed.reason) throw new Error('Missing motion outcome reason');
+    return { version: parsed.version, key: parsed.key, outcome: parsed.outcome, reason: parsed.reason };
+  } catch (error) {
+    throw new GeneratedAssetStorageError('Invalid saved motion outcome; refusing to repeat an uncertain request', error);
+  }
+}
+
+export type RacingMotionOptionalResult =
+  | { kind: 'animated'; atlas: Buffer }
+  | { kind: 'neutral'; outcome: RacingMotionTerminalOutcome['outcome']; reason: string };
+
+/** Pipeline error codes that must keep propagating out of optional motion. */
+const FATAL_MOTION_ERROR_CODES = new Set(['suspended', 'canceled', 'storage', 'auth']);
+
+/**
+ * Bounded optional per-racer motion. A recorded terminal outcome reuses the
+ * approved neutral without any provider call. Otherwise one reviewed attempt
+ * (at most one quality correction) runs: approved motion returns the atlas;
+ * a quality rejection or an optional provider failure returns the neutral
+ * fallback with an honest outcome and reason. Provider refusal ends that
+ * request immediately — never rewritten, never provider-switched, never
+ * retried, and never continued into its correction. Suspension,
+ * cancellation, storage, auth, and programming errors propagate.
+ */
+export async function generateOptionalRacingMotion(options: {
+  base: Buffer;
+  prompt: string;
+  motion: RacingMotion;
+  terminal: RacingMotionTerminalOutcome | null;
+  generate: (prompt: string, correction: boolean) => Promise<Buffer>;
+  review: (atlas: Buffer) => Promise<unknown>;
+  checkActive: () => void;
+  isCancelled: () => boolean;
+}): Promise<RacingMotionOptionalResult> {
+  options.checkActive();
+  if (options.isCancelled())
+    throw Object.assign(new Error('Racing motion generation canceled'), { code: 'canceled' });
+  if (options.terminal) {
+    return { kind: 'neutral', outcome: options.terminal.outcome, reason: options.terminal.reason };
+  }
+  try {
+    const atlas = await generateReviewedRacingLocomotion({
+      base: options.base,
+      prompt: options.prompt,
+      motion: options.motion,
+      generate: options.generate,
+      review: options.review,
+    });
+    return { kind: 'animated', atlas };
+  } catch (error) {
+    options.checkActive();
+    if (options.isCancelled()) throw error;
+    const message = error instanceof Error ? error.message.slice(0, 240) : String(error).slice(0, 240);
+    if (error instanceof RacingLocomotionImageError) {
+      return {
+        kind: 'neutral',
+        outcome: 'rejected',
+        reason: `Locomotion quality review rejected this racer: ${message}`,
+      };
+    }
+    const code = error instanceof Error ? (error as { code?: unknown }).code : undefined;
+    if (
+      (error instanceof Error && error.name === 'GeneratedAssetStorageError') ||
+      (typeof code === 'string' && FATAL_MOTION_ERROR_CODES.has(code))
+    ) {
+      throw error;
+    }
+    if (error instanceof Error && typeof code === 'string' && code === 'image-content-policy') {
+      return {
+        kind: 'neutral',
+        outcome: 'refused',
+        reason: `The animation provider refused this racer: ${message}`,
+      };
+    }
+    if (
+      error instanceof Error &&
+      typeof code === 'string' &&
+      (code === 'image-provider-error' || code === 'provider-error' || code === 'provider-unavailable' || code === 'call-timeout')
+    ) {
+      return {
+        kind: 'neutral',
+        outcome: 'provider-failed',
+        reason: `The animation provider failed this racer (${code}): ${message}`,
+      };
+    }
+    throw error;
+  }
+}

@@ -4,6 +4,7 @@ import {
   PLATFORMER_ACTION_ASSET_ROLES,
   RACING_CRAFT_ROLES,
   RACING_PANORAMA_ROLES,
+  racingCraftStripKind,
   type GeneratedGameAssetRole,
 } from '@sparkade/shared';
 import { api as defaultApi } from './api';
@@ -431,6 +432,20 @@ export async function loadLikenessAssets(
         loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES[RACING_MATERIAL_ATLAS_ASSET])),
       ]).then((images) => {
         const [p1, p2, p3, s0, s1, s2, s3, s4, sceneryAtlas, materialAtlas] = images;
+        // Craft geometry gate: explicit 64x64 neutrals, legacy 192x64 bank
+        // strips, and 192x192 motion atlases load; anything else fails
+        // loudly instead of rendering guessed poses.
+        const strips = [s0, s1, s2, s3, s4];
+        const badGeometry = RACING_CRAFT_STRIP_ASSETS.filter((_, k) => {
+          const image = strips[k];
+          if (!image) return false;
+          const { naturalWidth, naturalHeight } = image;
+          return (
+            naturalWidth > 0 &&
+            naturalHeight > 0 &&
+            racingCraftStripKind(naturalWidth, naturalHeight) === null
+          );
+        });
         if (
           !p1 ||
           !p2 ||
@@ -441,7 +456,8 @@ export async function loadLikenessAssets(
           !s3 ||
           !s4 ||
           !sceneryAtlas ||
-          !materialAtlas
+          !materialAtlas ||
+          badGeometry.length > 0
         ) {
           const missing = [
             ...RACING_PANORAMA_ASSETS.filter(
@@ -452,6 +468,7 @@ export async function loadLikenessAssets(
             ),
             ...(sceneryAtlas ? [] : [RACING_SCENERY_ATLAS_ASSET]),
             ...(materialAtlas ? [] : [RACING_MATERIAL_ATLAS_ASSET]),
+            ...badGeometry,
           ];
           throw new RacingArtLoadError(gameId, missing);
         }

@@ -101,3 +101,22 @@ describe('generated motion atlas', () => {
     await expect(assertRacingMotionSilhouette(panel)).rejects.toThrow('opaque rectangular background');
   });
 });
+
+it('never turns cancellation, suspension, storage, or programming errors into an optional fallback', async () => {
+  const { generateOptionalRacingMotion } = await import('../src/assets/racing-locomotion');
+  const { GeneratedAssetStorageError } = await import('../src/assets/manifest');
+  for (const error of [new GeneratedAssetStorageError('disk full'), new TypeError('bug'), Object.assign(new Error('suspend'), {code:'suspended'}), null]) {
+    const generate = vi.fn().mockRejectedValue(error);
+    await expect(generateOptionalRacingMotion({base:Buffer.alloc(0),prompt:'contract',motion:'pedal',terminal:null,generate,review:vi.fn(),checkActive:()=>{},isCancelled:()=>false})).rejects.toBe(error);
+    expect(generate).toHaveBeenCalledTimes(1);
+  }
+  const generate=vi.fn();
+  await expect(generateOptionalRacingMotion({base:Buffer.alloc(0),prompt:'contract',motion:'pedal',terminal:null,generate,review:vi.fn(),checkActive:()=>{},isCancelled:()=>true})).rejects.toMatchObject({code:'canceled'});
+  expect(generate).not.toHaveBeenCalled();
+});
+
+it('fails closed on a damaged saved terminal outcome instead of repeating an uncertain request', async () => {
+  const {parseRacingMotionTerminalOutcome}=await import('../src/assets/racing-locomotion');
+  expect(()=>parseRacingMotionTerminalOutcome('{broken', 'key')).toThrow('refusing to repeat');
+  expect(parseRacingMotionTerminalOutcome(null,'key')).toBeNull();
+});

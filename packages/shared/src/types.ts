@@ -327,6 +327,17 @@ export type FighterOutfit = 'gi' | 'boxer' | 'wrestler' | 'street' | 'robe' | 'a
 
 /** One immutable visual-language contract selected during the design pass and
  * reused by presentation art, every roster identity, combat poses, and arenas. */
+/** Honest per-racer optional-motion outcome for a generated racing pack. */
+export interface RacingMotionRacerStatus {
+  /** Roster slot id in pack order (`player`, `rival1` … `rival4`). */
+  racer: string;
+  /** `animated` publishes the approved six-frame atlas; `neutral` publishes
+   * the explicit approved rear cell. */
+  status: 'animated' | 'neutral';
+  /** Present exactly when status is `neutral`: why this racer has no cycle. */
+  reason?: string;
+}
+
 export interface FighterArtDirection {
   aesthetic: 'cartoon' | 'stylized' | 'semi-realistic';
   /** Concrete head-to-body scale and anatomy rules shared by the whole cast. */
@@ -918,6 +929,14 @@ export interface GameMetaFile {
   racingArt?: {
     mode: 'generated';
     attempted: true;
+    /**
+     * Per-racer optional-motion outcome, present only when an authored
+     * non-static motion ran. `animated` racers publish approved six-frame
+     * atlases; `neutral` racers publish their explicit approved rear with
+     * the honest reason (quality rejection, provider refusal/failure, or a
+     * retained terminal outcome from an earlier attempt).
+     */
+    motion?: RacingMotionRacerStatus[];
   };
   /** QA/readiness signal for the one-call ladder/boss Fighter arena sheet. */
   fighterArenaArt?: {

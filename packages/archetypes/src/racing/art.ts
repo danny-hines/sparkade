@@ -12,7 +12,10 @@ import {
   RACING_PANORAMA_WIDTH,
   RACING_SCENERY_CELL,
   RACING_SCENERY_SLOTS,
+  racingCraftStripKind,
+  racingMotionCell,
   type RacingCraftPose,
+  type RacingCraftStripKind,
   type RacingMaterialSlot,
   type RacingScenerySlot,
   type RacingSpec,
@@ -38,12 +41,63 @@ export function resolveRaceArt(
   if (!bundle || bundle.panoramas.length < 3 || bundle.strips.length < 5) return null;
   const pano = bundle.panoramas[((raceIndex % 3) + 3) % 3];
   if (!pano) return null;
+  // Pack validation: every craft image must be a known geometry (explicit
+  // 64x64 neutral, legacy 192x64 banks, or 192x192 motion atlas). Anything
+  // else cannot render honest poses, so the whole pack stays inactive and
+  // the legacy procedural renderer owns the frame. Images without decoded
+  // dimensions yet are left to the loader gate, not rejected here.
+  for (const strip of bundle.strips) {
+    const { width, height } = strip as unknown as {
+      width?: number;
+      height?: number;
+    };
+    if (
+      typeof width === 'number' &&
+      typeof height === 'number' &&
+      width > 0 &&
+      height > 0 &&
+      racingCraftStripKind(width, height) === null
+    )
+      return null;
+  }
   return {
     panorama: pano,
     strips: bundle.strips,
     scenery: bundle.sceneryAtlas,
     materials: bundle.materialAtlas,
   };
+}
+
+/** Source cell plus lean basis for one pack craft blit. */
+export interface PackCraftSource {
+  sx: number;
+  sy: number;
+  /**
+   * Pose the residual lean compensates: `rear` for neutral single-rear
+   * images (full continuous engine lean) and motion atlases (live frame at
+   * idle resolves to the rear row-0 cell the same way); the selected bank
+   * pose only for legacy 192x64 strips with genuine bank cells.
+   */
+  leanPose: RacingCraftPose;
+}
+
+/**
+ * Source cell for one pack craft blit. Neutral images always read the rear
+ * cell; legacy strips keep their generated bank cells; motion atlases read
+ * the live frame (or the rear identity cell at rest). Pure.
+ */
+export function packCraftSource(
+  kind: RacingCraftStripKind | null,
+  pose: RacingCraftPose,
+  frame: number | null,
+): PackCraftSource {
+  if (kind === 'neutral') return { sx: 0, sy: 0, leanPose: 'rear' };
+  if (kind === 'motion-atlas') {
+    if (frame === null) return { sx: 0, sy: 0, leanPose: 'rear' };
+    const cell = racingMotionCell(frame);
+    return { sx: cell.sx, sy: cell.sy, leanPose: 'rear' };
+  }
+  return { sx: craftPoseSourceX(pose), sy: 0, leanPose: pose };
 }
 
 /**

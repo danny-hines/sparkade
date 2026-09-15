@@ -167,7 +167,8 @@ test('keyboard-only: create via guided details → honest progress → ready →
   await expect(page.locator('.screen-title', { hasText: 'NEW GAME' })).toBeVisible();
 
   // Step 1: Skip photo
-  await tap(page, 'ArrowDown');
+  await tap(page, 'ArrowDown', 2); // Take photo → Upload photo → Skip
+  await expect(page.getByRole('button', { name: 'Skip', exact: true })).toHaveClass(/focused/);
   await tap(page, 'KeyX');
 
   // Step 2: choose a game type, then return to the compact details form.
@@ -246,7 +247,7 @@ test('generation progress survives a page reload (durable jobs)', async ({ page 
   await toMenu(page);
   // start another preset generation
   await tap(page, 'KeyX'); // New Game
-  await tap(page, 'ArrowDown');
+  await tap(page, 'ArrowDown', 2); // Take photo → Upload photo → Skip
   await tap(page, 'KeyX'); // skip photo
   await tap(page, 'ArrowDown'); // Type
   await tap(page, 'KeyX'); // archetype carousel

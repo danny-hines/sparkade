@@ -55,8 +55,9 @@
 }
 
 .arc-brand-word {
+  font-family: var(--font-pixel), monospace;
   font-size: 17px;
-  font-weight: 800;
+  font-weight: 400;
   letter-spacing: 0.02em;
   text-transform: uppercase;
   white-space: nowrap;

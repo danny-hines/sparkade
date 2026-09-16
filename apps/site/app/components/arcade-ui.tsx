@@ -205,6 +205,8 @@ export function ArcadeFooter() {
           <a href="/">Home</a>
           <a href="/play">Play</a>
           <a href="/create">Create</a>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
         </nav>
         <p className="arc-footer-note">Your idea. Your arcade.</p>
       </div>

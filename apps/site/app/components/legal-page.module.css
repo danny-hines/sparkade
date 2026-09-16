@@ -1,0 +1,51 @@
+.page {
+  padding-block: clamp(36px, 7vw, 80px);
+}
+
+.article {
+  max-width: 760px;
+  margin-inline: auto;
+  color: #b4bbd7;
+  font-size: 16px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+
+.article h1 {
+  margin: 12px 0;
+  color: #f4f5ff;
+  font-size: clamp(32px, 6vw, 52px);
+  line-height: 1.15;
+}
+
+.article h2 {
+  margin: 36px 0 12px;
+  color: #f4f5ff;
+  font-size: 22px;
+  line-height: 1.4;
+}
+
+.article p,
+.article ul {
+  margin-block: 0 18px;
+}
+
+.article li + li {
+  margin-top: 8px;
+}
+
+.article a {
+  color: #84f5ec;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.article a:focus-visible {
+  outline: 2px solid #84f5ec;
+  outline-offset: 4px;
+}
+
+.date {
+  margin-bottom: 30px !important;
+  font-size: 14px;
+}

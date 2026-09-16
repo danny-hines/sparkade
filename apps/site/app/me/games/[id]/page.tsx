@@ -8,8 +8,10 @@ import {
   cancelGameAction,
   retryGameAction,
   startAdminGameAction,
+  startGameAction,
 } from '../../../components/arcade-actions';
-import { JobRefresh } from './refresh';
+import { websiteProgress } from '@/lib/website-progress';
+import { GenerationFeed } from '../../../components/generation-feed';
 import { SourcePhoto } from '../../../components/source-photo';
 export const metadata = { title: 'Your game', robots: { index: false, follow: false } };
 export default async function MyGame({
@@ -24,7 +26,7 @@ export default async function MyGame({
   await ensureArcadeSchema();
   const { id } = await params;
   const [game] =
-    await getSql()`SELECT p.*,g.prompt,g.job_id,g.price,g.settlement,g.input_review,g.admin_bypass,j.run_id,j.attempt,j.checkpoint,j.status AS job_status,
+    await getSql()`SELECT p.*,g.prompt,g.job_id,g.price,g.settlement,g.input_review,g.admin_bypass,g.review_policy,j.run_id,j.attempt,j.checkpoint,j.status AS job_status,
     j.state->'job'->'creationBrief'->>'heroName' AS hero_name,
     j.state->'job'->>'hasPhoto'='true' AND j.checkpoint<>'' AND NOT j.cleanup_pending
       AND j.status NOT IN ('done','canceled') AND g.input_review<>'rejected' AND p.deleted_at IS NULL AS has_photo
@@ -35,6 +37,7 @@ export default async function MyGame({
     game.job_status = 'failed';
     game.settlement = 'released';
   }
+  const progress = await websiteProgress(user.userId, id);
   const notice = (await searchParams).notice;
   const ready = game.status === 'ready' && game.moderation === 'approved',
     terminal = ['done', 'failed', 'canceled'].includes(game.job_status);
@@ -49,9 +52,7 @@ export default async function MyGame({
           : game.job_status === 'failed'
             ? 'This game couldn’t be completed'
             : game.input_review === 'pending'
-              ? user.admin
-                ? 'Ready to start creating'
-                : 'Your idea is in the review queue'
+              ? 'Checking your idea and photo'
               : 'Your game is taking shape';
   return (
     <SiteFrame active="profile">
@@ -59,42 +60,6 @@ export default async function MyGame({
         <a href="/me">← Your library</a>
         <h1>{game.title || status}</h1>
         <p>{status}</p>
-      </section>
-      {notice && (
-        <p className="arc-message" role="status">
-          {notice}
-        </p>
-      )}
-      <section className="arc-panel">
-        <span className="arc-kicker">Your original idea</span>
-        {game.hero_name && (
-          <p>
-            Hero name: <strong>{game.hero_name}</strong>
-          </p>
-        )}
-        <p className="arc-prompt">{game.prompt}</p>
-        {game.has_photo && <SourcePhoto gameId={id} />}
-        <p>
-          {game.settlement === 'held'
-            ? `${game.price} credits reserved until your game is ${game.admin_bypass ? 'ready' : 'approved'}.`
-            : game.settlement === 'released'
-              ? `${game.price} credits returned to your balance.`
-              : `${game.price} credits spent.`}
-        </p>
-        {!terminal && (
-          <>
-            <p>
-              {game.input_review === 'pending'
-                ? user.admin
-                  ? 'Your admin account can start this game without manual review.'
-                  : 'Generation starts after your idea is approved.'
-                : game.job_status === 'review'
-                  ? 'Your game is generated. We’re checking its content before it can be played and shared.'
-                  : `Current stage: ${String(game.stage).replaceAll('-', ' ')}`}
-            </p>
-            <JobRefresh />
-          </>
-        )}
         {ready && !game.deleted_at && (
           <div className="arc-hero-actions">
             <a className="arc-button" href={`/p/${id}`}>
@@ -107,17 +72,53 @@ export default async function MyGame({
             </p>
           </div>
         )}
-        {user.admin &&
+      </section>
+      {notice && (
+        <p className="arc-message" role="status">
+          {notice}
+        </p>
+      )}
+      {progress && <GenerationFeed key={`${id}:${game.attempt}`} gameId={id} initial={progress} />}
+      <section className="arc-panel">
+        <span className="arc-kicker">Your original idea</span>
+        {game.hero_name && (
+          <p>
+            Hero name: <strong>{game.hero_name}</strong>
+          </p>
+        )}
+        <p className="arc-prompt">{game.prompt}</p>
+        {game.has_photo && <SourcePhoto gameId={id} />}
+        <p>
+          {game.settlement === 'held'
+            ? `${game.price} credits reserved until your game is ready.`
+            : game.settlement === 'released'
+              ? `${game.price} credits returned to your balance.`
+              : `${game.price} credits spent.`}
+        </p>
+        {!terminal && (
+          <>
+            <p>
+              {game.input_review === 'pending'
+                ? 'Spark is checking your idea and photo. Generation begins automatically when they pass.'
+                : game.job_status === 'review'
+                  ? 'Your game is generated. We’re checking its content before it can be played and shared.'
+                  : `Current stage: ${String(game.stage).replaceAll('-', ' ')}`}
+            </p>
+          </>
+        )}
+        {(game.review_policy === 'pg13-v1' || user.admin) &&
           game.job_status === 'queued' &&
           !game.run_id &&
           !game.deleted_at &&
           game.settlement === 'held' && (
-            <form action={startAdminGameAction}>
+            <form
+              action={game.review_policy === 'pg13-v1' ? startGameAction : startAdminGameAction}
+            >
               <input type="hidden" name="id" value={id} />
               <SubmitButton>Start generation</SubmitButton>
             </form>
           )}
-        {game.input_review === 'pending' && game.job_status === 'queued' && (
+        {game.input_review === 'pending' && game.job_status === 'queued' && !game.run_id && (
           <form action={cancelGameAction}>
             <input type="hidden" name="jobId" value={game.job_id} />
             <SubmitButton className="arc-button-secondary">Cancel and return credits</SubmitButton>
@@ -133,7 +134,7 @@ export default async function MyGame({
         {game.job_status === 'failed' &&
           game.attempt === 1 &&
           game.checkpoint &&
-          game.input_review === 'approved' &&
+          game.input_review !== 'rejected' &&
           game.moderation === 'pending' &&
           !game.deleted_at && (
             <form action={retryGameAction}>
@@ -145,6 +146,9 @@ export default async function MyGame({
           )}
         {game.job_status === 'failed' && (
           <p>
+            {game.moderation === 'rejected'
+              ? 'This game did not pass our PG-13 content check. '
+              : ''}
             The credits have been returned. <a href="/create">Try a new idea →</a>
           </p>
         )}

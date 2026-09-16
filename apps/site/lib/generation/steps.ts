@@ -1,4 +1,5 @@
 import { withProviderRequestPolicy } from '@sparkade/server/providers/request-policy';
+import { reviewWebsiteInput } from '../website-content-review';
 import { ArcadeError } from '../arcade';
 import { websiteSpendPolicy } from '../website-spend';
 import {
@@ -35,12 +36,13 @@ export async function claimGeneration(id: string, attempt: number) {
     ['done', 'failed', 'canceled', 'review'].includes(row.status)
   )
     return false;
-  await assertWebsiteRunnable(row);
+  await assertWebsiteRunnable(row, true);
   const runId = getWorkflowMetadata().workflowRunId;
   const rows = await getSql()`UPDATE generation_jobs SET run_id=${runId}, updated_at=now()
     WHERE id=${id} AND attempt=${attempt} AND (run_id IS NULL OR run_id=${runId}) RETURNING id`;
-  return rows.length > 0;
+  return rows.length > 0 && (await reviewWebsiteInput(row));
 }
+claimGeneration.maxRetries = 24;
 
 interface PassResult {
   done: boolean;
@@ -245,6 +247,8 @@ export async function publishGeneration(id: string, attempt: number) {
       WHERE id=${id} AND attempt=${attempt} AND status='publishing'`,
   ]);
 }
+
+publishGeneration.maxRetries = 24;
 
 export async function failGeneration(id: string, attempt: number, message: string) {
   'use step';

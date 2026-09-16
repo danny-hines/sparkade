@@ -25,6 +25,8 @@ import { scope, prefix, getJob, type GenerationRow } from './generation/store';
 import { readPrivate, writePrivate } from './generation/storage';
 import { normalizeWebsitePhoto } from './website-photo';
 import { MAX_ACTIVE_WEBSITE_GAMES } from './website-creation-policy';
+import { CONTENT_POLICY } from './content-policy';
+import { reviewWebsiteOutput } from './website-content-review';
 import type { AdminIdentity } from './admin-auth';
 
 export interface WebsiteGeneration {
@@ -34,6 +36,7 @@ export interface WebsiteGeneration {
   environment: string;
   input_review: string;
   admin_bypass: boolean;
+  review_policy: string;
   settlement: string;
   price: number;
   game_cap: number;
@@ -83,7 +86,9 @@ export async function createWebsiteGame(
   // Server-verified identity only; never derive this from submitted form fields.
   admin?: AdminIdentity | null,
 ) {
-  const adminBypass = Boolean(admin?.authorized && admin.userId === userId);
+  // New submissions, including admin submissions, use the same automated policy.
+  void admin;
+  const adminBypass = false;
   const input = validateWebsiteInput(promptText, type, key, heroName);
   const photo = await normalizeWebsitePhoto(photoUpload);
   const generationPrompt =
@@ -177,10 +182,10 @@ export async function createWebsiteGame(
       AND (SELECT count(*) FROM arcade_generations g WHERE g.environment=s.environment AND g.settlement='held')<100
       ON CONFLICT DO NOTHING RETURNING id`,
     sql`INSERT INTO public_games(id,source_id,kiosk_name,feed_visibility,owner_id,environment,moderation,message)
-      SELECT ${gameId},${`${scope()}:${id}`},${profile.handle},'unlisted',${userId},${env()},'pending',${adminBypass ? 'Starting generation' : 'Waiting for prompt review'}
+      SELECT ${gameId},${`${scope()}:${id}`},${profile.handle},'unlisted',${userId},${env()},'pending',${'Checking your idea and photo'}
       WHERE EXISTS(SELECT 1 FROM generation_jobs WHERE id=${id})`,
-    sql`INSERT INTO arcade_generations(job_id,game_id,environment,user_id,idempotency_key,input_hash,prompt,archetype,price,game_cap,input_review,admin_bypass)
-      SELECT ${id},${gameId},s.environment,${userId},${key},${hash},${generationPrompt},${input.archetype},s.price,s.game_cap,${adminBypass ? 'approved' : 'pending'},${adminBypass}
+    sql`INSERT INTO arcade_generations(job_id,game_id,environment,user_id,idempotency_key,input_hash,prompt,archetype,price,game_cap,input_review,admin_bypass,review_policy)
+      SELECT ${id},${gameId},s.environment,${userId},${key},${hash},${generationPrompt},${input.archetype},s.price,s.game_cap,${'pending'},${adminBypass},${CONTENT_POLICY}
       FROM arcade_settings s WHERE s.environment=${env()} AND EXISTS(SELECT 1 FROM generation_jobs WHERE id=${id})`,
     sql`WITH debit AS (INSERT INTO credit_ledger(id,environment,clerk_user_id,amount,kind,reason,operation_id)
       SELECT ${randomUUID()},environment,user_id,-price,'generation_hold','Credits reserved for game creation',${`hold:${id}`}
@@ -226,7 +231,7 @@ export async function resumeAdminWebsiteGame(admin: AdminIdentity, gameId: strin
       FROM generation_jobs j,public_games p,arcade_profiles u,arcade_settings s
       WHERE g.game_id=${gameId} AND g.environment=${env()} AND g.user_id=${admin.userId}
       AND j.id=g.job_id AND j.status='queued' AND j.run_id IS NULL
-      AND g.settlement='held' AND g.input_review IN ('pending','approved') AND NOT g.admin_bypass
+      AND g.review_policy='legacy' AND g.settlement='held' AND g.input_review IN ('pending','approved') AND NOT g.admin_bypass
       AND p.id=g.game_id AND p.deleted_at IS NULL AND p.moderation='pending'
       AND u.environment=g.environment AND u.user_id=g.user_id AND NOT u.suspended
       AND s.environment=g.environment AND s.enabled RETURNING g.*)
@@ -252,6 +257,21 @@ export async function resumeAdminWebsiteGame(admin: AdminIdentity, gameId: strin
   return row;
 }
 
+/** Owner recovery for a saved submission whose workflow dispatch was interrupted. */
+export async function resumeWebsiteGame(userId: string, gameId: string) {
+  await ensureArcadeSchema();
+  const [generation] =
+    await getSql()`SELECT g.job_id FROM arcade_generations g JOIN generation_jobs j ON j.id=g.job_id
+    WHERE g.game_id=${gameId} AND g.environment=${env()} AND g.user_id=${userId} AND g.settlement='held'
+    AND (g.input_review='approved' OR (g.input_review='pending' AND g.review_policy=${CONTENT_POLICY}))
+    AND j.status='queued' AND j.run_id IS NULL`;
+  if (!generation) return null;
+  const row = await getJob(String(generation.job_id));
+  if (!row) return null;
+  await assertWebsiteRunnable(row, true);
+  return row;
+}
+
 /** Idempotent: every terminal failure/rejection returns the original held credits once. */
 export async function releaseWebsiteCredits(id: string) {
   await ensureArcadeSchema();
@@ -265,14 +285,15 @@ export async function releaseWebsiteCredits(id: string) {
     UPDATE credit_accounts a SET balance=balance+r.amount,updated_at=now() FROM receipt r
     WHERE a.environment=r.environment AND a.clerk_user_id=r.clerk_user_id`;
 }
-export async function assertWebsiteRunnable(row: GenerationRow) {
+export async function assertWebsiteRunnable(row: GenerationRow, allowInputReview = false) {
   if (!row.owner.startsWith('website:')) return;
   const sql = getSql();
   const [allowed] =
     await sql`SELECT g.job_id FROM arcade_generations g JOIN arcade_profiles p ON p.environment=g.environment AND p.user_id=g.user_id
     JOIN arcade_settings s ON s.environment=g.environment JOIN public_games v ON v.id=g.game_id
     JOIN generation_jobs j ON j.id=g.job_id
-    WHERE g.job_id=${row.id} AND g.environment=${env()} AND g.input_review='approved' AND g.settlement='held'
+    WHERE g.job_id=${row.id} AND g.environment=${env()}
+      AND (g.input_review='approved' OR (${allowInputReview} AND g.input_review='pending' AND g.review_policy=${CONTENT_POLICY} AND j.status='queued')) AND g.settlement='held'
       AND s.enabled AND NOT p.suspended AND v.deleted_at IS NULL AND v.moderation='pending'
       AND j.attempt=${row.attempt} AND j.status IN ('queued','running','waiting-network','publishing')`;
   if (!allowed) throw new ArcadeError('Creation stopped by account, review, or budget controls.');
@@ -302,16 +323,22 @@ export async function stageWebsiteResult(
   const final = { bundle, files };
   const hash = createHash('sha256').update(JSON.stringify(final)).digest('hex');
   const url = await writePrivate(`${prefix(row.id)}final/${hash}.json`, final);
+  if (
+    web.review_policy === CONTENT_POLICY &&
+    !(await reviewWebsiteOutput(row, hash, bundle, files))
+  )
+    return;
+  const automatic = web.review_policy === CONTENT_POLICY || web.admin_bypass;
   const sql = getSql();
   const results = await sql.transaction([
     sql`SELECT id FROM generation_jobs WHERE id=${row.id} FOR UPDATE`,
     sql`WITH staged AS (UPDATE public_games p SET spec_json=${JSON.stringify(bundle.spec)}::jsonb,assets_json=${JSON.stringify(assets)}::jsonb,
       title=${bundle.spec.meta.title},version_hash=${hash},private_bundle=${url},
-      stage=CASE WHEN g.admin_bypass THEN 'done' ELSE 'review' END,
-      message=CASE WHEN g.admin_bypass THEN 'Ready to play' ELSE 'Waiting for game review' END,
-      status=CASE WHEN g.admin_bypass THEN 'ready' ELSE p.status END,
-      moderation=CASE WHEN g.admin_bypass THEN 'approved' ELSE p.moderation END,
-      ready_at=CASE WHEN g.admin_bypass THEN now() ELSE p.ready_at END,feed_visibility='unlisted',updated_at=now()
+      stage=CASE WHEN ${automatic} THEN 'done' ELSE 'review' END,
+      message=CASE WHEN ${automatic} THEN 'Ready to play' ELSE 'Waiting for game review' END,
+      status=CASE WHEN ${automatic} THEN 'ready' ELSE p.status END,
+      moderation=CASE WHEN ${automatic} THEN 'approved' ELSE p.moderation END,
+      ready_at=CASE WHEN ${automatic} THEN now() ELSE p.ready_at END,feed_visibility='unlisted',updated_at=now()
       FROM arcade_generations g,generation_jobs j,arcade_settings s,arcade_profiles u
       WHERE p.id=${web.game_id} AND p.deleted_at IS NULL AND p.moderation='pending'
       AND g.game_id=p.id AND g.job_id=j.id AND g.environment=${env()} AND g.input_review='approved' AND g.settlement='held'
@@ -325,15 +352,15 @@ export async function stageWebsiteResult(
         FROM staged WHERE admin_bypass RETURNING id)
       SELECT * FROM staged`,
     sql`UPDATE arcade_generations g SET settlement='captured' FROM public_games p,generation_jobs j
-      WHERE g.job_id=${row.id} AND g.environment=${env()} AND g.admin_bypass AND g.settlement='held'
+      WHERE g.job_id=${row.id} AND g.environment=${env()} AND ${automatic} AND g.settlement='held'
       AND p.id=g.game_id AND p.moderation='approved' AND p.version_hash=${hash}
       AND j.id=g.job_id AND j.attempt=${row.attempt} AND j.status='publishing'`,
-    sql`UPDATE generation_jobs j SET status=CASE WHEN g.admin_bypass THEN 'done' ELSE 'review' END,bundle=${url},updated_at=now()
+    sql`UPDATE generation_jobs j SET status=CASE WHEN ${automatic} THEN 'done' ELSE 'review' END,bundle=${url},updated_at=now()
       FROM arcade_generations g,public_games p
       WHERE j.id=${row.id} AND j.attempt=${row.attempt} AND j.status='publishing'
       AND g.job_id=j.id AND g.environment=${env()} AND p.id=g.game_id AND p.version_hash=${hash}
-      AND ((g.admin_bypass AND g.settlement='captured' AND p.moderation='approved')
-        OR (NOT g.admin_bypass AND g.settlement='held' AND p.moderation='pending'))`,
+      AND ((${automatic} AND g.settlement='captured' AND p.moderation='approved')
+        OR (NOT ${automatic} AND g.settlement='held' AND p.moderation='pending'))`,
   ]);
   if (!results[1]?.length) throw new ArcadeError('The game changed before it could be completed.');
 }
@@ -366,7 +393,7 @@ export async function reviewWebsiteGame(
       settlement=CASE WHEN ${decision}='approve-output' THEN 'captured' ELSE settlement END
       FROM generation_jobs j,public_games p WHERE g.job_id=${id} AND g.environment=${env()} AND j.id=g.job_id AND p.id=g.game_id
       AND p.deleted_at IS NULL AND (
-        (${decision}='approve-input' AND g.input_review='pending' AND g.settlement='held' AND j.status='queued') OR
+        (${decision}='approve-input' AND g.review_policy='legacy' AND g.input_review='pending' AND g.settlement='held' AND j.status='queued') OR
         (${decision}='approve-output' AND g.input_review='approved' AND g.settlement='held' AND j.status='review' AND p.moderation='pending' AND p.version_hash=${version} AND ${version}<>'') OR
         (${decision}='reject' AND g.settlement='held' AND (j.status='review' OR (j.status='queued' AND g.input_review='pending'))) OR
         (${decision}='takedown' AND p.moderation='approved' AND j.status='done')) RETURNING g.*),
@@ -423,7 +450,7 @@ export async function retryWebsiteGame(userId: string, id: string) {
     sql`SELECT id FROM generation_jobs WHERE id=${id} FOR UPDATE`,
     sql`SELECT balance FROM credit_accounts WHERE environment=${env()} AND clerk_user_id=${userId} FOR UPDATE`,
     sql`UPDATE arcade_generations g SET settlement='held' FROM generation_jobs j,credit_accounts a,arcade_settings s,arcade_profiles u,public_games p
-      WHERE g.job_id=${id} AND g.environment=${env()} AND g.user_id=${userId} AND g.input_review='approved' AND g.settlement='released'
+      WHERE g.job_id=${id} AND g.environment=${env()} AND g.user_id=${userId} AND (g.input_review='approved' OR (g.input_review='pending' AND g.review_policy=${CONTENT_POLICY})) AND g.settlement='released'
       AND j.id=g.job_id AND j.status='failed' AND j.attempt=1 AND j.checkpoint<>''
       AND a.environment=g.environment AND a.clerk_user_id=g.user_id AND a.balance>=g.price
       AND s.environment=g.environment AND s.enabled AND u.environment=g.environment AND u.user_id=g.user_id AND NOT u.suspended

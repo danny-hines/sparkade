@@ -81,8 +81,8 @@ export async function resumeApprovedAction() {
   await ensureArcadeSchema();
   const rows =
     await getSql()`SELECT j.id,j.attempt FROM generation_jobs j JOIN arcade_generations g ON g.job_id=j.id
-    WHERE g.environment=${env()} AND g.input_review='approved' AND g.settlement='held' AND j.status='queued' AND j.run_id IS NULL LIMIT 100`;
+    WHERE g.environment=${env()} AND (g.input_review='approved' OR (g.input_review='pending' AND g.review_policy='pg13-v1')) AND g.settlement='held' AND j.status='queued' AND j.run_id IS NULL LIMIT 100`;
   for (const row of rows) await start(generateGameWorkflow, [row.id, row.attempt]);
   revalidatePath('/admin/creation');
-  redirect('/admin/creation?notice=Approved+jobs+dispatched');
+  redirect('/admin/creation?notice=Queued+jobs+dispatched');
 }

@@ -1,6 +1,8 @@
+import { ClerkProvider } from '@clerk/nextjs';
 import type { Metadata, Viewport } from 'next';
 import localFont from 'next/font/local';
 import type { ReactNode } from 'react';
+import { NotificationProvider } from './components/notifications';
 import './globals.css';
 import './components/arcade-ui.css';
 import './components/arcade-pages.css';
@@ -46,7 +48,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en" className={pressStart.variable} data-scroll-behavior="smooth">
-      <body>{children}</body>
+      <body>
+        <ClerkProvider signInUrl="/sign-in" signUpUrl="/sign-up">
+          <NotificationProvider>{children}</NotificationProvider>
+        </ClerkProvider>
+      </body>
     </html>
   );
 }

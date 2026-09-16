@@ -10,6 +10,7 @@ import {
   cancelWebsiteGame,
   retryWebsiteGame,
   resumeAdminWebsiteGame,
+  resumeWebsiteGame,
 } from '@/lib/website-generation';
 import { getAdminIdentity, requireAdminIdentity } from '@/lib/admin-auth';
 import type { ActiveWebsiteGame } from '@/lib/website-creation-policy';
@@ -67,14 +68,11 @@ export async function createGameAction(
       form.get('photo'),
       admin,
     );
-    if (admin?.authorized && admin.userId === identity.userId) {
-      try {
-        const row = await resumeAdminWebsiteGame(admin, id);
-        if (row) await start(generateGameWorkflow, [row.id, row.attempt]);
-      } catch {
-        notice =
-          'Your game is saved. Generation has not started; use Start generation to try again.';
-      }
+    try {
+      const row = await resumeWebsiteGame(identity.userId, id);
+      if (row) await start(generateGameWorkflow, [row.id, row.attempt]);
+    } catch {
+      notice = 'Your game is saved. Use Start generation if it does not begin shortly.';
     }
   } catch (error) {
     return {
@@ -117,6 +115,25 @@ export async function startAdminGameAction(form: FormData) {
   let notice = 'Generation queued.';
   try {
     const row = await resumeAdminWebsiteGame(admin, id);
+    if (row) await start(generateGameWorkflow, [row.id, row.attempt]);
+    else notice = 'This game has already started or is no longer eligible to start.';
+  } catch (error) {
+    notice =
+      error instanceof ArcadeError
+        ? error.message
+        : 'Generation could not start. Please try again.';
+  }
+  revalidatePath('/', 'layout');
+  redirect(`/me/games/${encodeURIComponent(id)}?notice=${encodeURIComponent(notice)}`);
+}
+
+export async function startGameAction(form: FormData) {
+  const identity = await getSignupIdentity();
+  if (!identity?.emailVerified) redirect('/sign-in?redirect_url=/me');
+  const id = String(form.get('id'));
+  let notice = 'Generation queued.';
+  try {
+    const row = await resumeWebsiteGame(identity.userId, id);
     if (row) await start(generateGameWorkflow, [row.id, row.attempt]);
     else notice = 'This game has already started or is no longer eligible to start.';
   } catch (error) {

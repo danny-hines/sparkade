@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { NotificationBell } from './notifications';
 
 import { GameCardArt } from '../play/game-card-art';
 
@@ -92,6 +93,7 @@ export function ArcadeHeader({ viewer, active }: { viewer: ArcadeViewer; active?
                   Admin
                 </a>
               ) : null}
+              <NotificationBell />
               {viewer.accountMenu}
             </>
           ) : (

@@ -21,12 +21,12 @@ export async function GET(request: Request) {
   await ensureArcadeSchema();
   const running =
     await sql`SELECT g.job_id FROM arcade_generations g JOIN generation_jobs j ON j.id=g.job_id
-    WHERE g.environment=${env()} AND g.settlement='held' AND j.status IN ('running','waiting-network','publishing')
+    WHERE g.environment=${env()} AND g.settlement='held' AND j.status IN ('queued','running','waiting-network','publishing')
     AND j.run_id IS NOT NULL AND j.updated_at<now()-interval '1 minute' LIMIT 100`;
   for (const row of running) await reconcileWebsiteJob(String(row.job_id));
   await sql`UPDATE generation_jobs j SET status='failed',updated_at=now()
     FROM arcade_generations g WHERE g.job_id=j.id AND g.environment=${env()} AND g.settlement='held'
-    AND g.input_review='approved' AND j.status IN ('queued','running','waiting-network','publishing')
+    AND (g.input_review='approved' OR (g.input_review='pending' AND g.review_policy='pg13-v1')) AND j.status IN ('queued','running','waiting-network','publishing')
     AND j.updated_at<now()-interval '24 hours'`;
   const unsettled =
     await sql`SELECT g.job_id FROM arcade_generations g JOIN generation_jobs j ON j.id=g.job_id
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
   const queued =
     await sql`SELECT j.id,j.attempt FROM generation_jobs j JOIN arcade_generations g ON g.job_id=j.id
     JOIN arcade_settings s ON s.environment=g.environment WHERE g.environment=${env()} AND g.settlement='held'
-    AND g.input_review='approved' AND s.enabled AND j.status='queued' AND j.run_id IS NULL LIMIT 100`;
+    AND (g.input_review='approved' OR (g.input_review='pending' AND g.review_policy='pg13-v1')) AND s.enabled AND j.status='queued' AND j.run_id IS NULL LIMIT 100`;
   for (const row of queued)
     await start(generateGameWorkflow, [String(row.id), Number(row.attempt)]);
   const rows =

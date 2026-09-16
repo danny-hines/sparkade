@@ -319,6 +319,10 @@ export class MockProvider implements Provider {
 
   async complete(req: CompleteRequest): Promise<CompleteResponse> {
     await this.delay();
+    if ((req.jsonSchema as { title?: string } | undefined)?.title === 'SparkadeContentReviewV1') {
+      // Mock-only deterministic acceptance; policy cases use explicit verdict fixtures in site tests.
+      return { text: '{"decision":"allow","category":"none"}', usage: { input: 100, output: 12 } };
+    }
     const stage = detectStage(req);
     const archetype = detectArchetype(req) ?? this.pickArchetype(req.user);
     const source = this.golden(archetype);

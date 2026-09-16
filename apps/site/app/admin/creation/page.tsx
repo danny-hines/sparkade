@@ -34,8 +34,8 @@ export default async function CreationAdmin({
         <span className="admin-kicker">Friends beta · {env()}</span>
         <h1>Creation control room</h1>
         <p>
-          Manage games and keep provider spending within your limits. Admin-created games skip
-          manual review; you can still take them down here.
+          Manage games and keep provider spending within your limits. New games are checked
+          automatically by Spark; you can still take them down here.
         </p>
       </section>
       {notice && (
@@ -103,9 +103,9 @@ export default async function CreationAdmin({
       </section>
       <section className="arc-section">
         <div className="arc-section-heading">
-          <h2>Review & generation queue</h2>
+          <h2>Generation & content checks</h2>
           <form action={resumeApprovedAction}>
-            <SubmitButton className="arc-button-secondary">Resume approved jobs</SubmitButton>
+            <SubmitButton className="arc-button-secondary">Resume queued jobs</SubmitButton>
           </form>
         </div>
         <div className="arc-review-list">
@@ -115,6 +115,9 @@ export default async function CreationAdmin({
               <span className="arc-kicker">
                 {g.status} · {g.input_review === 'pending' ? 'Prompt review' : g.moderation}
               </span>
+              {g.review_policy === 'pg13-v1' && (
+                <p className="arc-fine-print">Automatic PG-13 content checks</p>
+              )}
               {g.admin_bypass && (
                 <p className="arc-fine-print">Admin creator · manual review bypassed</p>
               )}
@@ -136,7 +139,9 @@ export default async function CreationAdmin({
                 <a className="arc-button" href={`/admin/creation/${g.game_id}`}>
                   Review game & assets →
                 </a>
-              ) : g.input_review === 'pending' && g.status === 'queued' ? (
+              ) : g.review_policy === 'legacy' &&
+                g.input_review === 'pending' &&
+                g.status === 'queued' ? (
                 <form action={reviewAction} className="arc-admin-form">
                   <input type="hidden" name="jobId" value={g.job_id} />
                   <label>

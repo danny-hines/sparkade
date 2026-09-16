@@ -75,7 +75,10 @@ export function requestAllowance(
     },
   };
 }
-export function websiteSpendPolicy(row: GenerationRow): ProviderRequestPolicy {
+export function websiteSpendPolicy(
+  row: GenerationRow,
+  purpose: 'generation' | 'input-review' = 'generation',
+): ProviderRequestPolicy {
   return async (url, body) => {
     const allowance = requestAllowance(url, body, row.state),
       id = randomUUID(),
@@ -87,7 +90,7 @@ export function websiteSpendPolicy(row: GenerationRow): ProviderRequestPolicy {
         FROM arcade_generations g JOIN arcade_settings s ON s.environment=g.environment
         JOIN arcade_profiles p ON p.environment=g.environment AND p.user_id=g.user_id
         JOIN generation_jobs j ON j.id=g.job_id JOIN public_games v ON v.id=g.game_id
-        WHERE g.job_id=${row.id} AND g.environment=${env()} AND g.settlement='held' AND g.input_review='approved'
+        WHERE g.job_id=${row.id} AND g.environment=${env()} AND g.settlement='held' AND (g.input_review='approved' OR (${purpose}='input-review' AND g.input_review='pending' AND g.review_policy='pg13-v1' AND j.status='queued'))
           AND s.enabled AND NOT p.suspended AND v.deleted_at IS NULL AND v.moderation='pending'
           AND j.attempt=${row.attempt} AND j.status IN ('queued','running','waiting-network','publishing')
           AND COALESCE((SELECT sum(COALESCE(charged,reserved)) FROM arcade_spend WHERE job_id=g.job_id),0)+${allowance.reserved}<=LEAST(g.game_cap,s.game_cap)

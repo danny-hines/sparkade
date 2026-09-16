@@ -38,6 +38,12 @@ import {
   stageWebsiteResult,
   readWebsiteFinal,
 } from '../lib/website-generation';
+import { reviewWebsiteInput, reviewContent } from '../lib/website-content-review';
+import { stageProvider } from '@sparkade/server/providers/index';
+import { defaultConfig } from '@sparkade/server/storage/config';
+import { CONTENT_POLICY } from '../lib/content-policy';
+import { websiteProgress, websiteAssetPreview } from '../lib/website-progress';
+import { gameNotifications, updateGameNotifications } from '../lib/notifications';
 import { getJob } from '../lib/generation/store';
 import { websiteSpendPolicy } from '../lib/website-spend';
 import {
@@ -67,6 +73,7 @@ beforeAll(async () => {
   if (!enabled) return;
   vi.stubEnv('SPARKADE_CREDIT_ENV', 'arcade-test');
   vi.stubEnv('SPARKADE_PROVIDER', 'mock');
+  vi.stubEnv('SPARKADE_MOCK_FAST', '1');
   pool = new Pool({ connectionString: url, options: `-c search_path=${schema},public`, max: 20 });
   await pool.query(`CREATE SCHEMA ${schema}`);
   context.sql = createLocalPgClient(pool) as Sql;
@@ -87,6 +94,7 @@ beforeEach(async () => {
   await settings();
   await context.sql`UPDATE arcade_settings SET enabled=TRUE,game_cap=5,daily_cap=10,total_cap=50 WHERE environment='arcade-test'`;
   context.blobs.clear();
+  vi.restoreAllMocks();
 });
 async function account(user = 'user-a', balance = 30) {
   await ensureProfile(user);
@@ -94,6 +102,8 @@ async function account(user = 'user-a', balance = 30) {
 }
 async function create(user = 'user-a', key = randomUUID(), heroName = '', photo?: File) {
   const id = await createWebsiteGame(user, 'A friendly moon race', 'racing', key, heroName, photo);
+  // Historical manual-review fixtures exercise backwards compatibility. New-policy cases below use createWebsiteGame directly.
+  await context.sql`UPDATE arcade_generations SET review_policy='legacy' WHERE game_id=${id}`;
   const [g] = await context.sql`SELECT * FROM arcade_generations WHERE game_id=${id}`;
   return { id, jobId: String(g.job_id) };
 }
@@ -146,7 +156,9 @@ async function stageFinishedGame(jobId: string) {
     {
       state: row.state,
       files: {
-        [`games/${row.state.job!.gameId}/assets/key-art.png`]: 'aGVsbG8=',
+        [`games/${row.state.job!.gameId}/assets/key-art.png`]: Buffer.from(
+          await (await photoFile()).arrayBuffer(),
+        ).toString('base64'),
         [`staging/${jobId}/photo.jpg`]: 'cHJpdmF0ZQ==',
       },
     },
@@ -155,13 +167,20 @@ async function stageFinishedGame(jobId: string) {
 }
 
 describe.skipIf(!enabled)('arcade domain against real PostgreSQL', () => {
-  it('admits admin games once without input review and atomically completes once without output review', async () => {
+  it('checks admin input and output automatically, captures once, keeps unlisted and supports takedown', async () => {
     await account();
     const key = randomUUID();
     const { id, jobId } = await createAdminGame(key);
     expect(await createAdminGame(key)).toEqual({ id, jobId });
     const [g] = await context.sql`SELECT * FROM arcade_generations WHERE game_id=${id}`;
-    expect(g).toMatchObject({ admin_bypass: true, input_review: 'approved', settlement: 'held' });
+    expect(g).toMatchObject({
+      admin_bypass: false,
+      input_review: 'pending',
+      settlement: 'held',
+      review_policy: CONTENT_POLICY,
+    });
+    await expect(assertWebsiteRunnable((await getJob(jobId))!)).rejects.toThrow();
+    expect(await reviewWebsiteInput((await getJob(jobId))!)).toBe(true);
     expect(await balance()).toBe(20);
     await assertWebsiteRunnable((await getJob(jobId))!);
     expect(await getPublicGame(id)).toBeNull();
@@ -179,9 +198,16 @@ describe.skipIf(!enabled)('arcade domain against real PostgreSQL', () => {
     expect(Object.keys((await readWebsiteFinal(id))!.files)).toEqual(['key-art.png']);
     const audits =
       await context.sql`SELECT action,actor_user_id,details_json FROM admin_audit_events WHERE target_id=${id} ORDER BY action`;
-    expect(audits.map((a) => a.action)).toEqual(['admin-bypass-input', 'admin-bypass-output']);
-    expect(audits.every((a) => a.actor_user_id === 'user-a')).toBe(true);
-    expect(audits[1].details_json.version).toBeTruthy();
+    expect(audits).toEqual([]);
+    const reviews =
+      await context.sql`SELECT phase,decision,version_hash FROM arcade_content_reviews WHERE job_id=${jobId} ORDER BY phase`;
+    expect(reviews.map((r) => [r.phase, r.decision])).toEqual([
+      ['input', 'allow'],
+      ['output', 'allow'],
+    ]);
+    expect(reviews[1].version_hash).toBe(
+      (await context.sql`SELECT version_hash FROM public_games WHERE id=${id}`)[0].version_hash,
+    );
     await releaseWebsiteCredits(jobId);
     expect(await balance()).toBe(20);
     await manageGame('user-a', id, 'publish');
@@ -192,6 +218,204 @@ describe.skipIf(!enabled)('arcade domain against real PostgreSQL', () => {
     await expect(manageGame('user-a', id, 'publish')).rejects.toThrow();
     await expect(stageFinishedGame(jobId)).rejects.toThrow();
     expect(await getPublicGame(id)).toBeNull();
+  });
+  it('dispatch recovery checks owner and environment, and input rejection refunds exactly once before generation', async () => {
+    await account();
+    const id = await createWebsiteGame(
+      'user-a',
+      'A disallowed test fixture',
+      'fighter',
+      randomUUID(),
+    );
+    const [{ job_id }] =
+      await context.sql`SELECT job_id FROM arcade_generations WHERE game_id=${id}`;
+    const row = (await getJob(job_id))!;
+    const provider = stageProvider(defaultConfig(), 'design').provider;
+    const complete = vi.spyOn(provider, 'complete').mockResolvedValue({
+      text: '{"decision":"reject","category":"hate"}',
+      usage: { input: 12, output: 8 },
+    });
+    expect(await reviewWebsiteInput(row)).toBe(false);
+    await releaseWebsiteCredits(job_id);
+    expect(await balance()).toBe(30);
+    expect((await getJob(job_id))!.status).toBe('failed');
+    expect(
+      (
+        await context.sql`SELECT input_review,settlement FROM arcade_generations WHERE job_id=${job_id}`
+      )[0],
+    ).toMatchObject({ input_review: 'rejected', settlement: 'released' });
+    expect(await getPublicGame(id)).toBeNull();
+    await expect(retryWebsiteGame('user-a', job_id)).rejects.toThrow();
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(await context.sql`SELECT * FROM generation_requests WHERE job_id=${job_id}`).toEqual([]);
+  });
+  it('fails closed on invalid model output with bounded attempts, then permits one refunded service retry', async () => {
+    await account();
+    const { jobId } = await createAdminGame();
+    const row = (await getJob(jobId))!;
+    const complete = vi
+      .spyOn(stageProvider(defaultConfig(), 'design').provider, 'complete')
+      .mockResolvedValue({
+        text: '{"decision":"allow","category":"hate"}',
+        usage: { input: 1, output: 1 },
+      });
+    for (let i = 0; i < 3; i++) await expect(reviewWebsiteInput(row)).rejects.toThrow();
+    expect(complete).toHaveBeenCalledTimes(2);
+    await expect(assertWebsiteRunnable(row)).rejects.toThrow();
+    await context.sql`UPDATE generation_jobs SET status='failed' WHERE id=${jobId}`;
+    await releaseWebsiteCredits(jobId);
+    expect(await balance()).toBe(30);
+    const retried = await retryWebsiteGame('user-a', jobId);
+    expect(retried.attempt).toBe(2);
+    expect(await balance()).toBe(20);
+    complete.mockResolvedValue({
+      text: '{"decision":"allow","category":"none"}',
+      usage: { input: 1, output: 1 },
+    });
+    expect(await reviewWebsiteInput(retried)).toBe(true);
+  });
+  it('reuses a persisted exact-version decision and never trusts a different version', async () => {
+    await account();
+    const { jobId } = await createAdminGame();
+    const row = (await getJob(jobId))!;
+    const complete = vi.spyOn(stageProvider(defaultConfig(), 'design').provider, 'complete');
+    await reviewContent(row, 'input', 'version-a', { text: 'hello' });
+    await reviewContent(row, 'input', 'version-a', { text: 'hello' });
+    expect(complete).toHaveBeenCalledTimes(1);
+    await reviewContent(row, 'input', 'version-b', { text: 'different' });
+    expect(complete).toHaveBeenCalledTimes(2);
+  });
+  it('refunds rejected finished output without exposing any game or source asset', async () => {
+    await account();
+    const { id, jobId } = await createAdminGame();
+    await reviewWebsiteInput((await getJob(jobId))!);
+    await context.sql`UPDATE generation_jobs SET status='publishing' WHERE id=${jobId}`;
+    vi.spyOn(stageProvider(defaultConfig(), 'design').provider, 'complete').mockResolvedValue({
+      text: '{"decision":"reject","category":"sexual"}',
+      usage: { input: 10, output: 8 },
+    });
+    await stageFinishedGame(jobId);
+    expect((await getJob(jobId))!.status).toBe('failed');
+    expect(await balance()).toBe(30);
+    expect(await getPublicGame(id)).toBeNull();
+    expect(await readWebsiteFinal(id)).toBeNull();
+    await expect(manageGame('user-a', id, 'publish')).rejects.toThrow();
+  });
+  it('allows review spending before approval but still blocks generator requests, stopped accounts and other environments', async () => {
+    await account();
+    const { jobId } = await createAdminGame();
+    const row = (await getJob(jobId))!;
+    const body = JSON.stringify({
+      model: row.state.config!.stages.design.model,
+      max_completion_tokens: 1660,
+      messages: [],
+    });
+    const url = 'https://api.meta.ai/v1/chat/completions';
+    await expect(websiteSpendPolicy(row)(url, body)).rejects.toThrow();
+    const settle = await websiteSpendPolicy(row, 'input-review')(url, body);
+    await settle?.({ usage: { prompt_tokens: 20, completion_tokens: 10 } });
+    await context.sql`UPDATE arcade_profiles SET suspended=TRUE`;
+    await expect(websiteSpendPolicy(row, 'input-review')(url, body)).rejects.toThrow();
+    await context.sql`UPDATE arcade_profiles SET suspended=FALSE`;
+    vi.stubEnv('SPARKADE_CREDIT_ENV', 'elsewhere');
+    await expect(websiteSpendPolicy(row, 'input-review')(url, body)).rejects.toThrow();
+    vi.stubEnv('SPARKADE_CREDIT_ENV', 'arcade-test');
+    await context.sql`UPDATE arcade_settings SET total_cap=0.000001`;
+    await expect(websiteSpendPolicy(row, 'input-review')(url, body)).rejects.toThrow();
+  });
+  it('serves only owner-announced art, excludes source photos and isolates deleted, rejected and other-environment games', async () => {
+    await account();
+    const { id, jobId } = await createAdminGame();
+    await reviewWebsiteInput((await getJob(jobId))!);
+    const row = (await getJob(jobId))!;
+    row.state.events.push({
+      id: 100,
+      jobId,
+      gameId: row.state.job!.gameId,
+      attempt: 1,
+      kind: 'asset',
+      message: 'art',
+      at: new Date().toISOString(),
+      payload: { filename: 'hero.png', role: 'hero' },
+    });
+    const checkpoint = context.blobs.get(row.checkpoint) as PassCheckpoint;
+    checkpoint.files[`staging/${jobId}/assets/hero.png`] = 'aGVsbG8=';
+    await context.sql`UPDATE generation_jobs SET state=${JSON.stringify(row.state)}::jsonb WHERE id=${jobId}`;
+    expect(
+      (await websiteProgress('user-a', id))?.items.some((i) => i.image?.endsWith('/hero.png')),
+    ).toBe(true);
+    expect((await websiteAssetPreview('user-a', id, 'hero.png'))?.toString()).toBe('hello');
+    expect(await websiteProgress('other', id)).toBeNull();
+    expect(await websiteAssetPreview('other', id, 'hero.png')).toBeNull();
+    expect(await websiteAssetPreview('user-a', id, 'photo.jpg')).toBeNull();
+    expect(await websiteAssetPreview('user-a', id, '../photo.jpg')).toBeNull();
+    expect(await websiteAssetPreview('user-a', id, 'not-announced.png')).toBeNull();
+    vi.stubEnv('SPARKADE_CREDIT_ENV', 'other');
+    expect(await websiteProgress('user-a', id)).toBeNull();
+    vi.stubEnv('SPARKADE_CREDIT_ENV', 'arcade-test');
+    await context.sql`UPDATE public_games SET moderation='rejected' WHERE id=${id}`;
+    expect(await websiteAssetPreview('user-a', id, 'hero.png')).toBeNull();
+    expect((await websiteProgress('user-a', id))?.items.every((i) => !i.image)).toBe(true);
+    await context.sql`UPDATE public_games SET deleted_at=now() WHERE id=${id}`;
+    expect(await websiteProgress('user-a', id)).toBeNull();
+  });
+  it('persists terminal notifications once, isolates owners, and claims toasts atomically across tabs', async () => {
+    await account();
+    const { id, jobId } = await create();
+    expect((await gameNotifications('user-a')).items).toEqual([]);
+    await ready(id, jobId);
+    const results = await Promise.all([gameNotifications('user-a'), gameNotifications('user-a')]);
+    const notificationId = results[0].items[0]!.id;
+    expect(results.every((r) => r.unread === 1 && r.items.length === 1)).toBe(true);
+    expect((await gameNotifications('other')).items).toEqual([]);
+    expect(await updateGameNotifications('other', 'claim-toasts', [notificationId])).toEqual([]);
+    const claims = await Promise.all([
+      updateGameNotifications('user-a', 'claim-toasts', [notificationId]),
+      updateGameNotifications('user-a', 'claim-toasts', [notificationId]),
+    ]);
+    expect(claims.flat()).toEqual([notificationId]);
+    await updateGameNotifications('other', 'read-all', [], notificationId);
+    expect((await gameNotifications('user-a')).unread).toBe(1);
+    await updateGameNotifications('user-a', 'read', [notificationId]);
+    expect((await gameNotifications('user-a')).unread).toBe(0);
+    await reviewWebsiteGame('admin', jobId, 'takedown', '', 'Policy issue');
+    expect((await gameNotifications('user-a')).items[0].kind).toBe('removed');
+    await updateGameNotifications('user-a', 'read-all', [], notificationId);
+    expect((await gameNotifications('user-a')).unread).toBe(1); // A new outcome is above the captured boundary.
+    vi.stubEnv('SPARKADE_CREDIT_ENV', 'other');
+    expect((await gameNotifications('user-a')).items).toEqual([]);
+    vi.stubEnv('SPARKADE_CREDIT_ENV', 'arcade-test');
+  });
+  it('recovers a crashed workflow through owner notifications while other accounts cannot trigger it', async () => {
+    await account();
+    const { jobId } = await createAdminGame();
+    await context.sql`UPDATE generation_jobs SET status='running',run_id='failed-runtime',updated_at=now()-interval '2 minutes' WHERE id=${jobId}`;
+    expect((await gameNotifications('other')).items).toHaveLength(0);
+    expect((await getJob(jobId))?.status).toBe('running');
+    expect((await gameNotifications('user-a')).items[0].kind).toBe('failed');
+    expect((await getJob(jobId))?.status).toBe('failed');
+    expect(await balance()).toBe(30);
+    expect((await gameNotifications('user-a')).items).toHaveLength(1);
+    expect(await balance()).toBe(30);
+  });
+  it('reports failed and rejected attempts only once credits are returned, newest first across ID digit boundaries', async () => {
+    await context.sql`SELECT setval(pg_get_serial_sequence('arcade_notifications','id'),98,true)`;
+    await account();
+    const { jobId } = await createAdminGame();
+    await context.sql`UPDATE generation_jobs SET status='failed' WHERE id=${jobId}`;
+    expect((await gameNotifications('user-a')).items).toHaveLength(0);
+    await releaseWebsiteCredits(jobId);
+    expect((await gameNotifications('user-a')).items[0].kind).toBe('failed');
+    const row = await retryWebsiteGame('user-a', jobId);
+    vi.spyOn(stageProvider(defaultConfig(), 'design').provider, 'complete').mockResolvedValue({
+      text: '{"decision":"reject","category":"hate"}',
+      usage: { input: 2, output: 2 },
+    });
+    await reviewWebsiteInput(row);
+    expect((await gameNotifications('user-a')).items.map((n) => n.kind)).toEqual([
+      'rejected',
+      'failed',
+    ]);
   });
   it('does not exempt an unauthorized identity or another admin’s user ID', async () => {
     await account();
@@ -242,7 +466,8 @@ describe.skipIf(!enabled)('arcade domain against real PostgreSQL', () => {
     expect(
       (await context.sql`SELECT admin_bypass FROM arcade_generations WHERE game_id=${id}`)[0]
         .admin_bypass,
-    ).toBe(true);
+    ).toBe(false);
+    await reviewWebsiteInput(row);
     await context.sql`UPDATE arcade_settings SET total_cap=0.001`;
     await expect(
       websiteSpendPolicy(row)(
@@ -742,7 +967,9 @@ describe.skipIf(!enabled)('arcade domain against real PostgreSQL', () => {
       {
         state: row.state,
         files: {
-          [`games/${row.state.job!.gameId}/assets/key-art.png`]: 'aGVsbG8=',
+          [`games/${row.state.job!.gameId}/assets/key-art.png`]: Buffer.from(
+            await (await photoFile()).arrayBuffer(),
+          ).toString('base64'),
           [`staging/${jobId}/photo.jpg`]: 'cHJpdmF0ZSBwaG90bw==',
         },
       },
@@ -750,7 +977,7 @@ describe.skipIf(!enabled)('arcade domain against real PostgreSQL', () => {
     );
     expect((await getJob(jobId))?.status).toBe('review');
     expect(await getPublicGame(id)).toBeNull();
-    expect((await readWebsiteFinal(id))?.files['key-art.png']).toBe('aGVsbG8=');
+    expect((await readWebsiteFinal(id))?.files['key-art.png']).toMatch(/^iVBOR/);
     expect(Object.keys((await readWebsiteFinal(id))!.files)).toEqual(['key-art.png']);
     await reviewWebsiteGame(
       'admin',

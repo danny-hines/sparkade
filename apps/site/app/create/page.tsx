@@ -58,23 +58,17 @@ export default async function CreatePage() {
           <h2>From idea to arcade</h2>
           <ol className="arc-steps">
             <li>
-              {user.admin
-                ? 'Choose your game type, add any personal touches, and start creating.'
-                : 'Choose your game type, add any personal touches, and submit for a quick human review.'}
+              Choose your game type and add any personal touches. Spark checks your idea and photo
+              automatically.
             </li>
             <li>We generate your game. Follow along in your library.</li>
-            <li>
-              {user.admin
-                ? 'When generation finishes, play and share its direct link.'
-                : 'After a final review, play and share its direct link.'}
-            </li>
+            <li>After an automatic final content check, play and share its direct link.</li>
             <li>Publish when you want it in the public arcade.</li>
           </ol>
           <p className="arc-fine-print">
-            {user.admin
-              ? 'Your admin account skips manual review. '
-              : 'This is a small beta. Reviews may take a little time. '}
-            You can have up to {MAX_ACTIVE_WEBSITE_GAMES} games in progress at a time.
+            Keep it PG-13 or under. Profanity and light fighting are fine; sexual, hateful, or
+            graphic content is not. You can have up to {MAX_ACTIVE_WEBSITE_GAMES} games in progress
+            at a time.
           </p>
         </aside>
       </div>

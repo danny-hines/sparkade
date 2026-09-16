@@ -1,7 +1,8 @@
-import { ClerkProvider, UserButton } from '@clerk/nextjs';
+import { UserButton } from '@clerk/nextjs';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { NotificationBell } from '../components/notifications';
 import { AdminNav } from './admin-nav';
 import { adminPageIdentity } from './page-access';
 import './admin.css';
@@ -11,10 +12,10 @@ export const metadata: Metadata = { robots: { index: false, follow: false } };
 export default async function AdminLayout({ children }: Readonly<{ children: ReactNode }>) {
   const identity = await adminPageIdentity();
   // Anonymous page guards redirect to sign-in with their exact return URL.
-  if (!identity) return <ClerkProvider>{children}</ClerkProvider>;
+  if (!identity) return <>{children}</>;
   if (!identity.authorized)
     return (
-      <ClerkProvider>
+      <>
         <main className="admin-page admin-access-page">
           <section className="admin-access-card">
             <span className="admin-kicker">Operator access</span>
@@ -25,10 +26,10 @@ export default async function AdminLayout({ children }: Readonly<{ children: Rea
             <UserButton />
           </section>
         </main>
-      </ClerkProvider>
+      </>
     );
   return (
-    <ClerkProvider>
+    <>
       <div className="admin-page">
         <a href="#admin-content" className="admin-skip-link">
           Skip to admin content
@@ -45,6 +46,7 @@ export default async function AdminLayout({ children }: Readonly<{ children: Rea
           <div className="admin-account">
             <Link href="/">View site ↗</Link>
             <span>{identity.displayName}</span>
+            <NotificationBell />
             <UserButton />
           </div>
         </header>
@@ -55,6 +57,6 @@ export default async function AdminLayout({ children }: Readonly<{ children: Rea
           {children}
         </main>
       </div>
-    </ClerkProvider>
+    </>
   );
 }

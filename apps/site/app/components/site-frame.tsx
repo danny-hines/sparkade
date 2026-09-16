@@ -1,5 +1,5 @@
 import { cache, type ReactNode } from 'react';
-import { ClerkProvider, UserButton } from '@clerk/nextjs';
+import { UserButton } from '@clerk/nextjs';
 import { auth } from '@clerk/nextjs/server';
 import { getAdminIdentity } from '@/lib/admin-auth';
 import { ensureProfile } from '@/lib/arcade';
@@ -20,13 +20,13 @@ export async function SiteFrame({
 }) {
   const user = await viewer();
   return (
-    <ClerkProvider signInUrl="/sign-in" signUpUrl="/sign-up">
+    <>
       <ArcadeHeader
         active={active}
         viewer={user ? { ...user, accountMenu: <UserButton /> } : null}
       />
       <main className="arc-shell arc-main">{children}</main>
       <ArcadeFooter />
-    </ClerkProvider>
+    </>
   );
 }

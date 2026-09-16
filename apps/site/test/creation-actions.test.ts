@@ -5,6 +5,7 @@ vi.mock('../lib/admin-auth', () => ({ getAdminIdentity: vi.fn(), requireAdminIde
 vi.mock('../lib/website-generation', () => ({
   createWebsiteGame: vi.fn(),
   resumeAdminWebsiteGame: vi.fn(),
+  resumeWebsiteGame: vi.fn(),
   cancelWebsiteGame: vi.fn(),
   retryWebsiteGame: vi.fn(),
 }));
@@ -18,7 +19,11 @@ vi.mock('next/navigation', () => ({
 }));
 import { getSignupIdentity } from '../lib/signup-auth';
 import { getAdminIdentity, requireAdminIdentity } from '../lib/admin-auth';
-import { createWebsiteGame, resumeAdminWebsiteGame } from '../lib/website-generation';
+import {
+  createWebsiteGame,
+  resumeAdminWebsiteGame,
+  resumeWebsiteGame,
+} from '../lib/website-generation';
 import { createGameAction, startAdminGameAction } from '../app/components/arcade-actions';
 import { generateGameWorkflow } from '../workflows/generate-game';
 import { start } from 'workflow/api';
@@ -53,6 +58,9 @@ beforeEach(() => {
   });
   vi.mocked(getAdminIdentity).mockResolvedValue({ ...admin, authorized: false });
   vi.mocked(createWebsiteGame).mockResolvedValue('game-id');
+  vi.mocked(resumeWebsiteGame).mockResolvedValue({ id: 'job-id', attempt: 1 } as NonNullable<
+    Awaited<ReturnType<typeof resumeWebsiteGame>>
+  >);
   vi.mocked(resumeAdminWebsiteGame).mockResolvedValue({ id: 'job-id', attempt: 1 } as NonNullable<
     Awaited<ReturnType<typeof resumeAdminWebsiteGame>>
   >);
@@ -68,7 +76,7 @@ describe('website creation authorization and dispatch', () => {
     });
     expect(start).not.toHaveBeenCalled();
   });
-  it('ignores forged form roles and owner; ordinary users remain subject to review', async () => {
+  it('ignores forged form roles and owner; ordinary users dispatch into automated review', async () => {
     await expect(createGameAction({ error: '' }, form())).rejects.toThrow(
       'REDIRECT:/me/games/game-id',
     );
@@ -82,7 +90,8 @@ describe('website creation authorization and dispatch', () => {
       { ...admin, authorized: false },
     );
     expect(resumeAdminWebsiteGame).not.toHaveBeenCalled();
-    expect(start).not.toHaveBeenCalled();
+    expect(resumeWebsiteGame).toHaveBeenCalledWith(admin.userId, 'game-id');
+    expect(start).toHaveBeenCalledWith(generateGameWorkflow, ['job-id', 1]);
   });
   it('uses the server admin identity and dispatches accepted games immediately', async () => {
     vi.mocked(getAdminIdentity).mockResolvedValue(admin);
@@ -98,15 +107,16 @@ describe('website creation authorization and dispatch', () => {
       null,
       admin,
     );
-    expect(resumeAdminWebsiteGame).toHaveBeenCalledWith(admin, 'game-id');
+    expect(resumeWebsiteGame).toHaveBeenCalledWith(admin.userId, 'game-id');
     expect(start).toHaveBeenCalledWith(generateGameWorkflow, ['job-id', 1]);
   });
-  it('does not dispatch if the server identities disagree or a duplicate is already running', async () => {
+  it('uses the authenticated owner regardless of admin identity and does not redispatch a running game', async () => {
     vi.mocked(getAdminIdentity).mockResolvedValue({ ...admin, userId: 'different-admin' });
     await expect(createGameAction({ error: '' }, form())).rejects.toThrow('REDIRECT:');
-    expect(start).not.toHaveBeenCalled();
+    expect(start).toHaveBeenCalledTimes(1);
+    vi.mocked(start).mockClear();
     vi.mocked(getAdminIdentity).mockResolvedValue(admin);
-    vi.mocked(resumeAdminWebsiteGame).mockResolvedValue(null);
+    vi.mocked(resumeWebsiteGame).mockResolvedValue(null);
     await expect(createGameAction({ error: '' }, form())).rejects.toThrow('REDIRECT:');
     expect(start).not.toHaveBeenCalled();
   });

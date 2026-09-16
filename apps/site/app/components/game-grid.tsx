@@ -59,6 +59,7 @@ export function GameGrid({
                               ? 'Failed · credits returned'
                               : `Creating · ${game.stage.replaceAll('-', ' ')}`}
               </p>
+              {game.failure && <p className="arc-fine-print">{game.failure}</p>}
               <OwnerControls
                 id={game.id}
                 published={game.feedVisibility === 'listed'}

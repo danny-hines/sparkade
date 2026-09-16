@@ -34,12 +34,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       if (typeof body.ticket !== 'string' || body.ticket.length > 64)
         return new Response(null, { status: 400 });
       return Response.json(
-        { counted: await finishPlay(id, viewer, body.ticket, userId) },
+        { counted: await finishPlay(id, viewer, body.ticket) },
         { headers: { 'cache-control': 'no-store' } },
       );
     }
     return Response.json(
-      { ticket: (await startPlay(id, viewer, userId)) ?? null },
+      { ticket: (await startPlay(id, viewer)) ?? null },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch {

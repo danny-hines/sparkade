@@ -14,6 +14,7 @@ export interface WebsiteProgress {
   terminal: boolean;
   title: string;
   summary: string;
+  failure: string | null;
   items: ProgressItem[];
   timing: ProgressTiming;
 }

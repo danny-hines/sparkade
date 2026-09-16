@@ -82,9 +82,8 @@ export default async function MyGame({
       )}
       {retry && (
         <section className="arc-panel arc-retry-panel" aria-labelledby="retry-game-title">
-          <h2 id="retry-game-title">
-            {retry.available ? 'Try this game again' : 'About this attempt'}
-          </h2>
+          <h2 id="retry-game-title">What went wrong</h2>
+          {progress?.failure && <p>{progress.failure}</p>}
           {retry.available && (
             <p>
               Retry with your saved idea, hero name, and photo. Each game gets one retry; credits

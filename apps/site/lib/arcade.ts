@@ -5,6 +5,7 @@ import { resolveCreditEnvironment, getCreditBalance } from './invites';
 import { ensureArcadeSchema } from './arcade-schema';
 import { MAX_ACTIVE_WEBSITE_GAMES, type ActiveWebsiteGame } from './website-creation-policy';
 import { websiteRetry, type WebsiteRetry, type WebsiteRetryRow } from './website-retry';
+import { websiteFailure } from './website-failure';
 
 export { ensureArcadeSchema } from './arcade-schema';
 export const env = resolveCreditEnvironment;
@@ -78,6 +79,7 @@ export interface ArcadeCard {
   inputReview: string | null;
   stage: string;
   retry: WebsiteRetry;
+  failure: string | null;
 }
 export interface BrowseOptions {
   q?: string;
@@ -117,6 +119,7 @@ export async function browseGames(
     p.spec_json->'meta'->>'tagline' AS description, p.assets_json->>$1 AS art,
     u.handle, g.job_id,g.input_review,g.review_policy,g.price,g.settlement,j.status AS job_status,
     j.attempt,j.checkpoint<>'' AS has_checkpoint,j.cleanup_pending,
+    CASE WHEN $4::boolean AND p.owner_id=$3 THEN COALESCE(NULLIF(j.state->'job'->'error','null'::jsonb),j.state->'game'->'failure') END AS generation_error,
     (SELECT count(*)::int FROM arcade_favorites f WHERE f.environment=$2 AND f.game_id=p.id) AS likes,
     (SELECT count(*)::int FROM arcade_plays v WHERE v.environment=$2 AND v.game_id=p.id) AS plays,
     EXISTS(SELECT 1 FROM arcade_favorites f WHERE f.environment=$2 AND f.game_id=p.id AND f.user_id=$3) AS favorite
@@ -167,6 +170,15 @@ export async function browseGames(
       stage: r.stage,
       retry:
         options.mine && r.owner_id === options.viewer ? websiteRetry(r as WebsiteRetryRow) : null,
+      failure:
+        options.mine && r.owner_id === options.viewer && !r.deleted_at
+          ? websiteFailure({
+              status: r.job_status,
+              moderation: r.moderation,
+              inputReview: r.input_review,
+              error: r.generation_error,
+            })
+          : null,
     })),
   };
 }

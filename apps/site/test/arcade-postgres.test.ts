@@ -909,6 +909,45 @@ describe.skipIf(!enabled)('arcade domain against real PostgreSQL', () => {
     expect(await getPublicGame(id)).toBeNull();
     await expect(manageGame('user-a', id, 'publish')).rejects.toThrow();
   });
+  it('explains failures in owner progress and library cards without exposing raw errors', async () => {
+    await account();
+    const { id, jobId } = await create();
+    await reviewWebsiteGame('admin', jobId, 'approve-input', '', 'Fine');
+    const row = (await getJob(jobId))!;
+    row.state.job!.error = {
+      code: 'image-content-policy',
+      stage: 'building-assets',
+      message: 'Provider secret-token https://private.example/photo.jpg cost $5',
+    };
+    await context.sql`UPDATE generation_jobs SET status='failed',state=${JSON.stringify(row.state)}::jsonb WHERE id=${jobId}`;
+    const pending = (await websiteProgress('user-a', id))!;
+    expect(pending.summary).toContain('Your credits are being returned.');
+    await releaseWebsiteCredits(jobId);
+    const progress = (await websiteProgress('user-a', id))!;
+    const card = (await browseGames({ viewer: 'user-a', mine: true })).games[0];
+    expect(progress.failure).toBe(
+      'The image service blocked a requested image during its safety check.',
+    );
+    expect(card.failure).toBe(progress.failure);
+    expect(progress.summary).toContain('Your credits have been returned.');
+    expect(progress.summary).not.toContain('being returned');
+    expect(progress.items.at(-1)?.message).toBe(progress.summary);
+    expect(JSON.stringify({ card, progress })).not.toMatch(/secret-token|private\.example|\$5/);
+    expect(await websiteProgress('other', id)).toBeNull();
+    expect((await browseGames({ viewer: 'other', mine: true })).games).toHaveLength(0);
+    expect((await browseGames()).games).toHaveLength(0);
+
+    // Some older records only saved the game's failure, with a JSON null job error.
+    await context.sql`UPDATE generation_jobs SET state=jsonb_set(jsonb_set(state,'{game,failure}',state->'job'->'error'),'{job,error}','null'::jsonb) WHERE id=${jobId}`;
+    expect((await websiteProgress('user-a', id))?.failure).toBe(progress.failure);
+    expect((await browseGames({ viewer: 'user-a', mine: true })).games[0].failure).toBe(
+      progress.failure,
+    );
+
+    await retryWebsiteGame('user-a', jobId);
+    expect((await websiteProgress('user-a', id))?.failure).toBeNull();
+    expect((await browseGames({ viewer: 'user-a', mine: true })).games[0].failure).toBeNull();
+  });
   it('supports one retry at the original price and refunds its hold separately', async () => {
     await account();
     const { id, jobId } = await create('user-a', randomUUID(), 'Dr. Lúna', await photoFile());
@@ -1047,23 +1086,44 @@ describe.skipIf(!enabled)('arcade domain against real PostgreSQL', () => {
     expect((await browseGames({ viewer: 'fan', favorites: true })).games).toHaveLength(0);
     expect(await getPublicGame(id)).toBeNull();
   });
-  it('counts only qualified plays, deduplicates replay, excludes creators, and gates deleted games', async () => {
+  it.each(['guest:viewer', 'user:user-a'])(
+    'counts qualified plays and deduplicates replay for %s, including the creator',
+    async (viewer) => {
+      await account();
+      const { id, jobId } = await create();
+      await ready(id, jobId);
+      const ticket = (await startPlay(id, viewer))!;
+      expect(ticket).toBeTruthy();
+      expect(await finishPlay(id, viewer, ticket)).toBe(false);
+      await context.sql`UPDATE arcade_play_tickets SET created_at=now()-interval '11 seconds' WHERE id=${ticket}`;
+      expect(await finishPlay(id, 'guest:someone-else', ticket)).toBe(false);
+      const results = await Promise.all(
+        Array.from({ length: 6 }, () => finishPlay(id, viewer, ticket)),
+      );
+      expect(results.filter(Boolean)).toHaveLength(1);
+      expect((await browseGames({ viewer: 'user-a', mine: true })).games[0].plays).toBe(1);
+      const next = (await startPlay(id, viewer))!;
+      await context.sql`UPDATE arcade_play_tickets SET created_at=now()-interval '11 seconds' WHERE id=${next}`;
+      expect(await finishPlay(id, viewer, next)).toBe(false);
+      const beforeDelete = (await startPlay(id, viewer))!;
+      await context.sql`UPDATE arcade_play_tickets SET created_at=now()-interval '11 seconds' WHERE id=${beforeDelete}`;
+      await manageGame('user-a', id, 'delete');
+      expect(await startPlay(id, viewer)).toBeUndefined();
+      expect(await finishPlay(id, viewer, beforeDelete)).toBe(false);
+    },
+  );
+  it('counts the same creator playing three different games within 30 minutes', async () => {
     await account();
-    const { id, jobId } = await create();
-    await ready(id, jobId);
-    expect(await startPlay(id, 'user:user-a', 'user-a')).toBeUndefined();
-    const ticket = (await startPlay(id, 'guest:viewer', null))!;
-    expect(await finishPlay(id, 'guest:viewer', ticket, null)).toBe(false);
-    await context.sql`UPDATE arcade_play_tickets SET created_at=now()-interval '11 seconds' WHERE id=${ticket}`;
-    const results = await Promise.all(
-      Array.from({ length: 6 }, () => finishPlay(id, 'guest:viewer', ticket, null)),
-    );
-    expect(results.filter(Boolean)).toHaveLength(1);
-    const next = (await startPlay(id, 'guest:viewer', null))!;
-    await context.sql`UPDATE arcade_play_tickets SET created_at=now()-interval '11 seconds' WHERE id=${next}`;
-    expect(await finishPlay(id, 'guest:viewer', next, null)).toBe(false);
-    await manageGame('user-a', id, 'delete');
-    expect(await startPlay(id, 'guest:other', null)).toBeUndefined();
+    for (let i = 0; i < 3; i++) {
+      const { id, jobId } = await create();
+      await ready(id, jobId);
+      const ticket = (await startPlay(id, 'user:user-a'))!;
+      await context.sql`UPDATE arcade_play_tickets SET created_at=now()-interval '11 seconds' WHERE id=${ticket}`;
+      expect(await finishPlay(id, 'user:user-a', ticket)).toBe(true);
+    }
+    const { games } = await browseGames({ viewer: 'user-a', mine: true });
+    expect(games).toHaveLength(3);
+    expect(games.map((game) => game.plays)).toEqual([1, 1, 1]);
   });
   it('denies kiosk overwrite of website-owned games and isolates environments', async () => {
     await account();

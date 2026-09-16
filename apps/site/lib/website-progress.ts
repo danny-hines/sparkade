@@ -6,6 +6,7 @@ import { readPrivate } from './generation/storage';
 import { readWebsiteFinal } from './website-generation';
 import { reconcileWebsiteJob } from './website-recovery';
 import { rejectionMessage } from './content-policy';
+import { websiteFailure } from './website-failure';
 
 import {
   imageFilename,
@@ -59,12 +60,25 @@ export async function websiteProgress(userId: string, id: string): Promise<Websi
   }
   const terminal = ['done', 'failed', 'canceled'].includes(row.status);
   const rejected = row.moderation === 'rejected';
-  const summary = rejected
-    ? 'This game did not pass our content policy.'
-    : row.status === 'done'
-      ? 'Ready to play and share'
-      : row.status === 'failed'
-        ? 'Generation could not finish. Your credits are being returned.'
+  const failure = websiteFailure({
+    status: row.status,
+    moderation: row.moderation,
+    inputReview: row.input_review,
+    error: state.job?.error ?? state.game?.failure,
+    reviewCategory: reviews.findLast((review) => review.decision === 'reject')?.category,
+  });
+  const refund =
+    row.settlement === 'released'
+      ? 'Your credits have been returned.'
+      : row.settlement === 'held'
+        ? 'Your credits are being returned.'
+        : '';
+  const summary = failure
+    ? `${failure}${refund ? ` ${refund}` : ''}`
+    : rejected
+      ? 'This game did not pass our content policy.'
+      : row.status === 'done'
+        ? 'Ready to play and share'
         : row.status === 'canceled'
           ? 'Creation canceled'
           : row.input_review === 'pending'
@@ -76,7 +90,7 @@ export async function websiteProgress(userId: string, id: string): Promise<Websi
     items.push({
       id: `outcome:${row.attempt}:${row.status}:${row.moderation}`,
       kind: row.status === 'done' && !rejected ? 'complete' : 'failure',
-      message: `${summary}${row.settlement === 'released' ? ' Credits returned.' : ''}`,
+      message: `${summary}${!failure && row.settlement === 'released' ? ' Credits returned.' : ''}`,
       at: new Date(row.updated_at).toISOString(),
     });
   items.sort((a, b) => a.at.localeCompare(b.at));
@@ -86,6 +100,7 @@ export async function websiteProgress(userId: string, id: string): Promise<Websi
     terminal,
     title: row.title || 'Your new game',
     summary,
+    failure,
     items: rejected ? items.map(({ image: _image, ...item }) => item) : items,
     timing: progressTiming({
       attempt: row.attempt,

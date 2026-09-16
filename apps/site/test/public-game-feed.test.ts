@@ -80,7 +80,7 @@ describe('public game feed', () => {
     expect((feedCall?.[0] as TemplateStringsArray).join('?')).toContain(
       'ORDER BY ready_at DESC, id DESC',
     );
-    expect(feedCall?.slice(1)).toEqual(['key-art.png', 3]);
+    expect(feedCall?.slice(1)).toEqual(['key-art.png', 'test', 3]);
   });
 
   it('uses the cursor as a keyset boundary and sanitizes untrusted asset URLs', async () => {
@@ -111,6 +111,6 @@ describe('public game feed', () => {
     expect((feedCall?.[0] as TemplateStringsArray).join('?')).toContain(
       '(ready_at, id) < (?::timestamptz, ?)',
     );
-    expect(feedCall?.slice(1)).toEqual(['key-art.png', '2026-09-02T04:18:07.569Z', 'dp7js5d', 13]);
+    expect(feedCall?.slice(1)).toEqual(['key-art.png', 'test', '2026-09-02T04:18:07.569Z', 'dp7js5d', 13]);
   });
 });

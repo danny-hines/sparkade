@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "typecheck": "tsc --noEmit"
   },
@@ -27,8 +27,10 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "pg": "^8.23.0",
     "typescript": "^5.7.2"
   }
 }

@@ -589,7 +589,7 @@ function isImageContentPolicyViolation(error: unknown): boolean {
 
 export interface NewJobInputs {
   promptText: string;
-  sourceKind: 'voice' | 'preset' | 'surprise';
+  sourceKind: 'voice' | 'preset' | 'surprise' | 'typed';
   presetId?: string;
   /** Explicit engine chosen by the player; authoritative over model classification. */
   requestedArchetype?: ArchetypeId;

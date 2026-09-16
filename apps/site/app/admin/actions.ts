@@ -12,9 +12,13 @@ import {
 } from '@/lib/kiosks';
 import { setPublicGameFeedVisibility } from '@/lib/public-games';
 
-function adminRedirect(message: string, tone: 'success' | 'error' = 'success'): never {
+function adminRedirect(
+  path: '/admin/kiosks' | '/admin/games',
+  message: string,
+  tone: 'success' | 'error' = 'success',
+): never {
   const params = new URLSearchParams({ notice: message, tone });
-  redirect(`/admin?${params.toString()}`);
+  redirect(`${path}?${params.toString()}`);
 }
 
 function shortId(value: FormDataEntryValue | null): string | null {
@@ -36,12 +40,12 @@ export async function pairKioskAction(formData: FormData): Promise<never> {
       defaultFeedVisibility: visibility,
     });
     message = `${kiosk.name} is paired and ready.`;
-    revalidatePath('/admin');
+    revalidatePath('/admin/kiosks');
   } catch (error) {
     tone = 'error';
     message = error instanceof PairingCodeError ? error.message : 'Could not pair that kiosk.';
   }
-  adminRedirect(message, tone);
+  adminRedirect('/admin/kiosks', message, tone);
 }
 
 export async function renameKioskAction(formData: FormData): Promise<never> {
@@ -51,10 +55,12 @@ export async function renameKioskAction(formData: FormData): Promise<never> {
   const updated =
     kioskId !== null && (await updateManagedKiosk({ kioskId, ownerUserId: admin.userId, name }));
   if (updated) {
-    revalidatePath('/admin');
+    revalidatePath('/admin/kiosks');
+    revalidatePath('/admin/games');
     revalidatePath('/play');
   }
   adminRedirect(
+    '/admin/kiosks',
     updated ? 'Kiosk renamed.' : 'Could not rename that kiosk.',
     updated ? 'success' : 'error',
   );
@@ -72,8 +78,9 @@ export async function setKioskVisibilityAction(formData: FormData): Promise<neve
       ownerUserId: admin.userId,
       defaultFeedVisibility: visibility,
     }));
-  revalidatePath('/admin');
+  revalidatePath('/admin/kiosks');
   adminRedirect(
+    '/admin/kiosks',
     updated ? `New games will be ${visibility}.` : 'Could not update kiosk visibility.',
     updated ? 'success' : 'error',
   );
@@ -83,8 +90,9 @@ export async function revokeKioskAction(formData: FormData): Promise<never> {
   const admin = await requireAdminIdentity();
   const kioskId = shortId(formData.get('kioskId'));
   const revoked = kioskId !== null && (await revokeManagedKiosk(kioskId, admin.userId));
-  revalidatePath('/admin');
+  revalidatePath('/admin/kiosks');
   adminRedirect(
+    '/admin/kiosks',
     revoked ? 'Kiosk access revoked.' : 'Could not revoke that kiosk.',
     revoked ? 'success' : 'error',
   );
@@ -98,10 +106,11 @@ export async function setGameVisibilityAction(formData: FormData): Promise<never
     gameId !== null &&
     isFeedVisibility(visibility) &&
     (await setPublicGameFeedVisibility(gameId, visibility));
-  revalidatePath('/admin');
+  revalidatePath('/admin/games');
   revalidatePath('/play');
   if (gameId) revalidatePath(`/p/${gameId}`);
   adminRedirect(
+    '/admin/games',
     updated
       ? visibility === 'listed'
         ? 'Game added to the public feed.'

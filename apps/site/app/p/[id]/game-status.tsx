@@ -56,7 +56,7 @@ export function GameStatus({ initialGame }: { initialGame: PublicGame }) {
       </div>
       <p className="portal-id">Game {game.id.toUpperCase()}</p>
       <p className="portal-origin">
-        Created from <strong>{game.kioskName}</strong>
+        {game.ownerId ? 'Created by' : 'Created from'} <strong>{game.kioskName}</strong>
       </p>
       <h1>
         {game.title ??

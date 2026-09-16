@@ -1,4 +1,5 @@
 'use client';
+import { usePlayTracking } from './use-play-tracking';
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { GameHost, InputBroker } from '@sparkade/engine';
@@ -177,10 +178,12 @@ export function PublicGamePlayer({
   id,
   spec,
   assets,
+  trackPlays = true,
 }: {
   id: string;
   spec: GameSpec;
   assets: Record<string, string>;
+  trackPlays?: boolean;
 }) {
   const playerRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -272,6 +275,7 @@ export function PublicGamePlayer({
   }, [assets, id, spec, state]);
 
   const inactive = state !== 'playing' || loading;
+  usePlayTracking(id, !inactive, trackPlays);
 
   const enterFullscreen = () => {
     if (!document.fullscreenEnabled || !playerRef.current?.requestFullscreen) return;

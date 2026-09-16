@@ -1,4 +1,3 @@
-import { sleep } from 'workflow';
 import {
   claimGeneration,
   advanceGeneration,
@@ -10,8 +9,8 @@ import {
 
 export async function generateGameWorkflow(jobId: string, attempt: number) {
   'use workflow';
-  if (!(await claimGeneration(jobId, attempt))) return;
   try {
+    if (!(await claimGeneration(jobId, attempt))) return;
     for (let pass = 0; pass < 160; pass++) {
       const result = await advanceGeneration(jobId, attempt, pass);
       if (result.stopped) return;
@@ -23,7 +22,6 @@ export async function generateGameWorkflow(jobId: string, attempt: number) {
       // Shared leased slots enforce total and per-device concurrency across
       // functions; independent requests do not wait behind arbitrary batches.
       await Promise.all(result.pending.map((id) => runProviderRequest(jobId, attempt, id)));
-      await sleep('100ms');
     }
     await failGeneration(jobId, attempt, 'Generation exceeded its step budget. Retry to continue.');
   } catch (error) {

@@ -22,3 +22,9 @@ Add another `<archetype>.md` file when there is enough archetype-specific direct
 then link it here. Prefer reusable systems and authorable data over lists of hard-coded special
 cases; each proposed lever should eventually identify its schema, validation, runtime, prompt, and
 testing implications.
+
+## Online product and infrastructure
+
+- [Online generation: friends beta, credits, and editing](online-generation.md)
+- [Website experience: Home, Play, and Profile](website-experience.md)
+- [Generation on Vercel: runtime and rollout](cloud-generation.md)

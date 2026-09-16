@@ -1,0 +1,242 @@
+.admin-nav-bar {
+  border-block: 1px solid var(--line);
+  background: rgba(13, 17, 34, 0.7);
+}
+.admin-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-block: 10px;
+}
+.admin-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--ink-soft);
+  font-size: 14px;
+  font-weight: 650;
+}
+.admin-nav a:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.04);
+}
+.admin-nav a[aria-current='page'] {
+  color: var(--cyan);
+  border-color: rgba(56, 229, 255, 0.3);
+  background: rgba(56, 229, 255, 0.08);
+}
+.admin-header .brand-word small {
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-dim);
+  margin-left: 8px;
+}
+.admin-content {
+  overflow: visible;
+  padding-bottom: 64px;
+}
+.admin-content .admin-hero {
+  padding-block: 44px 36px;
+}
+.admin-content .admin-hero h1 {
+  font-size: clamp(36px, 5vw, 60px);
+  line-height: 1.1;
+}
+.admin-content .admin-hero p {
+  font-size: 17px;
+}
+.admin-tools {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  padding-bottom: 40px;
+}
+.admin-tool {
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(13, 17, 34, 0.72);
+}
+.admin-tool:hover {
+  border-color: var(--cyan);
+}
+.admin-tool h2 {
+  margin: 0 0 12px;
+  font-size: 22px;
+}
+.admin-tool p {
+  margin: 0;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+.admin-tool span {
+  display: block;
+  margin-top: 24px;
+  color: var(--cyan);
+  font-size: 14px;
+}
+.admin-content .admin-filters {
+  flex-wrap: wrap;
+}
+.admin-game-actions {
+  display: grid;
+  gap: 12px;
+}
+.admin-game-actions > a {
+  color: var(--cyan);
+}
+.admin-back-link {
+  display: inline-block;
+  margin-top: 28px;
+  color: var(--cyan);
+}
+.admin-account-picker {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.admin-account-search {
+  position: relative;
+  min-width: 0;
+}
+.admin-account-search > input {
+  width: 100%;
+}
+.admin-account-dropdown {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 6px);
+  inset-inline: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--night);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+}
+.admin-account-dropdown ul {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+}
+.admin-account-option {
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.admin-account-option[aria-selected='true'] {
+  background: rgba(56, 229, 255, 0.12);
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+}
+.admin-account-option span,
+.admin-account-selected span {
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+.admin-account-option small,
+.admin-account-selected small {
+  color: var(--cyan);
+  font-size: 13px;
+}
+.admin-account-help,
+.admin-account-status {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.admin-account-status {
+  padding: 10px 18px;
+}
+.admin-account-retry {
+  margin: 0 18px 12px;
+}
+.admin-account-selected {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(56, 229, 255, 0.3);
+  border-radius: 8px;
+  background: rgba(56, 229, 255, 0.05);
+}
+.admin-account-selected > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.admin-account-selected button {
+  flex-shrink: 0;
+}
+.admin-invite-form {
+  grid-template-columns: minmax(180px, 1.4fr) repeat(3, minmax(0, 1fr)) auto;
+}
+.admin-activity {
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  list-style: none;
+}
+.admin-activity li {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.admin-activity p {
+  margin: 8px 0;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+.admin-skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 20;
+  transform: translateY(-150%);
+  padding: 12px;
+  background: var(--night);
+  color: var(--cyan);
+}
+.admin-skip-link:focus {
+  transform: none;
+}
+@media (max-width: 900px) {
+  .admin-tools {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .admin-invite-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 680px) {
+  .admin-nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .admin-nav a {
+    justify-content: center;
+    padding-inline: 8px;
+  }
+  .admin-header {
+    gap: 12px;
+  }
+  .admin-header .brand-word small {
+    display: none;
+  }
+  .admin-tools,
+  .admin-invite-form {
+    grid-template-columns: 1fr;
+  }
+  .admin-game-actions {
+    grid-column: 1 / -1;
+  }
+}

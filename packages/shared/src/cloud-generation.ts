@@ -15,7 +15,7 @@ import type { ArchetypeId } from './constants';
 export interface CloudGenerationInput {
   promptText: string;
   idempotencyKey: string;
-  sourceKind: 'voice' | 'preset' | 'surprise';
+  sourceKind: 'voice' | 'preset' | 'surprise' | 'typed';
   requestedArchetype?: ArchetypeId;
   creationBrief?: CreationBrief;
   presetId?: string;

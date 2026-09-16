@@ -81,4 +81,5 @@ Neon. The cron only runs in production; preview test artifacts need explicit cle
 
 The retained standalone service module is a local integration-test harness for the shared
 kiosk protocol. The Render/Docker deployment template has been removed; it is not part of
-this deployment. Public website generation UI and credits are separate future product work.
+this deployment. Public website generation UI and credits are planned in the
+[online-generation roadmap](online-generation.md).

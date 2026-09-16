@@ -1,3 +1,5 @@
+import { GENERATED_GAME_ASSET_FILES } from '@sparkade/shared';
+import { readWebsiteFinal } from '@/lib/website-generation';
 import { NextResponse } from 'next/server';
 import { getPublicGame } from '@/lib/public-games';
 import { renderPublicGameShareImage } from '@/lib/public-game-share-image';
@@ -23,10 +25,14 @@ export async function GET(_request: Request, context: RouteContext) {
     return NextResponse.json({ error: 'game not ready' }, { status: 404 });
   }
 
-  return renderPublicGameShareImage({
+  const final = game.ownerId ? await readWebsiteFinal(game.id) : null;
+  const art = final?.files[GENERATED_GAME_ASSET_FILES.keyArt];
+  const response = renderPublicGameShareImage({
     format,
     gameId: game.id,
-    keyArtUrl: getPublicGameKeyArtUrl(game),
+    keyArtUrl: art ? `data:image/png;base64,${art}` : getPublicGameKeyArtUrl(game),
     title: getPublicGameDisplayTitle(game),
   });
+  response.headers.set('Cache-Control', 'private, no-store');
+  return response;
 }

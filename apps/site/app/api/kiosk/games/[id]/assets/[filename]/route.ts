@@ -24,7 +24,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: 'asset not found' }, { status: 404 });
   }
   const game = await getPublicGame(id);
-  if (!game || (principal.kioskId !== null && game.kioskId !== principal.kioskId)) {
+  if (!game || game.ownerId || (principal.kioskId !== null && game.kioskId !== principal.kioskId)) {
     return NextResponse.json({ error: 'game not found' }, { status: 404 });
   }
   if (request.headers.get('content-type') !== 'image/png') {

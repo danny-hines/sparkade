@@ -39,6 +39,27 @@ select {
   font: inherit;
 }
 
+/* Native menus keep their keyboard behavior; a shared chevron gives every
+   single-choice dropdown the same breathing room at the trailing edge. */
+select:not([multiple]):not([size]),
+select:not([multiple])[size='1'] {
+  appearance: none;
+  padding-inline-end: 44px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%23f4f5ff' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 16px 16px;
+}
+
+@media (forced-colors: active) {
+  select:not([multiple]):not([size]),
+  select:not([multiple])[size='1'] {
+    appearance: auto;
+    background-image: none;
+    padding-inline-end: 14px;
+  }
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -102,6 +123,61 @@ a:focus-visible {
   line-height: 0.98;
   letter-spacing: -0.055em;
 }
+
+.signup-form, .signup-change, .signup-form details {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+}
+
+.signup-form p, .signup-footer, .signup-offer, .auth-card > p {
+  margin: 0;
+  line-height: 1.65;
+  color: var(--ink-soft);
+}
+
+.signup-form label { font-weight: 700; }
+.signup-form label span { font-weight: 400; color: var(--ink-soft); }
+.signup-form input:not([type="hidden"]) {
+  width: 100%;
+  padding: 14px;
+  background: #070912;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font: inherit;
+}
+
+.signup-button {
+  display: inline-block;
+  padding: 14px 20px;
+  border: 1px solid rgba(56, 229, 255, 0.65);
+  border-radius: 8px;
+  color: #070912;
+  background: #38e5ff;
+  text-align: center;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.signup-text-button {
+  padding: 8px;
+  background: transparent;
+  border: 0;
+  color: var(--ink-soft);
+  text-decoration: underline;
+  font: inherit;
+  cursor: pointer;
+}
+.signup-button:disabled, .signup-text-button:disabled { opacity: 0.6; cursor: wait; }
+.signup-form .signup-error { color: #ffb6ab; }
+.signup-offer { width: 100%; padding: 18px; border: 1px solid var(--line); border-radius: 8px; }
+.signup-change summary, .signup-form summary { cursor: pointer; margin-bottom: 16px; }
+.signup-form a:not(.signup-button), .signup-footer a, .signup-offer a { color: #38e5ff; text-decoration: underline; }
+.account-heading { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.credit-balance { display: flex; align-items: baseline; gap: 14px; }
+.credit-balance strong { color: #38e5ff; font-size: 64px; }
+.credit-balance span { color: var(--ink-soft); font-size: 20px; }
 
 .admin-hero p {
   max-width: 680px;
@@ -399,8 +475,10 @@ a:focus-visible {
 .admin-access-page,
 .auth-page {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
-  padding: 30px;
+  padding: clamp(16px, 4vw, 30px);
+  overflow: clip;
 }
 
 .admin-access-card,
@@ -426,10 +504,15 @@ a:focus-visible {
 
 .auth-card {
   width: min(560px, 100%);
+  padding: clamp(22px, 5vw, 34px);
   display: grid;
   justify-items: center;
   gap: 28px;
+  min-width: 0;
 }
+
+.auth-card > * { min-width: 0; max-width: 100%; }
+.auth-card > .cl-rootBox, .auth-card .cl-cardBox, .auth-card .cl-card { width: 100%; max-width: 100%; min-width: 0; }
 
 .auth-card > .brand {
   justify-self: start;

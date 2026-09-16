@@ -1,3 +1,11 @@
+import { withProviderRequestPolicy } from '@sparkade/server/providers/request-policy';
+import { ArcadeError } from '../arcade';
+import { websiteSpendPolicy } from '../website-spend';
+import {
+  assertWebsiteRunnable,
+  stageWebsiteResult,
+  releaseWebsiteCredits,
+} from '../website-generation';
 import { getWorkflowMetadata, RetryableError } from 'workflow';
 import { put } from '@vercel/blob';
 import { defaultConfig } from '@sparkade/server/storage/config';
@@ -21,8 +29,13 @@ import { readPrivate, readOptionalPrivate, writePrivate, cleanPrivate } from './
 export async function claimGeneration(id: string, attempt: number) {
   'use step';
   const row = await getJob(id);
-  if (!row || row.attempt !== attempt || ['done', 'failed', 'canceled'].includes(row.status))
+  if (
+    !row ||
+    row.attempt !== attempt ||
+    ['done', 'failed', 'canceled', 'review'].includes(row.status)
+  )
     return false;
+  await assertWebsiteRunnable(row);
   const runId = getWorkflowMetadata().workflowRunId;
   const rows = await getSql()`UPDATE generation_jobs SET run_id=${runId}, updated_at=now()
     WHERE id=${id} AND attempt=${attempt} AND (run_id IS NULL OR run_id=${runId}) RETURNING id`;
@@ -41,7 +54,11 @@ export async function advanceGeneration(
 ): Promise<PassResult> {
   'use step';
   const row = await getJob(id);
-  if (!row || row.attempt !== attempt || ['done', 'failed', 'canceled'].includes(row.status))
+  if (
+    !row ||
+    row.attempt !== attempt ||
+    ['done', 'failed', 'canceled', 'review'].includes(row.status)
+  )
     return { done: false, stopped: true, pending: [] };
   const sql = getSql();
   const prior =
@@ -89,13 +106,18 @@ export async function advanceGeneration(
       ON CONFLICT DO NOTHING`,
   ]);
   await syncPublicProgress(id, attempt);
+  if (result.stopped && row.owner.startsWith('website:')) await releaseWebsiteCredits(id);
   return result;
 }
 
 export async function runProviderRequest(id: string, attempt: number, requestId: string) {
   'use step';
   const row = await getJob(id);
-  if (!row || row.attempt !== attempt || ['done', 'failed', 'canceled'].includes(row.status))
+  if (
+    !row ||
+    row.attempt !== attempt ||
+    ['done', 'failed', 'canceled', 'review'].includes(row.status)
+  )
     return;
   const sql = getSql();
   const storageId = `${attempt}:${requestId}`;
@@ -122,14 +144,16 @@ export async function runProviderRequest(id: string, attempt: number, requestId:
             message: 'Provider request failed after four attempts. Retry the game to continue.',
           };
         } else {
-          result = await executeProviderTask(
-            task,
-            row.state.config ?? defaultConfig(),
-            row.state.job!.gameId,
-          );
+          await assertWebsiteRunnable(row);
+          const execute = () =>
+            executeProviderTask(task, row.state.config ?? defaultConfig(), row.state.job!.gameId);
+          result = row.owner.startsWith('website:')
+            ? await withProviderRequestPolicy(websiteSpendPolicy(row), execute)
+            : await execute();
         }
       } catch (error) {
         if (
+          !(error instanceof ArcadeError) &&
           !(error instanceof ProviderAuthError) &&
           (!(error instanceof ProviderHttpError) || error.transient)
         )
@@ -137,7 +161,12 @@ export async function runProviderRequest(id: string, attempt: number, requestId:
         result = {
           kind: 'error',
           message: error.message.slice(0, 500),
-          status: error instanceof ProviderAuthError ? 401 : error.status,
+          status:
+            error instanceof ProviderAuthError
+              ? 401
+              : error instanceof ArcadeError
+                ? 403
+                : error.status,
         };
       }
     }
@@ -159,7 +188,12 @@ runProviderRequest.maxRetries = 8640;
 export async function publishGeneration(id: string, attempt: number) {
   'use step';
   const row = await getJob(id);
-  if (!row || row.attempt !== attempt || row.status === 'canceled' || row.status === 'done') return;
+  if (
+    !row ||
+    row.attempt !== attempt ||
+    ['canceled', 'done', 'review', 'failed'].includes(row.status)
+  )
+    return;
   const checkpoint = await readPrivate<PassCheckpoint>(row.checkpoint);
   const gameId = row.state.job!.gameId;
   const base = `games/${gameId}/`;
@@ -170,6 +204,10 @@ export async function publishGeneration(id: string, attempt: number) {
     meta: parse('meta.json'),
     manifest: parse('assets/manifest.json'),
   };
+  if (row.owner.startsWith('website:')) {
+    await stageWebsiteResult(row, checkpoint, bundle);
+    return;
+  }
   const principal = row.principal;
   const publicGame = await reservePublicGame(`${scope()}:${id}`, {
     id: principal.kioskId,
@@ -211,7 +249,8 @@ export async function publishGeneration(id: string, attempt: number) {
 export async function failGeneration(id: string, attempt: number, message: string) {
   'use step';
   const row = await getJob(id);
-  if (!row || row.attempt !== attempt || ['done', 'canceled'].includes(row.status)) return;
+  if (!row || row.attempt !== attempt || ['done', 'canceled', 'review'].includes(row.status))
+    return;
   row.state.job!.status = 'failed';
   row.state.job!.stage = 'failed';
   row.state.job!.error = { code: 'cloud-step', message: message.slice(0, 500), stage: 'failed' };
@@ -220,6 +259,7 @@ export async function failGeneration(id: string, attempt: number, message: strin
   await getSql()`UPDATE generation_jobs SET status='failed',state=${JSON.stringify(row.state)}::jsonb,updated_at=now()
     WHERE id=${id} AND attempt=${attempt} AND status NOT IN ('done','canceled')`;
   await syncPublicProgress(id, attempt);
+  if (row.owner.startsWith('website:')) await releaseWebsiteCredits(id);
 }
 
 export async function cleanupGeneration(id: string) {

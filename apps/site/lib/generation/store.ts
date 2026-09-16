@@ -142,5 +142,5 @@ export async function syncPublicProgress(id: string, attempt: number) {
     title=COALESCE(g.state->'game'->>'title',p.title),updated_at=now(),
     failed_at=CASE WHEN g.status IN ('failed','canceled') THEN now() ELSE NULL END
     FROM generation_jobs g WHERE g.id=${id} AND g.attempt=${attempt}
-      AND p.source_id=g.scope||':'||g.id AND g.status NOT IN ('done','queued')`;
+      AND p.deleted_at IS NULL AND p.source_id=g.scope||':'||g.id AND g.status NOT IN ('done','queued','review')`;
 }

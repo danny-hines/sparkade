@@ -10,7 +10,7 @@ export function validateCloudInput(value: unknown): CloudGenerationInput {
     v.promptText.length > 1200 ||
     typeof v.idempotencyKey !== 'string' ||
     !/^[a-zA-Z0-9_-]{1,128}$/.test(v.idempotencyKey) ||
-    !['voice', 'preset', 'surprise'].includes(String(v.sourceKind)) ||
+    !['voice', 'preset', 'surprise', 'typed'].includes(String(v.sourceKind)) ||
     (v.requestedArchetype !== undefined &&
       !(ARCHETYPE_IDS as readonly unknown[]).includes(v.requestedArchetype)) ||
     (v.presetId !== undefined && (typeof v.presetId !== 'string' || v.presetId.length > 100))

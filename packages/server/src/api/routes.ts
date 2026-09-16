@@ -187,7 +187,7 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
   app.post('/api/games', async (req, reply) => {
     let promptText = '';
     let idempotencyKey = '';
-    let sourceKind: 'voice' | 'preset' | 'surprise' = 'voice';
+    let sourceKind: 'voice' | 'preset' | 'surprise' | 'typed' = 'voice';
     let requestedArchetype: string | undefined;
     let heroName: string | undefined;
     let details: string | undefined;

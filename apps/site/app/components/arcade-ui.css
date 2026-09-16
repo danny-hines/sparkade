@@ -1,0 +1,599 @@
+/* Sparkade presentation slice. Scoped to arc-* classes only. */
+
+.arc-shell {
+  width: min(1180px, calc(100% - 48px));
+  margin-inline: auto;
+}
+
+.arc-header {
+  border-bottom: 1px solid rgba(141, 153, 198, 0.2);
+  background: rgba(7, 9, 18, 0.92);
+}
+
+.arc-header-inner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+  min-height: 72px;
+  padding-block: 12px;
+}
+
+.arc-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  color: #f4f5ff;
+}
+
+.arc-brand-mark {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  transform: rotate(45deg);
+  border: 2px solid rgba(56, 229, 255, 0.7);
+}
+
+.arc-brand-mark::before {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 4px;
+  background: #ff9a2a;
+}
+
+.arc-brand-mark::after {
+  content: '';
+  position: absolute;
+  width: 4px;
+  height: 12px;
+  background: #ff9a2a;
+}
+
+.arc-brand-word {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.arc-nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 4px;
+  min-width: 0;
+}
+
+.arc-nav-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 8px;
+  color: #b4bbd7;
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.arc-nav-link:hover {
+  color: #f4f5ff;
+  background: rgba(56, 229, 255, 0.08);
+}
+
+.arc-nav-link[aria-current='page'] {
+  color: #38e5ff;
+  background: rgba(56, 229, 255, 0.1);
+}
+
+.arc-admin-link {
+  border: 1px solid rgba(255, 154, 42, 0.4);
+  color: #ff9a2a;
+}
+
+.arc-header-account {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.arc-account-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid rgba(141, 153, 198, 0.2);
+  border-radius: 8px;
+  color: #f4f5ff;
+  background: rgba(13, 17, 34, 0.8);
+}
+
+.arc-account-handle {
+  overflow: hidden;
+  max-width: 22ch;
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arc-account-balance {
+  flex: none;
+  color: #38e5ff;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.arc-hero {
+  padding: 72px 0 56px;
+}
+
+.arc-kicker {
+  margin: 0 0 16px;
+  color: #38e5ff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.arc-hero h1 {
+  max-width: 20ch;
+  margin: 0;
+  color: #f4f5ff;
+  font-size: clamp(40px, 6vw, 76px);
+  letter-spacing: -0.04em;
+  line-height: 1.02;
+  text-wrap: balance;
+}
+
+.arc-hero p {
+  max-width: 62ch;
+  margin: 20px 0 0;
+  color: #b4bbd7;
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+.arc-hero .arc-button,
+.arc-hero .arc-button-secondary {
+  margin-top: 28px;
+  margin-right: 12px;
+}
+
+.arc-section {
+  padding: 40px 0;
+  border-top: 1px solid rgba(141, 153, 198, 0.2);
+}
+
+.arc-section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+  margin-bottom: 24px;
+}
+
+.arc-section-heading h2 {
+  margin: 0;
+  color: #f4f5ff;
+  font-size: clamp(24px, 3.4vw, 38px);
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.arc-section-heading p {
+  max-width: 52ch;
+  margin: 0;
+  color: #b4bbd7;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.arc-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(18px, 2.4vw, 28px);
+}
+
+.arc-panel {
+  padding: 24px;
+  border: 1px solid rgba(141, 153, 198, 0.2);
+  border-radius: 12px;
+  color: #b4bbd7;
+  background: rgba(13, 17, 34, 0.72);
+  line-height: 1.65;
+}
+
+.arc-panel h2,
+.arc-panel h3 {
+  margin-top: 0;
+  color: #f4f5ff;
+}
+
+.arc-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  margin-bottom: 20px;
+}
+
+.arc-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.arc-tabs a {
+  padding: 8px 14px;
+  border: 1px solid rgba(141, 153, 198, 0.2);
+  border-radius: 999px;
+  color: #737c9e;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.arc-tabs a[aria-current='page'] {
+  border-color: rgba(56, 229, 255, 0.45);
+  color: #38e5ff;
+  background: rgba(56, 229, 255, 0.08);
+}
+
+.arc-input {
+  min-width: 0;
+  height: 46px;
+  padding: 0 14px;
+  border: 1px solid rgba(141, 153, 198, 0.2);
+  border-radius: 8px;
+  color: #f4f5ff;
+  background: rgba(5, 7, 16, 0.86);
+  font-size: 15px;
+}
+
+.arc-input::placeholder {
+  color: #737c9e;
+}
+
+.arc-message {
+  padding: 14px 18px;
+  border: 1px solid rgba(100, 240, 171, 0.4);
+  border-radius: 10px;
+  color: #64f0ab;
+  background: rgba(10, 33, 29, 0.9);
+  line-height: 1.6;
+}
+
+.arc-message.arc-message-error {
+  border-color: rgba(255, 93, 42, 0.5);
+  color: #ffab8f;
+  background: rgba(42, 17, 18, 0.9);
+}
+
+.arc-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 0 20px;
+  border: 1px solid rgba(56, 229, 255, 0.55);
+  border-radius: 8px;
+  color: #031014;
+  background: #38e5ff;
+  font-size: 15px;
+  font-weight: 750;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.arc-button:hover {
+  background: #81efff;
+}
+
+.arc-button-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 0 20px;
+  border: 1px solid rgba(141, 153, 198, 0.35);
+  border-radius: 8px;
+  color: #f4f5ff;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.arc-button-secondary:hover {
+  border-color: rgba(56, 229, 255, 0.5);
+  color: #38e5ff;
+}
+
+.arc-button-small {
+  min-height: 40px;
+  padding: 0 16px;
+  font-size: 14px;
+}
+
+.arc-card {
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(141, 153, 198, 0.22);
+  border-radius: 12px;
+  background: rgba(10, 14, 29, 0.82);
+}
+
+.arc-card-art {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  background: #050711;
+}
+
+.arc-card-art .arcade-card-image {
+  object-fit: cover;
+}
+
+.arc-card-scanlines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(to top, rgba(3, 5, 13, 0.55), transparent 50%);
+}
+
+.arc-card-play {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  padding: 9px 12px;
+  border: 1px solid rgba(56, 229, 255, 0.4);
+  border-radius: 6px;
+  color: #38e5ff;
+  background: rgba(4, 7, 18, 0.85);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.arc-card-play span {
+  color: #ff9a2a;
+}
+
+.arc-card-body {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  padding: 20px 20px 22px;
+}
+
+.arc-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  color: #737c9e;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.arc-card-meta > span:first-child {
+  overflow: hidden;
+  color: #38e5ff;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arc-card-meta > span:last-child {
+  flex: none;
+  color: #737c9e;
+}
+
+.arc-card-title {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.arc-card-title a {
+  color: #f4f5ff;
+}
+
+.arc-card-title a:hover {
+  color: #38e5ff;
+}
+
+.arc-card-description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: 0;
+  color: #b4bbd7;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.arc-card-byline {
+  margin: 0;
+  color: #737c9e;
+  font-size: 14px;
+}
+
+.arc-card-byline a {
+  color: #b4bbd7;
+  font-weight: 650;
+  text-decoration: underline;
+  text-decoration-color: rgba(56, 229, 255, 0.5);
+  text-underline-offset: 3px;
+}
+
+.arc-card-byline a:hover {
+  color: #38e5ff;
+}
+
+.arc-card-action {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.arc-empty {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 56px 24px;
+  border: 1px dashed rgba(141, 153, 198, 0.3);
+  border-radius: 12px;
+  background: rgba(10, 14, 29, 0.45);
+  text-align: center;
+}
+
+.arc-empty > span {
+  color: #ff9a2a;
+  font-size: 34px;
+}
+
+.arc-empty h2 {
+  margin: 12px 0 0;
+  color: #f4f5ff;
+  font-size: 26px;
+  letter-spacing: -0.02em;
+}
+
+.arc-empty p {
+  max-width: 52ch;
+  margin: 0;
+  color: #b4bbd7;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.arc-empty-action {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.arc-footer {
+  border-top: 1px solid rgba(141, 153, 198, 0.2);
+  background: rgba(7, 9, 18, 0.92);
+}
+
+.arc-footer-inner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+  padding-block: 28px;
+}
+
+.arc-footer-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.arc-footer-nav a {
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: #b4bbd7;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.arc-footer-nav a:hover {
+  color: #f4f5ff;
+}
+
+.arc-footer-note {
+  flex-basis: 100%;
+  margin: 0;
+  color: #737c9e;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.arc-header a:focus-visible,
+.arc-card a:focus-visible,
+.arc-card-action :focus-visible,
+.arc-footer a:focus-visible,
+.arc-button:focus-visible,
+.arc-button-secondary:focus-visible,
+.arc-tabs a:focus-visible,
+.arc-input:focus-visible,
+.arc-toolbar :focus-visible {
+  outline: 3px solid rgba(56, 229, 255, 0.85);
+  outline-offset: 3px;
+}
+
+@media (max-width: 980px) {
+  .arc-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .arc-shell {
+    width: min(100% - 30px, 1180px);
+  }
+
+  .arc-header-inner {
+    gap: 8px 16px;
+  }
+
+  .arc-header-account {
+    margin-left: 0;
+  }
+
+  .arc-hero {
+    padding: 52px 0 44px;
+  }
+
+  .arc-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .arc-section-heading {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .arc-card-body {
+    padding: 18px 18px 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arc-card-art .arcade-card-image {
+    transition: none;
+  }
+}

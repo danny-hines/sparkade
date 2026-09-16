@@ -906,7 +906,7 @@ export interface GameMetaFile {
   tagline: string;
   /** The confirmed prompt text the player approved (or preset/surprise text). */
   sourcePrompt: string;
-  sourceKind: 'voice' | 'preset' | 'surprise';
+  sourceKind: 'voice' | 'preset' | 'surprise' | 'typed';
   /** Explicit engine selected by the player; absent on legacy automatic jobs. */
   requestedArchetype?: ArchetypeId;
   /** Structured guided-creation inputs retained for provenance and retries. */
@@ -1104,7 +1104,7 @@ export interface JobRecord {
   stage: JobStage;
   detail: string;
   promptText: string;
-  sourceKind: 'voice' | 'preset' | 'surprise';
+  sourceKind: 'voice' | 'preset' | 'surprise' | 'typed';
   /** Explicit engine selected by the player; survives retries. */
   requestedArchetype?: ArchetypeId;
   /** Structured guided-creation inputs. Absent on legacy jobs. */

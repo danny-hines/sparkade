@@ -1,3 +1,4 @@
+import { providerRequestPolicy } from './request-policy';
 // Shared provider plumbing: typed HTTP errors + a fetch helper with timeout.
 // Transient-retry policy lives in the pipeline (uniform for all providers).
 
@@ -49,6 +50,10 @@ export async function httpJson<T>(url: string, opts: HttpJsonOpts): Promise<T> {
   const onOuterAbort = () => controller.abort();
   opts.signal?.addEventListener('abort', onOuterAbort);
   try {
+    if (opts.signal?.aborted) throw new Error('aborted');
+    const policy = providerRequestPolicy.getStore();
+    const settle = policy ? await policy(url, opts.body) : undefined;
+    if (opts.signal?.aborted) throw new Error('aborted');
     let res: Response;
     try {
       res = await fetch(url, {
@@ -79,7 +84,9 @@ export async function httpJson<T>(url: string, opts: HttpJsonOpts): Promise<T> {
         body,
       );
     }
-    return (await res.json()) as T;
+    const result = (await res.json()) as T;
+    await settle?.(result);
+    return result;
   } finally {
     clearTimeout(timer);
     opts.signal?.removeEventListener('abort', onOuterAbort);

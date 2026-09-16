@@ -1,3 +1,7 @@
+import { viewer } from '../../components/site-frame';
+import { FavoriteButton } from '../../components/game-controls';
+import { ensureArcadeSchema, env } from '@/lib/arcade';
+import { getSql } from '@/lib/db';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -25,6 +29,11 @@ export default async function PublicGamePage({ params }: PublicGamePageProps) {
   const { id } = await params;
   const game = await findGame(id);
   if (!game) notFound();
+  await ensureArcadeSchema();
+  const user = await viewer();
+  const [stats] = await getSql()`SELECT
+    (SELECT handle FROM arcade_profiles WHERE environment=${env()} AND user_id=${game.ownerId ?? ''}) AS handle,
+    EXISTS(SELECT 1 FROM arcade_favorites WHERE environment=${env()} AND user_id=${user?.userId ?? ''} AND game_id=${game.id}) AS saved`;
 
   return (
     <main className="portal-page">
@@ -37,6 +46,17 @@ export default async function PublicGamePage({ params }: PublicGamePageProps) {
           <span className="brand-word">Sparkade</span>
         </Link>
         <GameStatus initialGame={game} />
+        {game.status === 'ready' && (
+          <div className="arc-hero-actions">
+            <FavoriteButton
+              id={game.id}
+              saved={Boolean(stats.saved)}
+              signedIn={Boolean(user)}
+              returnTo={`/p/${game.id}`}
+            />
+            {stats.handle && <Link href={`/u/${stats.handle}`}>More by @{stats.handle} →</Link>}
+          </div>
+        )}
         <Link className="portal-link" href="/">
           Back to Sparkade <span aria-hidden="true">→</span>
         </Link>

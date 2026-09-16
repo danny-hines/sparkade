@@ -9,6 +9,7 @@ export default tseslint.config(
       '**/dist-worker/**',
       '**/.well-known/workflow/**',
       '**/.next/**',
+      '**/.next-*/**',
       '**/.vercel/**',
       'data/**',
       '.e2e-data/**',

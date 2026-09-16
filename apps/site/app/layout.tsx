@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from 'next';
 import localFont from 'next/font/local';
 import type { ReactNode } from 'react';
 import './globals.css';
+import './components/arcade-ui.css';
+import './components/arcade-pages.css';
 
 const pressStart = localFont({
   src: '../../../packages/web/public/fonts/press-start-2p/PressStart2P-Regular.ttf',
@@ -23,13 +25,13 @@ export const metadata: Metadata = {
     type: 'website',
     siteName: 'Sparkade',
     title: 'Sparkade — Your idea. Your arcade.',
-    description: 'A self-generating arcade, coming soon.',
+    description: 'Play original games and turn your ideas into an arcade.',
     url: '/',
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Sparkade — Your idea. Your arcade.',
-    description: 'A self-generating arcade, coming soon.',
+    description: 'Play original games and turn your ideas into an arcade.',
   },
 };
 

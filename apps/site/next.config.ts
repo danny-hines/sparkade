@@ -2,6 +2,8 @@ import { withWorkflow } from 'workflow/next';
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  // Isolated builds keep browser verification from touching a running dev server.
+  distDir: process.env.SPARKADE_SITE_DIST_DIR || '.next',
   async rewrites() {
     return [{ source: '/v1/:path*', destination: '/api/generation/v1/:path*' }];
   },
@@ -9,7 +11,7 @@ const nextConfig: NextConfig = {
     '/*': ['../../packages/generation/prompts/**/*.md', '../../packages/generation/golden/*.json'],
     '/api/generation/v1/*': ['../../node_modules/@ffmpeg-installer/**/*'],
   },
-  serverExternalPackages: ['@ffmpeg-installer/ffmpeg'],
+  serverExternalPackages: ['@ffmpeg-installer/ffmpeg', '@vercel/blob'],
   agentRules: false,
   poweredByHeader: false,
   images: {

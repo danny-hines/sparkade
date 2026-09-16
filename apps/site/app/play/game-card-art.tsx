@@ -27,6 +27,7 @@ export function GameCardArt({
     <Image
       className="arcade-card-image"
       src={src}
+      unoptimized={src.startsWith('/api/games/')}
       alt={`${title} key art`}
       fill
       sizes="(max-width: 720px) calc(100vw - 30px), (max-width: 1080px) 50vw, 380px"

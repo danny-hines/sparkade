@@ -26,7 +26,7 @@ export async function GET(_request: Request, { params }: PublicGameManifestProps
     },
     {
       headers: {
-        'Cache-Control': 'public, max-age=60',
+        'Cache-Control': 'private, no-store',
         'Content-Type': 'application/manifest+json',
       },
     },

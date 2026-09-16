@@ -1,3 +1,4 @@
+import { localStorageRoot, writeLocal, readLocal, cleanLocal } from './local-storage';
 import { get, put, del, list } from '@vercel/blob';
 
 function options() {
@@ -6,6 +7,8 @@ function options() {
   return { token };
 }
 export async function writePrivate(path: string, value: unknown): Promise<string> {
+  const local = localStorageRoot();
+  if (local) return writeLocal(local, path, value);
   const blob = await put(path, JSON.stringify(value), {
     ...options(),
     access: 'private',
@@ -16,12 +19,16 @@ export async function writePrivate(path: string, value: unknown): Promise<string
   return blob.url;
 }
 export async function readOptionalPrivate<T>(path: string): Promise<T | null> {
+  const local = localStorageRoot();
+  if (local) return readLocal<T>(local, path);
   const blob = await get(path, { ...options(), access: 'private', useCache: false });
   if (!blob) return null;
   if (blob.statusCode !== 200) throw new Error('Generation checkpoint unavailable');
   return (await new Response(blob.stream).json()) as T;
 }
 export async function cleanPrivate(prefix: string) {
+  const local = localStorageRoot();
+  if (local) return cleanLocal(local, prefix);
   let cursor: string | undefined;
   do {
     const page = await list({ ...options(), prefix, cursor, limit: 1000 });

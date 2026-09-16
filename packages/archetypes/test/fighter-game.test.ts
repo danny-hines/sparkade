@@ -9,7 +9,13 @@ import {
   type FighterSpec,
   type LogicalButton,
 } from '@sparkade/shared';
-import { STEP, type EngineContext, type GameInstance, type InputSnapshot } from '@sparkade/engine';
+import {
+  STEP,
+  Rng,
+  type EngineContext,
+  type GameInstance,
+  type InputSnapshot,
+} from '@sparkade/engine';
 import { createFighterGame, fighterWalkPoseAtTime } from '../src/fighter/game';
 
 vi.mock('@sparkade/engine', async (importOriginal) => {
@@ -43,6 +49,7 @@ interface TestActor {
   x: number;
   y: number;
   vx: number;
+  vy: number;
   facing: 1 | -1;
   hp: number;
   maxHp: number;
@@ -103,6 +110,7 @@ interface HarnessOptions {
   fighterArenaAtlas?: CanvasImageSource | null;
   fighterArenaPresentationBaked?: boolean;
   rangeUnit?: number;
+  seed?: number;
 }
 
 interface GeneratedDrawEvent {
@@ -234,15 +242,18 @@ function makeHarness(options: HarnessOptions = {}): {
       text: noop,
     },
     sprites: { likenessHead: () => null },
-    rng: {
-      chance: (probability: number) => {
-        chanceEvents.push(probability);
-        return typeof options.chance === 'function'
-          ? options.chance(probability)
-          : (options.chance ?? true);
-      },
-      range: (min: number, max: number) => min + (max - min) * (options.rangeUnit ?? 0),
-    },
+    rng:
+      options.seed === undefined
+        ? {
+            chance: (probability: number) => {
+              chanceEvents.push(probability);
+              return typeof options.chance === 'function'
+                ? options.chance(probability)
+                : (options.chance ?? true);
+            },
+            range: (min: number, max: number) => min + (max - min) * (options.rangeUnit ?? 0),
+          }
+        : new Rng(options.seed),
     cards: {
       show: (_cards: unknown, done?: () => void) => done?.(),
     },
@@ -843,6 +854,58 @@ describe('Fighter fairness with ordinary health', () => {
       game.update(STEP, snapshot({ press: 'B' }));
       for (let i = 0; i < 8; i++) game.update(STEP, snapshot());
       expect(game.o.hp).toBeLessThan(bossHp);
+    },
+  );
+});
+
+describe('fighter AI sustained offense', () => {
+  it('consumes a jump decision once and attacks after landing in range', () => {
+    const { game } = makeHarness({ profile: 'rushdown', chance: true });
+    game.o.profile = 'rushdown';
+    game.p.x = 130;
+    game.o.x = 200;
+    game.o.aiIntent = 'jump';
+    game.o.aiT = 0.45;
+    const floor = game.o.y;
+    let jumps = 0;
+    for (let frame = 0; frame < 150; frame++) {
+      const grounded = game.o.y >= floor - 0.5 && game.o.vy === 0;
+      game.update(STEP, snapshot());
+      if (grounded && game.o.vy < 0) jumps++;
+    }
+    expect(jumps).toBe(1);
+    expect(game.o.moveSerial).toBeGreaterThan(0);
+    expect(game.p.hp).toBeLessThan(game.p.maxHp);
+  });
+  it('ranged control does not shuffle forever between retreat and firing range', () => {
+    const { game } = makeHarness({ profile: 'rangedControl', chance: true });
+    game.o.profile = 'rangedControl';
+    game.p.x = 132;
+    game.o.x = 220;
+    for (let frame = 0; frame < 480; frame++) game.update(STEP, snapshot());
+    expect(game.o.moveSerial).toBeGreaterThan(1);
+    expect(game.p.hp).toBeLessThan(game.p.maxHp);
+  });
+  it.each(['rushdown', 'counter', 'rangedControl', null] as const)(
+    '%s pressures an idle player across difficulties, distances and seeds',
+    (profile) => {
+      for (const difficulty of ['chill', 'standard', 'spicy'] as const)
+        for (const seed of [1, 17, 53, 101, 313, 997])
+          for (const distance of [32, 88, 160, 270]) {
+            const { game } = makeHarness({ profile: profile ?? undefined, difficulty, seed });
+            game.o.profile = profile;
+            game.p.x = 55;
+            game.o.x = 55 + distance;
+            let firstAttack = Infinity;
+            for (let frame = 0; frame < 900 && game.roundPhase === 'fight'; frame++) {
+              game.update(STEP, snapshot());
+              if (game.o.moveSerial > 0 && firstAttack === Infinity) firstAttack = frame * STEP;
+            }
+            const context = `${profile}/${difficulty}/seed=${seed}/distance=${distance}`;
+            // A full-stage approach needs travel time, especially on chill.
+            expect(firstAttack, context).toBeLessThan(8);
+            expect(game.p.hp, context).toBeLessThan(game.p.maxHp);
+          }
     },
   );
 });

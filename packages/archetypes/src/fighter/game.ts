@@ -892,6 +892,8 @@ class FighterGame implements GameInstance {
     if (eta > (response === 'jump' ? 0.46 : response === 'duck' ? 0.3 : 0.12)) return false;
     a.aiPulseResponse = null;
     a.aiDefense = response;
+    a.aiIntent = 'wait';
+    a.aiT = 0;
     a.aiDefenseT = response === 'jump' ? 0.9 : 0.48;
     a.facing = pulse.vx > 0 ? -1 : 1;
     a.vx = 0;
@@ -990,12 +992,20 @@ class FighterGame implements GameInstance {
     }
     if (
       a.profile === 'rangedControl' &&
-      dist < 85 &&
+      dist < 110 &&
       a.x > STAGE_MIN + 25 &&
       a.x < STAGE_MAX - 25
     ) {
       a.state = 'walk';
       a.vx = -dir * WALK * a.speedScale * 0.65;
+      return;
+    }
+    // Keep a stable firing lane while recharging. Retreating only to 85px
+    // then approaching below the 95px firing threshold trapped ranged fighters
+    // in a shuffle that never produced a shot against a stationary player.
+    if (a.profile === 'rangedControl' && dist >= 110 && dist <= 160) {
+      a.state = 'idle';
+      a.vx = 0;
       return;
     }
     if (a.profile === 'counter' && a.counterT > 0 && inRange) {
@@ -1081,6 +1091,10 @@ class FighterGame implements GameInstance {
         break;
       case 'jump':
         if (a.y >= FLOOR_Y - 0.5) {
+          // One decision authorizes one jump. Profiled AI pauses decisions in
+          // midair; keeping this intent replayed it on every landing for seconds.
+          a.aiIntent = 'wait';
+          a.aiT = 0;
           a.vy = -(a.profile ? PROFILE_JUMP_V : JUMP_V);
           a.state = 'jump';
           a.airMove = false;

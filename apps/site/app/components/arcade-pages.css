@@ -462,6 +462,91 @@
   color: #b7bfda;
   border-color: #363c52;
 }
+.arc-build-overview {
+  margin: 22px 0;
+  padding: 20px;
+  background: #080d1a;
+  border: 1px solid #262e43;
+  border-radius: 14px;
+}
+.arc-build-phases {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  list-style: none;
+  margin: 0 0 24px;
+  padding: 0;
+}
+.arc-build-phases li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #858fa9;
+  font-size: 0.85rem;
+}
+.arc-build-phases li > span {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid #363e55;
+  border-radius: 50%;
+  font-size: 0.72rem;
+}
+.arc-build-phases .is-complete {
+  color: #c2cadc;
+}
+.arc-build-phases .is-complete > span {
+  color: #2de1ff;
+}
+.arc-build-phases .is-current {
+  color: #2de1ff;
+}
+.arc-build-phases .is-current > span {
+  border-color: #2de1ff;
+  background: #2de1ff18;
+  box-shadow: 0 0 0 4px #2de1ff09;
+}
+.arc-build-clocks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 48px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.arc-build-clocks dt {
+  color: #9aa6c1;
+  font-size: 0.78rem;
+}
+.arc-build-clocks dd {
+  margin: 4px 0 0;
+  color: #f2f3ff;
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+.arc-build-clocks small {
+  color: #9aa6c1;
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+.arc-build-quiet {
+  margin: 16px 0 0;
+}
+.arc-feed-meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+.arc-feed-meta time {
+  color: #9aa6c1;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+.arc-feed-offset {
+  margin-left: 10px;
+  color: #858fa9;
+}
 .arc-feed-scroll {
   max-height: 580px;
   overflow: auto;
@@ -532,6 +617,18 @@
   margin-top: 12px;
 }
 @media (max-width: 600px) {
+  .arc-build-overview {
+    padding: 16px;
+  }
+  .arc-build-phases {
+    gap: 12px 16px;
+  }
+  .arc-build-clocks {
+    gap: 16px 24px;
+  }
+  .arc-build-clocks dd {
+    font-size: 1.15rem;
+  }
   .arc-feed-scroll {
     max-height: 480px;
     padding-right: 4px;

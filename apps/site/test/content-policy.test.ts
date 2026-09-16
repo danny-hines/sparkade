@@ -4,7 +4,7 @@ import {
   parseContentVerdict,
   rejectionMessage,
 } from '../lib/content-policy';
-import { projectGenerationEvents } from '../lib/website-progress';
+import { projectGenerationEvents } from '../lib/generation-progress';
 import type { GenerationFeedEvent } from '@sparkade/shared';
 describe('content verdict validation', () => {
   it('accepts only an explicit, internally consistent verdict', () => {

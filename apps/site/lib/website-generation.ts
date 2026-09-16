@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ARCHETYPE_IDS, type ArchetypeId, type CloudGameBundle } from '@sparkade/shared';
+import { buildCreationPrompt } from '@sparkade/web/creation-brief';
 import { defaultConfig } from '@sparkade/server/storage/config';
 import { JobState } from '@sparkade/server/pipeline/job-state';
 import { GenerationRunner } from '@sparkade/server/pipeline/runner';
@@ -11,9 +12,20 @@ import { SseHub } from '@sparkade/server/pipeline/sse';
 import { collectFiles, type PassCheckpoint } from '@sparkade/server/pipeline/durable-pass';
 import { getSql } from './db';
 import { createPublicGameId } from './public-games';
-import { ArcadeError, ensureProfile, env, settings, ensureArcadeSchema } from './arcade';
+import {
+  ArcadeError,
+  ActiveGameError,
+  getActiveWebsiteGames,
+  ensureProfile,
+  env,
+  settings,
+  ensureArcadeSchema,
+} from './arcade';
 import { scope, prefix, getJob, type GenerationRow } from './generation/store';
 import { readPrivate, writePrivate } from './generation/storage';
+import { normalizeWebsitePhoto } from './website-photo';
+import { MAX_ACTIVE_WEBSITE_GAMES } from './website-creation-policy';
+import type { AdminIdentity } from './admin-auth';
 
 export interface WebsiteGeneration {
   job_id: string;
@@ -21,6 +33,7 @@ export interface WebsiteGeneration {
   user_id: string;
   environment: string;
   input_review: string;
+  admin_bypass: boolean;
   settlement: string;
   price: number;
   game_cap: number;
@@ -31,38 +44,25 @@ export async function websiteGeneration(id: string): Promise<WebsiteGeneration |
     await getSql()`SELECT * FROM arcade_generations WHERE job_id=${id} AND environment=${env()}`;
   return (row as WebsiteGeneration) ?? null;
 }
-export function validateWebsiteInput(prompt: string, archetype: string, key: string) {
-  prompt = prompt.trim();
-  if (
-    !prompt ||
-    prompt.length > 1200 ||
-    !ARCHETYPE_IDS.includes(archetype as ArchetypeId) ||
-    !/^[a-zA-Z0-9_-]{16,128}$/.test(key)
-  )
-    throw new ArcadeError('Choose a game type and describe your game in 1–1,200 characters.');
-  return { prompt, archetype: archetype as ArchetypeId, key };
-}
-/** No provider work occurs here. Admission, credit hold and ownership commit together. */
-export async function createWebsiteGame(
-  userId: string,
-  promptText: string,
-  type: string,
+export function validateWebsiteInput(
+  prompt: string,
+  archetype: string,
   key: string,
+  heroName = '',
 ) {
-  const input = validateWebsiteInput(promptText, type, key);
-  const profile = await ensureProfile(userId),
-    config = await settings();
-  const sql = getSql();
-  const hash = createHash('sha256')
-    .update(JSON.stringify([input.prompt, input.archetype]))
-    .digest('hex');
-  const duplicate =
-    await sql`SELECT * FROM arcade_generations WHERE environment=${env()} AND user_id=${userId} AND idempotency_key=${key}`;
-  if (duplicate[0]) {
-    if (duplicate[0].input_hash !== hash)
-      throw new ArcadeError('That submission was already used for a different game.');
-    return String(duplicate[0].game_id);
-  }
+  prompt = prompt.trim();
+  heroName = heroName.trim();
+  if (!ARCHETYPE_IDS.includes(archetype as ArchetypeId) || !/^[a-zA-Z0-9_-]{16,128}$/.test(key))
+    throw new ArcadeError('Choose a valid game type and try again.');
+  if (prompt.length > 1200)
+    throw new ArcadeError('Keep your game idea to 1,200 characters or fewer.');
+  if (heroName.length > 48) throw new ArcadeError('Keep the hero name to 48 characters or fewer.');
+  return { prompt, archetype: archetype as ArchetypeId, key, heroName: heroName || undefined };
+}
+function checkCreationAccount(
+  profile: Awaited<ReturnType<typeof ensureProfile>>,
+  config: Awaited<ReturnType<typeof settings>>,
+) {
   if (profile.suspended) throw new ArcadeError('Your account is paused.');
   if (!config.enabled || config.gameCap <= 0 || config.dailyCap <= 0 || config.totalCap <= 0)
     throw new ArcadeError('Creation is paused. Your credits are safe.');
@@ -70,6 +70,57 @@ export async function createWebsiteGame(
     throw new ArcadeError(
       `You need ${config.price} credits to create a game. Buying credits is coming soon.`,
     );
+}
+
+/** No provider work occurs here. Admission, credit hold and ownership commit together. */
+export async function createWebsiteGame(
+  userId: string,
+  promptText: string,
+  type: string,
+  key: string,
+  heroName = '',
+  photoUpload?: FormDataEntryValue | null,
+  // Server-verified identity only; never derive this from submitted form fields.
+  admin?: AdminIdentity | null,
+) {
+  const adminBypass = Boolean(admin?.authorized && admin.userId === userId);
+  const input = validateWebsiteInput(promptText, type, key, heroName);
+  const photo = await normalizeWebsitePhoto(photoUpload);
+  const generationPrompt =
+    input.prompt ||
+    buildCreationPrompt({
+      heroName: input.heroName ?? '',
+      archetypeLabel: input.archetype === 'hshooter' ? 'horizontal shooter' : input.archetype,
+      details: '',
+    });
+  const profile = await ensureProfile(userId),
+    config = await settings();
+  const sql = getSql();
+  // Preserve the fingerprint of unnamed submissions created before this field existed.
+  const hash = createHash('sha256')
+    .update(
+      JSON.stringify([input.prompt, input.archetype, ...(input.heroName ? [input.heroName] : [])]),
+    )
+    .update(photo ?? '')
+    .digest('hex');
+  const existingSubmission = async () => {
+    const [duplicate] =
+      await sql`SELECT game_id,input_hash FROM arcade_generations WHERE environment=${env()} AND user_id=${userId} AND idempotency_key=${key}`;
+    if (!duplicate) return null;
+    if (duplicate.input_hash !== hash)
+      throw new ArcadeError('That submission was already used for a different game.');
+    return String(duplicate.game_id);
+  };
+  const duplicate = await existingSubmission();
+  if (duplicate) return duplicate;
+  checkCreationAccount(profile, config);
+  const active = await getActiveWebsiteGames(userId);
+  if (active.length >= MAX_ACTIVE_WEBSITE_GAMES) {
+    // A duplicate request may have committed between the two reads.
+    const accepted = await existingSubmission();
+    if (accepted) return accepted;
+    throw new ActiveGameError(active);
+  }
   const dir = mkdtempSync(join(tmpdir(), 'sparkade-website-')),
     db = new JobState();
   db.state.config = defaultConfig();
@@ -84,9 +135,16 @@ export async function createWebsiteGame(
     runner.createJob(
       {
         idempotencyKey: key,
-        promptText: input.prompt,
+        promptText: generationPrompt,
         sourceKind: 'typed',
         requestedArchetype: input.archetype,
+        ...(photo ? { photo } : {}),
+        creationBrief: {
+          version: 1,
+          archetype: input.archetype,
+          ...(input.prompt ? { details: input.prompt } : {}),
+          ...(input.heroName ? { heroName: input.heroName } : {}),
+        },
       },
       { defer: true },
     );
@@ -115,14 +173,14 @@ export async function createWebsiteGame(
       WHERE s.environment=${env()} AND s.enabled AND s.game_cap>0 AND s.daily_cap>0 AND s.total_cap>0
       AND a.environment=s.environment AND a.clerk_user_id=${userId} AND a.balance>=s.price
       AND p.environment=s.environment AND p.user_id=a.clerk_user_id AND NOT p.suspended
-      AND NOT EXISTS(SELECT 1 FROM arcade_generations g WHERE g.environment=s.environment AND g.user_id=${userId} AND g.settlement='held')
+      AND (SELECT count(*) FROM arcade_generations g WHERE g.environment=s.environment AND g.user_id=${userId} AND g.settlement='held')<${MAX_ACTIVE_WEBSITE_GAMES}
       AND (SELECT count(*) FROM arcade_generations g WHERE g.environment=s.environment AND g.settlement='held')<100
       ON CONFLICT DO NOTHING RETURNING id`,
     sql`INSERT INTO public_games(id,source_id,kiosk_name,feed_visibility,owner_id,environment,moderation,message)
-      SELECT ${gameId},${`${scope()}:${id}`},${profile.handle},'unlisted',${userId},${env()},'pending','Waiting for prompt review'
+      SELECT ${gameId},${`${scope()}:${id}`},${profile.handle},'unlisted',${userId},${env()},'pending',${adminBypass ? 'Starting generation' : 'Waiting for prompt review'}
       WHERE EXISTS(SELECT 1 FROM generation_jobs WHERE id=${id})`,
-    sql`INSERT INTO arcade_generations(job_id,game_id,environment,user_id,idempotency_key,input_hash,prompt,archetype,price,game_cap)
-      SELECT ${id},${gameId},s.environment,${userId},${key},${hash},${input.prompt},${input.archetype},s.price,s.game_cap
+    sql`INSERT INTO arcade_generations(job_id,game_id,environment,user_id,idempotency_key,input_hash,prompt,archetype,price,game_cap,input_review,admin_bypass)
+      SELECT ${id},${gameId},s.environment,${userId},${key},${hash},${generationPrompt},${input.archetype},s.price,s.game_cap,${adminBypass ? 'approved' : 'pending'},${adminBypass}
       FROM arcade_settings s WHERE s.environment=${env()} AND EXISTS(SELECT 1 FROM generation_jobs WHERE id=${id})`,
     sql`WITH debit AS (INSERT INTO credit_ledger(id,environment,clerk_user_id,amount,kind,reason,operation_id)
       SELECT ${randomUUID()},environment,user_id,-price,'generation_hold','Credits reserved for game creation',${`hold:${id}`}
@@ -130,16 +188,68 @@ export async function createWebsiteGame(
       UPDATE credit_accounts a SET balance=balance+d.amount,updated_at=now() FROM debit d
       WHERE a.environment=d.environment AND a.clerk_user_id=d.clerk_user_id`,
     sql`UPDATE generation_jobs SET public_id=${gameId} WHERE id=${id}`,
+    sql`INSERT INTO admin_audit_events(id,environment,actor_user_id,action,target_type,target_id,details_json)
+      SELECT ${randomUUID()},environment,user_id,'admin-bypass-input','website-game',game_id,
+        '{"reason":"Creator is an authenticated allowlisted admin"}'::jsonb
+      FROM arcade_generations WHERE job_id=${id} AND admin_bypass`,
   ]);
   if (!results[2]?.length) {
-    const raced =
-      await sql`SELECT * FROM arcade_generations WHERE environment=${env()} AND user_id=${userId} AND idempotency_key=${key}`;
-    if (raced[0]?.input_hash === hash) return String(raced[0].game_id);
-    throw new ArcadeError(
-      'You already have a game in progress, your balance changed, or creation is paused.',
-    );
+    const raced = await existingSubmission();
+    if (raced) return raced;
+    // Admission can lose a race after the preflight check. Explain the current
+    // blocker without reserving another game's credits or exposing someone else's job.
+    const [currentProfile, currentConfig, currentGame] = await Promise.all([
+      ensureProfile(userId),
+      settings(),
+      getActiveWebsiteGames(userId),
+    ]);
+    checkCreationAccount(currentProfile, currentConfig);
+    if (currentGame.length >= MAX_ACTIVE_WEBSITE_GAMES) throw new ActiveGameError(currentGame);
+    const [{ count }] =
+      await sql`SELECT count(*) FROM arcade_generations WHERE environment=${env()} AND settlement='held'`;
+    if (Number(count) >= 100)
+      throw new ArcadeError('The creation queue is full. Please try again shortly.');
+    throw new ArcadeError('Creation availability changed. Please try again.');
   }
   return gameId;
+}
+
+/** Recover an admin's own pre-exemption submission or an interrupted dispatch. */
+export async function resumeAdminWebsiteGame(admin: AdminIdentity, gameId: string) {
+  if (!admin.authorized) throw new ArcadeError('Admin access required.');
+  await ensureArcadeSchema();
+  const sql = getSql();
+  await sql.transaction([
+    sql`SELECT j.id FROM generation_jobs j JOIN arcade_generations g ON g.job_id=j.id
+      WHERE g.game_id=${gameId} AND g.environment=${env()} AND g.user_id=${admin.userId} FOR UPDATE OF j`,
+    sql`WITH changed AS (UPDATE arcade_generations g SET input_review='approved',admin_bypass=TRUE
+      FROM generation_jobs j,public_games p,arcade_profiles u,arcade_settings s
+      WHERE g.game_id=${gameId} AND g.environment=${env()} AND g.user_id=${admin.userId}
+      AND j.id=g.job_id AND j.status='queued' AND j.run_id IS NULL
+      AND g.settlement='held' AND g.input_review IN ('pending','approved') AND NOT g.admin_bypass
+      AND p.id=g.game_id AND p.deleted_at IS NULL AND p.moderation='pending'
+      AND u.environment=g.environment AND u.user_id=g.user_id AND NOT u.suspended
+      AND s.environment=g.environment AND s.enabled RETURNING g.*)
+      INSERT INTO admin_audit_events(id,environment,actor_user_id,action,target_type,target_id,details_json)
+      SELECT ${randomUUID()},environment,user_id,'admin-bypass-input','website-game',game_id,
+        '{"reason":"Admin resumed their own queued submission"}'::jsonb FROM changed`,
+    sql`UPDATE public_games p SET message='Starting generation',updated_at=now()
+      FROM arcade_generations g,generation_jobs j
+      WHERE p.id=${gameId} AND p.id=g.game_id AND g.environment=${env()} AND g.user_id=${admin.userId}
+      AND g.admin_bypass AND g.input_review='approved' AND g.settlement='held'
+      AND j.id=g.job_id AND j.status='queued' AND j.run_id IS NULL
+      AND p.deleted_at IS NULL AND p.moderation='pending'`,
+  ]);
+  const [generation] =
+    await sql`SELECT g.job_id FROM arcade_generations g JOIN generation_jobs j ON j.id=g.job_id
+    WHERE g.game_id=${gameId} AND g.environment=${env()} AND g.user_id=${admin.userId}
+      AND g.admin_bypass AND g.input_review='approved' AND g.settlement='held'
+      AND j.status='queued' AND j.run_id IS NULL`;
+  if (!generation) return null;
+  const row = await getJob(String(generation.job_id));
+  if (!row) return null;
+  await assertWebsiteRunnable(row);
+  return row;
 }
 
 /** Idempotent: every terminal failure/rejection returns the original held credits once. */
@@ -193,14 +303,39 @@ export async function stageWebsiteResult(
   const hash = createHash('sha256').update(JSON.stringify(final)).digest('hex');
   const url = await writePrivate(`${prefix(row.id)}final/${hash}.json`, final);
   const sql = getSql();
-  await sql.transaction([
+  const results = await sql.transaction([
     sql`SELECT id FROM generation_jobs WHERE id=${row.id} FOR UPDATE`,
-    sql`UPDATE public_games SET spec_json=${JSON.stringify(bundle.spec)}::jsonb,assets_json=${JSON.stringify(assets)}::jsonb,
-      title=${bundle.spec.meta.title},version_hash=${hash},private_bundle=${url},stage='review',message='Waiting for game review',updated_at=now()
-      WHERE id=${web.game_id} AND deleted_at IS NULL AND moderation='pending'
-      AND EXISTS(SELECT 1 FROM generation_jobs WHERE id=${row.id} AND attempt=${row.attempt} AND status='publishing')`,
-    sql`UPDATE generation_jobs SET status='review',bundle=${url},updated_at=now() WHERE id=${row.id} AND attempt=${row.attempt} AND status='publishing'`,
+    sql`WITH staged AS (UPDATE public_games p SET spec_json=${JSON.stringify(bundle.spec)}::jsonb,assets_json=${JSON.stringify(assets)}::jsonb,
+      title=${bundle.spec.meta.title},version_hash=${hash},private_bundle=${url},
+      stage=CASE WHEN g.admin_bypass THEN 'done' ELSE 'review' END,
+      message=CASE WHEN g.admin_bypass THEN 'Ready to play' ELSE 'Waiting for game review' END,
+      status=CASE WHEN g.admin_bypass THEN 'ready' ELSE p.status END,
+      moderation=CASE WHEN g.admin_bypass THEN 'approved' ELSE p.moderation END,
+      ready_at=CASE WHEN g.admin_bypass THEN now() ELSE p.ready_at END,feed_visibility='unlisted',updated_at=now()
+      FROM arcade_generations g,generation_jobs j,arcade_settings s,arcade_profiles u
+      WHERE p.id=${web.game_id} AND p.deleted_at IS NULL AND p.moderation='pending'
+      AND g.game_id=p.id AND g.job_id=j.id AND g.environment=${env()} AND g.input_review='approved' AND g.settlement='held'
+      AND j.id=${row.id} AND j.attempt=${row.attempt} AND j.status='publishing'
+      AND s.environment=g.environment AND s.enabled
+      AND u.environment=g.environment AND u.user_id=g.user_id AND NOT u.suspended
+      RETURNING p.id,g.environment,g.user_id,g.admin_bypass),
+      audit AS (INSERT INTO admin_audit_events(id,environment,actor_user_id,action,target_type,target_id,details_json)
+        SELECT ${randomUUID()},environment,user_id,'admin-bypass-output','website-game',id,
+          ${JSON.stringify({ reason: 'Admin-created game completed without manual review', version: hash })}::jsonb
+        FROM staged WHERE admin_bypass RETURNING id)
+      SELECT * FROM staged`,
+    sql`UPDATE arcade_generations g SET settlement='captured' FROM public_games p,generation_jobs j
+      WHERE g.job_id=${row.id} AND g.environment=${env()} AND g.admin_bypass AND g.settlement='held'
+      AND p.id=g.game_id AND p.moderation='approved' AND p.version_hash=${hash}
+      AND j.id=g.job_id AND j.attempt=${row.attempt} AND j.status='publishing'`,
+    sql`UPDATE generation_jobs j SET status=CASE WHEN g.admin_bypass THEN 'done' ELSE 'review' END,bundle=${url},updated_at=now()
+      FROM arcade_generations g,public_games p
+      WHERE j.id=${row.id} AND j.attempt=${row.attempt} AND j.status='publishing'
+      AND g.job_id=j.id AND g.environment=${env()} AND p.id=g.game_id AND p.version_hash=${hash}
+      AND ((g.admin_bypass AND g.settlement='captured' AND p.moderation='approved')
+        OR (NOT g.admin_bypass AND g.settlement='held' AND p.moderation='pending'))`,
   ]);
+  if (!results[1]?.length) throw new ArcadeError('The game changed before it could be completed.');
 }
 export async function cancelWebsiteGame(userId: string, id: string) {
   await ensureArcadeSchema();
@@ -293,7 +428,8 @@ export async function retryWebsiteGame(userId: string, id: string) {
       AND a.environment=g.environment AND a.clerk_user_id=g.user_id AND a.balance>=g.price
       AND s.environment=g.environment AND s.enabled AND u.environment=g.environment AND u.user_id=g.user_id AND NOT u.suspended
       AND p.id=g.game_id AND p.deleted_at IS NULL AND p.moderation='pending'
-      AND NOT EXISTS(SELECT 1 FROM arcade_generations other WHERE other.environment=g.environment AND other.user_id=g.user_id AND other.settlement='held')
+      AND (SELECT count(*) FROM arcade_generations other WHERE other.environment=g.environment AND other.user_id=g.user_id AND other.settlement='held')<${MAX_ACTIVE_WEBSITE_GAMES}
+      AND (SELECT count(*) FROM arcade_generations other WHERE other.environment=g.environment AND other.settlement='held')<100
       AND COALESCE((SELECT sum(COALESCE(charged,reserved)) FROM arcade_spend WHERE job_id=g.job_id),0)<LEAST(g.game_cap,s.game_cap)
       RETURNING g.*`,
     sql`WITH debit AS (INSERT INTO credit_ledger(id,environment,clerk_user_id,amount,kind,reason,operation_id)
@@ -308,9 +444,12 @@ export async function retryWebsiteGame(userId: string, id: string) {
       FROM arcade_generations g,generation_jobs j WHERE g.job_id=${id} AND j.id=g.job_id AND p.id=g.game_id
       AND g.environment=${env()} AND g.user_id=${userId} AND j.status='queued' AND j.attempt=2 AND p.deleted_at IS NULL`,
   ]);
-  if (!result[3]?.length)
+  if (!result[3]?.length) {
+    const active = await getActiveWebsiteGames(userId);
+    if (active.length >= MAX_ACTIVE_WEBSITE_GAMES) throw new ActiveGameError(active);
     throw new ArcadeError(
       'This game cannot be retried: check your credits, remaining budget, or retry limit.',
     );
+  }
   return result[5][0] as GenerationRow;
 }

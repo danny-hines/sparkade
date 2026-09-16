@@ -190,12 +190,72 @@
   outline: 3px solid var(--cyan);
   outline-offset: 3px;
 }
-.arc-form textarea {
+.arc-form .arc-input {
   width: 100%;
+}
+.arc-form textarea {
   resize: vertical;
   font: inherit;
   line-height: 1.6;
   min-height: 160px;
+}
+.arc-hero-photo {
+  padding: 24px;
+  margin-bottom: 28px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--night);
+}
+.arc-hero-photo h2 {
+  font-size: 20px;
+  margin: 0;
+}
+.arc-hero-photo h2 span {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+.arc-photo-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+.arc-photo-actions .arc-link-button {
+  color: var(--ink-soft);
+  padding: 10px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.arc-photo-actions .arc-link-button:focus-visible {
+  outline: 3px solid var(--cyan);
+  outline-offset: 4px;
+}
+.arc-photo-preview,
+.arc-photo-camera video,
+.arc-review-photo img {
+  display: block;
+  width: min(100%, 256px);
+  aspect-ratio: 1;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.arc-photo-camera video {
+  transform: scaleX(-1);
+  background: #000;
+}
+.arc-review-photo {
+  margin: 16px 0;
+}
+.arc-review-photo figcaption {
+  margin-top: 8px;
+  color: var(--ink-soft);
+  font-size: 13px;
 }
 .arc-form p,
 .arc-steps {

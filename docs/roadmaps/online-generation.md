@@ -9,6 +9,24 @@ remain later phases. See the [implementation and verification report](../reports
 The requirements below preserve the original design plan; the report records exact shipped
 local behavior and intentional beta simplifications.
 
+## Admin creation and automated review follow-up (September 16, 2026)
+
+- Allowlisted, authenticated admins bypass both manual input and output review. The server records
+  that policy per submission and audits it; form fields cannot opt a regular user into it.
+- Successful admin games capture their existing credit hold and become playable at their direct
+  link, unlisted until the creator publishes. Caps, account suspension, failure refunds, immutable
+  outputs, and admin takedowns still apply. The exemption persists through the permitted retry.
+- Admins can start their own previously queued submissions from the game's library page without
+  reviewing them. Interrupted dispatch can be resumed there or through the admin queue.
+- Other users retain the current review gates for this v1. **Next: automate review in the creation
+  pipeline**, so inviting friends does not make an admin the bottleneck. Have Spark check the
+  optional photo, hero name, and game details before expensive generation, return a clear rejection
+  with credits released, and automatically proceed when accepted. Also check generated text/art
+  before sharing; review the exact immutable output version. Keep moderation calls budgeted,
+  idempotent, and audited, distinguish service errors from content rejection, and retain admin
+  inspection/takedown controls. Determine actual cost from measured usage rather than assuming
+  a price. This follow-up is planned, not implemented by the admin exemption.
+
 ## Launch target and proposed defaults
 
 A friend can sign up through Danny's invite link or enter an invite code, receive initial credits,
@@ -23,7 +41,7 @@ only when its owner chooses Publish.
 - Proposed pricing remains 30 initial credits per recipient and 10 credits per completed game:
   three games to start. These amounts are not yet confirmed. This is subsidized beta pricing,
   not a dollar exchange rate or provider-cost estimate.
-- One active generation per website user; no automatic credit replenishment.
+- Up to three active generations per website user; no automatic credit replenishment.
 - Typed prompts and explicit game-type selection first. Enable only archetypes that pass
   current cost and reliability checks. Optional reference photos follow upload/privacy checks.
 - New completed games are unlisted and playable by anyone with the link after content approval.
@@ -245,7 +263,10 @@ it is old: first establish a terminal state that prevents late completion.
   pricing prevents further paid work instead of counting as zero.
 - Recheck account status, job status, credit hold, and spend allowance immediately before calls.
   A still-valid signed token is insufficient after an account has been suspended.
-- One active website game per user, a small global website queue, and existing provider slots.
+- Up to three active website games per user (including admins), a small global website queue,
+  and existing provider slots. New submissions and retries share the same admission lock and
+  credit-balance check. The Create page shows active games and reopens submission when a slot
+  frees up while preserving the next game draft.
   Apply admission checks to retries too. Allocate kiosk capacity explicitly so website traffic
   cannot starve the cabinet or use kiosk routes to evade its own limits.
 - Rate limits on creation, retries, rejected prompts, uploads, and content checks. Start with
@@ -366,6 +387,16 @@ likeness reference has expired, the editor must request a new one.
 A purchase joins invite bonuses and admin grants as another credit-grant source; generation
 remains independent of the payment provider. Start with one-time packs when this phase begins.
 
+- Sell a creation service: show the pack price, exact credit quantity, and current credits per
+  game together (for example, "$5 buys X credits; creating a game uses Y credits"). Show how many
+  complete games the pack covers at that price, including any leftover credits. These are
+  example labels, not selected pack prices or a promise that future prices cannot change.
+- Customer balances, creation/progress pages, libraries, public games, and sharing use credits
+  for generation pricing. Keep provider dollar costs in admin accounting and existing kiosk
+  screens; never describe a credit pack as a dollar balance of AI/model usage. Checkout dollars
+  describe the purchase price of the service, not its underlying provider bill.
+- Explain before checkout what creation includes and when credits are returned. Preserve the
+  quoted credit price for each submitted game regardless of variations in provider cost.
 - Create checkout sessions server-side from a fixed product/credit catalogue.
 - Grant credits only from verified, confirmed payment events, once per purchase despite
   repeated events. A browser success redirect is not proof of payment.

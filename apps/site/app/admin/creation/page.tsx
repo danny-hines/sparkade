@@ -2,6 +2,7 @@ import { getAdminPageIdentity } from '../page-access';
 import { getSql } from '@/lib/db';
 import { env, settings } from '@/lib/arcade';
 import { SubmitButton } from '../../components/game-controls';
+import { SourcePhoto } from '../../components/source-photo';
 import { resumeApprovedAction, reviewAction, saveCreationSettings } from './actions';
 export const metadata = { title: 'Admin · Creation' };
 export const dynamic = 'force-dynamic';
@@ -15,6 +16,9 @@ export default async function CreationAdmin({
     sql = getSql();
   const [queue, spend] = await Promise.all([
     sql`SELECT g.*,j.status,j.attempt,j.updated_at,p.title,p.version_hash,p.moderation,u.handle,
+      j.state->'job'->'creationBrief'->>'heroName' AS hero_name,
+      j.state->'job'->>'hasPhoto'='true' AND j.checkpoint<>'' AND NOT j.cleanup_pending
+        AND j.status NOT IN ('done','canceled') AND g.input_review<>'rejected' AND p.deleted_at IS NULL AS has_photo,
       (SELECT COALESCE(sum(COALESCE(charged,reserved)),0) FROM arcade_spend s WHERE s.job_id=g.job_id) AS cost
       FROM arcade_generations g JOIN generation_jobs j ON j.id=g.job_id JOIN public_games p ON p.id=g.game_id
       JOIN arcade_profiles u ON u.environment=g.environment AND u.user_id=g.user_id
@@ -29,7 +33,10 @@ export default async function CreationAdmin({
       <section className="admin-hero">
         <span className="admin-kicker">Friends beta · {env()}</span>
         <h1>Creation control room</h1>
-        <p>Review ideas and finished games, and keep provider spending within your limits.</p>
+        <p>
+          Manage games and keep provider spending within your limits. Admin-created games skip
+          manual review; you can still take them down here.
+        </p>
       </section>
       {notice && (
         <p className="arc-message" role="status">
@@ -108,10 +115,19 @@ export default async function CreationAdmin({
               <span className="arc-kicker">
                 {g.status} · {g.input_review === 'pending' ? 'Prompt review' : g.moderation}
               </span>
+              {g.admin_bypass && (
+                <p className="arc-fine-print">Admin creator · manual review bypassed</p>
+              )}
               <h3>
                 {g.title || 'New game'} · @{g.handle}
               </h3>
+              {g.hero_name && (
+                <p>
+                  Hero name: <strong>{g.hero_name}</strong>
+                </p>
+              )}
               <p>{g.prompt}</p>
+              {g.has_photo && <SourcePhoto gameId={g.game_id} />}
               <p>
                 {g.price} credits {g.settlement} · ${Number(g.cost).toFixed(2)} provider exposure ·
                 attempt {g.attempt}
@@ -130,7 +146,7 @@ export default async function CreationAdmin({
                       name="reason"
                       required
                       maxLength={1000}
-                      placeholder="Why this idea is appropriate, or why it was rejected"
+                      placeholder="Why this idea and any photo are appropriate, or why they were rejected"
                     />
                   </label>
                   <div className="arc-hero-actions">

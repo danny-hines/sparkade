@@ -36,7 +36,8 @@ including results completed after cancellation.
 
 ## Vercel configuration
 
-Use the existing `sparkade` project, root directory `apps/site`, Node 24.
+Use the existing `sparkade` project with the repository root as its Vercel root directory,
+`npm run site:build` as its build command, `apps/site/.next` as its output directory, and Node 24.
 
 | Variable | Purpose |
 | --- | --- |
@@ -81,5 +82,32 @@ Neon. The cron only runs in production; preview test artifacts need explicit cle
 
 The retained standalone service module is a local integration-test harness for the shared
 kiosk protocol. The Render/Docker deployment template has been removed; it is not part of
-this deployment. Public website generation UI and credits are planned in the
-[online-generation roadmap](online-generation.md).
+this deployment. The public website uses credit-backed server actions and a separate review
+queue, described below and in the [online-generation roadmap](online-generation.md).
+
+## Website generation
+
+Signed-in website users submit through `/create`; they do not use the admin-only generation
+session endpoint above. Submission reserves credits and creates an owned, unlisted game.
+Each user can have up to three active games, subject to available credits and shared spending
+caps. Allowlisted admin creators bypass input and output review: submission starts the durable
+workflow immediately, and successful completion makes the exact generated version playable.
+Other users' ideas and finished games still require approval at `/admin/creation` until automated
+review is implemented. Assets remain in private storage behind the public-read approval gates.
+The owner can play, share the direct link, and separately publish to public discovery.
+
+Before enabling a credit environment, configure the backend and private Blob token above,
+the provider credential, Clerk, Neon, and `SPARKADE_INVITE_CODE_SECRET`. Set finite per-game,
+daily, and total provider caps in `/admin/creation`. Defaults are disabled with zero caps.
+The website's local Next.js process reads `apps/site/.env.local`; the root `.env` used by the
+kiosk/server does not automatically supply its model key. Local Workflow callbacks should use
+`WORKFLOW_LOCAL_BASE_URL=http://localhost:3000` (or the actual local port).
+
+Pull remote development variables into a temporary file and copy only missing values into
+an existing local environment file; preserve the existing database, Clerk, and invite secret.
+Vercel Secret values cannot be pulled back and appear as `[SENSITIVE]` placeholders. These
+placeholders are not usable credentials. Use the existing local provider key and a separate
+local generation signing secret instead.
+
+The Next.js production build uses Webpack. Its temporary build-lock file is excluded from
+function traces because Next removes it before Vercel packages the deployment.

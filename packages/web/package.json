@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./likeness-assets": "./src/likeness-assets.ts"
+    "./likeness-assets": "./src/likeness-assets.ts",
+    "./creation-brief": "./src/creation-brief.ts",
+    "./photo-upload": "./src/photo-upload.ts"
   },
   "scripts": {
     "dev": "vite dev",

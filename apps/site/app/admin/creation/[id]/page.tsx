@@ -6,6 +6,7 @@ import { ensureArcadeSchema, env } from '@/lib/arcade';
 import { readWebsiteFinal } from '@/lib/website-generation';
 import { reviewAction } from '../actions';
 import { PublicGamePlayer } from '../../../p/[id]/public-game-player';
+import { SourcePhoto } from '../../../components/source-photo';
 export const metadata = { title: 'Admin · Game review' };
 export const dynamic = 'force-dynamic';
 export default async function ReviewPage({ params }: { params: Promise<{ id: string }> }) {
@@ -13,7 +14,11 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
   if (!(await getAdminPageIdentity(`/admin/creation/${id}`))) return null;
   await ensureArcadeSchema();
   const [game] =
-    await getSql()`SELECT p.*,g.job_id,g.prompt FROM public_games p JOIN arcade_generations g ON g.game_id=p.id WHERE p.id=${id} AND p.environment=${env()}`;
+    await getSql()`SELECT p.*,g.job_id,g.prompt,j.state->'job'->'creationBrief'->>'heroName' AS hero_name,
+      j.state->'job'->>'hasPhoto'='true' AND j.checkpoint<>'' AND NOT j.cleanup_pending
+        AND j.status NOT IN ('done','canceled') AND g.input_review<>'rejected' AS has_photo
+      FROM public_games p JOIN arcade_generations g ON g.game_id=p.id
+      JOIN generation_jobs j ON j.id=g.job_id WHERE p.id=${id} AND p.environment=${env()}`;
   if (!game || game.deleted_at) notFound();
   const final = await readWebsiteFinal(id);
   if (!final) notFound();
@@ -25,7 +30,13 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
       <section className="admin-hero">
         <span className="admin-kicker">Private review</span>
         <h1>{final.bundle.spec.meta.title}</h1>
+        {game.hero_name && (
+          <p>
+            Hero name: <strong>{game.hero_name}</strong>
+          </p>
+        )}
         <p>{game.prompt}</p>
+        {game.has_photo && <SourcePhoto gameId={id} />}
       </section>
       <section className="arc-panel">
         <h2>Play the generated game</h2>

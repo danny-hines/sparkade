@@ -3,10 +3,29 @@ import { GENERATED_GAME_ASSET_FILES, ARCHETYPE_IDS } from '@sparkade/shared';
 import { getSql } from './db';
 import { resolveCreditEnvironment, getCreditBalance } from './invites';
 import { ensureArcadeSchema } from './arcade-schema';
+import { MAX_ACTIVE_WEBSITE_GAMES, type ActiveWebsiteGame } from './website-creation-policy';
 
 export { ensureArcadeSchema } from './arcade-schema';
 export const env = resolveCreditEnvironment;
 export class ArcadeError extends Error {}
+export class ActiveGameError extends ArcadeError {
+  constructor(public readonly games: ActiveWebsiteGame[]) {
+    super(
+      `You already have ${MAX_ACTIVE_WEBSITE_GAMES} games in progress. Wait for one to finish before starting another.`,
+    );
+  }
+}
+export async function getActiveWebsiteGames(userId: string): Promise<ActiveWebsiteGame[]> {
+  await ensureArcadeSchema();
+  const rows =
+    await getSql()`SELECT p.id,p.title FROM arcade_generations g JOIN public_games p ON p.id=g.game_id
+    WHERE g.environment=${env()} AND g.user_id=${userId} AND g.settlement='held'
+    ORDER BY g.created_at LIMIT ${MAX_ACTIVE_WEBSITE_GAMES}`;
+  return rows.map((row) => ({
+    id: String(row.id),
+    title: String(row.title || 'Your game in progress'),
+  }));
+}
 export async function ensureProfile(userId: string) {
   await ensureArcadeSchema();
   // Public identity never falls back to an email address or unreviewed Clerk name.

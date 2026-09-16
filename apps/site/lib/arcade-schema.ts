@@ -34,7 +34,10 @@ export function ensureArcadeSchema() {
       input_review TEXT NOT NULL DEFAULT 'pending' CHECK(input_review IN ('pending','approved','rejected')),
       settlement TEXT NOT NULL DEFAULT 'held' CHECK(settlement IN ('held','captured','released')),
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE(environment,user_id,idempotency_key))`;
-    await sql`CREATE UNIQUE INDEX IF NOT EXISTS arcade_one_active_per_user ON arcade_generations(environment,user_id) WHERE settlement='held'`;
+    await sql`ALTER TABLE arcade_generations ADD COLUMN IF NOT EXISTS admin_bypass BOOLEAN NOT NULL DEFAULT FALSE`;
+    // Admission and retries enforce the per-user limit under the same transaction lock.
+    await sql`DROP INDEX IF EXISTS arcade_one_active_per_user`;
+    await sql`CREATE INDEX IF NOT EXISTS arcade_active_per_user ON arcade_generations(environment,user_id) WHERE settlement='held'`;
     await sql`CREATE TABLE IF NOT EXISTS arcade_spend (
       id TEXT PRIMARY KEY, environment TEXT NOT NULL, job_id TEXT NOT NULL REFERENCES arcade_generations(job_id),
       reserved NUMERIC NOT NULL CHECK(reserved>=0), charged NUMERIC,

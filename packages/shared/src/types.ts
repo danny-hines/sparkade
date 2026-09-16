@@ -1089,7 +1089,7 @@ export type JobStatus = 'queued' | 'running' | 'waiting-network' | 'done' | 'fai
  * voice, preset, and Surprise jobs continue to work without a brief. */
 export interface CreationBrief {
   version: 1;
-  /** Exact spoken character name. Omitted when the player asks Spark to invent one. */
+  /** Exact character name supplied by the player. Omitted when Spark should invent one. */
   heroName?: string;
   /** Explicit engine choice; omitted when Spark should classify the request. */
   archetype?: ArchetypeId;

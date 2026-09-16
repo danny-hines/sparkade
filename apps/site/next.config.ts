@@ -11,6 +11,11 @@ const nextConfig: NextConfig = {
     '/*': ['../../packages/generation/prompts/**/*.md', '../../packages/generation/golden/*.json'],
     '/api/generation/v1/*': ['../../node_modules/@ffmpeg-installer/**/*'],
   },
+  // Next removes its build lock before Vercel packages the traced functions.
+  // It is a build-only file and must never be copied into a runtime bundle.
+  outputFileTracingExcludes: {
+    '/*': [`./${process.env.SPARKADE_SITE_DIST_DIR || '.next'}/lock`],
+  },
   serverExternalPackages: ['@ffmpeg-installer/ffmpeg', '@vercel/blob'],
   agentRules: false,
   poweredByHeader: false,

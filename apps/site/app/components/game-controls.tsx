@@ -1,7 +1,8 @@
 'use client';
 import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
-import { favoriteAction, manageGameAction } from './arcade-actions';
+import { favoriteAction, manageGameAction, retryGameAction } from './arcade-actions';
+import type { WebsiteRetry } from '@/lib/website-retry';
 
 export function SubmitButton({
   children,
@@ -69,12 +70,14 @@ export function OwnerControls({
   deleted,
   ready,
   canDelete,
+  retry = null,
 }: {
   id: string;
   published: boolean;
   deleted: boolean;
   ready: boolean;
   canDelete: boolean;
+  retry?: WebsiteRetry;
 }) {
   return (
     <div className="arc-owner-controls">
@@ -86,6 +89,7 @@ export function OwnerControls({
         </form>
       ) : (
         <>
+          {retry?.available && <RetryGameControl retry={retry} />}
           {ready && (
             <form action={manageGameAction}>
               <input name="id" value={id} type="hidden" />
@@ -115,5 +119,22 @@ export function OwnerControls({
         </>
       )}
     </div>
+  );
+}
+
+export function RetryGameControl({
+  retry,
+  className = 'arc-button-secondary',
+}: {
+  retry: WebsiteRetry;
+  className?: string;
+}) {
+  if (!retry) return null;
+  if (!retry.available) return <p className="arc-fine-print">{retry.message}</p>;
+  return (
+    <form action={retryGameAction}>
+      <input type="hidden" name="jobId" value={retry.jobId} />
+      <SubmitButton className={className}>Retry · {retry.price} credits</SubmitButton>
+    </form>
   );
 }

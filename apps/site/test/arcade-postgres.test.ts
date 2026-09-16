@@ -917,8 +917,15 @@ describe.skipIf(!enabled)('arcade domain against real PostgreSQL', () => {
     await context.sql`UPDATE generation_jobs SET status='failed' WHERE id=${jobId}`;
     await releaseWebsiteCredits(jobId);
     expect(await balance()).toBe(30);
+    expect((await browseGames({ viewer: 'user-a', mine: true })).games[0].retry).toEqual({
+      available: true,
+      jobId,
+      price: 10,
+    });
+    expect((await browseGames({ viewer: 'other', mine: true })).games).toHaveLength(0);
     await context.sql`UPDATE arcade_settings SET price=25`;
     const row = await retryWebsiteGame('user-a', jobId);
+    expect((await browseGames({ viewer: 'user-a', mine: true })).games[0].retry).toBeNull();
     expect(row.attempt).toBe(2);
     expect(row.state.job!.creationBrief?.heroName).toBe('Dr. Lúna');
     expect(row.state.job!.hasPhoto).toBe(true);
@@ -929,7 +936,42 @@ describe.skipIf(!enabled)('arcade domain against real PostgreSQL', () => {
     await context.sql`UPDATE generation_jobs SET status='failed' WHERE id=${jobId}`;
     await releaseWebsiteCredits(jobId);
     expect(await balance()).toBe(30);
+    expect((await browseGames({ viewer: 'user-a', mine: true })).games[0].retry).toMatchObject({
+      available: false,
+      message: expect.stringContaining('one retry'),
+    });
     await expect(retryWebsiteGame('user-a', jobId)).rejects.toThrow('cannot be retried');
+  });
+  it('does not offer or charge a retry when its saved checkpoint is being removed', async () => {
+    await account();
+    const { jobId } = await create();
+    await reviewWebsiteGame('admin', jobId, 'approve-input', '', 'Fine');
+    await context.sql`UPDATE generation_jobs SET status='failed',cleanup_pending=TRUE WHERE id=${jobId}`;
+    await releaseWebsiteCredits(jobId);
+    expect((await browseGames({ viewer: 'user-a', mine: true })).games[0].retry).toMatchObject({
+      available: false,
+      message: expect.stringContaining('no longer available'),
+    });
+    await expect(retryWebsiteGame('user-a', jobId)).rejects.toThrow('cannot be retried');
+    expect(await balance()).toBe(30);
+    expect((await getJob(jobId))?.attempt).toBe(1);
+  });
+  it('accepts concurrent retry clicks once and holds the original credit price once', async () => {
+    await account();
+    const { jobId } = await create();
+    await reviewWebsiteGame('admin', jobId, 'approve-input', '', 'Fine');
+    await context.sql`UPDATE generation_jobs SET status='failed' WHERE id=${jobId}`;
+    await releaseWebsiteCredits(jobId);
+    const results = await Promise.allSettled([
+      retryWebsiteGame('user-a', jobId),
+      retryWebsiteGame('user-a', jobId),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(await balance()).toBe(20);
+    expect((await getJob(jobId))?.attempt).toBe(2);
+    expect(
+      await context.sql`SELECT id FROM credit_ledger WHERE operation_id=${`retry-hold:${jobId}`}`,
+    ).toHaveLength(1);
   });
   it('reserves spend atomically across requests, retains unknown charges and obeys the kill switch', async () => {
     await account();

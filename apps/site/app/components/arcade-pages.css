@@ -119,6 +119,12 @@
   gap: 12px;
   margin-top: 16px;
 }
+.arc-retry-panel {
+  margin-bottom: 24px;
+}
+.arc-retry-panel h2 {
+  margin-top: 0;
+}
 .arc-owner-controls .arc-button-secondary {
   padding: 8px 12px;
   min-height: 34px;

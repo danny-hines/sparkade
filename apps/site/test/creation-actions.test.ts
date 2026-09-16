@@ -23,11 +23,16 @@ import {
   createWebsiteGame,
   resumeAdminWebsiteGame,
   resumeWebsiteGame,
+  retryWebsiteGame,
 } from '../lib/website-generation';
-import { createGameAction, startAdminGameAction } from '../app/components/arcade-actions';
+import {
+  createGameAction,
+  retryGameAction,
+  startAdminGameAction,
+} from '../app/components/arcade-actions';
 import { generateGameWorkflow } from '../workflows/generate-game';
 import { start } from 'workflow/api';
-import { ActiveGameError } from '../lib/arcade';
+import { ArcadeError, ActiveGameError } from '../lib/arcade';
 
 const admin = {
   userId: 'session-owner',
@@ -46,6 +51,7 @@ function form() {
     admin_bypass: 'true',
     authorized: 'true',
     id: 'existing-game',
+    jobId: 'existing-job',
   }).forEach(([k, v]) => f.set(k, v));
   return f;
 }
@@ -64,6 +70,48 @@ beforeEach(() => {
   vi.mocked(resumeAdminWebsiteGame).mockResolvedValue({ id: 'job-id', attempt: 1 } as NonNullable<
     Awaited<ReturnType<typeof resumeAdminWebsiteGame>>
   >);
+  vi.mocked(retryWebsiteGame).mockResolvedValue({
+    id: 'existing-job',
+    attempt: 2,
+    public_id: 'retried-game',
+  } as Awaited<ReturnType<typeof retryWebsiteGame>>);
+});
+describe('website retry action', () => {
+  it('uses the authenticated owner and follows the retried game to its activity feed', async () => {
+    await expect(retryGameAction(form())).rejects.toThrow(
+      'REDIRECT:/me/games/retried-game?notice=Retry%20queued.',
+    );
+    expect(retryWebsiteGame).toHaveBeenCalledWith('session-owner', 'existing-job');
+    expect(start).toHaveBeenCalledWith(generateGameWorkflow, ['existing-job', 2]);
+  });
+  it('keeps an accepted retry recoverable on its game page when dispatch fails', async () => {
+    vi.mocked(start).mockRejectedValue(new Error('private dispatch error'));
+    await expect(retryGameAction(form())).rejects.toThrow(
+      'REDIRECT:/me/games/retried-game?notice=Your%20retry%20is%20saved.',
+    );
+    expect(retryWebsiteGame).toHaveBeenCalledTimes(1);
+  });
+  it('shows admission errors without dispatching or claiming the retry was saved', async () => {
+    vi.mocked(retryWebsiteGame).mockRejectedValue(new ArcadeError('You need more credits.'));
+    await expect(retryGameAction(form())).rejects.toThrow(
+      'REDIRECT:/me?notice=You%20need%20more%20credits.',
+    );
+    vi.mocked(retryWebsiteGame).mockRejectedValue(new Error('private database error'));
+    await expect(retryGameAction(form())).rejects.toThrow(
+      'REDIRECT:/me?notice=Could%20not%20retry%20your%20game.',
+    );
+    expect(start).not.toHaveBeenCalled();
+  });
+  it('requires a verified account before holding credits or dispatching a retry', async () => {
+    vi.mocked(getSignupIdentity).mockResolvedValue({
+      userId: 'session-owner',
+      emailVerified: false,
+      createdAt: Date.now(),
+    });
+    await expect(retryGameAction(form())).rejects.toThrow('REDIRECT:/sign-in');
+    expect(retryWebsiteGame).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+  });
 });
 describe('website creation authorization and dispatch', () => {
   it('returns the precise queue limit with the authenticated owner’s progress links', async () => {

@@ -98,15 +98,23 @@ export async function retryGameAction(form: FormData) {
   const identity = await getSignupIdentity();
   if (!identity?.emailVerified) redirect('/sign-in?redirect_url=/me');
   let notice = 'Retry queued.';
+  let gameId: string | null = null;
   try {
     const row = await retryWebsiteGame(identity.userId, String(form.get('jobId')));
-    await start(generateGameWorkflow, [row.id, row.attempt]);
+    gameId = row.public_id;
+    try {
+      await start(generateGameWorkflow, [row.id, row.attempt]);
+    } catch {
+      notice = 'Your retry is saved. Use Start generation if it does not begin shortly.';
+    }
   } catch (error) {
     notice =
-      error instanceof ArcadeError ? error.message : 'Retry saved; dispatch may still be pending.';
+      error instanceof ArcadeError ? error.message : 'Could not retry your game. Please try again.';
   }
   revalidatePath('/', 'layout');
-  redirect(`/me?notice=${encodeURIComponent(notice)}`);
+  redirect(
+    `${gameId ? `/me/games/${encodeURIComponent(gameId)}` : '/me'}?notice=${encodeURIComponent(notice)}`,
+  );
 }
 
 export async function startAdminGameAction(form: FormData) {

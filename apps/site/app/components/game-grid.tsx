@@ -1,6 +1,6 @@
 import type { ArcadeCard } from '@/lib/arcade';
 import { ArcadeGameCard, ArcadeEmpty } from './arcade-ui';
-import { FavoriteButton, OwnerControls } from './game-controls';
+import { FavoriteButton, OwnerControls, RetryGameControl } from './game-controls';
 export function GameGrid({
   games,
   signedIn = false,
@@ -65,7 +65,9 @@ export function GameGrid({
                 deleted={game.deleted}
                 ready={game.status === 'ready' && game.moderation === 'approved'}
                 canDelete={['done', 'failed', 'canceled'].includes(game.jobStatus ?? 'done')}
+                retry={game.retry}
               />
+              {game.retry && !game.retry.available && <RetryGameControl retry={game.retry} />}
             </>
           )}
         </ArcadeGameCard>

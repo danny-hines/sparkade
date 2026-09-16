@@ -451,7 +451,7 @@ export async function retryWebsiteGame(userId: string, id: string) {
     sql`SELECT balance FROM credit_accounts WHERE environment=${env()} AND clerk_user_id=${userId} FOR UPDATE`,
     sql`UPDATE arcade_generations g SET settlement='held' FROM generation_jobs j,credit_accounts a,arcade_settings s,arcade_profiles u,public_games p
       WHERE g.job_id=${id} AND g.environment=${env()} AND g.user_id=${userId} AND (g.input_review='approved' OR (g.input_review='pending' AND g.review_policy=${CONTENT_POLICY})) AND g.settlement='released'
-      AND j.id=g.job_id AND j.status='failed' AND j.attempt=1 AND j.checkpoint<>''
+      AND j.id=g.job_id AND j.status='failed' AND j.attempt=1 AND j.checkpoint<>'' AND NOT j.cleanup_pending
       AND a.environment=g.environment AND a.clerk_user_id=g.user_id AND a.balance>=g.price
       AND s.environment=g.environment AND s.enabled AND u.environment=g.environment AND u.user_id=g.user_id AND NOT u.suspended
       AND p.id=g.game_id AND p.deleted_at IS NULL AND p.moderation='pending'

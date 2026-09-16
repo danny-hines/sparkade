@@ -3,16 +3,16 @@ import { notFound, redirect } from 'next/navigation';
 import { getSql } from '@/lib/db';
 import { ensureArcadeSchema, env } from '@/lib/arcade';
 import { SiteFrame, viewer } from '../../../components/site-frame';
-import { OwnerControls, SubmitButton } from '../../../components/game-controls';
+import { OwnerControls, RetryGameControl, SubmitButton } from '../../../components/game-controls';
 import {
   cancelGameAction,
-  retryGameAction,
   startAdminGameAction,
   startGameAction,
 } from '../../../components/arcade-actions';
 import { websiteProgress } from '@/lib/website-progress';
 import { GenerationFeed } from '../../../components/generation-feed';
 import { SourcePhoto } from '../../../components/source-photo';
+import { websiteRetry, type WebsiteRetryRow } from '@/lib/website-retry';
 export const metadata = { title: 'Your game', robots: { index: false, follow: false } };
 export default async function MyGame({
   params,
@@ -26,7 +26,8 @@ export default async function MyGame({
   await ensureArcadeSchema();
   const { id } = await params;
   const [game] =
-    await getSql()`SELECT p.*,g.prompt,g.job_id,g.price,g.settlement,g.input_review,g.admin_bypass,g.review_policy,j.run_id,j.attempt,j.checkpoint,j.status AS job_status,
+    await getSql()`SELECT p.*,g.prompt,g.job_id,g.price,g.settlement,g.input_review,g.admin_bypass,g.review_policy,j.run_id,j.attempt,
+    j.checkpoint<>'' AS has_checkpoint,j.cleanup_pending,j.status AS job_status,
     j.state->'job'->'creationBrief'->>'heroName' AS hero_name,
     j.state->'job'->>'hasPhoto'='true' AND j.checkpoint<>'' AND NOT j.cleanup_pending
       AND j.status NOT IN ('done','canceled') AND g.input_review<>'rejected' AND p.deleted_at IS NULL AS has_photo
@@ -38,6 +39,7 @@ export default async function MyGame({
     game.settlement = 'released';
   }
   const progress = await websiteProgress(user.userId, id);
+  const retry = websiteRetry(game as WebsiteRetryRow);
   const notice = (await searchParams).notice;
   const ready = game.status === 'ready' && game.moderation === 'approved',
     terminal = ['done', 'failed', 'canceled'].includes(game.job_status);
@@ -77,6 +79,21 @@ export default async function MyGame({
         <p className="arc-message" role="status">
           {notice}
         </p>
+      )}
+      {retry && (
+        <section className="arc-panel arc-retry-panel" aria-labelledby="retry-game-title">
+          <h2 id="retry-game-title">
+            {retry.available ? 'Try this game again' : 'About this attempt'}
+          </h2>
+          {retry.available && (
+            <p>
+              Retry with your saved idea, hero name, and photo. Each game gets one retry; credits
+              are returned if that attempt fails too.
+            </p>
+          )}
+          <RetryGameControl retry={retry} className="arc-button" />
+          {!retry.available && <a href="/create">Create a new game →</a>}
+        </section>
       )}
       {progress && <GenerationFeed key={`${id}:${game.attempt}`} gameId={id} initial={progress} />}
       <section className="arc-panel">
@@ -131,27 +148,6 @@ export default async function MyGame({
           ready={ready}
           canDelete={terminal}
         />
-        {game.job_status === 'failed' &&
-          game.attempt === 1 &&
-          game.checkpoint &&
-          game.input_review !== 'rejected' &&
-          game.moderation === 'pending' &&
-          !game.deleted_at && (
-            <form action={retryGameAction}>
-              <input type="hidden" name="jobId" value={game.job_id} />
-              <SubmitButton className="arc-button-secondary">
-                Retry once · {game.price} credits
-              </SubmitButton>
-            </form>
-          )}
-        {game.job_status === 'failed' && (
-          <p>
-            {game.moderation === 'rejected'
-              ? 'This game did not pass our PG-13 content check. '
-              : ''}
-            The credits have been returned. <a href="/create">Try a new idea →</a>
-          </p>
-        )}
       </section>
     </SiteFrame>
   );

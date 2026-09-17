@@ -3,6 +3,7 @@ import type { GenerationPrincipal } from '@sparkade/generation/service-auth';
 import type { CloudGenerationSnapshot } from '@sparkade/shared';
 import type { PipelineState } from '@sparkade/server/pipeline/job-state';
 import { getSql } from '../db';
+import { generationLimits } from './limits';
 
 export const scope = () => (process.env.VERCEL_ENV === 'production' ? 'production' : 'preview');
 export const prefix = (id: string) => `generation/${scope()}/${id}/`;
@@ -106,11 +107,7 @@ export async function acquireSlot(owner: string): Promise<string | null> {
   await ensureGenerationSchema();
   const sql = getSql();
   const token = randomUUID();
-  const max = Math.max(1, Math.min(32, Number(process.env.SPARKADE_CLOUD_CONCURRENCY) || 16));
-  const perOwner = Math.max(
-    1,
-    Math.min(max, Number(process.env.SPARKADE_CLOUD_OWNER_CONCURRENCY) || 8),
-  );
+  const { requests: max, ownerRequests: perOwner } = generationLimits();
   const results = await sql.transaction([
     sql`SELECT pg_advisory_xact_lock(hashtext(${`sparkade-slots-${scope()}`}))`,
     sql`INSERT INTO generation_slots(scope,slot,owner,token,expires_at)

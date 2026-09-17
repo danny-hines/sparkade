@@ -22,6 +22,7 @@ import {
   ensureArcadeSchema,
 } from './arcade';
 import { scope, prefix, getJob, type GenerationRow } from './generation/store';
+import { generationLimits } from './generation/limits';
 import { readPrivate, writePrivate } from './generation/storage';
 import { normalizeWebsitePhoto } from './website-photo';
 import { MAX_ACTIVE_WEBSITE_GAMES } from './website-creation-policy';
@@ -179,7 +180,7 @@ export async function createWebsiteGame(
       AND a.environment=s.environment AND a.clerk_user_id=${userId} AND a.balance>=s.price
       AND p.environment=s.environment AND p.user_id=a.clerk_user_id AND NOT p.suspended
       AND (SELECT count(*) FROM arcade_generations g WHERE g.environment=s.environment AND g.user_id=${userId} AND g.settlement='held')<${MAX_ACTIVE_WEBSITE_GAMES}
-      AND (SELECT count(*) FROM arcade_generations g WHERE g.environment=s.environment AND g.settlement='held')<100
+      AND (SELECT count(*) FROM arcade_generations g WHERE g.environment=s.environment AND g.settlement='held')<${generationLimits().pendingJobs}
       ON CONFLICT DO NOTHING RETURNING id`,
     sql`INSERT INTO public_games(id,source_id,kiosk_name,feed_visibility,owner_id,environment,moderation,message)
       SELECT ${gameId},${`${scope()}:${id}`},${profile.handle},'unlisted',${userId},${env()},'pending',${'Checking your idea and photo'}
@@ -212,7 +213,7 @@ export async function createWebsiteGame(
     if (currentGame.length >= MAX_ACTIVE_WEBSITE_GAMES) throw new ActiveGameError(currentGame);
     const [{ count }] =
       await sql`SELECT count(*) FROM arcade_generations WHERE environment=${env()} AND settlement='held'`;
-    if (Number(count) >= 100)
+    if (Number(count) >= generationLimits().pendingJobs)
       throw new ArcadeError('The creation queue is full. Please try again shortly.');
     throw new ArcadeError('Creation availability changed. Please try again.');
   }
@@ -456,7 +457,7 @@ export async function retryWebsiteGame(userId: string, id: string) {
       AND s.environment=g.environment AND s.enabled AND u.environment=g.environment AND u.user_id=g.user_id AND NOT u.suspended
       AND p.id=g.game_id AND p.deleted_at IS NULL AND p.moderation='pending'
       AND (SELECT count(*) FROM arcade_generations other WHERE other.environment=g.environment AND other.user_id=g.user_id AND other.settlement='held')<${MAX_ACTIVE_WEBSITE_GAMES}
-      AND (SELECT count(*) FROM arcade_generations other WHERE other.environment=g.environment AND other.settlement='held')<100
+      AND (SELECT count(*) FROM arcade_generations other WHERE other.environment=g.environment AND other.settlement='held')<${generationLimits().pendingJobs}
       AND COALESCE((SELECT sum(COALESCE(charged,reserved)) FROM arcade_spend WHERE job_id=g.job_id),0)<LEAST(g.game_cap,s.game_cap)
       RETURNING g.*`,
     sql`WITH debit AS (INSERT INTO credit_ledger(id,environment,clerk_user_id,amount,kind,reason,operation_id)

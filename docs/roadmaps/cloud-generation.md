@@ -48,8 +48,16 @@ Use the existing `sparkade` project with the repository root as its Vercel root 
 | `GENERATION_BLOB_READ_WRITE_TOKEN` | Separate **private** generation store |
 | `BLOB_READ_WRITE_TOKEN` | Existing **public** finished-game store |
 | `CRON_SECRET` | Authentication for the daily maintenance endpoint |
-| `SPARKADE_CLOUD_CONCURRENCY=16` | Global leased model-request slots |
-| `SPARKADE_CLOUD_OWNER_CONCURRENCY=8` | Maximum slots for any one kiosk/user |
+| `SPARKADE_CLOUD_CONCURRENCY=1024` | Global leased model-request slots; no fixed 32-slot ceiling |
+| `SPARKADE_CLOUD_OWNER_CONCURRENCY=16` | Maximum slots shared by any one kiosk/user's games |
+| `SPARKADE_CLOUD_MAX_PENDING_JOBS=10000` | Admission ceiling for the website queue and the kiosk API's active-job check |
+
+These are defaults; environment overrides must be positive integers. The request cap manages
+provider and service capacity independently of website spending budgets. It can be raised as
+provider quotas and load tests allow; 1,024 simultaneous requests is not a guarantee of 1,024
+games generating at full speed. Each game makes multiple model calls, and per-owner slots are
+shared across their active games. Thousands of simultaneous generations require sufficient
+provider quota and measured database/workflow capacity, as well as these configurable limits.
 
 Use different generation signing secrets in preview and production. Jobs and object paths
 are scoped by environment; preview publications are unlisted. Existing public-game storage
@@ -61,7 +69,9 @@ history are never included. Retries use a new attempt namespace and preserve com
 validated work from the previous attempt. Actual provider attempts are capped at four per
 request; waits for shared capacity do not spend that provider retry budget and can continue
 for up to a day during a backlog. There are at most
-50 pending games per owner and 200 globally. Admission and provider-slot claims use database
+50 pending games per kiosk owner and, by default, 10,000 active jobs in the kiosk API's admission
+check. Website admission allows three active games per user and 10,000 across its queue.
+Admission and provider-slot claims use database
 transactions, so multiple server instances cannot exceed these limits through a race.
 
 The daily Vercel cron removes successful-job intermediates missed by immediate cleanup and

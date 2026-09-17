@@ -88,6 +88,7 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   if (!enabled) return;
+  vi.stubEnv('SPARKADE_CLOUD_MAX_PENDING_JOBS', undefined);
   await pool.query(
     'TRUNCATE arcade_generations,arcade_profiles,arcade_settings,arcade_spend,arcade_favorites,arcade_plays,arcade_play_tickets,public_games,generation_jobs,credit_accounts,credit_ledger,admin_audit_events CASCADE',
   );
@@ -812,6 +813,32 @@ describe.skipIf(!enabled)('arcade domain against real PostgreSQL', () => {
     expect(await create('user-a', key)).toEqual(results[0]);
     expect(await getActiveWebsiteGames('user-a')).toHaveLength(3);
     expect(await balance()).toBe(70);
+  });
+  it('applies configurable shared queue capacity to new submissions and retries without excess credit holds', async () => {
+    vi.stubEnv('SPARKADE_CLOUD_MAX_PENDING_JOBS', '1');
+    await account('user-a');
+    await account('user-b');
+    const retry = await create('user-a');
+    await reviewWebsiteGame('admin', retry.jobId, 'approve-input', '', 'Fine');
+    await context.sql`UPDATE generation_jobs SET status='failed' WHERE id=${retry.jobId}`;
+    await releaseWebsiteCredits(retry.jobId);
+    await create('user-b');
+
+    await expect(create('user-a')).rejects.toThrow('queue is full');
+    await expect(retryWebsiteGame('user-a', retry.jobId)).rejects.toThrow('cannot be retried');
+    expect(await balance('user-a')).toBe(30);
+    expect((await getJob(retry.jobId))?.attempt).toBe(1);
+
+    vi.stubEnv('SPARKADE_CLOUD_MAX_PENDING_JOBS', '2');
+    const results = await Promise.allSettled([
+      create('user-a'),
+      retryWebsiteGame('user-a', retry.jobId),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(await balance('user-a')).toBe(20);
+    expect(
+      await context.sql`SELECT job_id FROM arcade_generations WHERE settlement='held'`,
+    ).toHaveLength(2);
   });
   it('limits concurrent credit holds to the available balance even with free game slots', async () => {
     await account('user-a', 10);

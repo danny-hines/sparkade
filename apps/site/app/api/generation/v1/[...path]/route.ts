@@ -31,6 +31,7 @@ import {
   type GenerationRow,
 } from '@/lib/generation/store';
 import { readPrivate, writePrivate } from '@/lib/generation/storage';
+import { generationLimits } from '@/lib/generation/limits';
 import { generateGameWorkflow } from '@/workflows/generate-game';
 
 export const runtime = 'nodejs';
@@ -269,7 +270,7 @@ async function createJob(request: NextRequest, principal: GenerationPrincipal): 
     sql`SELECT pg_advisory_xact_lock(hashtext(${`sparkade-admission-${scope()}`}))`,
     sql`INSERT INTO generation_jobs(id,scope,owner,idempotency_key,input_hash,principal,state,checkpoint)
       SELECT ${id},${scope()},${principal.owner},${input.idempotencyKey},${inputHash},${JSON.stringify(principal)}::jsonb,${JSON.stringify(db.state)}::jsonb,${checkpoint}
-      WHERE (SELECT count(*) FROM generation_jobs WHERE scope=${scope()} AND status IN ('queued','running','waiting-network','publishing'))<200
+      WHERE (SELECT count(*) FROM generation_jobs WHERE scope=${scope()} AND status IN ('queued','running','waiting-network','publishing'))<${generationLimits().pendingJobs}
       AND (SELECT count(*) FROM generation_jobs WHERE scope=${scope()} AND owner=${principal.owner} AND status IN ('queued','running','waiting-network','publishing'))<50
       ON CONFLICT DO NOTHING RETURNING *`,
   ]);

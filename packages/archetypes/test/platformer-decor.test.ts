@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PlatformerLevel, PlatformerTileType } from '@sparkade/shared';
-import { surfaceDecorations } from '../src/platformer/decor';
+import { decorationVariantIndex, surfaceDecorations } from '../src/platformer/decor';
 
 const LEGEND: Record<string, PlatformerTileType> = {
   '#': 'solid',
@@ -35,6 +35,24 @@ function kindAt(level: PlatformerLevel, x: number, y: number): PlatformerTileTyp
 }
 
 describe('surfaceDecorations', () => {
+  it('keeps scenery variants stable across visits while varying them across cells', () => {
+    const cells = surfaceDecorations(flatLevel(96), 42);
+    const variants = (ordered: typeof cells) =>
+      new Map(ordered.map(({ x, y }) => [x, decorationVariantIndex(42, x, y, 8)]));
+    const first = variants(cells);
+
+    expect(variants([...cells].reverse())).toEqual(first);
+    expect(new Set(first.values()).size).toBeGreaterThan(1);
+    for (const variant of first.values()) {
+      expect(variant).toBeGreaterThanOrEqual(0);
+      expect(variant).toBeLessThan(8);
+    }
+    for (const { x, y } of cells) {
+      expect(decorationVariantIndex(42, x, y, 1)).toBe(0);
+      expect(decorationVariantIndex(42, x, y, 0)).toBe(0);
+    }
+  });
+
   it('is deterministic, sparse, supported, clear above, and horizontally spaced', () => {
     const level = flatLevel();
     const first = surfaceDecorations(level, 0x12345678);

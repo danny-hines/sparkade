@@ -17,6 +17,8 @@ import {
   resolveLikenessHead,
   semanticGamePaletteForSource,
   SpriteStore,
+  TILES_ADVENTURE_HD,
+  TILES_PLATFORMER_HD,
   adventureHdTileRef,
 } from '@sparkade/engine';
 import {
@@ -430,23 +432,44 @@ describe('built-in sprite library', () => {
     for (const theme of LIB_TILE_THEMES) {
       for (const kind of ADVENTURE_HD_TILE_KINDS) {
         const id = `${theme}_${kind}`;
-        expect(adventureHdTileRef(`lib:${id}`), id).toBe(`lib:${id}_hd`);
-        expect(LIBRARY[`${id}_hd`]!.frames[0], `${id}_hd`).toMatchObject({
+        const hdId = `adventure_${id}_hd`;
+        expect(adventureHdTileRef(`lib:${id}`), id).toBe(`lib:${hdId}`);
+        expect(adventureHdTileRef(`lib:${hdId}`), hdId).toBe(`lib:${hdId}`);
+        expect(LIBRARY[hdId]!.frames[0], hdId).toMatchObject({
           w: kind.startsWith('door_') ? 128 : 64,
         });
       }
-      expect(LIBRARY[`${theme}_floor_hd`]!.frames).toHaveLength(16);
-      expect(LIBRARY[`${theme}_wall_hd`]!.frames).toHaveLength(16);
-      expect(LIBRARY[`${theme}_pit_hd`]!.frames).toHaveLength(16);
-      expect(LIBRARY[`${theme}_block_hd`]!.frames).toHaveLength(4);
-      expect(LIBRARY[`${theme}_deco_hd`]!.frames).toHaveLength(8);
-      expect(LIBRARY[`${theme}_deco_hd`]!.frames[0]).toMatchObject({ w: 64, h: 96 });
-      expect(LIBRARY[`${theme}_switch_hd`]!.frames).toHaveLength(4);
-      expect(LIBRARY[`${theme}_door_open_hd`]!.frames[0]).toMatchObject({ w: 128, h: 64 });
+      expect(LIBRARY[`adventure_${theme}_floor_hd`]!.frames).toHaveLength(16);
+      expect(LIBRARY[`adventure_${theme}_wall_hd`]!.frames).toHaveLength(16);
+      expect(LIBRARY[`adventure_${theme}_pit_hd`]!.frames).toHaveLength(16);
+      expect(LIBRARY[`adventure_${theme}_block_hd`]!.frames).toHaveLength(4);
+      expect(LIBRARY[`adventure_${theme}_deco_hd`]!.frames).toHaveLength(8);
+      expect(LIBRARY[`adventure_${theme}_deco_hd`]!.frames[0]).toMatchObject({ w: 64, h: 96 });
+      expect(LIBRARY[`adventure_${theme}_switch_hd`]!.frames).toHaveLength(4);
+      expect(LIBRARY[`adventure_${theme}_door_open_hd`]!.frames[0]).toMatchObject({
+        w: 128,
+        h: 64,
+      });
     }
 
     expect(adventureHdTileRef('lib:tile_floor')).toBe('lib:tile_floor');
     expect(adventureHdTileRef('custom:hand_floor')).toBe('custom:hand_floor');
+  });
+
+  it('keeps Adventure variants from replacing platformer art in the shared library', () => {
+    for (const [id, entry] of Object.entries(TILES_PLATFORMER_HD)) {
+      expect(TILES_ADVENTURE_HD[id], id).toBeUndefined();
+      expect(LIBRARY[id], id).toBe(entry);
+    }
+    for (const theme of LIB_TILE_THEMES) {
+      const base = `lib:${theme}_deco`;
+      const platformer = LIBRARY[platformerHdTileRef(base).slice(4)]!;
+      const adventure = LIBRARY[adventureHdTileRef(base).slice(4)]!;
+      expect(platformer.frames, theme).toHaveLength(1);
+      expect(platformer.frames[0], theme).toMatchObject({ w: 64, h: 64 });
+      expect(adventure.frames, theme).toHaveLength(8);
+      expect(platformer, theme).not.toBe(adventure);
+    }
   });
 
   it('provides validation-sized base refs for platformer-only HD families', () => {

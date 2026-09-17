@@ -23,6 +23,16 @@ function placementScore(seed: number, x: number, y: number): number {
   return (h ^ (h >>> 16)) >>> 0;
 }
 
+/** Scenery frames are distinct props. Pick one per cell, independent of time. */
+export function decorationVariantIndex(
+  seed: number,
+  x: number,
+  y: number,
+  frameCount: number,
+): number {
+  return frameCount <= 1 ? 0 : placementScore(seed, x, y) % frameCount;
+}
+
 /**
  * Pick sparse, deterministic walk-through decoration cells from the authored
  * terrain. Decorations and exit markers in the source grid are deliberately

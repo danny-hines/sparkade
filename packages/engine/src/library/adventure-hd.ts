@@ -58,15 +58,16 @@ function fixtureEntry(kind: AdventureHdTileKind): LibraryEntry | null {
   return { ...fixtureFile.entries[kind], sourcePalette: fixtureFile.sourcePalette };
 }
 
-/** Internal density-four twins for the core top-down terrain roles. */
+/** Internal density-four twins for the core top-down terrain roles. Namespaced
+ * so shared roles such as deco cannot overwrite platformer art in LIBRARY. */
 export const TILES_ADVENTURE_HD: Record<string, LibraryEntry> = Object.fromEntries(
   LIB_TILE_THEMES.flatMap((theme) =>
     ADVENTURE_HD_TILE_KINDS.flatMap((kind) => {
       const fixture = fixtureEntry(kind);
-      if (fixture) return [[`${theme}_${kind}_hd`, fixture] as const];
+      if (fixture) return [[`adventure_${theme}_${kind}_hd`, fixture] as const];
       const sourceKind = SOURCE_KIND[kind];
       const source = sourceKind ? TILES_PLATFORMER_HD[`${theme}_${sourceKind}_hd`] : undefined;
-      return source ? [[`${theme}_${kind}_hd`, source] as const] : [];
+      return source ? [[`adventure_${theme}_${kind}_hd`, source] as const] : [];
     }),
   ),
 );
@@ -75,7 +76,7 @@ export const TILES_ADVENTURE_HD: Record<string, LibraryEntry> = Object.fromEntri
 export function adventureHdTileRef(ref: string): string {
   const match = /^lib:([a-z][a-z0-9_]*)$/.exec(ref);
   if (!match) return ref;
-  const upgraded = `${match[1]}_hd`;
+  const upgraded = `adventure_${match[1]}_hd`;
   return Object.prototype.hasOwnProperty.call(TILES_ADVENTURE_HD, upgraded)
     ? `lib:${upgraded}`
     : ref;

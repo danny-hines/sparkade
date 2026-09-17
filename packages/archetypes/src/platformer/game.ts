@@ -59,7 +59,7 @@ import {
   type PlatformerPoseBounds,
   type PlatformerSpriteBounds,
 } from './poses';
-import { surfaceDecorations } from './decor';
+import { decorationVariantIndex, surfaceDecorations } from './decor';
 import { drawPixelCharge, drawPixelStrike } from './effects';
 import { stepTowerMotion, TOWER_MOTION, type TowerMotion } from './tower-motion';
 import {
@@ -2504,8 +2504,14 @@ class PlatformerGame implements GameInstance {
     const decorationFrames = this.tileCanvases.get('decoration');
     if (decorationFrames?.length) {
       for (const decoration of this.decorations) {
+        const variant = decorationVariantIndex(
+          this.spec.seed + this.levelIndex * 101,
+          decoration.x,
+          decoration.y,
+          decorationFrames.length,
+        );
         r.drawScaled(
-          decorationFrames[frameIx % decorationFrames.length] ?? decorationFrames[0]!,
+          decorationFrames[variant]!,
           decoration.x * TILE_SIZE - cam.x,
           decoration.y * TILE_SIZE - cam.y,
           TILE_SIZE,

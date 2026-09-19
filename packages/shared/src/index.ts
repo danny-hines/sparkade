@@ -15,3 +15,4 @@ export * from './cloud-generation';
 export * from './fighter-styles';
 export * from './racing-assets';
 export * from './racing-traversal';
+export * from './sprite-mask-lab';

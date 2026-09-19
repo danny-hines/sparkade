@@ -28,3 +28,4 @@ testing implications.
 - [Online generation: friends beta, credits, and editing](online-generation.md)
 - [Website experience: Home, Play, and Profile](website-experience.md)
 - [Generation on Vercel: runtime and rollout](cloud-generation.md)
+- [Sprite generation: SAM masks, interchangeable recipes, and video animation](sprite-generation.md)

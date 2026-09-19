@@ -3,6 +3,7 @@
 // experimental Muse Image -> Muse Spark semantic-selection pipeline in real time.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
+import { SpriteMaskComparisonPanel } from './sprite-mask-comparison';
 import {
   api,
   subscribePlatformerPoseLab,
@@ -807,6 +808,10 @@ export function PlatformerPosesLabScreen(): ComponentChildren {
           <a href="/?dev=assets">Asset gallery</a>
         </nav>
       </header>
+
+      <SpriteMaskComparisonPanel sources={[...assets.values()].filter((asset) => asset.rawUrl).map((asset) => ({
+        id: asset.id, label: asset.label, rawUrl: asset.rawUrl!,
+      }))} />
 
       <section class="ppl-intro">
         <div class="ppl-form">

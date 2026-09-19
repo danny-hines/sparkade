@@ -5119,3 +5119,118 @@ svg.icon-svg.spin {
 html:has(.play-screen, .playtest-screen), body:has(.play-screen, .playtest-screen), #root:has(.play-screen, .playtest-screen) {
   width: 100vw; height: 100dvh;
 }
+.smc-panel {
+  margin: 24px 0;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  font-size: 10px;
+  line-height: 1.8;
+}
+.smc-panel h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  color: var(--cyan);
+}
+.smc-panel a {
+  color: var(--cyan);
+}
+.smc-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: end;
+  margin: 18px 0;
+}
+.smc-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 190px;
+}
+.smc-controls input,
+.smc-controls select,
+.smc-controls textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+.smc-controls button {
+  padding: 12px 18px;
+  border: 1px solid var(--cyan);
+  border-radius: 6px;
+  background: var(--bg-panel-2);
+  color: var(--cyan);
+  cursor: pointer;
+}
+.smc-controls button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.smc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+.smc-grid article {
+  min-width: 0;
+}
+.smc-grid h3 {
+  font-size: 11px;
+  margin-bottom: 12px;
+}
+.smc-grid small {
+  display: block;
+  margin-top: 8px;
+}
+.smc-image {
+  min-height: 290px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  border-radius: 8px;
+  color: #20202a;
+}
+.smc-image a {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+.smc-image img {
+  display: block;
+  max-width: 100%;
+  height: 256px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+.smc-checker {
+  background: repeating-conic-gradient(#ddd 0% 25%, #aaa 0% 50%) 0 / 20px 20px;
+}
+.smc-light {
+  background: #fff;
+}
+.smc-dark {
+  background: #161923;
+  color: #fff;
+}
+.smc-pink {
+  background: #e88eb3;
+}
+.smc-note {
+  font-size: 9px;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .smc-grid {
+    grid-template-columns: 1fr;
+  }
+  .smc-panel {
+    padding: 16px;
+  }
+}

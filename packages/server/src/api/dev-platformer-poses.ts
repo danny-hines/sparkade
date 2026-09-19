@@ -3,6 +3,7 @@
 // Muse Spark identity selection -> shared side anchor -> three Phase A + three
 // inverse Phase B candidates -> Muse Spark pair selection.
 import { registerDevPlatformerActionRoutes } from './dev-platformer-actions';
+import { registerDevSpriteMaskRoutes } from './dev-sprite-masks';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { MultipartFile } from '@fastify/multipart';
 import { randomUUID } from 'node:crypto';
@@ -148,6 +149,7 @@ export function registerDevPlatformerPoseRoutes(
   options: DevPlatformerPoseOptions = {},
 ): void {
   registerDevPlatformerActionRoutes(app, dataDir);
+  registerDevSpriteMaskRoutes(app, configStore, dataDir);
   const runs = new Map<string, LabRun>();
   const experimentsDir = ensureDir(join(dataDir, 'experiments', 'platformer-poses'));
 

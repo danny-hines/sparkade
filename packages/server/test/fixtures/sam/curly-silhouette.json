@@ -1,0 +1,28 @@
+{
+  "description": "Synthetic curls, enclosed gaps and two thin legs; encoded once with Meta parser 0.0.12 conformance encoder.",
+  "rows": [
+    "..#....#..",
+    ".##.##.##.",
+    "##########",
+    "##.####.##",
+    "##########",
+    "##########",
+    ".########.",
+    "..######..",
+    "..######..",
+    "..######..",
+    "..######..",
+    "..######..",
+    "..##..##..",
+    "..##..##..",
+    "..##..##..",
+    "..###.###."
+  ],
+  "mask": {
+    "encoding": "one_bit",
+    "payload": "!!!!!8KIY]/sS[OLJ^-f(nZmPrbVZ&p!!",
+    "width": 10,
+    "height": 16
+  },
+  "wire": "<0f>0<|box;x1=7;y1=4;x2=16;y2=19;w=24;h=24|><|mask;x=0;y=0;data=16,10,!!!!!8KIY]/sS[OLJ^-f(nZmPrbVZ&p!!|>"
+}

@@ -707,16 +707,11 @@ async function decodeFighterPoseImage(image: Buffer) {
   }
 }
 
-/**
- * Convert a Muse Image green-screen result into a fixed 64x64-style fighter
- * canvas. The subject is horizontally centered and bottom-aligned so every
- * upright pose shares the engine's feet-origin convention; KO remains on the
- * same ground line. All resizing uses nearest-neighbor sampling.
- */
-export async function processGeneratedFighterPose(
+/** Apply the existing green-screen mask at source resolution, before normalization. */
+export async function maskGeneratedFighterPose(
   image: Buffer,
   options: FighterPoseImageOptions = {},
-): Promise<ProcessedFighterPose> {
+): Promise<MaskedSpriteImage> {
   const cfg = resolveOptions(options);
   const { data, info } = await decodeFighterPoseImage(image);
   const { width: sourceWidth, height: sourceHeight } = info;
@@ -750,6 +745,55 @@ export async function processGeneratedFighterPose(
     greenCount += removeConnectedGreenSpill(data, sourceWidth, sourceHeight);
   }
 
+  const greenFraction = greenCount / pixelCount;
+  if (greenFraction < cfg.minGreenFraction) {
+    throw new FighterPoseImageError(
+      'missing-green-background',
+      `generated fighter has too little removable green background (${greenFraction.toFixed(3)})`,
+    );
+  }
+  return { data, width: sourceWidth, height: sourceHeight, greenFraction };
+}
+
+/** Oriented RGBA pixels with the foreground alpha already applied. */
+export interface MaskedSpriteImage {
+  data: Buffer;
+  width: number;
+  height: number;
+  greenFraction?: number;
+}
+
+/** Preserve the production keying, normalization, and output-spill cleanup order. */
+export async function processGeneratedFighterPose(
+  image: Buffer,
+  options: FighterPoseImageOptions = {},
+): Promise<ProcessedFighterPose> {
+  return normalizeMaskedPose(await maskGeneratedFighterPose(image, options), options);
+}
+
+/** Normalize an existing silhouette without keying or deleting green details. */
+export async function normalizeMaskedFighterPose(
+  image: MaskedSpriteImage,
+  options: FighterPoseImageOptions = {},
+): Promise<ProcessedFighterPose> {
+  return normalizeMaskedPose(image, { ...options, removeGreenSpill: false });
+}
+
+async function normalizeMaskedPose(
+  image: MaskedSpriteImage,
+  options: FighterPoseImageOptions,
+): Promise<ProcessedFighterPose> {
+  const cfg = resolveOptions(options);
+  const { width: sourceWidth, height: sourceHeight } = image;
+  const pixelCount = sourceWidth * sourceHeight;
+  if (
+    !Number.isSafeInteger(sourceWidth) || !Number.isSafeInteger(sourceHeight) ||
+    sourceWidth <= 0 || sourceHeight <= 0 || image.data.length !== pixelCount * 4
+  ) {
+    throw new FighterPoseImageError('invalid-image', 'Invalid masked sprite dimensions');
+  }
+  const data = Buffer.from(image.data);
+  const greenFraction = image.greenFraction ?? 0;
   const initialComponents = subjectComponents(data, sourceWidth, sourceHeight);
   const isolation = cfg.isolatePrimarySubject
     ? isolatePrimarySubjectComponent(data, sourceWidth, sourceHeight, initialComponents)
@@ -775,17 +819,10 @@ export async function processGeneratedFighterPose(
     maxY = Math.max(maxY, y);
   }
 
-  const greenFraction = greenCount / pixelCount;
-  if (greenFraction < cfg.minGreenFraction) {
-    throw new FighterPoseImageError(
-      'missing-green-background',
-      `generated fighter has too little removable green background (${greenFraction.toFixed(3)})`,
-    );
-  }
   if (subjectCount === 0 || maxX < minX || maxY < minY) {
     throw new FighterPoseImageError(
       'empty-subject',
-      'generated fighter became empty after green-screen removal',
+      'generated fighter has an empty foreground mask',
     );
   }
   const components = subjectComponents(data, sourceWidth, sourceHeight);

@@ -1,10 +1,12 @@
 import sharp from 'sharp';
 import {
   FighterPoseImageError,
+  normalizeMaskedFighterPose,
   prepareGeneratedFighterReference,
   processGeneratedFighterPose,
   type PixelBounds,
   type ProcessedFighterPose,
+  type MaskedSpriteImage,
 } from './fighter-pose';
 
 /** Complete generated-player contract for the side-scrolling platformer. */
@@ -204,6 +206,27 @@ export async function processGeneratedPlatformerPose(
     removeGreenSpill: true,
     colors: 32,
   });
+  return fitPlatformerPose(processed, options);
+}
+
+export async function normalizeMaskedPlatformerPose(
+  image: MaskedSpriteImage,
+  options: { width?: number } = {},
+): Promise<ProcessedFighterPose> {
+  const processed = await normalizeMaskedFighterPose(image, {
+    width: GENERATED_PLATFORMER_POSE_CANVAS_WIDTHS.at(-1)!,
+    height: GENERATED_PLATFORMER_POSE_HEIGHT,
+    padding: 6,
+    bottomPadding: 0,
+    colors: 32,
+  });
+  return fitPlatformerPose(processed, options);
+}
+
+async function fitPlatformerPose(
+  processed: ProcessedFighterPose,
+  options: { width?: number },
+): Promise<ProcessedFighterPose> {
   const bounds = processed.metrics.outputBounds;
   const targetWidth = Math.round((bounds.width * PLATFORMER_TARGET_POSE_HEIGHT) / bounds.height);
   const width = GENERATED_PLATFORMER_POSE_CANVAS_WIDTHS.find(

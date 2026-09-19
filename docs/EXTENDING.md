@@ -242,6 +242,52 @@ procedural arena when that optional asset is unavailable. The lab exposes prompt
 the complete run under `data/experiments/fighter-poses/<run-id>/`. Append `&run=<run-id>` to reopen a
 persisted run after a dev-server restart.
 
+### Sprite background-removal comparisons
+
+Open `/?dev=platformer-poses` with the dev server running. The **Compare background removal**
+panel accepts a raw generated sprite, or a raw candidate from a loaded pose run (`&run=<run-id>`).
+Enter one short subject concept such as `person`, `knight`, or `spaceship`, then select **Compare
+masks**. It compares the existing chroma pipeline, a SAM 3.1 silhouette, color-only cleanup along
+SAM's one-pixel inner boundary, and a SAM-guided chroma hybrid. All four use the same oriented,
+unscaled source; the three SAM variants share one API call.
+
+The hybrid preserves all colors in the interior of SAM's mask, including green shirt logos. In a
+narrow band on either side of the boundary it removes obvious key green (including dark, nearly
+pure green spill) and recovers non-green source pixels that SAM excluded. Mixed green fringe
+within that band is recolored by clamping green to the larger of red and blue when green excess
+is at least 40; its alpha is retained. The band radius is
+`ceil(max(subject width, subject height) / 112)`, clamped to 1–24 source pixels, approximately one
+game pixel. It requires a mostly green outer image border. The saved result records its radius,
+removed, restored and recolored pixel counts, and protected interior green count. This is binary keying, not
+soft-alpha matting; legitimate green near the boundary can be removed or recolored, nearby unrelated content
+can be recovered, and green background incorrectly deep inside SAM's mask remains protected.
+
+Use the view selector for normalized sprites, full-resolution cutouts, and alpha masks. Switch
+between checkerboard, white, dark, and pink backgrounds and open an image for native-resolution
+inspection. Check curls, frizzy strands, gaps inside hair, and green clothing for both leftover
+background and lost foreground. Boundary cleanup does not change alpha, but can recolor legitimate
+green edges, so review it separately. Save a preferred result (or none) and notes.
+
+The lab uses the existing `imageGeneration.baseUrl`, `apiKeyEnv`, and timeout with the separate
+`sam-3.1` model. It requires live Meta access and deliberately rejects mock mode. One successful
+image segmentation is estimated at $0.0025 using the 2026-09-19 published rate; failed requests show
+unknown cost. Empty or multiple subject matches are recorded as failures, with no automatic
+fallback or paid retries. At most two comparisons run concurrently in one server process.
+
+Evidence lives under `data/experiments/sprite-masks/<id>/`: original upload, canonical source,
+source hash, SAM response, masks, cutouts, normalized sprites, timings, cost estimate, and review.
+The page sets `&maskRun=<id>` so the same comparison can be reopened without another model call.
+**Rerun saved mask (no API call)** creates a new comparison using the original source and saved
+SAM response with the current processor. It records `reusedFrom`, zero new calls and zero new cost,
+and preserves the old artifacts and review. This allows deterministic comparisons across processor
+changes without variation from a fresh model response. Old three-option comparisons remain readable.
+Completed runs survive server restarts; an interrupted run is reported as failed on reload.
+This experiment does not change production generation, prompt backgrounds, or published assets.
+
+The initial live integration check used a saved curly-haired pixel-art character and completed in
+about 2.5 seconds. SAM altered some fine hair edges and retained some green pixels, so that sample
+did not establish a quality improvement. Use a broader difficult-sprite corpus before promotion.
+
 ### Platformer pose experiments
 
 Run `npm run dev` and open `/?dev=platformer-poses` before changing the production pose graph. The

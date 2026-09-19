@@ -7,6 +7,10 @@ platformer pose lab, including a SAM-guided chroma boundary with protected inter
 Saved SAM responses can be reprocessed without another API call. Production still uses chroma keying. See the
 [comparison instructions](../EXTENDING.md#sprite-background-removal-comparisons).
 
+The [standalone sprite utility contract](sprite-service-contract.md) expands the service boundary
+into a reusable character library, identity revisions, recipe catalog, output manifest, and quoted
+jobs shared by a future website/API and Sparkade. It is a proposal, not implemented product scope.
+
 The first deliverable should be a measured SAM background-removal experiment using existing raw
 sprite outputs. In parallel with that design, establish a sprite-generation boundary that can run
 different recipes behind one contract. Start as an internal package using the existing durable
@@ -26,7 +30,8 @@ generation infrastructure; add an independently deployed worker when video proce
   so a limb crossing a cell boundary is not cut off or copied into two cells.
 - [`runner.ts`](../../packages/server/src/pipeline/runner.ts) owns generation branches and retries;
   [`meta-image.ts`](../../packages/server/src/providers/meta-image.ts) supplies a dedicated image
-  adapter. There is no equivalent general video or segmentation adapter.
+  adapter. The mask lab now has a still-image SAM adapter, but durable segmentation and video
+  execution are not yet integrated into the game pipeline.
 - [`durable-pass.ts`](../../packages/server/src/pipeline/durable-pass.ts) currently supports text
   and image provider tasks. Deterministic passes replay persisted responses and suspend on missing
   external work. SAM must become explicit durable work, rather than a network request hidden in
@@ -245,6 +250,8 @@ Snapshot pricing/configuration for a job and enforce its total attempt budget be
    worker deployment if measurements justify it. Add Muse Video once its public contract and
    account access can be tested against the same corpus.
 
-Suggested first implementation slice: SAM adapter + separated mask/normalization stages + a
-saved-input comparison in the existing platformer pose lab. This directly tests the current pain
-point while creating the interfaces the video recipe will need.
+The first implementation slice is complete: SAM adapter, separated mask/normalization stages,
+and a saved-input comparison in the existing platformer pose lab. The
+[service contract proposal](sprite-service-contract.md#implementation-boundary-and-next-slice)
+describes a next slice around an imported identity and the existing platformer pose path, while
+the masking strategies remain experimental.

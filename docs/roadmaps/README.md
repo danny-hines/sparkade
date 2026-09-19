@@ -29,3 +29,4 @@ testing implications.
 - [Website experience: Home, Play, and Profile](website-experience.md)
 - [Generation on Vercel: runtime and rollout](cloud-generation.md)
 - [Sprite generation: SAM masks, interchangeable recipes, and video animation](sprite-generation.md)
+- [Standalone sprite utility: identity, recipe, result, and credit contracts](sprite-service-contract.md)

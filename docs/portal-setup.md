@@ -11,7 +11,7 @@ Open **Terminal** on the Mac and paste:
 
 ```sh
 curl -fL --proto '=https' --proto-redir '=https' \
-  https://github.com/danny-hines/sparkade/releases/download/portal-v0.3.0/install-portal.sh \
+  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.0/install-portal.sh \
   -o /tmp/install-sparkade-portal.sh && bash /tmp/install-sparkade-portal.sh
 ```
 
@@ -121,9 +121,19 @@ and games and requires a new registration.
 
 ## Updating
 
-Run the command for the maintainer's next published release. The installer updates
-the app in place and keeps device data and registration. Install from a menu or
-the attract screen because updating restarts Sparkade. All offices use the same
-maintainer-signed APK; they never build or sign their own copy.
+On v0.4.0 or later, return to Press Start or a menu, open **Android Back → Sparkade
+updates**, and select **Check for updates**. When ready, select **Install update**
+and confirm Android's installation screen. Sparkade reopens with registration,
+games, and controller mappings intact. The Mac is not needed for Wi-Fi updates.
 
-For maintainers: [build, signing, and release instructions](../apps/portal/README.md).
+Leave **Use pilot releases** off for ordinary office devices. Maintainers enable
+it on a test kiosk before approving the same release for the stable channel.
+Downloads can happen in the background; installation always needs an operator.
+A failed download keeps the current app working—use **Check for updates** to retry.
+
+Devices on older versions need the new Mac installer once to gain the updater.
+The installer also remains the recovery option if Sparkade cannot open. Run it
+from a menu or the attract screen because updating restarts Sparkade. Offices
+always use the same maintainer-signed APK and never build or sign their own copy.
+
+For maintainers: [build, signing, release, and channel promotion](../apps/portal/README.md).

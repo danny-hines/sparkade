@@ -630,6 +630,12 @@ async function mediaFile(name: string, blob: Blob) {
   };
 }
 let runtime: PortalRuntime | null = null;
+let portalNative: NativeCall | null = null;
+export function reportPortalScreen(screen: string): void {
+  void portalNative?.('maintenance.state', { screen }).catch(() => {
+    /* Older hosts have no updater. */
+  });
+}
 export function isStandalonePortal(): boolean {
   return runtime !== null;
 }
@@ -639,8 +645,9 @@ export async function initializePortalRuntime(): Promise<void> {
   const bootstrap = (await fetch('/portal-bootstrap.json').then((r) =>
     r.json(),
   )) as PortalBootstrap;
+  portalNative = bridgeCall(window.SparkadePortalNative);
   runtime = new PortalRuntime(
-    bridgeCall(window.SparkadePortalNative),
+    portalNative,
     bootstrap,
     (id) =>
       fetch(`/portal-games/${encodeURIComponent(id)}.json`).then((r) =>

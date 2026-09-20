@@ -16,7 +16,11 @@ if (!existsSync(signing))
   throw new Error(
     'Restore the fleet signing key before packaging. Office computers must not generate their own keys.',
   );
-run('node', ['--test', 'scripts/test/portal-installer.test.mjs']);
+run('node', [
+  '--test',
+  'scripts/test/portal-installer.test.mjs',
+  'scripts/test/portal-promote.test.mjs',
+]);
 run('node', ['scripts/portal.mjs', 'build', '--standalone'], {
   env: { ...process.env, SPARKADE_PORTAL_SIGNING: signing },
 });
@@ -80,6 +84,7 @@ writeFileSync(
       version: app.versionName,
       versionCode: app.versionCode,
       apkSha256: hash,
+      apkBytes: readFileSync(apk).length,
       signingCertificateSha256: expectedCert,
       sourceCommit: commit,
       sourceDirty: dirty,

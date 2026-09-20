@@ -174,6 +174,7 @@ try {
       if (standalone) {
         device('shell', 'pm', 'grant', appId, 'android.permission.CAMERA');
         device('shell', 'pm', 'grant', appId, 'android.permission.RECORD_AUDIO');
+        device('shell', 'appops', 'set', appId, 'REQUEST_INSTALL_PACKAGES', 'allow');
       }
       if (!standalone) device('reverse', 'tcp:8099', 'tcp:8099');
       if (command === 'boot' || command === 'provision') {

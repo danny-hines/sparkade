@@ -1,3 +1,4 @@
+import type { KioskRuntimeReport } from './kiosk-runtime';
 import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { getSql } from './db';
 
@@ -29,6 +30,8 @@ export interface ManagedKiosk {
   lastSeenAt: string | null;
   revokedAt: string | null;
   gameCount: number;
+  runtime: KioskRuntimeReport | null;
+  runtimeReportedAt: string | null;
 }
 
 export type KioskCredentialStatus =
@@ -51,6 +54,8 @@ type KioskRow = {
   last_seen_at: string | Date | null;
   revoked_at: string | Date | null;
   game_count: number | string;
+  runtime_report?: KioskRuntimeReport | null;
+  runtime_reported_at?: string | Date | null;
 };
 
 type CredentialRow = {
@@ -134,6 +139,8 @@ async function ensureSchema(): Promise<void> {
           revoked_at TIMESTAMPTZ
         )
       `;
+      await sql`ALTER TABLE kiosks ADD COLUMN IF NOT EXISTS runtime_report JSONB`;
+      await sql`ALTER TABLE kiosks ADD COLUMN IF NOT EXISTS runtime_reported_at TIMESTAMPTZ`;
       await sql`
         CREATE TABLE IF NOT EXISTS kiosk_credentials (
           id TEXT PRIMARY KEY,
@@ -392,6 +399,8 @@ function mapKioskRow(row: KioskRow): ManagedKiosk {
     lastSeenAt: optionalIso(row.last_seen_at),
     revokedAt: optionalIso(row.revoked_at),
     gameCount: Number(row.game_count),
+    runtime: row.runtime_report ?? null,
+    runtimeReportedAt: optionalIso(row.runtime_reported_at ?? null),
   };
 }
 
@@ -408,6 +417,8 @@ export async function listManagedKiosks(ownerUserId: string): Promise<ManagedKio
            k.updated_at,
            k.last_seen_at,
            k.revoked_at,
+           k.runtime_report,
+           k.runtime_reported_at,
            COUNT(g.id)::int AS game_count
     FROM kiosks k
     LEFT JOIN public_games g ON g.kiosk_id = k.id
@@ -477,4 +488,20 @@ export async function revokeManagedKiosk(kioskId: string, ownerUserId: string): 
       AND revoked_at IS NULL
   `;
   return true;
+}
+
+/** The authenticated principal supplies kioskId; a device cannot report for another kiosk. */
+export async function recordKioskRuntime(
+  kioskId: string,
+  report: KioskRuntimeReport,
+): Promise<void> {
+  await ensureSchema();
+  const sql = getSql();
+  const json = JSON.stringify(report);
+  await sql`
+    UPDATE kiosks SET runtime_report = ${json}::jsonb, runtime_reported_at = NOW()
+    WHERE id = ${kioskId} AND revoked_at IS NULL
+      AND (runtime_reported_at IS NULL OR runtime_reported_at < NOW() - INTERVAL '1 minute'
+           OR runtime_report IS DISTINCT FROM ${json}::jsonb)
+  `;
 }

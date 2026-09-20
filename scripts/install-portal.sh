@@ -4,7 +4,7 @@
 set -euo pipefail
 umask 077
 
-RELEASE=portal-v0.3.0
+RELEASE=portal-v0.4.0
 REPOSITORY=danny-hines/sparkade
 APP=dev.sparkade.kiosk
 MAIN=dev.sparkade.kiosk/dev.sparkade.portal.MainActivity
@@ -244,6 +244,8 @@ while :; do
   fi
   remote pm grant "$APP" android.permission.CAMERA
   remote pm grant "$APP" android.permission.RECORD_AUDIO
+  # Permit Sparkade's signed self-updates; Android still confirms each installation.
+  remote appops set "$APP" REQUEST_INSTALL_PACKAGES allow
   if remote pm list packages -e ai.wondry.portal | awk '/^package:ai.wondry.portal$/ {found=1} END {exit !found}'; then
     if [ "$DISABLE_WONDRY" = 1 ] || confirm "Retired Wondry is installed and may take over at boot. Disable it while keeping its data?"; then
       remote am force-stop ai.wondry.portal

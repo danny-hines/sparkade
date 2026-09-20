@@ -70,6 +70,12 @@ public final class MainActivity extends Activity {
     private String runtimeError;
     private final ThreadPoolExecutor operations = new ThreadPoolExecutor(2, 2, 30,
             TimeUnit.SECONDS, new ArrayBlockingQueue<>(24));
+    private final Runnable updateCheck = new Runnable() {
+        @Override public void run() {
+            if (BuildConfig.STANDALONE) PortalUpdater.get(MainActivity.this).check(false);
+            retryHandler.postDelayed(this, 15 * 60_000);
+        }
+    };
     private final Runnable retryLoad = () -> {
         if (resumed && loadFailed && !connectionDialogOpen) loadServer();
     };
@@ -129,6 +135,12 @@ public final class MainActivity extends Activity {
                     JSONObject request = new JSONObject(text);
                     String id = request.getString("id");
                     if (!id.matches("[A-Za-z0-9-]{1,100}")) return;
+                    if (BuildConfig.STANDALONE && "maintenance.state".equals(request.optString("operation"))) {
+                        JSONObject args = request.optJSONObject("args");
+                        PortalUpdater.get(this).screen(args == null ? "unknown" : args.optString("screen", "unknown"));
+                        reply.postMessage(new JSONObject().put("id", id).put("value", true).toString());
+                        return;
+                    }
                     Runnable operation = () -> {
                         JSONObject response = new JSONObject();
                         try {
@@ -313,6 +325,14 @@ public final class MainActivity extends Activity {
                 .setView(panel).setNegativeButton("Cancel", null)
                 .setNeutralButton("Other launchers", (d, which) -> showOtherLaunchers())
                 .setPositiveButton(BuildConfig.STANDALONE ? "Save" : "Connect", null).create();
+        if (BuildConfig.STANDALONE) panel.addView(button("Sparkade updates", () -> {
+            if (!PortalUpdater.get(this).enterMaintenance()) {
+                Toast.makeText(this, "Return to Press Start, the library, or Settings before updating. Finish any game or generation first.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            dialog.dismiss();
+            startActivity(new Intent(this, UpdateActivity.class));
+        }));
         dialog.setOnDismissListener(ignored -> {
             connectionDialogOpen = false;
             sendUsbState();
@@ -458,11 +478,14 @@ public final class MainActivity extends Activity {
             web.onPause();
             web.pauseTimers();
         }
+        retryHandler.removeCallbacks(updateCheck);
         super.onPause();
     }
 
     @Override protected void onResume() {
         super.onResume();
+        retryHandler.removeCallbacks(updateCheck);
+        retryHandler.postDelayed(updateCheck, 30_000);
         resumed = true;
         if (web != null) { web.onResume(); web.resumeTimers(); }
         if (usbGamepad != null) usbGamepad.resume();

@@ -209,7 +209,11 @@ media out of fleet diagnostics.
   debugging disabled: implemented by `portal:provision`. The first signed update
   retained registration and controller mappings on Portal+. Preserve a known-good
   version and qualify rollback and retention of downloaded games separately.
-- Establish an operator-assisted update path first. Determine whether unattended
+- Operator-assisted Wi-Fi updates are implemented in v0.4.0, with stable/pilot
+  channel promotion, private staging, signature/hash/version checks, and native
+  Android confirmation. Basic version/model/channel/status reporting is implemented
+  on the device and in the site code; the site change must be deployed for the admin
+  display. Determine whether unattended
   installation and stronger kiosk restrictions are supported on each Portal
   model before promising remote management; the experiment uses neither root nor
   device-owner enrollment.

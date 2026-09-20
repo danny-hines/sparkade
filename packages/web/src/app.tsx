@@ -6,6 +6,7 @@ import type { ComponentChildren } from 'preact';
 import { ATTRACT_IDLE_MS, REMAP_HOLD_MS, type PublicGameLink } from '@sparkade/shared';
 import { api, type SettingsPayload } from './api';
 import { shellInput } from './shell-input';
+import { reportPortalScreen } from './portal-runtime';
 import { AttractScreen } from './screens/attract';
 import { HomeScreen } from './screens/home';
 import { WizardScreen } from './screens/wizard';
@@ -71,6 +72,13 @@ function KioskApp(): ComponentChildren {
     shellInput.swallow();
     setScreenRaw(next);
   }, []);
+
+  // Native installation is allowed only after a fresh report from an idle shell screen.
+  useEffect(() => {
+    reportPortalScreen(screen.name);
+    const timer = setInterval(() => reportPortalScreen(screen.name), 2_000);
+    return () => clearInterval(timer);
+  }, [screen.name]);
 
   // Settings load + input maps + first-boot remap check.
   useEffect(() => {

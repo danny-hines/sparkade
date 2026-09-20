@@ -60,7 +60,7 @@ npm run portal:boot-off -- --serial YOUR_DEVICE_SERIAL
 
 Validate controller input, camera preview, voice transcription, a generated-game
 download, reboot, and offline play on each physical device before placement.
-Automatic fleet updates and fleet health reporting are not implemented yet.
+Wi-Fi app updates are available through Android Back → Sparkade updates. See the update process below.
 
 For development only, `portal:provision -- --serial SERIAL --debug` installs a
 debuggable build of the same kiosk app, signed with the same private release key.
@@ -396,7 +396,7 @@ bundle validation, controller input, and packaged-game playback.
 
 This release still needs a complete new production game/photo/voice acceptance
 run, physical power-cycle/offline qualification, and testing on the 10-inch Portal.
-Fleet updates and additional live camera/microphone game controls are future work.
+Unattended installation and additional live camera/microphone game controls remain future work.
 
 The [production Portal roadmap](../../docs/roadmaps/portal-kiosks.md) describes the
 repeatable install/register/validate process using the existing pairing API,
@@ -447,3 +447,52 @@ References: [Portal development](https://developers.meta.com/horizon/documentati
 [device setup](https://developers.meta.com/horizon/documentation/android-apps/portal-setup/),
 [app requirements](https://developers.meta.com/horizon/documentation/android-apps/portal-create-app/),
 [design requirements](https://developers.meta.com/horizon/documentation/android-apps/portal-design-requirements/).
+
+## Wi-Fi updates and fleet version reports
+
+From v0.4.0, **Android Back → Sparkade updates** checks a release channel and
+stages the signed APK over Wi-Fi. Open it from Press Start, the library, or Settings;
+gameplay, generation, recording, and stale/unresponsive shell state block entry.
+The background check runs at most every six hours while Sparkade is open. It never
+installs automatically or opens a prompt during a game. **Install update** rechecks
+the channel approval, asks Android to install, and returns to Sparkade after replacement.
+A manual check retries a failed/interrupted download. No Mac/server/ADB is needed.
+The existing Mac installer remains the recovery path if the app cannot run.
+
+New devices use **stable**. Enable **Use pilot releases on this test kiosk** in the
+native update screen for test devices. Channels point to immutable versioned APKs;
+publishing an APK alone does not promote it. Maintainers validate a published release:
+
+```sh
+npm run portal:promote -- --release portal-v0.4.0 --channel pilot
+npm run portal:promote -- --release portal-v0.4.0 --channel pilot --publish
+# After hardware acceptance, approve the identical binary for ordinary kiosks:
+npm run portal:promote -- --release portal-v0.4.0 --channel stable --publish
+# Withdraw approval without uninstalling or altering devices:
+npm run portal:promote -- --channel stable --disable --publish
+```
+
+Only `portal-channel-stable` / `portal-channel-pilot` release metadata is mutable.
+The app only downloads from pinned GitHub release hosts, bounds download size/time,
+checks SHA-256 and the installed app's signing certificate, and rejects debug builds,
+wrong package names, incompatible Android requirements, and non-increasing versions.
+It stages before installation and leaves device registration/storage untouched.
+Rollback means releasing the previous good code with a **higher versionCode**;
+keep storage migrations compatible. Never replace a published APK or signing key.
+
+Registration requests include bounded app version/model/channel/update state headers.
+The corresponding site change stores them against the authenticated kiosk and shows
+them in **Admin → Kiosks**, alongside last-contact time. This is backward compatible
+with older clients and servers; the admin display requires deploying the site change.
+It is version/status reporting, not remote control or per-device approval scheduling.
+
+### Device-owner investigation (Portal+, Android 9)
+
+The tested firmware exposes `device_admin`, `managed_users`, and `dpm`, with no existing
+owner, one Android user, and four accounts. A temporary `testOnly` admin probe's ADB
+enrollment stalled waiting for the account authenticator; it was removed and the
+original empty admin state verified. Android 9's production enrollment path rejects
+non-test apps when accounts exist. No accounts or setup flags were removed/changed,
+no reset was performed, and the kiosk remains unmanaged. A clean-device enrollment
+experiment needs separate hardware qualification. Do not provision release apps as
+`testOnly` or depend on unattended APK installs in the office setup process.

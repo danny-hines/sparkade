@@ -169,6 +169,16 @@ final class PortalRuntime {
         connection.setReadTimeout(path.startsWith("/api/kiosk/") ? 10_000 : 120_000);
         connection.setRequestMethod(method);
         connection.setRequestProperty("Accept", "application/json");
+        if ("/api/kiosk/registration".equals(path) && BuildConfig.STANDALONE) {
+            PortalUpdater updater = PortalUpdater.get(context);
+            connection.setRequestProperty("X-Sparkade-Platform", "portal");
+            connection.setRequestProperty("X-Sparkade-Version", BuildConfig.VERSION_NAME);
+            connection.setRequestProperty("X-Sparkade-Version-Code", Integer.toString(BuildConfig.VERSION_CODE));
+            String model = Build.MODEL.replaceAll("[^ -~]", "?");
+            connection.setRequestProperty("X-Sparkade-Model", model.substring(0, Math.min(model.length(), 80)));
+            connection.setRequestProperty("X-Sparkade-Update-Channel", updater.channel());
+            connection.setRequestProperty("X-Sparkade-Update-State", updater.state());
+        }
         if (token != null) connection.setRequestProperty("Authorization", "Bearer " + token);
         try {
             if (body != null) {

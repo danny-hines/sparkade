@@ -6,6 +6,7 @@ export default tseslint.config(
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
+      'apps/portal/**/build/**',
       '**/dist-worker/**',
       '**/.well-known/workflow/**',
       '**/.next/**',

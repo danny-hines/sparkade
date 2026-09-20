@@ -12,6 +12,7 @@ const fs = require('node:fs');
 const cfg = JSON.parse(process.env.SPARKADE_TEST_CONFIG);
 let args = process.argv.slice(2);
 fs.appendFileSync(cfg.log, JSON.stringify(args) + '\\n');
+fs.appendFileSync(cfg.childEnv, JSON.stringify([process.env.WIFI_PASSWORD, process.env.password_again]) + '\\n');
 if (args[0] === '-s') args = args.slice(2);
 const cmd = args.join(' ');
 const out = value => process.stdout.write(value + '\\n');
@@ -31,7 +32,7 @@ else if (cmd.includes('set-home-activity')) fs.writeFileSync(cfg.home, args.at(-
 else if (args[0] === 'install') {
   if (cfg.installFail) { out('INSTALL_FAILED_UPDATE_INCOMPATIBLE'); process.exit(1); }
   out('Success');
-} else if (cmd === 'shell dumpsys package dev.sparkade.kiosk') out('versionName=0.4.3\\nflags=[ HAS_CODE ' + (cfg.debug ? 'DEBUGGABLE' : '') + ' ]');
+} else if (cmd === 'shell dumpsys package dev.sparkade.kiosk') out('versionName=0.4.4\\nflags=[ HAS_CODE ' + (cfg.debug ? 'DEBUGGABLE' : '') + ' ]');
 else if (cmd === 'shell pm list packages -e ai.wondry.portal') { if (cfg.wondry) out('package:ai.wondry.portal'); }
 else if (cmd.includes('SETUP_STATUS')) out('Broadcast completed: result=-1, data="SPARKADE_SETUP_V1;state=' + (cfg.state || 'registered') + ';code=ABCD-2345;version=0.4.2;origin=https://sparkade.dev;"');
 else out('OK');
@@ -53,6 +54,7 @@ function fixture(t, config = {}) {
     home: join(dir, 'home'),
     verifier: join(dir, 'verifier'),
     wifi: join(dir, 'wifi'),
+    childEnv: join(dir, 'child-env'),
     ...config,
   };
   const run = (extra = [], defaults = true, answers = null) =>
@@ -60,6 +62,7 @@ function fixture(t, config = {}) {
       answers ? 'python3' : 'bash',
       [
         ...(answers ? ['scripts/test/portal-installer-pty.py', 'bash'] : []),
+        ...(config.trace ? ['-ax'] : []),
         installer,
         ...(answers ? [] : ['--non-interactive']),
         '--serial',
@@ -78,6 +81,7 @@ function fixture(t, config = {}) {
           SPARKADE_PORTAL_SETUP_DIR: state,
           SPARKADE_TEST_CONFIG: JSON.stringify(cfg),
           SPARKADE_TEST_ANSWERS: JSON.stringify(answers),
+          ...(config.trace ? { WIFI_PASSWORD: 'inherited', password_again: 'inherited' } : {}),
         },
       },
     );
@@ -256,4 +260,13 @@ test('a stale Wi-Fi success cannot confirm a different request', (t) => {
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.stdout, /Wi-Fi connection was not confirmed/);
   assert.doesNotMatch(result.stdout, /Wi-Fi connected/);
+});
+
+test('tracing and inherited exported variables cannot expose entered Wi-Fi passwords', (t) => {
+  const f = fixture(t, { trace: true });
+  const password = 'private-fixture-pass';
+  const result = f.run([], true, wifiAnswers('Fixture Guest', password));
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.ok(!(result.stdout + result.stderr).includes(password));
+  assert.ok(!readFileSync(f.cfg.childEnv, 'utf8').includes(password));
 });

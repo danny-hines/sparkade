@@ -487,10 +487,10 @@ native update screen for test devices. Channels point to immutable versioned APK
 publishing an APK alone does not promote it. Maintainers validate a published release:
 
 ```sh
-npm run portal:promote -- --release portal-v0.4.3 --channel pilot
-npm run portal:promote -- --release portal-v0.4.3 --channel pilot --publish
+npm run portal:promote -- --release portal-v0.4.4 --channel pilot
+npm run portal:promote -- --release portal-v0.4.4 --channel pilot --publish
 # After hardware acceptance, approve the identical binary for ordinary kiosks:
-npm run portal:promote -- --release portal-v0.4.3 --channel stable --publish
+npm run portal:promote -- --release portal-v0.4.4 --channel stable --publish
 # Withdraw approval without uninstalling or altering devices:
 npm run portal:promote -- --channel stable --disable --publish
 ```

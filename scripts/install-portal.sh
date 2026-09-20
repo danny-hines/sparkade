@@ -2,10 +2,12 @@
 # Sparkade office installer. Compatible with the Bash 3.2 shipped by macOS.
 # No development checkout, admin privileges, signing key, or model API key required.
 set +x # Never trace locally entered Wi-Fi credentials, even under bash -x.
+set +a # Do not inherit automatic export from the invoking shell.
+export -n WIFI_SSID WIFI_PASSWORD REPLY
 set -euo pipefail
 umask 077
 
-RELEASE=portal-v0.4.3
+RELEASE=portal-v0.4.4
 REPOSITORY=danny-hines/sparkade
 APP=dev.sparkade.kiosk
 MAIN=dev.sparkade.kiosk/dev.sparkade.portal.MainActivity
@@ -219,6 +221,7 @@ setup_status() {
 configure_wifi() {
   [ "$WIFI_MODE" != skip ] && [ "$INTERACTIVE" = 1 ] || return 0
   local choice password_again bytes status checks request_id reuse=0
+  export -n password_again
   while :; do
     say "Wi-Fi: 1) Keep current network  2) Enter network in Terminal  3) Open Portal Wi-Fi settings"
     [ -z "$WIFI_SSID" ] || say "      4) Reuse the network entered earlier in this setup session"

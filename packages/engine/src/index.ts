@@ -8,7 +8,13 @@ export {
 } from './source-palette';
 export { Rng } from './rng';
 export { GameLoop, STEP } from './loop';
-export { InputBroker, MenuRepeater, isTextEntryTarget, type RawInputId } from './input';
+export {
+  InputBroker,
+  MenuRepeater,
+  isTextEntryTarget,
+  type RawInputId,
+  type ExternalGamepadState,
+} from './input';
 export { drawText, textWidth, wrapText, GLYPH, type TextOpts } from './font';
 export {
   decodeSprite,

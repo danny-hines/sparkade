@@ -226,7 +226,11 @@ export function WizardScreen(props: {
       })
       .catch((error: Error) => {
         setCameraError(
-          error.name === 'NotAllowedError' ? 'Camera access was denied.' : 'No camera found.',
+          error.name === 'NotAllowedError'
+            ? 'Camera access was denied.'
+            : error.message === 'getUserMedia timed out'
+              ? 'Camera timed out. Allow camera access on the device, then retry.'
+              : 'No camera found.',
         );
         setPhotoMode('error');
         setCursor(0);

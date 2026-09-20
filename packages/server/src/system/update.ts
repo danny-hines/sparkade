@@ -57,7 +57,14 @@ export function checkForUpdate(current: string): UpdateCheck {
     }
     const localHead = revision('HEAD');
     const mainHead = revision('origin/main');
-    const tagResult = git(['describe', '--tags', '--abbrev=0', 'origin/main']);
+    // Android APK/channel tags must never pin the Pi to a Portal release commit.
+    const tagResult = git([
+      'describe',
+      '--tags',
+      '--abbrev=0',
+      '--exclude=portal-*',
+      'origin/main',
+    ]);
     const latestTag = tagResult.status === 0 ? tagResult.stdout.trim() : '';
     let remoteHead: string;
     let label: string;

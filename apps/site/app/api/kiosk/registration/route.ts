@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authorizeKioskRequest, kioskBearerToken } from '@/lib/kiosk-auth';
-import { getKioskCredentialStatus } from '@/lib/kiosks';
+import { kioskRuntimeReport } from '@/lib/kiosk-runtime';
+import { getKioskCredentialStatus, recordKioskRuntime } from '@/lib/kiosks';
 
 export const runtime = 'nodejs';
 
@@ -12,6 +13,13 @@ export async function GET(request: NextRequest) {
 
   const principal = await authorizeKioskRequest(request);
   if (principal?.kind === 'registered') {
+    const report = kioskRuntimeReport(request.headers);
+    if (report && principal.kioskId) {
+      // Reporting is optional; a telemetry outage must not break kiosk registration.
+      await recordKioskRuntime(principal.kioskId, report).catch(() => {
+        console.error('Could not record kiosk runtime');
+      });
+    }
     return NextResponse.json(
       {
         state: 'registered',

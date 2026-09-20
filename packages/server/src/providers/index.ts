@@ -37,13 +37,15 @@ export function buildProvider(name: string, config: SparkadeConfig): Provider {
   return provider;
 }
 
-/** SPARKADE_PROVIDER=mock (npm run demo) forces the mock for every stage. */
+/** Demo stages stay mock unless its explicit live-voice option enables configured STT. */
 export function stageProvider(
   config: SparkadeConfig,
   stage: StageName,
 ): { provider: Provider; providerName: string; model: string } {
   const override = process.env.SPARKADE_PROVIDER;
-  if (override) {
+  const liveDemoVoice =
+    override === 'mock' && stage === 'stt' && process.env.SPARKADE_DEMO_LIVE_VOICE === '1';
+  if (override && !liveDemoVoice) {
     return {
       provider: buildProvider(override, config),
       providerName: override,

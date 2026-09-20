@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_controls">Show touch controls</string>
+    <string name="connection_info">%1$s · Android %2$s\nWebView %3$s\nUSB: http://127.0.0.1:8099/\nNetwork: use an HTTPS Sparkade server.</string>
+    <string name="standalone_info">%1$s · Android %2$s\nWebView %3$s\nStandalone Sparkade · sparkade.dev\nInstalled games play offline. Creation requires Wi-Fi.</string>
+</resources>

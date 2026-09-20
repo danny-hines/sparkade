@@ -86,6 +86,22 @@ export default async function KiosksPage({ searchParams }: { searchParams: Promi
                   <span>{kiosk.revokedAt ? 'Revoked' : relativeTime(kiosk.lastSeenAt)}</span>
                   <strong>{kiosk.gameCount} games</strong>
                 </div>
+                <p className="admin-kiosk-runtime">
+                  {kiosk.runtime ? (
+                    <>
+                      {kiosk.runtime.model} · Sparkade {kiosk.runtime.version}
+                      <br />
+                      {kiosk.runtime.channel === 'pilot' ? 'Pilot' : 'Stable'} updates ·{' '}
+                      {kiosk.runtime.updateState}
+                      <br />
+                      <small>
+                        Version report: {relativeTime(kiosk.runtimeReportedAt).toLowerCase()}
+                      </small>
+                    </>
+                  ) : (
+                    'Version not reported yet'
+                  )}
+                </p>
                 <form action={renameKioskAction} className="admin-inline-form">
                   <input type="hidden" name="kioskId" value={kiosk.id} />
                   <label>

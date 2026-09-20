@@ -224,9 +224,13 @@ function cmdUpdate(): void {
   sh('git', ['-C', dir, 'fetch', '--tags', '--force'], {});
   let target = '';
   try {
-    target = sh('git', ['-C', dir, 'describe', '--tags', '--abbrev=0', 'origin/main'], {
-      quiet: true,
-    });
+    target = sh(
+      'git',
+      ['-C', dir, 'describe', '--tags', '--abbrev=0', '--exclude=portal-*', 'origin/main'],
+      {
+        quiet: true,
+      },
+    );
   } catch {
     /* no tags */
   }

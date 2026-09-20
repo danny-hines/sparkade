@@ -25,6 +25,7 @@ testing implications.
 
 ## Online product and infrastructure
 
+- [Portal kiosks: installation, registration, and media input](portal-kiosks.md)
 - [Online generation: friends beta, credits, and editing](online-generation.md)
 - [Website experience: Home, Play, and Profile](website-experience.md)
 - [Generation on Vercel: runtime and rollout](cloud-generation.md)

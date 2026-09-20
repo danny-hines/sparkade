@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { checkForUpdate } from '../src/system/update';
 
 const { git } = vi.hoisted(() => ({ git: vi.fn() }));
@@ -38,6 +41,53 @@ describe('software update checks', () => {
 
     expect(checkForUpdate(current)).toEqual({ current, latest: 'v0.2.0', available: true });
   });
+
+  it.each([true, false])(
+    'ignores reachable Portal APK/channel tags (Pi release exists=%s)',
+    async (piRelease) => {
+      const actual =
+        await vi.importActual<typeof import('node:child_process')>('node:child_process');
+      const dir = mkdtempSync(join(tmpdir(), 'sparkade-update-tags-'));
+      const fixtureGit = (...args: string[]) =>
+        actual.execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' }).trim();
+      const commit = (message: string) =>
+        fixtureGit(
+          '-c',
+          'user.name=Update Test',
+          '-c',
+          'user.email=test@example.invalid',
+          '-c',
+          'commit.gpgsign=false',
+          'commit',
+          '--allow-empty',
+          '-qm',
+          message,
+        );
+      try {
+        fixtureGit('init', '-q');
+        commit('installed');
+        const installedHead = fixtureGit('rev-parse', 'HEAD');
+        commit('Pi changes');
+        if (piRelease) fixtureGit('tag', 'v0.2.0');
+        commit('Portal changes');
+        fixtureGit('tag', 'portal-v0.4.4');
+        fixtureGit('tag', 'portal-channel-pilot');
+        fixtureGit('update-ref', 'refs/remotes/origin/main', 'HEAD');
+        fixtureGit('checkout', '-q', '--detach', installedHead);
+        git.mockImplementation((command: string, args: string[]) => {
+          if (args[2] === 'fetch') return ok(); // All refs are local; never contact a network.
+          return actual.spawnSync(command, ['-C', dir, ...args.slice(2)], { encoding: 'utf8' });
+        });
+        expect(checkForUpdate(current)).toEqual({
+          current,
+          latest: piRelease ? 'v0.2.0' : 'main',
+          available: true,
+        });
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('reports a fetch failure without comparing stale refs', () => {
     git.mockReturnValueOnce(failed('fatal: Could not resolve host: github.com\n'));

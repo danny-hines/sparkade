@@ -10,6 +10,7 @@ import { api, type SettingsPayload } from '../api';
 import { shellInput } from '../shell-input';
 import { Btn } from '../icons';
 import { RacingTouch } from '../racing-touch';
+import { kioskTouchEnabled } from '../kiosk-viewport';
 import type { Screen } from '../app';
 import { loadLikenessAssets } from '../likeness-assets';
 
@@ -100,7 +101,13 @@ export function PlayScreen(props: {
       ) : (
         <canvas ref={canvasRef} width={1024} height={600} />
       )}
-      {!error && gameHost && playingSpec?.archetype === 'racing' && <RacingTouch input={shellInput.broker} host={gameHost} traversal={playingSpec.identity?.traversal} />}
+      {!error && gameHost && playingSpec?.archetype === 'racing' && !kioskTouchEnabled() && (
+        <RacingTouch
+          input={shellInput.broker}
+          host={gameHost}
+          traversal={playingSpec.identity?.traversal}
+        />
+      )}
     </div>
   );
 }

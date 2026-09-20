@@ -1,0 +1,51 @@
+plugins { id 'com.android.application' }
+
+def standalone = project.hasProperty('standalone')
+def signingFile = System.getenv('SPARKADE_PORTAL_SIGNING')
+def signing = new Properties()
+if (signingFile) file(signingFile).withInputStream { signing.load(it) }
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.12.1'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+android {
+    namespace 'dev.sparkade.portal'
+    compileSdk 36
+    defaultConfig {
+        applicationId standalone ? 'dev.sparkade.kiosk' : 'dev.sparkade.portal'
+        buildConfigField 'boolean', 'STANDALONE', standalone.toString()
+        minSdk 28
+        targetSdk 29
+        versionCode 10
+        versionName '0.4.4'
+    }
+    buildFeatures { buildConfig true }
+    signingConfigs {
+        kiosk {
+            if (signingFile) {
+                storeFile file(signing.getProperty('storeFile'))
+                storePassword signing.getProperty('storePassword')
+                keyAlias signing.getProperty('keyAlias')
+                keyPassword signing.getProperty('keyPassword')
+            }
+        }
+    }
+    buildTypes {
+        debug { if (standalone && signingFile) signingConfig signingConfigs.kiosk }
+        release {
+            if (standalone && signingFile) signingConfig signingConfigs.kiosk
+            minifyEnabled false
+        }
+    }
+    sourceSets.main.assets.srcDir(layout.buildDirectory.dir('generated/portal-assets'))
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    lint {
+        // Portal's official compatibility target is 29, outside Play distribution.
+        disable 'ExpiredTargetSdkVersion', 'OldTargetApi'
+    }
+}

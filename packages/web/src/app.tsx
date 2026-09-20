@@ -6,6 +6,7 @@ import type { ComponentChildren } from 'preact';
 import { ATTRACT_IDLE_MS, REMAP_HOLD_MS, type PublicGameLink } from '@sparkade/shared';
 import { api, type SettingsPayload } from './api';
 import { shellInput } from './shell-input';
+import { reportPortalScreen } from './portal-runtime';
 import { AttractScreen } from './screens/attract';
 import { HomeScreen } from './screens/home';
 import { WizardScreen } from './screens/wizard';
@@ -34,8 +35,10 @@ export type Screen =
   | { name: 'settings'; tab?: string }
   | { name: 'remap'; firstBoot: boolean; returnTo: Screen };
 
-/** Screens where idle-to-attract and hold-to-remap apply (shell menus only). */
+/** Shell menus that return to the attract screen when idle. */
 const MENU_SCREENS = new Set(['home', 'wizard', 'settings']);
+// An unmapped controller must be configurable before it can dismiss Press Start.
+const REMAP_SCREENS = new Set([...MENU_SCREENS, 'attract']);
 
 export function App(): ComponentChildren {
   // Dev-only asset gallery (http://localhost:5173/?dev=assets) — a normal
@@ -69,6 +72,13 @@ function KioskApp(): ComponentChildren {
     shellInput.swallow();
     setScreenRaw(next);
   }, []);
+
+  // Native installation is allowed only after a fresh report from an idle shell screen.
+  useEffect(() => {
+    reportPortalScreen(screen.name);
+    const timer = setInterval(() => reportPortalScreen(screen.name), 2_000);
+    return () => clearInterval(timer);
+  }, [screen.name]);
 
   // Settings load + input maps + first-boot remap check.
   useEffect(() => {
@@ -106,7 +116,11 @@ function KioskApp(): ComponentChildren {
       }
     };
     window.addEventListener('gamepadconnected', onConnect);
-    return () => window.removeEventListener('gamepadconnected', onConnect);
+    window.addEventListener('sparkade:gamepadconnected', onConnect);
+    return () => {
+      window.removeEventListener('gamepadconnected', onConnect);
+      window.removeEventListener('sparkade:gamepadconnected', onConnect);
+    };
   }, [settings, go]);
 
   // Idle → attract (menus only; never during generation or gameplay).
@@ -147,10 +161,10 @@ function KioskApp(): ComponentChildren {
   // 5s single-input hold in shell menus → remap wizard.
   useEffect(() => {
     shellInput.onRemapHoldProgress = (ms) => {
-      setHoldMs(ms !== null && MENU_SCREENS.has(screenRef.current.name) ? ms : null);
+      setHoldMs(ms !== null && REMAP_SCREENS.has(screenRef.current.name) ? ms : null);
     };
     shellInput.onRemapHoldFire = () => {
-      if (MENU_SCREENS.has(screenRef.current.name)) {
+      if (REMAP_SCREENS.has(screenRef.current.name)) {
         setHoldMs(null);
         go({ name: 'remap', firstBoot: false, returnTo: screenRef.current });
       }
@@ -159,7 +173,7 @@ function KioskApp(): ComponentChildren {
 
   // Gameplay + the wizard own raw input; suspend the hold trigger there.
   useEffect(() => {
-    shellInput.setRemapHoldEnabled(MENU_SCREENS.has(screen.name) || screen.name === 'attract');
+    shellInput.setRemapHoldEnabled(REMAP_SCREENS.has(screen.name));
   }, [screen.name]);
 
   const reloadSettings = useCallback(() => {

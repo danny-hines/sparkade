@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="SparkadeTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:colorBackground">#1A1A1A</item>
+        <item name="android:windowBackground">#1A1A1A</item>
+        <item name="android:textColorPrimary">#F0F0F0</item>
+        <item name="android:textColorSecondary">#DADADA</item>
+        <item name="android:colorAccent">#35E0FF</item>
+        <item name="android:alertDialogTheme">@style/SparkadeDialog</item>
+    </style>
+    <style name="SparkadeDialog" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorBackground">#2B2B2B</item>
+        <item name="android:windowBackground">#2B2B2B</item>
+        <item name="android:textColorPrimary">#F0F0F0</item>
+        <item name="android:textColorSecondary">#DADADA</item>
+        <item name="android:colorAccent">#35E0FF</item>
+    </style>
+</resources>

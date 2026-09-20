@@ -1,5 +1,6 @@
 // Typed API client. The browser never sees an API key; everything talks to the
 // local server (Vite proxies /api in dev).
+import { platformFetch as fetch, portalJobSubscription } from './portal-runtime';
 import {
   GENERATED_GAME_ASSET_FILES,
   type ArchetypeId,
@@ -607,6 +608,8 @@ export const api = {
 
 /** Subscribe to a job's SSE stream. Returns an unsubscribe function. */
 export function subscribeJob(jobId: string, onEvent: (e: JobEvent) => void): () => void {
+  const local = portalJobSubscription(jobId, onEvent);
+  if (local) return local;
   const source = new EventSource(`/api/jobs/${jobId}/events`);
   source.onmessage = (msg) => {
     try {

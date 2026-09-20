@@ -160,8 +160,9 @@ verifier and use Mac-driven updates; non-interactive setup retains it unless
 per hardware serial and restored by `--restore-home`.
 
 **Portal+ pilot result:** with that verifier disabled, the device downloaded and
-installed v0.4.3 over Wi-Fi from v0.4.2, then returned to Sparkade automatically.
-Registration and camera/microphone grants were retained. Stable rollout is not yet
+installed v0.4.3 from v0.4.2, then v0.4.4 from v0.4.3 over Wi-Fi, returning to
+Sparkade automatically. Registration and camera/microphone grants were retained;
+the isolated v0.4.4 upgrade also retained Sparkade as default Home. Stable rollout is not yet
 promoted. A real office-network join using the new Wi-Fi helper still needs testing.
 
 The experimental **Android Back → Sparkade updates** screen downloads and verifies

@@ -455,17 +455,16 @@ rejects app-initiated installation with `-22` (`INSTALL_FAILED_VERIFICATION_FAIL
 after user confirmation. Its required verifier is `com.facebook.appverifier`;
 the pre-existing `verifier_verify_adb_installs=0` allows Mac-driven ADB installation.
 With authorization, `package_verifier_enable=0` was tested on the dedicated pilot:
-v0.4.2 downloaded, verified, and installed v0.4.3 after Android confirmation, and
-returned automatically to Press Start. Android records `dev.sparkade.kiosk` as the
-installer, rather than ADB; version code advanced from 8 to 9. Production registration
-and camera/microphone grants were retained. A temporary Wi-Fi helper probe was
-removed; Home needed reselection after the probe/upgrade test sequence. Sparkade
-was reselected and a fresh HOME launch verified. Default-Home retention across an
-isolated upgrade still needs qualification. The pilot channel now points to v0.4.3;
-stable is unchanged. Installer v0.4.3 offers this OS-wide change explicitly, saves the previous value,
-and restores it during launcher recovery. It does not remove Android's APK signing
+v0.4.2 downloaded, verified, and installed v0.4.3 after Android confirmation, followed
+by an isolated upgrade to v0.4.4. Both returned automatically to Press Start.
+Android records `dev.sparkade.kiosk` as the installer, rather than ADB; version code
+advanced from 8 to 9 to 10. Production registration and camera/microphone grants
+were retained. The isolated v0.4.4 upgrade retained Sparkade as default Home without
+an ADB repair; a fresh HOME launch also passed. The pilot channel now points to v0.4.4;
+stable is unchanged. Installer v0.4.3 and later offer this OS-wide change explicitly, save the previous value,
+and restore it during launcher recovery. This does not remove Android's APK signing
 checks or Sparkade's pinned certificate/checksum checks. This qualifies one
-operator-confirmed upgrade on Portal+, not unattended installs or other Portal models.
+operator-confirmed update path on Portal+, not unattended installs or other Portal models.
 
 From v0.4.2, **Android Back → Sparkade updates** checks a release channel and
 stages the signed APK over Wi-Fi. Open it from Press Start, the library, or Settings;

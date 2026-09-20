@@ -212,7 +212,8 @@ media out of fleet diagnostics.
 - Operator-assisted Wi-Fi updates are implemented. The tested Portal+'s required
   Meta verifier blocks installation when enabled. With its OS-wide disable setting
   authorized, the dedicated pilot successfully self-updated from v0.4.2 to v0.4.3
-  and returned to Press Start. Provisioning offers an explicit option and
+  and then v0.4.4, retaining registration. The isolated v0.4.4 update retained
+  default Home and returned to Press Start. Provisioning offers an explicit option and
   backs up/restores the original value. Stable is not promoted. The implementation includes stable/pilot
   channel promotion, private staging, signature/hash/version checks, and native
   Android confirmation. Basic version/model/channel/status reporting is implemented

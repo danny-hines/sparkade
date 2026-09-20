@@ -19,6 +19,14 @@ import type { ButtonState, InputSnapshot } from './types';
  */
 export type RawInputId = string;
 
+/** Native hosts can supply gamepad state without replacing browser APIs. */
+export interface ExternalGamepadState {
+  buttons: readonly boolean[];
+  axes: readonly number[];
+}
+
+type PolledGamepad = { buttons: readonly { pressed: boolean }[]; axes: readonly number[] };
+
 const AXIS_THRESHOLD = 0.5;
 
 /**
@@ -55,6 +63,8 @@ export class InputBroker {
   private keysDown = new Set<string>();
   private virtual = new Map<string, LogicalButton>();
   private virtualLatched = new Set<LogicalButton>();
+  private externalGamepads = new Map<string, PolledGamepad>();
+  private externalLatched = new Map<string, Set<RawInputId>>();
   /** Codes pressed since the last poll — guarantees ultra-fast taps still register one frame. */
   private keysLatched = new Set<string>();
   /** Logical state from the previous poll, for edge detection. */
@@ -85,6 +95,8 @@ export class InputBroker {
     this.keysDown.clear();
     this.keysLatched.clear();
     this.releaseVirtualInputs();
+    this.externalGamepads.clear();
+    this.externalLatched.clear();
   };
 
   constructor(opts?: {
@@ -139,6 +151,28 @@ export class InputBroker {
     this.virtualLatched.clear();
   }
 
+  /** Raw buttons/axes retain saved mappings, hold-to-remap, and game escape. */
+  setExternalGamepad(source: string, state: ExternalGamepadState | null): void {
+    if (!state) {
+      this.externalGamepads.delete(source);
+      this.externalLatched.delete(source);
+      return;
+    }
+    this.externalGamepads.set(source, {
+      buttons: state.buttons.map((pressed) => ({ pressed })),
+      axes: [...state.axes],
+    });
+    const latched = this.externalLatched.get(source) ?? new Set<RawInputId>();
+    state.buttons.forEach((pressed, i) => {
+      if (pressed) latched.add(`b${i}`);
+    });
+    state.axes.forEach((value, i) => {
+      if (value >= AXIS_THRESHOLD) latched.add(`a${i}+`);
+      if (value <= -AXIS_THRESHOLD) latched.add(`a${i}-`);
+    });
+    this.externalLatched.set(source, latched);
+  }
+
   /** All raw inputs currently active (for the remap wizard + remap hold trigger). */
   activeRaw(): RawInputId[] {
     const raw: RawInputId[] = [...this.keysDown];
@@ -159,10 +193,11 @@ export class InputBroker {
     return this.gamepads().length > 0;
   }
 
-  private gamepads(): Gamepad[] {
-    if (typeof navigator === 'undefined' || !navigator.getGamepads) return [];
-    const list: Gamepad[] = [];
-    for (const gp of navigator.getGamepads()) if (gp && gp.connected) list.push(gp);
+  private gamepads(): PolledGamepad[] {
+    const list: PolledGamepad[] = [...this.externalGamepads.values()];
+    if (typeof navigator !== 'undefined' && navigator.getGamepads) {
+      for (const gp of navigator.getGamepads()) if (gp && gp.connected) list.push(gp);
+    }
     return list;
   }
 
@@ -197,6 +232,13 @@ export class InputBroker {
       });
     }
 
+    for (const latched of this.externalLatched.values()) {
+      for (const raw of latched) {
+        const button = this.gamepadMap[raw];
+        if (button) heldNow[button] = true;
+      }
+      latched.clear();
+    }
     for (const button of this.virtual.values()) heldNow[button] = true;
     for (const button of this.virtualLatched) heldNow[button] = true;
     this.virtualLatched.clear();

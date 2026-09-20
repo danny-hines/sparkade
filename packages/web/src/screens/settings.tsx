@@ -10,6 +10,7 @@ import {
   type WifiNetwork,
 } from '@sparkade/shared';
 import { api, type SettingsPayload } from '../api';
+import { isStandalonePortal } from '../portal-runtime';
 import {
   FooterLegend,
   newOskState,
@@ -1009,9 +1010,15 @@ export function SettingsScreen(props: {
                 </div>
               )}
               <p style="color:var(--text-dim);font-size:16px;margin-top:14px">
-                Read-only here — change providers and models with <b>sparkade config</b> on the
-                command line. Contributor-tier text inputs and responses may be used by Meta for
-                model training. API keys live in the env file and never appear on this screen.
+                {isStandalonePortal() ? (
+                  'Model settings are managed by Sparkade cloud. This Portal does not store model API keys.'
+                ) : (
+                  <>
+                    Read-only here — change providers and models with <b>sparkade config</b> on the
+                    command line. API keys live in the env file and never appear on this screen.
+                  </>
+                )}{' '}
+                Contributor-tier text inputs and responses may be used by Meta for model training.
               </p>
             </div>
           )}

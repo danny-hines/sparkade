@@ -97,6 +97,18 @@ atomically to the stable procedural stage if it cannot be normalized.
 To hit the real models, copy `.env.example` to `.env`, set `META_API_KEY`, and use `npm run dev`.
 The same key is used for Muse Spark 1.2 Contributor, Muse Voice Transcribe 1.0, and Muse Image 1.0.
 
+## Other kiosk hardware: Meta Portal
+
+The standalone [Portal kiosk](apps/portal/README.md) packages the shared shell and
+starter games, stores settings and downloaded games on the device, and connects
+directly to production for registration and generation. It fits different display
+sizes without stretching and supports gamepads with optional touch controls.
+
+For office deployments, follow the [guided Mac setup](docs/portal-setup.md): one
+downloadable installer handles ADB, the signed app, boot startup, and production
+pairing. The Mac can be disconnected afterward. Developers can still use
+`npm run portal:demo` / `npm run portal:install` for the separate bench app.
+
 ## Pi install (production)
 
 Flash **Raspberry Pi OS Lite (Bookworm, 64-bit)**, boot, then:

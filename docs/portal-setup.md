@@ -11,7 +11,7 @@ Open **Terminal** on the Mac and paste:
 
 ```sh
 curl -fL --proto '=https' --proto-redir '=https' \
-  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.1/install-portal.sh \
+  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.2/install-portal.sh \
   -o /tmp/install-sparkade-portal.sh && bash /tmp/install-sparkade-portal.sh
 ```
 
@@ -121,22 +121,20 @@ and games and requires a new registration.
 
 ## Updating
 
-On v0.4.1 or later, return to Press Start or a menu, open **Android Back → Sparkade
-updates**, and select **Check for updates**. When ready, select **Install update**
-and confirm Android's installation screen. Sparkade reopens with registration,
-games, and controller mappings intact. Setup enables high-contrast Android text on
-Android 9 Portals so the system's confirmation buttons are readable; launcher
-recovery restores the previous display setting. If that screen appears blank,
-rerun the current Mac installer to apply the display fix. The Mac is not needed for Wi-Fi updates.
+**Current Portal+ qualification:** use the Mac installer to update in place. The
+Portal's required Meta app verifier rejects app-initiated updates even after the
+operator confirms installation. The pilot Wi-Fi update channel is paused; do not
+plan an office rollout around it until the provisioning policy is approved and
+the final installation is re-tested.
 
-Leave **Use pilot releases** off for ordinary office devices. Maintainers enable
-it on a test kiosk before approving the same release for the stable channel.
-Downloads can happen in the background; installation always needs an operator.
-A failed download keeps the current app working—use **Check for updates** to retry.
+The experimental **Android Back → Sparkade updates** screen downloads and verifies
+signed releases over Wi-Fi. It only opens from Press Start or a menu, and preserves
+registration and games. Setup enables high-contrast Android text on Android 9 so
+system confirmation buttons are readable, and launcher recovery restores the
+previous display setting. The Mac installer does not disable Meta's verifier.
 
-Devices on older versions need the new Mac installer once to gain the updater.
-The installer also remains the recovery option if Sparkade cannot open. Run it
-from a menu or the attract screen because updating restarts Sparkade. Offices
-always use the same maintainer-signed APK and never build or sign their own copy.
+Run the installer for a published release from a menu or the attract screen because
+updating restarts Sparkade. Offices always use the same maintainer-signed APK and
+never build or sign their own copy. Do not uninstall or clear data when updating.
 
 For maintainers: [build, signing, release, and channel promotion](../apps/portal/README.md).

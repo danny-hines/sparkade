@@ -181,12 +181,11 @@ final class PortalUpdater {
             } finally { busy = false; }
         });
     }
-    void installResult(int result) {
+    void installResult(int result, int platformResult) {
         if (result == PackageInstaller.STATUS_SUCCESS) status("updated", "Update installed. Opening Sparkade…");
         else {
             prefs.edit().putLong("installTarget", 0).apply();
-            status("failed", result == PackageInstaller.STATUS_FAILURE_ABORTED
-                    ? "Installation cancelled. Check again when you are ready." : "Android did not install the update. Check again to retry.");
+            status("failed", UpdatePolicy.installFailure(result, platformResult));
         }
     }
     private void verify(File file, JSONObject expected) throws Exception {

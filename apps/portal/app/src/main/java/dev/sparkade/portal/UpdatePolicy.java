@@ -34,6 +34,14 @@ final class UpdatePolicy {
                 && code == expectedCode && version.equals(expectedVersion) && !debug
                 && minSdk <= sdk && hash(certificate) && certificate.equals(installedCertificate);
     }
+    static String installFailure(int status, int platformStatus) {
+        // Platform PackageManager install result codes: verification timeout/failure.
+        if (platformStatus == -21 || platformStatus == -22)
+            return "The Portal's system app verifier blocked this update. Use the Mac installer or contact your Sparkade administrator.";
+        return status == android.content.pm.PackageInstaller.STATUS_FAILURE_ABORTED
+                ? "Installation cancelled. Check again when you are ready."
+                : "Android did not install the update. Check again to retry.";
+    }
     static boolean maintenance(String screen, long ageMs) {
         return ageMs >= 0 && ageMs < 6_000
                 && ("attract".equals(screen) || "home".equals(screen) || "settings".equals(screen));

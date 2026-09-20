@@ -450,7 +450,16 @@ References: [Portal development](https://developers.meta.com/horizon/documentati
 
 ## Wi-Fi updates and fleet version reports
 
-From v0.4.1, **Android Back → Sparkade updates** checks a release channel and
+**Hardware qualification blocked:** downloads, signature checks, readable Android
+confirmation, and cancellation work. The configured Portal+ then rejects the
+actual install with platform result `-22` (`INSTALL_FAILED_VERIFICATION_FAILURE`).
+Its required verifier is `com.facebook.appverifier`; `package_verifier_enable=1`
+and `verifier_verify_adb_installs=0`. No verifier setting has been changed. The
+pilot channel is paused pending an explicit decision on whether dedicated kiosks
+may disable that OS-wide verifier. Use the published Mac installer meanwhile.
+Do not describe the Wi-Fi update flow as qualified until app replacement succeeds.
+
+From v0.4.2, **Android Back → Sparkade updates** checks a release channel and
 stages the signed APK over Wi-Fi. Open it from Press Start, the library, or Settings;
 gameplay, generation, recording, and stale/unresponsive shell state block entry.
 The background check runs at most every six hours while Sparkade is open. It never
@@ -470,10 +479,10 @@ native update screen for test devices. Channels point to immutable versioned APK
 publishing an APK alone does not promote it. Maintainers validate a published release:
 
 ```sh
-npm run portal:promote -- --release portal-v0.4.1 --channel pilot
-npm run portal:promote -- --release portal-v0.4.1 --channel pilot --publish
+npm run portal:promote -- --release portal-v0.4.2 --channel pilot
+npm run portal:promote -- --release portal-v0.4.2 --channel pilot --publish
 # After hardware acceptance, approve the identical binary for ordinary kiosks:
-npm run portal:promote -- --release portal-v0.4.1 --channel stable --publish
+npm run portal:promote -- --release portal-v0.4.2 --channel stable --publish
 # Withdraw approval without uninstalling or altering devices:
 npm run portal:promote -- --channel stable --disable --publish
 ```

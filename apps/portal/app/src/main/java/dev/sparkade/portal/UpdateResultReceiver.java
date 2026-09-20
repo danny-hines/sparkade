@@ -27,7 +27,8 @@ public final class UpdateResultReceiver extends BroadcastReceiver {
             if (session != -1) context.getPackageManager().getPackageInstaller().abandonSession(session);
             status = PackageInstaller.STATUS_FAILURE_ABORTED;
         }
-        updater.installResult(status);
+        // Android 9 maps verifier rejection to STATUS_FAILURE_ABORTED too; it is not a user cancellation.
+        updater.installResult(status, intent.getIntExtra("android.content.pm.extra.LEGACY_STATUS", 0));
         if (status == PackageInstaller.STATUS_SUCCESS)
             context.startActivity(new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
     }

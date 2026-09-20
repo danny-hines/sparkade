@@ -31,6 +31,12 @@ public class UpdatePolicyTest {
     private boolean archive(String name, long version, boolean debug, int sdk, String certificate) {
         return UpdatePolicy.archive(name, version, "0.4.0", debug, sdk, 28, certificate, cert, 5, 6, "0.4.0");
     }
+    @Test public void verifierRejectionIsNotReportedAsUserCancellation() {
+        assertTrue(UpdatePolicy.installFailure(3, -22).contains("verifier blocked"));
+        assertTrue(UpdatePolicy.installFailure(3, -21).contains("verifier blocked"));
+        assertTrue(UpdatePolicy.installFailure(3, -115).contains("cancelled"));
+        assertFalse(UpdatePolicy.installFailure(1, -2).contains("cancelled"));
+    }
     @Test public void maintenanceFailsClosedForActiveOrStaleSessions() {
         assertTrue(UpdatePolicy.maintenance("attract", 0));
         assertTrue(UpdatePolicy.maintenance("home", 1999));

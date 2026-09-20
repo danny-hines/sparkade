@@ -209,7 +209,9 @@ media out of fleet diagnostics.
   debugging disabled: implemented by `portal:provision`. The first signed update
   retained registration and controller mappings on Portal+. Preserve a known-good
   version and qualify rollback and retention of downloaded games separately.
-- Operator-assisted Wi-Fi updates are implemented in v0.4.1, with stable/pilot
+- Operator-assisted Wi-Fi updates are implemented, but final installation is
+  blocked on the tested Portal+ by its required Meta app verifier. The pilot channel
+  is paused; the OS-wide verifier setting has not been changed. The implementation includes with stable/pilot
   channel promotion, private staging, signature/hash/version checks, and native
   Android confirmation. Basic version/model/channel/status reporting is implemented
   on the device and in the site code; the site change must be deployed for the admin

@@ -4,7 +4,7 @@
 set -euo pipefail
 umask 077
 
-RELEASE=portal-v0.4.1
+RELEASE=portal-v0.4.2
 REPOSITORY=danny-hines/sparkade
 APP=dev.sparkade.kiosk
 MAIN=dev.sparkade.kiosk/dev.sparkade.portal.MainActivity

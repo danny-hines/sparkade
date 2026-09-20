@@ -157,22 +157,24 @@ final class PortalUpdater {
                 params.setAppPackageName(context.getPackageName());
                 params.setSize(apk.length());
                 id = installer.createSession(params);
-                try (PackageInstaller.Session session = installer.openSession(id);
-                     InputStream input = new FileInputStream(apk);
-                     OutputStream output = session.openWrite("base.apk", 0, apk.length())) {
-                    byte[] buffer = new byte[64 * 1024]; int count;
-                    while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
-                    session.fsync(output);
+                try (PackageInstaller.Session session = installer.openSession(id)) {
+                    // Android 9's FileBridge stream must be closed exactly once, before commit.
+                    try (InputStream input = new FileInputStream(apk);
+                         OutputStream output = session.openWrite("base.apk", 0, apk.length())) {
+                        byte[] buffer = new byte[64 * 1024]; int count;
+                        while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                        session.fsync(output);
+                    }
                     // A durable target lets the next process confirm replacement even if the callback dies with this process.
                     prefs.edit().putLong("installTarget", candidate.getLong("versionCode")).putString("state", "installing").commit();
                     Intent callback = new Intent(context, UpdateResultReceiver.class).setAction("dev.sparkade.kiosk.UPDATE_RESULT");
                     PendingIntent result = PendingIntent.getBroadcast(context, id, callback, PendingIntent.FLAG_UPDATE_CURRENT
                             | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0));
-                    output.close();
                     session.commit(result.getIntentSender());
                 }
                 message = "Confirm installation on the Android screen.";
             } catch (Exception error) {
+                android.util.Log.w("SparkadeUpdate", "Install session failed", error);
                 if (id != -1) installer.abandonSession(id);
                 prefs.edit().putLong("installTarget", 0).apply();
                 status("failed", error instanceof IOException ? error.getMessage() : "Android could not install this update. Please retry.");

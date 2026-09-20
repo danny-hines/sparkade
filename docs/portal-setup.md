@@ -159,8 +159,10 @@ verifier and use Mac-driven updates; non-interactive setup retains it unless
 `--enable-device-updates` is explicitly supplied. The original value is saved once
 per hardware serial and restored by `--restore-home`.
 
-The verifier workaround and new Wi-Fi configuration helper are undergoing pilot
-qualification. Do not treat publication of this prerelease as fleet approval.
+**Portal+ pilot result:** with that verifier disabled, the device downloaded and
+installed v0.4.3 over Wi-Fi from v0.4.2, then returned to Sparkade automatically.
+Registration and camera/microphone grants were retained. Stable rollout is not yet
+promoted. A real office-network join using the new Wi-Fi helper still needs testing.
 
 The experimental **Android Back → Sparkade updates** screen downloads and verifies
 signed releases over Wi-Fi. It only opens from Press Start or a menu, and preserves

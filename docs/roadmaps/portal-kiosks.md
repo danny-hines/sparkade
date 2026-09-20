@@ -210,9 +210,10 @@ media out of fleet diagnostics.
   retained registration and controller mappings on Portal+. Preserve a known-good
   version and qualify rollback and retention of downloaded games separately.
 - Operator-assisted Wi-Fi updates are implemented. The tested Portal+'s required
-  Meta verifier blocks installation when enabled; testing its OS-wide disable setting
-  on the dedicated pilot is authorized. Provisioning offers an explicit option and
-  backs up/restores the original value. Qualification is pending. The implementation includes stable/pilot
+  Meta verifier blocks installation when enabled. With its OS-wide disable setting
+  authorized, the dedicated pilot successfully self-updated from v0.4.2 to v0.4.3
+  and returned to Press Start. Provisioning offers an explicit option and
+  backs up/restores the original value. Stable is not promoted. The implementation includes stable/pilot
   channel promotion, private staging, signature/hash/version checks, and native
   Android confirmation. Basic version/model/channel/status reporting is implemented
   on the device and in the site code; the site change must be deployed for the admin

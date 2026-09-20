@@ -454,11 +454,18 @@ References: [Portal development](https://developers.meta.com/horizon/documentati
 rejects app-initiated installation with `-22` (`INSTALL_FAILED_VERIFICATION_FAILURE`)
 after user confirmation. Its required verifier is `com.facebook.appverifier`;
 the pre-existing `verifier_verify_adb_installs=0` allows Mac-driven ADB installation.
-Testing `package_verifier_enable=0` on the dedicated pilot kiosk is now authorized.
-Installer v0.4.3 offers this OS-wide change explicitly, saves the previous value,
+With authorization, `package_verifier_enable=0` was tested on the dedicated pilot:
+v0.4.2 downloaded, verified, and installed v0.4.3 after Android confirmation, and
+returned automatically to Press Start. Android records `dev.sparkade.kiosk` as the
+installer, rather than ADB; version code advanced from 8 to 9. Production registration
+and camera/microphone grants were retained. A temporary Wi-Fi helper probe was
+removed; Home needed reselection after the probe/upgrade test sequence. Sparkade
+was reselected and a fresh HOME launch verified. Default-Home retention across an
+isolated upgrade still needs qualification. The pilot channel now points to v0.4.3;
+stable is unchanged. Installer v0.4.3 offers this OS-wide change explicitly, saves the previous value,
 and restores it during launcher recovery. It does not remove Android's APK signing
-checks or Sparkade's pinned certificate/checksum checks. Do not describe the direct
-update flow as qualified until app replacement succeeds on the pilot hardware.
+checks or Sparkade's pinned certificate/checksum checks. This qualifies one
+operator-confirmed upgrade on Portal+, not unattended installs or other Portal models.
 
 From v0.4.2, **Android Back → Sparkade updates** checks a release channel and
 stages the signed APK over Wi-Fi. Open it from Press Start, the library, or Settings;

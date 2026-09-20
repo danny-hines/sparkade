@@ -18,7 +18,10 @@ const reportHeaders = () =>
     'x-sparkade-update-channel': 'pilot',
     'x-sparkade-update-state': 'ready',
   });
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => {
+  vi.resetAllMocks();
+  vi.mocked(recordKioskRuntime).mockResolvedValue(undefined);
+});
 describe('Portal version reports', () => {
   it('accepts bounded runtime metadata and ignores clients without it', () => {
     expect(kioskRuntimeReport(reportHeaders())).toEqual({

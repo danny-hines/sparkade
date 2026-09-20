@@ -124,7 +124,10 @@ and games and requires a new registration.
 On v0.4.1 or later, return to Press Start or a menu, open **Android Back → Sparkade
 updates**, and select **Check for updates**. When ready, select **Install update**
 and confirm Android's installation screen. Sparkade reopens with registration,
-games, and controller mappings intact. The Mac is not needed for Wi-Fi updates.
+games, and controller mappings intact. Setup enables high-contrast Android text on
+Android 9 Portals so the system's confirmation buttons are readable; launcher
+recovery restores the previous display setting. If that screen appears blank,
+rerun the current Mac installer to apply the display fix. The Mac is not needed for Wi-Fi updates.
 
 Leave **Use pilot releases** off for ordinary office devices. Maintainers enable
 it on a test kiosk before approving the same release for the stable channel.

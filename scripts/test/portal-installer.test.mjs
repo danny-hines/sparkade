@@ -20,6 +20,7 @@ else if (cmd === 'devices -l') out('List of devices attached\\nTESTPORTAL device
 else if (cmd === 'shell getprop ro.product.model') out(cfg.model || 'Portal+');
 else if (cmd === 'shell getprop ro.build.version.sdk') out('28');
 else if (cmd === 'shell getprop ro.serialno') out('TESTPORTAL');
+else if (cmd === 'shell settings get secure high_text_contrast_enabled') out('null');
 else if (cmd === 'shell df -k /data') out('Filesystem 1K-blocks Used Available Use% Mounted on\\n/data 9000000 1000000 8000000 10% /data');
 else if (cmd.includes('resolve-activity')) out(fs.existsSync(cfg.home) ? fs.readFileSync(cfg.home, 'utf8') : 'com.meta.launcher/.Home');
 else if (cmd.includes('set-home-activity')) fs.writeFileSync(cfg.home, args.at(-1));
@@ -160,4 +161,13 @@ test('launcher recovery uses the original backup without deleting Sparkade', (t)
   const result = f.run(['--restore-home'], false);
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.equal(readFileSync(f.cfg.home, 'utf8'), 'com.meta.launcher/.Home');
+  assert.equal(
+    readFileSync(join(f.state, 'devices/TESTPORTAL/previous-high-contrast.txt'), 'utf8'),
+    'null\n',
+  );
+  assert.ok(
+    f
+      .calls()
+      .some((a) => a.join(' ').endsWith('shell settings delete secure high_text_contrast_enabled')),
+  );
 });

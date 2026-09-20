@@ -456,7 +456,13 @@ gameplay, generation, recording, and stale/unresponsive shell state block entry.
 The background check runs at most every six hours while Sparkade is open. It never
 installs automatically or opens a prompt during a game. **Install update** rechecks
 the channel approval, asks Android to install, and returns to Sparkade after replacement.
-A manual check retries a failed/interrupted download. No Mac/server/ADB is needed.
+The Android 9 Portal theme renders the stock installer text invisibly by default.
+Provisioning enables Android's high-contrast text setting to make its labels and
+buttons readable, saves its previous value, and restores it with launcher recovery.
+This affects Android native text, including maintenance dialogs, and does not
+change the web game's rendering. Rerun the new Mac installer once on older builds
+if the Android confirmation appears blank. No additional secure-settings permission
+is granted to Sparkade. A manual check retries a failed/interrupted download. No Mac/server/ADB is needed.
 The existing Mac installer remains the recovery path if the app cannot run.
 
 New devices use **stable**. Enable **Use pilot releases on this test kiosk** in the

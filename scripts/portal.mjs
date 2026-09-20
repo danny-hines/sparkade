@@ -87,6 +87,7 @@ try {
       'scratch/portal-devices',
       `${encodeURIComponent(serial)}.json`,
     );
+    const displayBackup = launcherBackup.replace(/\.json$/, '-display.json');
     const sparkadeActivity = `${appId}/dev.sparkade.portal.MainActivity`;
     const isSparkadeHome = (value) =>
       value === sparkadeActivity || value === `${appId}/.MainActivity`;
@@ -138,6 +139,18 @@ try {
         '-c',
         'android.intent.category.HOME',
       );
+      if (existsSync(displayBackup)) {
+        const display = JSON.parse(readFileSync(displayBackup, 'utf8'));
+        if (display.serial !== serial || !['null', '0', '1'].includes(display.highContrastText))
+          throw new Error('Invalid saved display setting.');
+        device(
+          'shell',
+          'settings',
+          ...(display.highContrastText === 'null'
+            ? ['delete', 'secure', 'high_text_contrast_enabled']
+            : ['put', 'secure', 'high_text_contrast_enabled', display.highContrastText]),
+        );
+      }
       console.log(`Restored Home: ${saved.previousHome}`);
     } else {
       // Installing a second HOME handler can reset Android's implicit choice.
@@ -175,6 +188,26 @@ try {
         device('shell', 'pm', 'grant', appId, 'android.permission.CAMERA');
         device('shell', 'pm', 'grant', appId, 'android.permission.RECORD_AUDIO');
         device('shell', 'appops', 'set', appId, 'REQUEST_INSTALL_PACKAGES', 'allow');
+        const api = execFileSync(adb, ['-s', serial, 'shell', 'getprop', 'ro.build.version.sdk'], {
+          encoding: 'utf8',
+        }).trim();
+        if (api === '28') {
+          if (!existsSync(displayBackup)) {
+            const previous = execFileSync(
+              adb,
+              ['-s', serial, 'shell', 'settings', 'get', 'secure', 'high_text_contrast_enabled'],
+              { encoding: 'utf8' },
+            ).trim();
+            if (!['null', '0', '1'].includes(previous))
+              throw new Error('Cannot save the previous display setting.');
+            mkdirSync(dirname(displayBackup), { recursive: true });
+            writeFileSync(
+              displayBackup,
+              JSON.stringify({ serial, highContrastText: previous }, null, 2) + '\n',
+            );
+          }
+          device('shell', 'settings', 'put', 'secure', 'high_text_contrast_enabled', '1');
+        }
       }
       if (!standalone) device('reverse', 'tcp:8099', 'tcp:8099');
       if (command === 'boot' || command === 'provision') {

@@ -208,6 +208,14 @@ while :; do
     valid_component "$PREVIOUS_HOME" || fail "Invalid saved launcher."
     remote cmd package set-home-activity --user 0 "$PREVIOUS_HOME"
     [ "$(home_activity)" = "$PREVIOUS_HOME" ] || fail "Android did not restore the saved launcher."
+    if [ -f "$DEVICE_DIR/previous-high-contrast.txt" ]; then
+      PREVIOUS_CONTRAST=$(cat "$DEVICE_DIR/previous-high-contrast.txt")
+      case "$PREVIOUS_CONTRAST" in
+        null) remote settings delete secure high_text_contrast_enabled;;
+        0|1) remote settings put secure high_text_contrast_enabled "$PREVIOUS_CONTRAST";;
+        *) fail "Invalid saved display setting.";;
+      esac
+    fi
     remote am start -a android.intent.action.MAIN -c android.intent.category.HOME
     say "Previous launcher restored. Sparkade registration and games are retained; retired Wondry remains disabled."
     exit 0
@@ -246,6 +254,16 @@ while :; do
   remote pm grant "$APP" android.permission.RECORD_AUDIO
   # Permit Sparkade's signed self-updates; Android still confirms each installation.
   remote appops set "$APP" REQUEST_INSTALL_PACKAGES allow
+  if [ "$SDK" = 28 ]; then
+    # Portal's Android 9 theme otherwise makes system installer text invisible.
+    if [ ! -f "$DEVICE_DIR/previous-high-contrast.txt" ]; then
+      PREVIOUS_CONTRAST=$(remote settings get secure high_text_contrast_enabled)
+      case "$PREVIOUS_CONTRAST" in null|0|1) ;; *) fail "Cannot save the original display setting.";; esac
+      printf '%s\n' "$PREVIOUS_CONTRAST" > "$DEVICE_DIR/previous-high-contrast.txt"
+    fi
+    remote settings put secure high_text_contrast_enabled 1
+    say "Enabled high-contrast Android text so update confirmations are readable; recovery restores the previous value."
+  fi
   if remote pm list packages -e ai.wondry.portal | awk '/^package:ai.wondry.portal$/ {found=1} END {exit !found}'; then
     if [ "$DISABLE_WONDRY" = 1 ] || confirm "Retired Wondry is installed and may take over at boot. Disable it while keeping its data?"; then
       remote am force-stop ai.wondry.portal

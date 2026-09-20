@@ -26,9 +26,9 @@ else if (cmd.includes('set-home-activity')) fs.writeFileSync(cfg.home, args.at(-
 else if (args[0] === 'install') {
   if (cfg.installFail) { out('INSTALL_FAILED_UPDATE_INCOMPATIBLE'); process.exit(1); }
   out('Success');
-} else if (cmd === 'shell dumpsys package dev.sparkade.kiosk') out('versionName=0.4.0\\nflags=[ HAS_CODE ' + (cfg.debug ? 'DEBUGGABLE' : '') + ' ]');
+} else if (cmd === 'shell dumpsys package dev.sparkade.kiosk') out('versionName=0.4.1\\nflags=[ HAS_CODE ' + (cfg.debug ? 'DEBUGGABLE' : '') + ' ]');
 else if (cmd === 'shell pm list packages -e ai.wondry.portal') { if (cfg.wondry) out('package:ai.wondry.portal'); }
-else if (cmd.includes('SETUP_STATUS')) out('Broadcast completed: result=-1, data="SPARKADE_SETUP_V1;state=' + (cfg.state || 'registered') + ';code=ABCD-2345;version=0.4.0;origin=https://sparkade.dev;"');
+else if (cmd.includes('SETUP_STATUS')) out('Broadcast completed: result=-1, data="SPARKADE_SETUP_V1;state=' + (cfg.state || 'registered') + ';code=ABCD-2345;version=0.4.1;origin=https://sparkade.dev;"');
 else out('OK');
 `;
 

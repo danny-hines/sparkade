@@ -191,7 +191,10 @@ final class PortalUpdater {
         if (file.length() != expected.getLong("apkBytes") || !digest(file).equals(expected.getString("apkSha256")))
             throw new IOException("Update checksum mismatch. The installed app has not been changed.");
         PackageManager manager = context.getPackageManager();
-        PackageInfo archive = manager.getPackageArchiveInfo(file.getPath(), PackageManager.GET_SIGNING_CERTIFICATES);
+        // Android 9's archive parser only collects certificates when GET_SIGNATURES is also set.
+        // Keep SigningInfo for comparison; requesting both flags does not relax verification.
+        PackageInfo archive = manager.getPackageArchiveInfo(file.getPath(),
+                PackageManager.GET_SIGNING_CERTIFICATES | PackageManager.GET_SIGNATURES);
         PackageInfo installed = manager.getPackageInfo(context.getPackageName(), PackageManager.GET_SIGNING_CERTIFICATES);
         String certificate = certificate(archive), current = certificate(installed);
         if (archive == null || archive.applicationInfo == null

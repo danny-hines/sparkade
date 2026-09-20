@@ -11,7 +11,7 @@ Open **Terminal** on the Mac and paste:
 
 ```sh
 curl -fL --proto '=https' --proto-redir '=https' \
-  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.0/install-portal.sh \
+  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.1/install-portal.sh \
   -o /tmp/install-sparkade-portal.sh && bash /tmp/install-sparkade-portal.sh
 ```
 
@@ -121,7 +121,7 @@ and games and requires a new registration.
 
 ## Updating
 
-On v0.4.0 or later, return to Press Start or a menu, open **Android Back → Sparkade
+On v0.4.1 or later, return to Press Start or a menu, open **Android Back → Sparkade
 updates**, and select **Check for updates**. When ready, select **Install update**
 and confirm Android's installation screen. Sparkade reopens with registration,
 games, and controller mappings intact. The Mac is not needed for Wi-Fi updates.

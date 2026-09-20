@@ -4,6 +4,38 @@ Status: proposal, 2026-09-19. No standalone service or billing changes are imple
 This extends the [sprite-generation roadmap](sprite-generation.md) after the SAM comparison lab
 checkpoint `707e52a`.
 
+## Sponsorship and deployment constraint
+
+Sparkade's official Meta sponsorship versus personal-project status is unresolved. Payment
+integration remains deferred while that is clarified. A standalone spriting utility is a possible
+separate product direction; the technical design should support both possible Sparkade deployments:
+
+- An internally operated Sparkade uses an internal sprite backend, with internal models,
+  credentials, storage, execution, and capacity policies.
+- An independently operated Sparkade can use a separately hosted sprite service, which may also
+  serve other customers through its own website/API and commercial policies.
+
+Keep three responsibilities distinct:
+
+1. **Portable generation contract:** identity revisions, build requests, capabilities, progress,
+   cancellation, and result manifests. No checkout, customer credits, or payment-provider IDs.
+2. **Backend implementation:** recipes, model adapters, artifact storage, durable jobs, operational
+   usage, and resource limits. Start locally; internal and independent hosts can implement the
+   same contract without sharing their infrastructure or requiring identical recipe catalogs.
+3. **Optional commercial layer:** customer accounts, quotes, credit reservations, and settlement
+   around the independently hosted service. It admits work to the backend but is not called by
+   the generation core. Internal operation needs no fabricated free quote or credit balance.
+
+Sparkade calls a `SpriteBackend` interface through an integration adapter. A local implementation
+can run in process first; a remote implementation can call HTTP later. Persist the selected backend
+and recipe versions with each job so a configuration change cannot move an in-flight job. Validate
+capabilities when selecting a backend; never silently send an internal request to an external
+fallback. Artifact IDs are backend-scoped, and moving references between hosts is an explicit import.
+
+Build the contract and a working recipe now; payment integration is not a prerequisite. Keep the
+schemas independently usable so a standalone implementation can live in its own repository. These
+are technical portability choices; sponsorship and project ownership remain unresolved decisions.
+
 ## Product boundary
 
 Build two independently useful operations that share a character library:
@@ -29,7 +61,7 @@ flowchart LR
     R --> G[Sparkade asset adapter]
 ```
 
-Identity and sprite generation are separate purchases. Rerunning an animation should not require
+In a paid offering, identity and sprite generation are separate purchases. Rerunning an animation should not require
 recreating its character. Selecting a different recipe should not quietly redesign that character.
 
 ## Persistent objects
@@ -41,7 +73,7 @@ recreating its character. Selecting a different recipe should not quietly redesi
 | Recipe version | Supported inputs and outputs, processing procedure, model configuration, retry/quality policies, and versioned implementation. |
 | Job | One bounded identity-candidate or sprite-build operation, with input snapshot, progress, attempts, artifacts, and costs. |
 | Sprite result | Immutable frame set, atlas, animation manifest, checks, and provenance from a successful build. |
-| Quote | Expiring price and delivery specification tied to an exact request, recipe version, and pricing policy. |
+| Quote (commercial layer only) | Expiring price and delivery specification tied to an exact request, recipe version, and pricing policy. |
 
 An identity revision is more than a PNG. It records:
 
@@ -85,12 +117,13 @@ by duplicating two poses.
 
 Public requests pin `recipeId` and `recipeVersion`; the server resolves provider/model settings,
 prompts, processors, quality rules, and repair limits. Output-affecting changes create a new recipe
-version. Price changes create a pricing version. An optional “recommended” choice resolves to a
-concrete recipe before quoting, and that choice is visible and saved.
+version. Price changes in a paid service create a pricing version. An optional “recommended” choice
+resolves to a concrete recipe before execution (and before quoting when enabled), and that choice
+is visible and saved.
 
 Expose a few meaningful controls, rather than every model's parameters. Keep validated cleanup
 presets such as chroma and SAM hybrid available in the lab and, eventually, an advanced API option.
-The quote includes the resolved configuration. A provider swap can fit the same adapter interface
+The job, and any commercial quote, includes the resolved configuration. A provider swap can fit the same adapter interface
 but still needs a newly evaluated recipe version; prompts and supported controls may differ.
 
 ## Build contract
@@ -146,7 +179,7 @@ Contract rules:
   directions is explicit because handed equipment, text, and asymmetric clothing can change.
 - A successful build satisfies every required clip. Failed candidates and partial work may be
   retained for diagnosis, but do not masquerade as a completed pack. Intentional salvage or a
-  reroll is a new request, with its own quote and lineage.
+  reroll is a new request with its own lineage and, in a paid service, its own quote.
 
 The result includes more than a sprite-sheet image:
 
@@ -157,7 +190,10 @@ The result includes more than a sprite-sheet image:
 | Clips | Name, action, view, ordered frame IDs, per-frame durations, looping, and motion convention. |
 | Quality report | Deterministic validation outcomes plus separately labeled model/human judgments and warnings. |
 | Provenance | Identity revision, recipe/profile/processor versions, input hashes, resolved models, attempts, and source job IDs. |
-| Delivery receipt | Quote, credits settled, terminal outcome, and usage identifiers; raw provider cost stays an internal concern. |
+| Execution receipt | Terminal outcome and operational usage identifiers, independent of customer billing. |
+
+The paid service can return a separate commercial receipt containing the quote and settled credits.
+It does not change the sprite manifest. Internal provider-cost accounting remains host-specific.
 
 Generic PNG + JSON is the first export. Engine-specific formats can be deterministic exporters on
 that manifest. Sparkade's gameplay labels, collision logic, and atomic asset activation belong in
@@ -169,38 +205,44 @@ foreground retention, identity, palette stability, and animation coherence indep
 
 ## API and website flow
 
-Proposed resource surface, shared by the website and external clients:
+Proposed resource surface, shared by the website and external clients. Quotes and settlement apply
+only when the host enables the commercial layer; internal/local hosts use their own access and
+resource policies around the same generation request.
 
 | Endpoint | Purpose |
 | --- | --- |
 | `POST /v1/artifacts` | Upload/register a private reference with type, size, and ownership validation. |
 | `GET /v1/recipes` | Discover versioned capabilities and availability for identity or sprite operations. |
-| `POST /v1/quotes` | Validate an identity/build request and return a fixed credit price and immutable request fingerprint. |
-| `POST /v1/identity-jobs` | Submit an identity-candidate operation using a quote and an idempotency key. |
+| `POST /v1/quotes` | Commercial layer: validate a request and return a fixed credit price and immutable request fingerprint. |
+| `POST /v1/identity-jobs` | Submit an identity-candidate operation with an idempotency key; a commercial host additionally requires its quote. |
 | `POST /v1/characters` | Create a library entry. |
 | `POST /v1/characters/:id/revisions` | Approve a delivered candidate or import existing artwork into an immutable revision. |
 | `GET /v1/characters/:id` | Read the library entry and available revisions. |
-| `POST /v1/sprite-jobs` | Build from a pinned identity revision and quote. |
-| `GET /v1/jobs/:id` | Read durable status, stage, result references, and settlement. |
+| `POST /v1/sprite-jobs` | Build from a pinned identity revision; a commercial host additionally requires its quote. |
+| `GET /v1/jobs/:id` | Read durable status, stage, result references, and optional commercial settlement. |
 | `GET /v1/jobs/:id/events?after=...` | Resume progress from a cursor. |
-| `POST /v1/jobs/:id/cancel` | Request cancellation and prevent subsequent delivery/charging according to the quote policy. |
+| `POST /v1/jobs/:id/cancel` | Request cancellation and prevent subsequent delivery; a commercial host applies its settlement policy. |
 
 Job submission returns `202` and a stable ID. The owner comes from authentication, never a trusted
 request-body field. Same owner/operation/idempotency key and same request returns the existing job;
-changed input conflicts. Accepting a quote, reserving credits, and creating the job must be atomic.
+changed input conflicts. In a paid deployment, accepting a quote, reserving credits, and creating
+the job must be atomic. Quote validation belongs to that host's admission layer.
 
 Use job states `queued`, `running`, `succeeded`, `rejected`, `failed`, and `canceled`. Record the
 current stage separately: generating, segmenting, normalizing, validating, or packing. A quality
 rejection is distinguishable from an infrastructure failure. Cancellation and delivery race through
-one atomic terminal transition, with settlement reconciled exactly once.
+one atomic terminal transition, with commercial settlement, where enabled, reconciled exactly once.
 
 The website flow is: character library → create/import → choose a look → choose actions and format
-→ compare compatible recipes and their quoted prices → generate → animated review → download.
+→ compare compatible recipes (and quoted prices in a paid deployment) → generate → animated review → download.
 Save results per character so someone can add a jump next week without rebuilding their run cycle.
 
 ## Credits and bounded execution
 
-Recommend a fixed quote per deliverable for the first customer product. Keep credit prices separate
+Payment implementation is deferred. The following describes an optional future commercial policy,
+not a prerequisite for the next generation slice or an internal deployment.
+
+Recommend a fixed quote per deliverable for the first paid customer product. Keep credit prices separate
 from provider dollars and tune them from measured accepted-output cost, including reviews, retries,
 compute, and storage. Do not publish invented prices before that benchmark exists.
 
@@ -229,8 +271,9 @@ game records or double-charging a sprite child job inside a paid Sparkade genera
 
 Start with a logical service inside this repository. `packages/spriting` can own portable contracts,
 recipe descriptors, artifact manifests, validation, and deterministic processing. Provider calls,
-artifact storage, job execution, and billing are injected host interfaces. Keep game IDs and game
-roles in a Sparkade adapter. A separate website or worker deployment can follow independently.
+artifact storage, job execution, and operational usage are injected host interfaces. Billing wraps
+job admission and settlement outside the generation core. Keep game IDs and game roles in a
+Sparkade adapter. A separate repository, website, or worker deployment can follow independently.
 
 There is useful infrastructure to reuse, but not a ready-made independent sprite service:
 
@@ -251,10 +294,11 @@ The next implementation slice should prove the boundary with today's working sti
 2. Wrap one existing platformer pose path as a single recipe, preserving its current prompts,
    review/repair limits, dimensions, and output semantics. Initially support importing an existing
    approved reference; add generated identity candidates through the same revision contract next.
-3. Make the lab a client of that contract and have a Sparkade adapter consume its result. Verify
+3. Make the lab a client of `SpriteBackend` and have a Sparkade adapter consume its result. Verify
    malformed/unsupported requests, identity immutability, output parity, retries, and artifact replay.
-4. Add quote/usage interfaces without implementing checkout or claiming public credit prices. Bind
-   the existing ledger only when durable sprite job ownership and settlement are ready.
+   Keep backend selection explicit, with capability checks and jobs pinned to their selected host.
+4. Record operational usage and enforce execution budgets. Defer quotes, credit integration,
+   checkout, and public prices; the optional commercial layer can be built around this later.
 5. Add an imported-video recipe returning the same manifest. Use it to prove frame timing, pivots,
    shared normalization, and animated review before introducing a paid video provider.
 

@@ -10,6 +10,9 @@ Saved SAM responses can be reprocessed without another API call. Production stil
 The [standalone sprite utility contract](sprite-service-contract.md) expands the service boundary
 into a reusable character library, identity revisions, recipe catalog, output manifest, and quoted
 jobs shared by a future website/API and Sparkade. It is a proposal, not implemented product scope.
+Sparkade sponsorship remains unresolved, so backend portability is a current constraint and payment
+integration is deferred. The generation contract supports internal or independently hosted backends;
+commercial quotes and credits sit outside its core.
 
 The first deliverable should be a measured SAM background-removal experiment using existing raw
 sprite outputs. In parallel with that design, establish a sprite-generation boundary that can run

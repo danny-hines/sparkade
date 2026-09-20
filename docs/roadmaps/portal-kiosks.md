@@ -209,9 +209,10 @@ media out of fleet diagnostics.
   debugging disabled: implemented by `portal:provision`. The first signed update
   retained registration and controller mappings on Portal+. Preserve a known-good
   version and qualify rollback and retention of downloaded games separately.
-- Operator-assisted Wi-Fi updates are implemented, but final installation is
-  blocked on the tested Portal+ by its required Meta app verifier. The pilot channel
-  is paused; the OS-wide verifier setting has not been changed. The implementation includes with stable/pilot
+- Operator-assisted Wi-Fi updates are implemented. The tested Portal+'s required
+  Meta verifier blocks installation when enabled; testing its OS-wide disable setting
+  on the dedicated pilot is authorized. Provisioning offers an explicit option and
+  backs up/restores the original value. Qualification is pending. The implementation includes stable/pilot
   channel promotion, private staging, signature/hash/version checks, and native
   Android confirmation. Basic version/model/channel/status reporting is implemented
   on the device and in the site code; the site change must be deployed for the admin
@@ -219,6 +220,11 @@ media out of fleet diagnostics.
   installation and stronger kiosk restrictions are supported on each Portal
   model before promising remote management; the experiment uses neither root nor
   device-owner enrollment.
+- Guided USB provisioning can prompt locally for Wi-Fi SSID/password, retain them
+  only for the current batch, and submit them to Android without CLI arguments,
+  files, or cloud transmission. Android 9 WPA2/open configuration is implemented;
+  a real guest-network join still needs testing. Captive portals and enterprise
+  authentication use Portal settings.
 - Extend kiosk health reporting with model, OS/WebView/APK version, storage,
   controller/media capability summaries, and actionable startup failures. Do not
   upload captured media or credentials as diagnostics.

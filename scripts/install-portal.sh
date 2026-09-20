@@ -1,10 +1,11 @@
 #!/bin/bash
 # Sparkade office installer. Compatible with the Bash 3.2 shipped by macOS.
 # No development checkout, admin privileges, signing key, or model API key required.
+set +x # Never trace locally entered Wi-Fi credentials, even under bash -x.
 set -euo pipefail
 umask 077
 
-RELEASE=portal-v0.4.2
+RELEASE=portal-v0.4.3
 REPOSITORY=danny-hines/sparkade
 APP=dev.sparkade.kiosk
 MAIN=dev.sparkade.kiosk/dev.sparkade.portal.MainActivity
@@ -21,11 +22,22 @@ INTERACTIVE=1
 RESTORE=0
 DISABLE_WONDRY=0
 PREPARE_ONLY=0
+DEVICE_UPDATES=0
+WIFI_MODE=ask
+WIFI_URI=content://dev.sparkade.kiosk.wifi-setup
+WIFI_SSID=
+WIFI_PASSWORD=
+WIFI_SECURITY=
+WIFI_HIDDEN=0
 TEMP_DIR=
+SECRET_TTY_STATE=
 
 say() { printf '%s\n' "$*"; }
 fail() { say "\nSetup stopped: $*" >&2; exit 1; }
-cleanup() { if [ -n "$TEMP_DIR" ]; then rm -rf "$TEMP_DIR"; fi; }
+cleanup() {
+  if [ -n "$SECRET_TTY_STATE" ]; then stty "$SECRET_TTY_STATE" <&3 2>/dev/null || true; fi
+  if [ -n "$TEMP_DIR" ]; then rm -rf "$TEMP_DIR"; fi
+}
 trap cleanup EXIT
 trap 'say "Setup interrupted. Run the same command to resume; existing registration is kept."; exit 130' INT TERM
 usage() {
@@ -41,6 +53,8 @@ Usage: bash install-portal.sh [options]
                           Test a locally prepared release instead of downloading
   --non-interactive       Require --serial; exit 2 if manual registration is still needed
   --disable-wondry       Disable the retired Wondry app if present, preserving its data
+  --enable-device-updates Disable Meta's OS-wide install verifier; save its old value
+  --skip-wifi            Keep the current Wi-Fi connection without prompting
   --help                 Show this help
 USAGE
 }
@@ -57,6 +71,8 @@ while [ "$#" -gt 0 ]; do
     --restore-home) RESTORE=1; shift;;
     --disable-wondry) DISABLE_WONDRY=1; shift;;
     --prepare-only) PREPARE_ONLY=1; shift;;
+    --enable-device-updates) DEVICE_UPDATES=1; shift;;
+    --skip-wifi) WIFI_MODE=skip; shift;;
     --help|-h) usage; exit 0;;
     *) usage; fail "Unknown option: $1";;
   esac
@@ -82,6 +98,16 @@ ask() {
 confirm() {
   ask "$1 [y/N]" || return 1
   case "$REPLY" in y|Y|yes|YES) return 0;; *) return 1;; esac
+}
+ask_secret() {
+  # Disable echo before displaying the prompt, including fast paste/automated entry.
+  SECRET_TTY_STATE=$(stty -g <&3)
+  stty -echo <&3
+  printf '%s ' "$1" >&3
+  IFS= read -r "$2" <&3 || exit 130
+  printf '\n' >&3
+  stty "$SECRET_TTY_STATE" <&3
+  SECRET_TTY_STATE=
 }
 download() {
   local url=$1 target=$2
@@ -190,6 +216,98 @@ setup_status() {
   printf '%s\n' "$result"
 }
 
+configure_wifi() {
+  [ "$WIFI_MODE" != skip ] && [ "$INTERACTIVE" = 1 ] || return 0
+  local choice password_again bytes status checks request_id reuse=0
+  while :; do
+    say "Wi-Fi: 1) Keep current network  2) Enter network in Terminal  3) Open Portal Wi-Fi settings"
+    [ -z "$WIFI_SSID" ] || say "      4) Reuse the network entered earlier in this setup session"
+    ask "Choose [1]:"
+    choice=${REPLY:-1}
+    case "$choice" in
+      1) return 0;;
+      2|3|4)
+        if [[ "$SERIAL" == *:* ]]; then
+          say "Changing Wi-Fi needs a USB data connection. Reconnect by USB and rerun setup; this ADB connection uses Wi-Fi."
+          continue
+        fi;;
+      *) continue;;
+    esac
+    if [ "$choice" = 3 ] || [ "$SDK" != 28 ]; then
+      remote am start -a android.settings.WIFI_SETTINGS >/dev/null
+      ask "Select the network and enter its password on the Portal. Complete any guest sign-in, then press Enter."
+      return 0
+    fi
+    reuse=0
+    if [ "$choice" = 4 ]; then
+      [ -n "$WIFI_SSID" ] || continue
+      reuse=1
+    fi
+    if [ "$reuse" = 0 ]; then
+      WIFI_PASSWORD=
+      say "Credentials stay in this installer session and Android's saved Wi-Fi settings. They are not written to setup records or sent to Sparkade."
+      ask "Network name (SSID, exactly as provided by your office; blank to go back):"
+      WIFI_SSID=$REPLY; REPLY=
+      [ -n "$WIFI_SSID" ] || continue
+      bytes=$(LC_ALL=C printf '%s' "$WIFI_SSID" | wc -c | tr -d ' ')
+      if [ "$bytes" -gt 32 ] || LC_ALL=C printf '%s' "$WIFI_SSID" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+        say "Use a network name of 1–32 UTF-8 bytes without control characters."; WIFI_SSID=; continue
+      fi
+      ask "Security: 1) Shared WPA2 password  2) Open network  3) Enterprise/login/certificate [1]:"
+      case "${REPLY:-1}" in
+        1) WIFI_SECURITY=wpa2;; 2) WIFI_SECURITY=open;;
+        3) remote am start -a android.settings.WIFI_SETTINGS >/dev/null
+           ask "Configure the network on the Portal, then press Enter."; WIFI_SSID=; return 0;;
+        *) WIFI_SSID=; continue;;
+      esac
+      WIFI_HIDDEN=0
+      if confirm "Is this a hidden network (SSID is not broadcast)?"; then WIFI_HIDDEN=1; fi
+      if [ "$WIFI_SECURITY" = wpa2 ]; then
+        ask_secret 'Wi-Fi password (hidden):' WIFI_PASSWORD
+        ask_secret 'Repeat password (hidden):' password_again
+        if [ "$WIFI_PASSWORD" != "$password_again" ]; then
+          WIFI_PASSWORD=; password_again=; WIFI_SSID=; say "Passwords did not match. Try again."; continue
+        fi
+        password_again=
+        bytes=$(LC_ALL=C printf '%s' "$WIFI_PASSWORD" | wc -c | tr -d ' ')
+        if ! [[ "$WIFI_PASSWORD" =~ ^[0-9a-fA-F]{64}$ ]] &&
+            { [ "$bytes" -lt 8 ] || [ "$bytes" -gt 63 ] || LC_ALL=C printf '%s' "$WIFI_PASSWORD" | LC_ALL=C grep -q '[^ -~]'; }; then
+          WIFI_PASSWORD=; WIFI_SSID=; say "WPA2 needs 8–63 printable ASCII characters or a 64-digit hexadecimal key."; continue
+        fi
+      fi
+    fi
+    say "Connecting the Portal…"
+    request_id=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+    # Both values travel over stdin, never process arguments, files, URIs, or logs.
+    # Hex is protocol framing, not encryption; use the authorized USB connection.
+    if ! {
+      printf 'SPARKADE_WIFI_V1\n%s\n' "$WIFI_SECURITY"
+      printf '%s' "$WIFI_SSID" | od -An -v -tx1 | tr -d ' \n'; printf '\n'
+      printf '%s' "$WIFI_PASSWORD" | od -An -v -tx1 | tr -d ' \n'; printf '\n'
+      printf '%s\n%s\n' "$WIFI_HIDDEN" "$request_id"
+    } | device shell -T content write --uri "$WIFI_URI/configure" >/dev/null 2>&1; then
+      say "Could not send Wi-Fi setup. Reconnect USB or use Portal Wi-Fi settings."
+      WIFI_PASSWORD=; WIFI_SSID=; continue
+    fi
+    checks=0
+    while [ "$checks" -lt 55 ]; do
+      checks=$((checks + 1))
+      status=$(device shell content call --uri "$WIFI_URI" --method status 2>/dev/null) || status=
+      case "$status" in
+        *state=connected*)
+          if [[ "$status" == *"requestId=$request_id"* ]]; then
+            say "Wi-Fi connected. Production registration will verify internet access."; return 0
+          fi
+          break;;
+        *state=reading*|*state=connecting*|*state=idle*) sleep 1;;
+        *) break;;
+      esac
+    done
+    WIFI_PASSWORD=; WIFI_SSID=
+    say "Wi-Fi connection was not confirmed. Check the password, signal and network security, or choose Portal Wi-Fi settings."
+  done
+}
+
 while :; do
   say "Connect one powered-on Portal to this Mac with a USB data cable."
   select_device
@@ -215,6 +333,15 @@ while :; do
         0|1) remote settings put secure high_text_contrast_enabled "$PREVIOUS_CONTRAST";;
         *) fail "Invalid saved display setting.";;
       esac
+    fi
+    if [ -f "$DEVICE_DIR/previous-verifier.txt" ]; then
+      PREVIOUS_VERIFIER=$(cat "$DEVICE_DIR/previous-verifier.txt")
+      case "$PREVIOUS_VERIFIER" in
+        null) remote settings delete global package_verifier_enable;;
+        0|1) remote settings put global package_verifier_enable "$PREVIOUS_VERIFIER";;
+        *) fail "Invalid saved verifier setting.";;
+      esac
+      [ "$(remote settings get global package_verifier_enable)" = "$PREVIOUS_VERIFIER" ] || fail "Android did not restore the verifier setting."
     fi
     remote am start -a android.intent.action.MAIN -c android.intent.category.HOME
     say "Previous launcher restored. Sparkade registration and games are retained; retired Wondry remains disabled."
@@ -254,6 +381,16 @@ while :; do
   remote pm grant "$APP" android.permission.RECORD_AUDIO
   # Permit Sparkade's signed self-updates; Android still confirms each installation.
   remote appops set "$APP" REQUEST_INSTALL_PACKAGES allow
+  if [ "$DEVICE_UPDATES" = 1 ] || confirm "Enable on-device Sparkade updates? This disables Meta's OS-wide app-install verifier; Android signatures and Sparkade's signing/checksum checks remain."; then
+    if [ ! -f "$DEVICE_DIR/previous-verifier.txt" ]; then
+      PREVIOUS_VERIFIER=$(remote settings get global package_verifier_enable)
+      case "$PREVIOUS_VERIFIER" in null|0|1) ;; *) fail "Cannot save the original verifier setting.";; esac
+      printf '%s\n' "$PREVIOUS_VERIFIER" > "$DEVICE_DIR/previous-verifier.txt"
+    fi
+    remote settings put global package_verifier_enable 0
+    [ "$(remote settings get global package_verifier_enable)" = 0 ] || fail "Android did not apply the verifier setting."
+    say "Meta's installation verifier disabled for this kiosk. Launcher recovery restores the saved value."
+  fi
   if [ "$SDK" = 28 ]; then
     # Portal's Android 9 theme otherwise makes system installer text invisible.
     if [ ! -f "$DEVICE_DIR/previous-high-contrast.txt" ]; then
@@ -276,6 +413,7 @@ while :; do
   [ "$(home_activity)" = "$MAIN" ] || fail "Android did not make Sparkade the default Home."
   # Stop the retired bench wrapper if installed; never touch unrelated applications.
   remote am force-stop dev.sparkade.portal >/dev/null 2>&1 || true
+  configure_wifi
   remote am start -S -n "$SETUP"
   say "Requesting this Portal's production registration status…"
   LAST_CODE=

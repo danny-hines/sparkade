@@ -450,14 +450,15 @@ References: [Portal development](https://developers.meta.com/horizon/documentati
 
 ## Wi-Fi updates and fleet version reports
 
-**Hardware qualification blocked:** downloads, signature checks, readable Android
-confirmation, and cancellation work. The configured Portal+ then rejects the
-actual install with platform result `-22` (`INSTALL_FAILED_VERIFICATION_FAILURE`).
-Its required verifier is `com.facebook.appverifier`; `package_verifier_enable=1`
-and `verifier_verify_adb_installs=0`. No verifier setting has been changed. The
-pilot channel is paused pending an explicit decision on whether dedicated kiosks
-may disable that OS-wide verifier. Use the published Mac installer meanwhile.
-Do not describe the Wi-Fi update flow as qualified until app replacement succeeds.
+**Verifier qualification:** with `package_verifier_enable=1`, the tested Portal+
+rejects app-initiated installation with `-22` (`INSTALL_FAILED_VERIFICATION_FAILURE`)
+after user confirmation. Its required verifier is `com.facebook.appverifier`;
+the pre-existing `verifier_verify_adb_installs=0` allows Mac-driven ADB installation.
+Testing `package_verifier_enable=0` on the dedicated pilot kiosk is now authorized.
+Installer v0.4.3 offers this OS-wide change explicitly, saves the previous value,
+and restores it during launcher recovery. It does not remove Android's APK signing
+checks or Sparkade's pinned certificate/checksum checks. Do not describe the direct
+update flow as qualified until app replacement succeeds on the pilot hardware.
 
 From v0.4.2, **Android Back → Sparkade updates** checks a release channel and
 stages the signed APK over Wi-Fi. Open it from Press Start, the library, or Settings;
@@ -479,10 +480,10 @@ native update screen for test devices. Channels point to immutable versioned APK
 publishing an APK alone does not promote it. Maintainers validate a published release:
 
 ```sh
-npm run portal:promote -- --release portal-v0.4.2 --channel pilot
-npm run portal:promote -- --release portal-v0.4.2 --channel pilot --publish
+npm run portal:promote -- --release portal-v0.4.3 --channel pilot
+npm run portal:promote -- --release portal-v0.4.3 --channel pilot --publish
 # After hardware acceptance, approve the identical binary for ordinary kiosks:
-npm run portal:promote -- --release portal-v0.4.2 --channel stable --publish
+npm run portal:promote -- --release portal-v0.4.3 --channel stable --publish
 # Withdraw approval without uninstalling or altering devices:
 npm run portal:promote -- --channel stable --disable --publish
 ```
@@ -500,6 +501,31 @@ The corresponding site change stores them against the authenticated kiosk and sh
 them in **Admin → Kiosks**, alongside last-contact time. This is backward compatible
 with older clients and servers; the admin display requires deploying the site change.
 It is version/status reporting, not remote control or per-device approval scheduling.
+
+### Office Wi-Fi configuration
+
+The Mac installer can configure an Android 9 Portal over authorized USB, without
+embedding office network details. It prompts for SSID, WPA2-Personal/open security,
+hidden-network status, and a hidden/repeated password. Credentials remain only in
+the installer process and Android's saved network configuration, and can be reused
+for subsequent Portals during that one run. No credential flag/env-file is supported.
+
+`WifiSetupProvider` is protected by `android.permission.DUMP`, including an explicit
+check in `call()` (provider call methods do not enforce URI read/write permission
+automatically). It accepts at most 512 bytes over an in-memory pipe, with a ten-second
+input deadline, strict UTF-8/SSID/PSK validation, and a request nonce. There is no
+WebView bridge to it. It uses `WifiManager` only on API 28, reports association within
+45 seconds, and attempts to return to the prior network on a failed new connection.
+It never deletes existing networks; Android may retain a submitted network after
+failure. Production registration separately verifies internet access. Status contains
+no SSID or password, and errors do not reflect or log submitted values. No location
+permission or network scanning is added.
+
+Changing an existing network's password may require Portal settings if Android
+rejects modification of a network saved by another app. Enterprise/certificate and
+captive-portal sign-in use Portal settings; wireless ADB cannot run network-changing
+setup. The terminal choices and credential transport have fixture coverage, but a
+real office-network join still needs hardware qualification.
 
 ### Device-owner investigation (Portal+, Android 9)
 

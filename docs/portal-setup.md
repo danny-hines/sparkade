@@ -3,7 +3,8 @@
 Use a **Mac**, the Portal's power supply, a **USB data cable**, and a Wi-Fi network
 the Portal can join. You also need access to [Sparkade kiosk administration](https://sparkade.dev/admin/kiosks).
 No source checkout, Homebrew, Android Studio, Node, Java, model API key, or signing
-key is required. Initial Portal setup and Wi-Fi must already work on the device.
+key is required. Complete the Portal's initial setup first. The installer can then
+configure the office network over USB; no office SSID/password belongs in this repo.
 
 ## 1. Start the installer
 
@@ -11,7 +12,7 @@ Open **Terminal** on the Mac and paste:
 
 ```sh
 curl -fL --proto '=https' --proto-redir '=https' \
-  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.2/install-portal.sh \
+  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.3/install-portal.sh \
   -o /tmp/install-sparkade-portal.sh && bash /tmp/install-sparkade-portal.sh
 ```
 
@@ -37,6 +38,32 @@ The installer keeps existing Sparkade data, grants camera/microphone permissions
 makes Sparkade the default Home app, and opens a setup screen on the Portal. If it
 finds an enabled retired Wondry app, it asks to disable it while retaining its data.
 It does not remove Portal system apps or root the device.
+
+### Choose Wi-Fi during setup
+
+Terminal offers **keep the current network**, **enter a network**, or **open Portal
+Wi-Fi settings**. On Android 9, enter the exact SSID, select WPA2/shared password or
+open network, and enter/repeat the password with typing hidden. Hidden SSIDs are
+supported. For additional Portals in the same installer run, you can reuse the
+network details held in memory. Exiting the installer discards that copy.
+
+The password travels through the authorized USB connection using stdin. It is not
+a command argument, shell-history entry, setup record, checked-in configuration,
+or Sparkade cloud field. Android saves the credentials in its normal Wi-Fi settings
+so the kiosk reconnects after power-on. Do not supply passwords in command flags,
+environment variables, chat, or issue reports. Setup disables shell tracing before
+reading credentials.
+
+Changing networks requires USB; the installer will not change Wi-Fi through a
+wireless ADB connection. `--skip-wifi` preserves the current connection without a
+prompt; non-interactive setup also leaves Wi-Fi alone. Enterprise authentication,
+certificates, other Android versions, or firmware restrictions use Portal settings.
+Automatic configuration targets WPA2-Personal and open networks, not WPA3-only.
+
+Wi-Fi association is checked first; production registration separately proves
+internet access. If the guest network requires accepting terms or signing in on a
+web page, complete that on the Portal. A saved Wi-Fi password cannot bypass that
+step or prevent the guest session from expiring.
 
 ## 3. Register it in production
 
@@ -105,7 +132,7 @@ Setup records and the previous Home launcher are saved per **hardware serial** a
 
 These records include app version/checksum, model, Android/WebView information, and
 registration completion time. They contain no device secret, admin credentials,
-photos, audio, or persisted pairing codes. Keep the previous-launcher record for recovery.
+photos, audio, Wi-Fi credentials, or persisted pairing codes. Keep the recovery records.
 
 To restore the original launcher using the same Mac:
 
@@ -118,20 +145,28 @@ didn't perform the original setup, obtain the recovery record from the original
 operator. Android Back → Other launchers also provides temporary access to Portal
 settings. Clearing app data or uninstalling Sparkade removes its local identity
 and games and requires a new registration.
+Recovery also restores the saved high-contrast text and app-verifier settings.
+It keeps Android's saved Wi-Fi networks.
 
 ## Updating
 
-**Current Portal+ qualification:** use the Mac installer to update in place. The
-Portal's required Meta app verifier rejects app-initiated updates even after the
-operator confirms installation. The pilot Wi-Fi update channel is paused; do not
-plan an office rollout around it until the provisioning policy is approved and
-the final installation is re-tested.
+**Dedicated kiosk option:** setup asks whether to enable on-device app updates.
+This disables Meta's additional OS-wide app-install verifier, which otherwise
+rejects Sparkade's app-initiated installation on the tested Portal+. Android's
+cryptographic signature checks and Sparkade's signing/checksum checks remain.
+The change affects all app installations on the device. Answer No to retain the
+verifier and use Mac-driven updates; non-interactive setup retains it unless
+`--enable-device-updates` is explicitly supplied. The original value is saved once
+per hardware serial and restored by `--restore-home`.
+
+The verifier workaround and new Wi-Fi configuration helper are undergoing pilot
+qualification. Do not treat publication of this prerelease as fleet approval.
 
 The experimental **Android Back → Sparkade updates** screen downloads and verifies
 signed releases over Wi-Fi. It only opens from Press Start or a menu, and preserves
 registration and games. Setup enables high-contrast Android text on Android 9 so
 system confirmation buttons are readable, and launcher recovery restores the
-previous display setting. The Mac installer does not disable Meta's verifier.
+previous display setting. Installation still requires confirmation on the Portal.
 
 Run the installer for a published release from a menu or the attract screen because
 updating restarts Sparkade. Offices always use the same maintainer-signed APK and

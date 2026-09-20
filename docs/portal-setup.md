@@ -111,6 +111,25 @@ successful APK installation alone does not qualify every model.
 
 ## Troubleshooting and recovery
 
+### Floating bug icon
+
+Some Portals show Meta's **Bugnub** reporting shortcut over every app. In Portal's
+debug settings, turn **Bugnub** off under **Feedback**. This uses Portal's own
+saved toggle; it does not disable ADB or any system package. Turn it back on in
+the same screen if needed.
+
+On the tested Portal+, an operator can open that screen from the Mac with the
+following command (replace `PORTAL_SERIAL` with the target from `adb devices`):
+
+```sh
+adb -s PORTAL_SERIAL shell am start \
+  -a com.facebook.aloha.system.settings.PROD_DEBUG_TAB \
+  -p com.facebook.alohaapps.settings
+```
+
+After switching Bugnub off, return Home to Sparkade. The installer does not
+automatically change this setting.
+
 | Symptom                                   | What to do                                                                                                              |
 | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | Nothing appears in Terminal's device list | Enable ADB, try a different data cable/USB port, and check the Portal screen. Charging-only cables are a common cause.  |

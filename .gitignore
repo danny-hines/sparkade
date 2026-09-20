@@ -36,3 +36,6 @@ apps/site/app/.well-known/workflow/
 .workflow-data/
 
 packages/server/dist-worker/
+
+# local planning documents
+/docs/roadmaps/

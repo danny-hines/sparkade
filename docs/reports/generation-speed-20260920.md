@@ -55,6 +55,8 @@ replay. Hero candidates retain their individual images and visual reviews.
   permits the hero to reach its next dependency.
 - Erasing one sheet cell regenerates only that prop, preserving the other cells.
 - Workflow tests cover partial completions, coalescing, failure and cancellation.
+- An unreadable saved response retries the checkpoint step without persisting an
+  artwork fallback or a failed game.
 - Real local PostgreSQL tests verify 128 slots per owner, configured global
   capacity, and slot reuse.
 - The full unit run passed 2,187 tests; two image-count assertions needed updating

@@ -162,4 +162,41 @@ describe('durable generation passes', () => {
       'Invalid checkpoint path',
     );
   });
+
+  it('retries an unreadable saved response instead of checkpointing a provider failure', async () => {
+    vi.stubEnv('SPARKADE_PROVIDER', 'mock');
+    const config = defaultConfig();
+    const dir = mkdtempSync(join(tmpdir(), 'sparkade-response-test-'));
+    try {
+      const db = new JobState();
+      const runner = new GenerationRunner(
+        db,
+        new GameFiles(dir),
+        { get: () => config },
+        new SseHub(),
+      );
+      runner.createJob(
+        {
+          promptText: 'A moon garden',
+          sourceKind: 'voice',
+          requestedArchetype: 'platformer',
+          idempotencyKey: 'response-read-test',
+        },
+        { defer: true },
+      );
+      const checkpoint = { state: db.state, files: collectFiles(dir) };
+      await expect(
+        advancePipeline(
+          checkpoint,
+          async () => {
+            throw new Error('Saved response unavailable');
+          },
+          config,
+        ),
+      ).rejects.toThrow('Saved response unavailable');
+      expect(checkpoint.state.job?.status).toBe('queued');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

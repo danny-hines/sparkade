@@ -76,6 +76,7 @@ export async function advancePipeline(
   const db = new JobState(structuredClone(checkpoint.state));
   const abort = new AbortController();
   const pending = new Map<string, ProviderTask>();
+  const responseReadFailures: unknown[] = [];
   const occurrences = new Map<string, number>();
   const request = async (
     task:
@@ -86,7 +87,13 @@ export async function advancePipeline(
     const count = occurrences.get(base) ?? 0;
     occurrences.set(base, count + 1);
     const id = `${base}-${count}`;
-    const result = typeof responses === 'function' ? await responses(id) : responses[id];
+    const result =
+      typeof responses === 'function'
+        ? await responses(id).catch((error: unknown) => {
+            responseReadFailures.push(error);
+            throw error;
+          })
+        : responses[id];
     if (result) {
       if (result.kind === 'error') {
         if (result.status === 401 || result.status === 403)
@@ -142,6 +149,10 @@ export async function advancePipeline(
     const job = db.state.job;
     if (!job) throw new Error('Missing job');
     await runner.execute(job.id);
+    // A Blob outage is a failed checkpoint step, not an art rejection. The
+    // runner may have caught the error in an optional branch; never persist
+    // that branch's fallback or failed state when a saved response was unreadable.
+    if (responseReadFailures.length) throw responseReadFailures[0];
     return {
       history: checkpoint.history,
       state: db.state,

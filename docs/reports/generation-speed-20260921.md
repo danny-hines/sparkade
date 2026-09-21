@@ -157,6 +157,18 @@ and dimension verification. Different generated art/repairs prevent treating the
 wall-time difference as a controlled effect size; the eliminated duplicate calls
 are directly verified.
 
+The targeted **runAndGun** fixture,
+[Danny Ships It Live](https://sparkade.dev/p/mn6t92g), explicitly adds upward
+aiming to the earlier brief. It published on attempt 1 in **7:31** (451.028
+seconds), with 64 logical provider requests (47 image requests) over 34 passes.
+`runShootUp1` passed its third candidate; `runShoot1` and `jumpShoot` each needed
+two. All eight required action poses plus the five base poses were published,
+without an operator retry. One `jumpShootUp` provider request had two execution
+attempts; its eventual response succeeded. All 33 assets passed hash/dimension
+verification. This confirms automatic repair, not a faster average: the prompt
+is more explicit than the earlier fixture, and the game needed quality repairs
+and a provider execution retry.
+
 Checkpoint reuse in the first fighter run avoided re-uploading 1.38 GB of
 unchanged decoded file content across passes. Its checkpoint writes totaled
 12.60 seconds. Adventure reused 769 MB, platformer 170 MB, and racing 160 MB.
@@ -164,6 +176,13 @@ These are cumulative decoded bytes reused, not peak memory or a comparison
 with wire bytes (packs contain base64 JSON). Reads remain measurable—56 seconds
 across the first fighter run—so selective filesystem restoration is a potential
 later improvement.
+
+Final implementation commit `8af2de1` passed the complete 2,195-test suite after
+the adventure repair-pool fix. Preview `dpl_DwEiFLUnJ2kTn2442L4LepXGJGpL` built and
+reached Ready. Eight live games in total completed on their first game attempt;
+all 144 published assets passed manifest/hash/dimension checks. Production was
+not promoted or merged. The final adventure repair fix has regression/build
+verification, with no additional paid adventure run after that correction.
 
 ## Image-call batching and remaining work
 

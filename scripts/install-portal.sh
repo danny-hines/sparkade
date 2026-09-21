@@ -7,7 +7,7 @@ export -n WIFI_SSID WIFI_PASSWORD REPLY
 set -euo pipefail
 umask 077
 
-RELEASE=portal-v0.4.4
+RELEASE=portal-v0.4.5
 REPOSITORY=danny-hines/sparkade
 APP=dev.sparkade.kiosk
 MAIN=dev.sparkade.kiosk/dev.sparkade.portal.MainActivity

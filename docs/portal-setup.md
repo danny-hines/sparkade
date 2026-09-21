@@ -12,7 +12,7 @@ Open **Terminal** on the Mac and paste:
 
 ```sh
 curl -fL --proto '=https' --proto-redir '=https' \
-  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.4/install-portal.sh \
+  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.5/install-portal.sh \
   -o /tmp/install-sparkade-portal.sh && bash /tmp/install-sparkade-portal.sh
 ```
 
@@ -168,6 +168,12 @@ Recovery also restores the saved high-contrast text and app-verifier settings.
 It keeps Android's saved Wi-Fi networks.
 
 ## Updating
+
+The Portal app includes its own copy of the Sparkade interface, game engine, and
+built-in games. Website deployments and pushes to `main` do not replace that copy.
+These changes reach Portals through a new signed APK approved on their update
+channel. Version **0.4.5** includes **Spark Token Rally**, the replacement built-in
+racer, along with kiosk display titles and the library's high-score dialogs.
 
 **Dedicated kiosk option:** setup asks whether to enable on-device app updates.
 This disables Meta's additional OS-wide app-install verifier, which otherwise

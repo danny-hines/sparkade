@@ -7977,10 +7977,10 @@ export class GenerationRunner {
         rejectPlatformerIdentity = reject;
       });
       void platformerIdentityTask.catch(() => {});
+      const platformerPlayerSource = photoReference ? Promise.resolve(photoReference) : keyArtTask;
       const platformerPlayerTask =
         spec.archetype === 'platformer'
-          ? keyArtTask.then(async (keyArt): Promise<void> => {
-              const playerReference = photoReference ?? keyArt;
+          ? platformerPlayerSource.then(async (playerReference): Promise<void> => {
               const colors = spec.palette
                 .filter((hex) => {
                   const r = Number.parseInt(hex.slice(1, 3), 16);

@@ -334,6 +334,66 @@ describe('durable generation passes', () => {
     },
     120_000,
   );
+  it('starts a photo-based platformer identity while key art is still pending', async () => {
+    vi.stubEnv('SPARKADE_PROVIDER', 'mock');
+    vi.stubEnv('SPARKADE_MOCK_FAST', '1');
+    const config = defaultConfig();
+    const dir = mkdtempSync(join(tmpdir(), 'sparkade-photo-critical-path-'));
+    const db = new JobState();
+    let checkpoint: PassCheckpoint;
+    try {
+      const runner = new GenerationRunner(
+        db,
+        new GameFiles(dir),
+        { get: () => config },
+        new SseHub(),
+      );
+      const photo = await sharp({
+        create: { width: 64, height: 64, channels: 3, background: '#abcdef' },
+      })
+        .png()
+        .toBuffer();
+      runner.createJob(
+        {
+          promptText: 'A moon garden platformer',
+          sourceKind: 'typed',
+          requestedArchetype: 'platformer',
+          idempotencyKey: 'photo-critical-path',
+          photo,
+        },
+        { defer: true },
+      );
+      checkpoint = { state: db.state, files: collectFiles(dir) };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const responses: Record<string, ProviderResult> = {};
+    let heldKeyArt: string | undefined;
+    let identityBeforeKeyArt = false;
+    for (let pass = 0; pass < 12 && !identityBeforeKeyArt; pass++) {
+      const output = await advancePipeline(checkpoint, async (id) => responses[id], config);
+      checkpoint = output;
+      expect(output.state.job?.status).not.toBe('failed');
+      heldKeyArt ??= output.pending.find(
+        (r) => r.kind === 'image' && r.request.role === 'keyArt',
+      )?.id;
+      identityBeforeKeyArt =
+        !!heldKeyArt &&
+        output.pending.some((r) => r.kind === 'image' && r.request.role === 'platformer-I1');
+      if (identityBeforeKeyArt) break;
+      for (const request of output.pending) {
+        if (request.id !== heldKeyArt)
+          responses[request.id] = await executeProviderTask(
+            request,
+            config,
+            output.state.job!.gameId,
+          );
+      }
+    }
+    expect(heldKeyArt).toBeTruthy();
+    expect(responses[heldKeyArt!]).toBeUndefined();
+    expect(identityBeforeKeyArt).toBe(true);
+  }, 30_000);
   it('rejects paths escaping a restored checkpoint', () => {
     expect(() => restoreFiles('/tmp/sparkade-test', { '../escape': 'eA==' })).toThrow(
       'Invalid checkpoint path',

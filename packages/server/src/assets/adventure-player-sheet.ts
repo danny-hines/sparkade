@@ -12,7 +12,7 @@ import {
   type GeneratedAdventurePlayerPose,
 } from './adventure-player';
 
-export const ADVENTURE_PLAYER_SHEET_PROMPT_VERSION = 'adventure-player-sheet-v4';
+export const ADVENTURE_PLAYER_SHEET_PROMPT_VERSION = 'adventure-player-sheet-v5';
 export const ADVENTURE_PLAYER_SHEET_GROUPS = [
   {
     id: 'movement',
@@ -97,6 +97,9 @@ export async function buildAdventurePlayerSheetSeed(downIdle: Buffer): Promise<B
     .resize(first.width - insetX * 2, first.height - insetY * 2, {
       fit: 'contain',
       kernel: sharp.kernel.nearest,
+      // Sharp otherwise inserts opaque black letterboxing, which the model
+      // copies and the splitter correctly rejects as disconnected subjects.
+      background: { r: 0, g: 255, b: 0, alpha: 1 },
     })
     .png()
     .toBuffer();

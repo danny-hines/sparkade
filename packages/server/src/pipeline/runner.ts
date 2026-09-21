@@ -10,6 +10,7 @@ import { alignRacingCast, racingIdentityProblems } from './racing-identity';
 import { PipelineSuspended, type DurablePipelineCalls, type PipelineStore } from './durable';
 import { settleAll } from './parallel';
 import { ArtifactCache } from './artifact-cache';
+import { compactArtReview } from '../assets/compact-art-review';
 import { loadGolden } from '@sparkade/generation';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -18,7 +19,6 @@ import { archetypes } from '@sparkade/archetypes';
 import {
   mechanicalFingerprint,
   platformerMechanics,
-  GENERATED_GAME_ASSET_FILES,
   platformerStyleDiagnostics,
   platformerPlayStyle,
   type MechanicalFingerprint,
@@ -1457,7 +1457,8 @@ export class GenerationRunner {
         throw new Error(`provider "${providerName}" does not support image input`);
       }
       let attempt = 0;
-      let activePrompt = prompt;
+      let activePrompt =
+        opts.image && opts.stage === 'building-assets' ? compactArtReview(prompt) : prompt;
       for (;;) {
         if (abort.signal.aborted)
           throw new PipelineError('timeout', 'generation hit the time limit', opts.stage);
@@ -7968,6 +7969,14 @@ export class GenerationRunner {
 
       let platformerPlayerArtStatus: GameMetaFile['platformerPlayerArt'];
 
+      type PlatformerIdentityFrames = { idle: Buffer; sideIdle: Buffer };
+      let resolvePlatformerIdentity!: (frames: PlatformerIdentityFrames) => void;
+      let rejectPlatformerIdentity!: (reason: unknown) => void;
+      const platformerIdentityTask = new Promise<PlatformerIdentityFrames>((resolve, reject) => {
+        resolvePlatformerIdentity = resolve;
+        rejectPlatformerIdentity = reject;
+      });
+      void platformerIdentityTask.catch(() => {});
       const platformerPlayerTask =
         spec.archetype === 'platformer'
           ? keyArtTask.then(async (keyArt): Promise<void> => {
@@ -7993,6 +8002,9 @@ export class GenerationRunner {
                   sourceKind: photoReference ? 'photo' : 'key-art',
                 });
                 const pipelineSha = imagePromptHash(pipelineFingerprint, playerReference);
+                const identityFrameCache = new ArtifactCache(
+                  join(this.files.checkpointsDir, jobId, 'platformer-identity'),
+                );
                 const cached = Object.fromEntries(
                   GENERATED_PLATFORMER_POSES.map((pose) => [
                     pose,
@@ -8006,6 +8018,12 @@ export class GenerationRunner {
                 if (GENERATED_PLATFORMER_POSES.every((pose) => cached[pose])) {
                   const restored = cached as Record<GeneratedPlatformerPose, Buffer>;
                   await validateGeneratedPlatformerPoseSet(restored, { strictMotion: false });
+                  resolvePlatformerIdentity(
+                    identityFrameCache.read<PlatformerIdentityFrames>(pipelineSha) ?? {
+                      idle: restored.idle,
+                      sideIdle: restored.sideIdle,
+                    },
+                  );
                   emit('building-assets', 'Restored the selected platformer player animation');
                   platformerPlayerArtStatus = { mode: 'generated', attempted: true };
                   return;
@@ -8271,6 +8289,9 @@ export class GenerationRunner {
                 if (!sideAnchor) {
                   throw new Error('the neutral side identity anchor failed local validation');
                 }
+                const identityFrames = { idle: idle.png, sideIdle: sideAnchor.png };
+                identityFrameCache.write(pipelineSha, identityFrames);
+                resolvePlatformerIdentity(identityFrames);
                 const sideReference = await prepareGeneratedPlatformerReference(
                   sideAnchor.reference,
                 );
@@ -8572,26 +8593,17 @@ export class GenerationRunner {
             })
           : Promise.resolve();
 
+      void platformerPlayerTask.catch(rejectPlatformerIdentity);
       const platformerActionsTask =
         spec.archetype === 'platformer' && spec.actionPoseVersion === 1
-          ? platformerPlayerTask.then(async () => {
+          ? platformerIdentityTask.then(async (base) => {
               try {
-                const base = Object.fromEntries(
-                  GENERATED_PLATFORMER_POSES.map((pose) => [
-                    pose,
-                    readFileSync(
-                      join(
-                        assetWorkspace.dir,
-                        GENERATED_GAME_ASSET_FILES[PLATFORMER_ASSET_ROLES[pose]],
-                      ),
-                    ),
-                  ]),
-                ) as Record<GeneratedPlatformerPose, Buffer>;
                 await generatePlatformerActions({
                   cache: new ArtifactCache(join(this.files.checkpointsDir, jobId, 'actions')),
                   attempt: job.attempt,
                   spec,
                   base,
+                  referenceMode: 'identity',
                   source: photoReference ?? (await keyArtTask),
                   sourceKind: photoReference ? 'photo' : 'key-art',
                   wardrobe: {

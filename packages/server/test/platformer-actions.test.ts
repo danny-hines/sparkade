@@ -74,6 +74,32 @@ function setup() {
 }
 
 describe('mechanic-specific image pipeline', () => {
+  it('generates and resumes actions from identity before movement poses exist', async () => {
+    const { options, dir } = setup();
+    options.base = { idle: base.idle, sideIdle: base.sideIdle };
+    options.referenceMode = 'identity';
+    const calls: string[] = [];
+    options.generate = async (pose, prompt, reference) => {
+      calls.push(pose);
+      const source =
+        platformerActionReference(pose) === 'wallSlide'
+          ? readFileSync(join(dir, 'platformer-player-wall-slide.png'))
+          : base.sideIdle;
+      expect(reference.equals(await prepareGeneratedPlatformerReference(source))).toBe(true);
+      if (platformerActionReference(pose) !== 'wallSlide') {
+        expect(prompt).toContain('IDENTITY AND COSTUME ONLY');
+        expect(prompt).not.toContain('preserve the reference running legs');
+      }
+      return mockGeneratedImage(prompt);
+    };
+    expect(Object.keys(await generatePlatformerActions(options))).toHaveLength(11);
+    expect(calls).toHaveLength(11);
+    calls.length = 0;
+    options.workspace = new GameAssetWorkspace(dir, 'mock-image');
+    options.cache = new ArtifactCache(join(dir, 'private'));
+    expect(Object.keys(await generatePlatformerActions(options))).toHaveLength(11);
+    expect(calls).toEqual([]);
+  });
   it('submits independent review batches before waiting for either', async () => {
     const { options } = setup();
     const pending: Array<() => void> = [];

@@ -19,6 +19,7 @@ import { shellInput } from '../shell-input';
 import { Icon, Btn, type IconName } from '../icons';
 import { LibraryDemo } from './library-demo';
 import type { Screen } from '../app';
+import { KioskTitle } from '../kiosk-title';
 
 type Action = {
   key: string;
@@ -122,6 +123,7 @@ export function actionsFor(game: GameListItem | null, publishingLocally = false)
 
 export function HomeScreen(props: {
   go: (s: Screen) => void;
+  title: string;
   initialId?: string;
 }): ComponentChildren {
   const [games, setGames] = useState<GameListItem[]>([]);
@@ -358,8 +360,11 @@ export function HomeScreen(props: {
   return (
     <div class="screen home">
       <div class="screen-title">
-        <h1 class="pixel">
-          SPARK<span style="color:var(--spark)">ADE</span>
+        <h1
+          class="pixel kiosk-title"
+          style={{ fontSize: Math.min(26, Math.floor(520 / props.title.length) - 1) }}
+        >
+          <KioskTitle title={props.title} />
         </h1>
         <span class="status-chips">
           {info?.isPi && (

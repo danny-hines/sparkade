@@ -248,6 +248,7 @@ a:focus-visible {
 }
 
 .admin-pair-form label,
+.admin-kiosk-copy-form label,
 .admin-inline-form label {
   display: grid;
   gap: 8px;
@@ -344,6 +345,25 @@ a:focus-visible {
   align-items: end;
   gap: 10px;
   margin-top: 13px;
+}
+
+.admin-kiosk-copy-form {
+  display: grid;
+  gap: 13px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.admin-kiosk-copy-form p {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.admin-kiosk-copy-form button {
+  justify-self: start;
 }
 
 .admin-danger-zone {

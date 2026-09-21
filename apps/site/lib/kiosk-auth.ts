@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { NextRequest } from 'next/server';
+import type { KioskDisplayCopy } from '@sparkade/shared';
 import { authenticateKioskToken, type KioskPrincipal } from './kiosks';
 import { verifyGenerationToken } from '@sparkade/generation/service-auth';
 
@@ -9,6 +10,7 @@ export interface AuthorizedKiosk {
   credentialId: string | null;
   name: string | null;
   defaultFeedVisibility: 'listed' | 'unlisted';
+  displayCopy?: KioskDisplayCopy;
 }
 
 function digest(value: string): Buffer {

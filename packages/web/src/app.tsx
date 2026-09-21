@@ -3,7 +3,14 @@
 // the 5s hold-to-remap trigger, and first-boot mapping.
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import { ATTRACT_IDLE_MS, REMAP_HOLD_MS, type PublicGameLink } from '@sparkade/shared';
+import {
+  ATTRACT_IDLE_MS,
+  REMAP_HOLD_MS,
+  DEFAULT_KIOSK_DISPLAY_COPY,
+  resolveKioskDisplayCopy,
+  type PublicGameLink,
+  type KioskRegistrationStatus,
+} from '@sparkade/shared';
 import { api, type SettingsPayload } from './api';
 import { shellInput } from './shell-input';
 import { reportPortalScreen } from './portal-runtime';
@@ -62,6 +69,7 @@ export function App(): ComponentChildren {
 function KioskApp(): ComponentChildren {
   const [screen, setScreenRaw] = useState<Screen>({ name: 'attract' });
   const [settings, setSettings] = useState<SettingsPayload | null>(null);
+  const [displayCopy, setDisplayCopy] = useState(DEFAULT_KIOSK_DISPLAY_COPY);
   const [holdMs, setHoldMs] = useState<number | null>(null);
   const screenRef = useRef(screen);
   screenRef.current = screen;
@@ -71,6 +79,42 @@ function KioskApp(): ComponentChildren {
   const go = useCallback((next: Screen) => {
     shellInput.swallow();
     setScreenRaw(next);
+  }, []);
+
+  // Read durable device copy first so an offline boot never waits for the cloud.
+  // Poll from the shell, not individual screens, so navigation cannot stop updates.
+  useEffect(() => {
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const apply = (status: KioskRegistrationStatus) => {
+      if (disposed) return;
+      setDisplayCopy((previous) => {
+        const next =
+          status.state === 'registered' || status.state === 'error'
+            ? resolveKioskDisplayCopy(status.displayCopy, previous)
+            : DEFAULT_KIOSK_DISPLAY_COPY;
+        return next.title === previous.title && next.tagline === previous.tagline ? previous : next;
+      });
+    };
+    const refresh = async () => {
+      try {
+        apply(await api.cloudRegistration());
+      } catch {
+        // Leave the last good copy on screen if the local runtime is unavailable.
+      }
+      if (!disposed) timer = setTimeout(() => void refresh(), 60_000);
+    };
+    void api
+      .cloudRegistration(true)
+      .then(apply)
+      .catch(() => {})
+      .then(() => {
+        if (!disposed) void refresh();
+      });
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+    };
   }, []);
 
   // Native installation is allowed only after a fresh report from an idle shell screen.
@@ -187,10 +231,10 @@ function KioskApp(): ComponentChildren {
   let body: ComponentChildren;
   switch (screen.name) {
     case 'attract':
-      body = <AttractScreen go={go} />;
+      body = <AttractScreen go={go} displayCopy={displayCopy} />;
       break;
     case 'home':
-      body = <HomeScreen go={go} initialId={screen.id} />;
+      body = <HomeScreen go={go} initialId={screen.id} title={displayCopy.title} />;
       break;
     case 'wizard':
       body = <WizardScreen go={go} settings={settings} />;

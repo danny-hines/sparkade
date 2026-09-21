@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { KioskRegistration } from '../src/cloud/kiosk-registration';
+import { DEFAULT_KIOSK_DISPLAY_COPY } from '@sparkade/shared';
 
 const dirs: string[] = [];
 
@@ -81,6 +82,7 @@ describe('KioskRegistration', () => {
       origin: 'https://sparkade.dev/',
       name: 'Meta SEA',
       defaultFeedVisibility: 'listed',
+      displayCopy: DEFAULT_KIOSK_DISPLAY_COPY,
     });
     expect(registration.authorizationToken()).toMatch(/^spk_kiosk_/);
     expect(authorizations[0]).toMatch(/^Bearer spk_kiosk_/);
@@ -119,5 +121,47 @@ describe('KioskRegistration', () => {
       defaultFeedVisibility: 'unlisted',
     });
     expect(registration.authorizationToken()).toMatch(/^spk_kiosk_/);
+  });
+
+  it('persists updated display copy through outages and restarts, and accepts a default reset', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        jsonResponse({ code: 'K7M4-PQ9D', expiresAt: '2030-01-01T00:10:00.000Z' }, 201),
+      );
+    const dataDir = tempDataDir();
+    const registration = new KioskRegistration('https://sparkade.dev/', dataDir, fetchImpl);
+    await registration.startPairing();
+    const registered = {
+      state: 'registered',
+      kioskId: 'kiosk-1',
+      name: 'Cabinet',
+      defaultFeedVisibility: 'unlisted',
+    };
+    const eventCopy = { title: 'Launch Party', tagline: 'Make something worth playing' };
+    fetchImpl.mockResolvedValueOnce(jsonResponse({ ...registered, displayCopy: eventCopy }));
+    expect((await registration.refresh()).displayCopy).toEqual(eventCopy);
+
+    const updated = { ...eventCopy, title: 'Day Two' };
+    fetchImpl.mockResolvedValueOnce(jsonResponse({ ...registered, displayCopy: updated }));
+    expect((await registration.refresh()).displayCopy).toEqual(updated);
+
+    fetchImpl.mockRejectedValue(new Error('offline'));
+    const reopened = new KioskRegistration('https://sparkade.dev/', dataDir, fetchImpl);
+    expect(reopened.status().displayCopy).toEqual(updated);
+    expect(await reopened.refresh()).toMatchObject({ state: 'error', displayCopy: updated });
+
+    // An older cloud rollout or a malformed payload must not erase the event copy.
+    for (const displayCopy of [undefined, { title: 'Incomplete' }, { title: 42, tagline: 'Bad' }]) {
+      fetchImpl.mockResolvedValueOnce(jsonResponse({ ...registered, displayCopy }));
+      expect((await reopened.refresh()).displayCopy).toEqual(updated);
+    }
+    fetchImpl.mockResolvedValueOnce(
+      jsonResponse({ ...registered, displayCopy: DEFAULT_KIOSK_DISPLAY_COPY }),
+    );
+    expect((await reopened.refresh()).displayCopy).toEqual(DEFAULT_KIOSK_DISPLAY_COPY);
+    expect(
+      new KioskRegistration('https://sparkade.dev/', dataDir, fetchImpl).status().displayCopy,
+    ).toEqual(DEFAULT_KIOSK_DISPLAY_COPY);
   });
 });

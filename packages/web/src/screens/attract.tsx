@@ -6,7 +6,8 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { decodeSprite } from '@sparkade/engine';
-import type { GameListItem } from '@sparkade/shared';
+import type { GameListItem, KioskDisplayCopy } from '@sparkade/shared';
+import { KioskTitle } from '../kiosk-title';
 import { api } from '../api';
 import { attractAssetSpecs, type AttractAssetSpec } from '../attract-assets';
 import { GameCover } from '../components';
@@ -359,7 +360,10 @@ function DreamField(props: { games: GameListItem[] }): ComponentChildren {
   return <canvas ref={ref} class="dream-field" />;
 }
 
-export function AttractScreen(props: { go: (s: Screen) => void }): ComponentChildren {
+export function AttractScreen(props: {
+  go: (s: Screen) => void;
+  displayCopy: KioskDisplayCopy;
+}): ComponentChildren {
   const [games, setGames] = useState<GameListItem[]>([]);
   const [spot, setSpot] = useState(0);
 
@@ -388,12 +392,13 @@ export function AttractScreen(props: { go: (s: Screen) => void }): ComponentChil
     <div class="screen attract" style="justify-content:center">
       <DreamField games={games} />
       <div class="center-col" style="position:relative;z-index:1">
-        <div class="logo pixel">
-          SPARK<span class="spark">ADE</span>
+        <div
+          class="logo pixel"
+          style={{ fontSize: Math.min(64, Math.floor(880 / props.displayCopy.title.length) - 1) }}
+        >
+          <KioskTitle title={props.displayCopy.title} />
         </div>
-        <div style="color:var(--text-dim);font-size:21px">
-          The arcade that dreams up its own games
-        </div>
+        <div class="attract-tagline">{props.displayCopy.tagline}</div>
         {featured && (
           <div
             key={featured.id}

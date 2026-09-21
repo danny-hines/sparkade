@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
         kioskId: principal.kioskId,
         name: principal.name,
         defaultFeedVisibility: principal.defaultFeedVisibility,
+        displayCopy: principal.displayCopy,
       },
       { headers: { 'cache-control': 'no-store' } },
     );

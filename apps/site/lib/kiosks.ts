@@ -1,4 +1,9 @@
 import type { KioskRuntimeReport } from './kiosk-runtime';
+import {
+  parseKioskDisplayCopy,
+  resolveKioskDisplayCopy,
+  type KioskDisplayCopy,
+} from '@sparkade/shared';
 import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { getSql } from './db';
 
@@ -18,6 +23,7 @@ export interface KioskPrincipal {
   credentialId: string;
   name: string;
   defaultFeedVisibility: FeedVisibility;
+  displayCopy: KioskDisplayCopy;
 }
 
 export interface ManagedKiosk {
@@ -25,6 +31,7 @@ export interface ManagedKiosk {
   name: string;
   ownerUserId: string;
   defaultFeedVisibility: FeedVisibility;
+  displayCopy: KioskDisplayCopy;
   createdAt: string;
   updatedAt: string;
   lastSeenAt: string | null;
@@ -40,6 +47,7 @@ export type KioskCredentialStatus =
       kioskId: string;
       name: string;
       defaultFeedVisibility: FeedVisibility;
+      displayCopy: KioskDisplayCopy;
     }
   | { state: 'pending'; code: string; expiresAt: string }
   | { state: 'expired' | 'revoked' | 'unregistered' };
@@ -49,6 +57,7 @@ type KioskRow = {
   name: string;
   owner_user_id: string;
   default_feed_visibility: FeedVisibility;
+  display_copy?: unknown;
   created_at: string | Date;
   updated_at: string | Date;
   last_seen_at: string | Date | null;
@@ -63,6 +72,7 @@ type CredentialRow = {
   kiosk_id: string;
   name: string;
   default_feed_visibility: FeedVisibility;
+  display_copy?: unknown;
   kiosk_revoked_at: string | Date | null;
   credential_revoked_at: string | Date | null;
 };
@@ -141,6 +151,7 @@ async function ensureSchema(): Promise<void> {
       `;
       await sql`ALTER TABLE kiosks ADD COLUMN IF NOT EXISTS runtime_report JSONB`;
       await sql`ALTER TABLE kiosks ADD COLUMN IF NOT EXISTS runtime_reported_at TIMESTAMPTZ`;
+      await sql`ALTER TABLE kiosks ADD COLUMN IF NOT EXISTS display_copy JSONB NOT NULL DEFAULT '{}'::jsonb`;
       await sql`
         CREATE TABLE IF NOT EXISTS kiosk_credentials (
           id TEXT PRIMARY KEY,
@@ -265,6 +276,7 @@ async function credentialRowForToken(token: string): Promise<CredentialRow | nul
            k.id AS kiosk_id,
            k.name,
            k.default_feed_visibility,
+           k.display_copy,
            k.revoked_at AS kiosk_revoked_at,
            c.revoked_at AS credential_revoked_at
     FROM kiosk_credentials c
@@ -300,6 +312,7 @@ export async function authenticateKioskToken(token: string): Promise<KioskPrinci
     credentialId: row.credential_id,
     name: row.name,
     defaultFeedVisibility: row.default_feed_visibility,
+    displayCopy: resolveKioskDisplayCopy(row.display_copy),
   };
 }
 
@@ -317,6 +330,7 @@ export async function getKioskCredentialStatus(token: string): Promise<KioskCred
       kioskId: credential.kiosk_id,
       name: credential.name,
       defaultFeedVisibility: credential.default_feed_visibility,
+      displayCopy: resolveKioskDisplayCopy(credential.display_copy),
     };
   }
 
@@ -394,6 +408,7 @@ function mapKioskRow(row: KioskRow): ManagedKiosk {
     name: row.name,
     ownerUserId: row.owner_user_id,
     defaultFeedVisibility: row.default_feed_visibility,
+    displayCopy: resolveKioskDisplayCopy(row.display_copy),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
     lastSeenAt: optionalIso(row.last_seen_at),
@@ -413,6 +428,7 @@ export async function listManagedKiosks(ownerUserId: string): Promise<ManagedKio
            k.owner_user_id,
            k.name,
            k.default_feed_visibility,
+           k.display_copy,
            k.created_at,
            k.updated_at,
            k.last_seen_at,
@@ -434,13 +450,18 @@ export async function updateManagedKiosk(input: {
   ownerUserId: string;
   name?: string;
   defaultFeedVisibility?: FeedVisibility;
+  displayCopy?: KioskDisplayCopy;
 }): Promise<boolean> {
   const name = input.name === undefined ? undefined : normalizeKioskName(input.name);
   if (input.name !== undefined && !name) return false;
   if (input.defaultFeedVisibility !== undefined && !isFeedVisibility(input.defaultFeedVisibility)) {
     return false;
   }
-  if (name === undefined && input.defaultFeedVisibility === undefined) return false;
+  const displayCopy =
+    input.displayCopy === undefined ? undefined : parseKioskDisplayCopy(input.displayCopy);
+  if (displayCopy === null) return false;
+  if (name === undefined && input.defaultFeedVisibility === undefined && displayCopy === undefined)
+    return false;
   await ensureSchema();
   if (name) {
     await import('./public-games').then((module) => module.ensurePublicGamesSchema());
@@ -453,6 +474,7 @@ export async function updateManagedKiosk(input: {
           ${input.defaultFeedVisibility ?? null},
           default_feed_visibility
         ),
+        display_copy = COALESCE(${displayCopy ? JSON.stringify(displayCopy) : null}::jsonb, display_copy),
         updated_at = NOW()
     WHERE id = ${input.kioskId}
       AND owner_user_id = ${input.ownerUserId}

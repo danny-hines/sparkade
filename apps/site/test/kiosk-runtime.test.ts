@@ -62,6 +62,7 @@ describe('Portal version reports', () => {
       credentialId: 'test-credential',
       name: 'Test Portal',
       defaultFeedVisibility: 'unlisted',
+      displayCopy: { title: 'Launch Party', tagline: 'Make a game' },
     });
     const headers = reportHeaders();
     headers.set('x-sparkade-kiosk-id', 'someone-else');
@@ -73,6 +74,7 @@ describe('Portal version reports', () => {
       state: 'registered',
       kioskId: 'real-kiosk',
       name: 'Test Portal',
+      displayCopy: { title: 'Launch Party', tagline: 'Make a game' },
     });
   });
   it('keeps old clients working without writing an empty report', async () => {

@@ -45,6 +45,7 @@ final class PortalRuntime {
             case "state.load": return readState();
             case "state.save": saveState(args.getJSONObject("state")); return new JSONObject().put("ok", true);
             case "registration.status": return registration(false, false);
+            case "registration.cached": return cachedRegistration();
             case "registration.pair": return registration(true, args.optBoolean("force"));
             case "cloud": {
                 String path = args.getString("path"), method = args.optString("method", "GET");
@@ -93,6 +94,13 @@ final class PortalRuntime {
         catch (IOException error) { file.failWrite(output); throw error; }
     }
 
+    private synchronized JSONObject cachedRegistration() throws Exception {
+        JSONObject stored = identity.get();
+        return stored == null
+                ? new JSONObject().put("state", "unregistered").put("origin", CloudPolicy.ORIGIN)
+                : publicStatus(stored);
+    }
+
     private synchronized JSONObject registration(boolean pair, boolean force) throws Exception {
         JSONObject stored = identity.get();
         if (pair && (stored == null || force || "revoked".equals(stored.optString("state")))) {
@@ -121,6 +129,8 @@ final class PortalRuntime {
                 if (status.equals("registered")) {
                     stored.put("name", result.getString("name")).put("kioskId", result.getString("kioskId"))
                             .put("defaultFeedVisibility", result.getString("defaultFeedVisibility"));
+                    JSONObject displayCopy = result.optJSONObject("displayCopy");
+                    if (validDisplayCopy(displayCopy)) stored.put("displayCopy", displayCopy);
                 } else { sessionToken = null; sessionExpires = 0; }
             }
             identity.save(stored);
@@ -129,10 +139,25 @@ final class PortalRuntime {
             return publicStatus(stored).put("state", "error").put("message", error.getMessage());
         }
     }
+    private static boolean validDisplayCopy(JSONObject copy) {
+        if (copy == null) return false;
+        for (String key : new String[]{"title", "tagline"}) {
+            Object value = copy.opt(key);
+            if (!(value instanceof String)) return false;
+            String text = (String) value;
+            if (text.length() > (key.equals("title") ? 40 : 120)
+                    || text.matches("(?s).*[\\x00-\\x1f\\x7f].*")) return false;
+        }
+        return true;
+    }
+
     private JSONObject publicStatus(JSONObject stored) throws Exception {
         JSONObject result = new JSONObject().put("origin", CloudPolicy.ORIGIN).put("state", stored.getString("state"));
         for (String key : new String[]{"pairingCode", "expiresAt", "name", "defaultFeedVisibility"}) {
             if (stored.has(key)) result.put(key, stored.get(key));
+        }
+        if ("registered".equals(stored.optString("state")) && stored.has("displayCopy")) {
+            result.put("displayCopy", stored.get("displayCopy"));
         }
         return result;
     }

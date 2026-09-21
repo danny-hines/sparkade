@@ -585,7 +585,8 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
   });
 
   // ---- cloud registration ------------------------------------------------------
-  app.get('/api/cloud/registration', async () => {
+  app.get('/api/cloud/registration', async (req, reply) => {
+    reply.header('cache-control', 'no-store');
     if (!publicGames) {
       return {
         state: 'disabled',
@@ -593,7 +594,10 @@ export function registerRoutes(app: FastifyInstance, ctx: ApiContext): void {
         message: 'Cloud registration is disabled on this build.',
       };
     }
-    return publicGames.refreshRegistration();
+    const query = req.query as { cached?: string };
+    return query.cached === '1'
+      ? publicGames.registrationStatus()
+      : publicGames.refreshRegistration();
   });
 
   app.post('/api/cloud/registration/pair', async (req) => {

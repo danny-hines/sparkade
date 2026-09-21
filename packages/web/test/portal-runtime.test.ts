@@ -81,6 +81,12 @@ async function setup() {
     let result: unknown = {};
     if (operation === 'state.load') result = structuredClone(disk);
     if (operation === 'state.save') disk = structuredClone(args.state) as PortalState;
+    if (operation === 'registration.cached' || operation === 'registration.status') {
+      result = {
+        state: 'registered', origin: 'https://sparkade.dev',
+        displayCopy: { title: 'Portal Party', tagline: 'Welcome!' },
+      };
+    }
     if (operation === 'cloud') {
       const path = String(args.path);
       if (path === '/v1/sync')
@@ -129,6 +135,20 @@ async function setup() {
     getInstalled: () => installed,
   };
 }
+
+it('serves saved display copy at startup without waiting on cloud registration', async () => {
+  const { runtime, calls } = await setup();
+  expect(calls.filter((call) => call.operation.startsWith('registration.')))
+    .toEqual([{ operation: 'registration.cached', args: {} }]);
+  expect(await (await runtime.handle('/api/cloud/registration?cached=1')).json()).toMatchObject({
+    displayCopy: { title: 'Portal Party', tagline: 'Welcome!' },
+  });
+  expect(calls.some((call) => call.operation === 'registration.status')).toBe(false);
+  expect(await (await runtime.handle('/api/cloud/registration')).json()).toMatchObject({
+    displayCopy: { title: 'Portal Party', tagline: 'Welcome!' },
+  });
+  expect(calls.some((call) => call.operation === 'registration.status')).toBe(true);
+});
 
 it('persists independent device settings and scores across offline restarts', async () => {
   const first = await setup(),

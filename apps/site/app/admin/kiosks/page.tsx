@@ -1,4 +1,9 @@
 import { listManagedKiosks } from '@/lib/kiosks';
+import {
+  DEFAULT_KIOSK_DISPLAY_COPY,
+  KIOSK_TITLE_MAX_LENGTH,
+  KIOSK_TAGLINE_MAX_LENGTH,
+} from '@sparkade/shared';
 import { getAdminPageIdentity } from '../page-access';
 import { AdminNotice, type AdminQuery } from '../admin-notice';
 import {
@@ -6,6 +11,7 @@ import {
   renameKioskAction,
   revokeKioskAction,
   setKioskVisibilityAction,
+  setKioskDisplayCopyAction,
 } from '../actions';
 export const metadata = { title: 'Admin · Kiosks' };
 export const dynamic = 'force-dynamic';
@@ -28,7 +34,7 @@ export default async function KiosksPage({ searchParams }: { searchParams: Promi
       <section className="admin-hero">
         <span className="admin-kicker">Device management</span>
         <h1>Kiosks</h1>
-        <p>Pair cabinets, manage their access, and choose where their new games appear.</p>
+        <p>Pair cabinets, customize their screens, and choose where their new games appear.</p>
       </section>
       <AdminNotice query={query} />
       <section className="admin-section" aria-labelledby="pair-title">
@@ -132,6 +138,37 @@ export default async function KiosksPage({ searchParams }: { searchParams: Promi
                   </label>
                   <button type="submit" disabled={!!kiosk.revokedAt}>
                     Update
+                  </button>
+                </form>
+                <form action={setKioskDisplayCopyAction} className="admin-kiosk-copy-form">
+                  <input type="hidden" name="kioskId" value={kiosk.id} />
+                  <label>
+                    Screen title
+                    <input
+                      name="title"
+                      defaultValue={kiosk.displayCopy.title}
+                      placeholder={DEFAULT_KIOSK_DISPLAY_COPY.title}
+                      maxLength={KIOSK_TITLE_MAX_LENGTH}
+                      disabled={!!kiosk.revokedAt}
+                    />
+                  </label>
+                  <label>
+                    Attract screen tagline
+                    <input
+                      name="tagline"
+                      defaultValue={kiosk.displayCopy.tagline}
+                      placeholder={DEFAULT_KIOSK_DISPLAY_COPY.tagline}
+                      maxLength={KIOSK_TAGLINE_MAX_LENGTH}
+                      disabled={!!kiosk.revokedAt}
+                    />
+                  </label>
+                  <p>
+                    The title appears on the attract and game selection screens. Leave a field blank
+                    to restore its default. Online kiosks update within a minute and keep the last
+                    saved copy offline.
+                  </p>
+                  <button type="submit" disabled={!!kiosk.revokedAt}>
+                    Save screen copy
                   </button>
                 </form>
                 {!kiosk.revokedAt ? (

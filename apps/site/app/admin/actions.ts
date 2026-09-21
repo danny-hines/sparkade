@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { parseKioskDisplayCopy } from '@sparkade/shared';
 import { requireAdminIdentity } from '@/lib/admin-auth';
 import {
   claimKioskPairing,
@@ -82,6 +83,31 @@ export async function setKioskVisibilityAction(formData: FormData): Promise<neve
   adminRedirect(
     '/admin/kiosks',
     updated ? `New games will be ${visibility}.` : 'Could not update kiosk visibility.',
+    updated ? 'success' : 'error',
+  );
+}
+
+export async function setKioskDisplayCopyAction(formData: FormData): Promise<never> {
+  const admin = await requireAdminIdentity();
+  const kioskId = shortId(formData.get('kioskId'));
+  const displayCopy = parseKioskDisplayCopy({
+    title: formData.get('title'),
+    tagline: formData.get('tagline'),
+  });
+  const updated =
+    kioskId !== null &&
+    displayCopy !== null &&
+    (await updateManagedKiosk({
+      kioskId,
+      ownerUserId: admin.userId,
+      displayCopy,
+    }));
+  if (updated) revalidatePath('/admin/kiosks');
+  adminRedirect(
+    '/admin/kiosks',
+    updated
+      ? 'Kiosk copy saved. It will appear within a minute while the kiosk is online.'
+      : 'Could not save kiosk copy. Use up to 40 characters for the title and 120 for the tagline.',
     updated ? 'success' : 'error',
   );
 }

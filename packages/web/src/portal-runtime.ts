@@ -201,6 +201,11 @@ export class PortalRuntime {
       pricing: this.bootstrap.settings.pricing,
       imageGeneration: this.bootstrap.settings.imageGeneration,
     };
+    // Read before the background cloud sync starts; its native network call holds
+    // the registration lock and must not delay the first frame's saved copy.
+    this.registration = await this.native<KioskRegistrationStatus>('registration.cached').catch(
+      () => null,
+    );
   }
   start(): void {
     const tick = async () => {
@@ -472,8 +477,19 @@ export class PortalRuntime {
       return this.state.settings;
     }
     if (path === '/api/cloud/registration' || path === '/api/cloud/registration/pair') {
+      if (
+        path === '/api/cloud/registration' &&
+        url.searchParams.get('cached') === '1' &&
+        this.registration
+      ) {
+        return this.registration;
+      }
       this.registration = await this.native<KioskRegistrationStatus>(
-        path.endsWith('/pair') ? 'registration.pair' : 'registration.status',
+        path.endsWith('/pair')
+          ? 'registration.pair'
+          : url.searchParams.get('cached') === '1'
+            ? 'registration.cached'
+            : 'registration.status',
         { force: body().force === true },
       );
       return this.registration;

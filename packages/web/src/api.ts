@@ -554,8 +554,10 @@ export const api = {
   updateStatus: () => fetch('/api/system/update/status').then((r) => json<SoftwareUpdateStatus>(r)),
   updateInstall: () =>
     fetch('/api/system/update', { method: 'POST' }).then((r) => json<{ started: boolean }>(r)),
-  cloudRegistration: () =>
-    fetch('/api/cloud/registration').then((r) => json<KioskRegistrationStatus>(r)),
+  cloudRegistration: (cached = false) =>
+    fetch(`/api/cloud/registration${cached ? '?cached=1' : ''}`, { cache: 'no-store' }).then((r) =>
+      json<KioskRegistrationStatus>(r),
+    ),
   startCloudPairing: (force = false) =>
     fetch('/api/cloud/registration/pair', {
       method: 'POST',

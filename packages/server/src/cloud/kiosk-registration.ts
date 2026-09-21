@@ -1,7 +1,12 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync } from 'node:fs';
 import { join } from 'node:path';
-import type { KioskFeedVisibility, KioskRegistrationStatus } from '@sparkade/shared';
+import {
+  resolveKioskDisplayCopy,
+  type KioskDisplayCopy,
+  type KioskFeedVisibility,
+  type KioskRegistrationStatus,
+} from '@sparkade/shared';
 import { atomicWriteFile, readJson } from '../util';
 
 const IDENTITY_FILENAME = 'cloud-registration.json';
@@ -19,6 +24,7 @@ type StoredIdentity = {
   kioskId?: string;
   name?: string;
   defaultFeedVisibility?: KioskFeedVisibility;
+  displayCopy?: KioskDisplayCopy;
 };
 
 type RemoteRegistrationStatus =
@@ -27,6 +33,7 @@ type RemoteRegistrationStatus =
       kioskId: string | null;
       name: string;
       defaultFeedVisibility: KioskFeedVisibility;
+      displayCopy?: unknown;
       legacy?: boolean;
     }
   | { state: 'pending'; code: string; expiresAt: string }
@@ -86,6 +93,7 @@ export class KioskRegistration {
         origin: this.origin,
         name: this.identity.name ?? 'Sparkade Cabinet',
         defaultFeedVisibility: this.identity.defaultFeedVisibility ?? 'unlisted',
+        displayCopy: resolveKioskDisplayCopy(this.identity.displayCopy),
       };
     }
     if (this.identity?.state === 'pairing') {
@@ -146,6 +154,7 @@ export class KioskRegistration {
         kioskId: undefined,
         name: undefined,
         defaultFeedVisibility: undefined,
+        displayCopy: undefined,
       };
       this.persist();
       return this.status();
@@ -168,6 +177,13 @@ export class KioskRegistration {
       if (!response.ok) throw new Error(`registration service returned HTTP ${response.status}`);
       const payload = (await response.json()) as RemoteRegistrationStatus;
       if (payload.state === 'registered') {
+        if (
+          typeof payload.name !== 'string' ||
+          (payload.kioskId !== null && typeof payload.kioskId !== 'string') ||
+          !['listed', 'unlisted'].includes(payload.defaultFeedVisibility)
+        ) {
+          throw new Error('registration service returned an invalid response');
+        }
         this.identity = {
           ...this.identity,
           state: 'registered',
@@ -176,6 +192,10 @@ export class KioskRegistration {
           kioskId: payload.kioskId ?? undefined,
           name: payload.name,
           defaultFeedVisibility: payload.defaultFeedVisibility,
+          displayCopy: resolveKioskDisplayCopy(
+            payload.displayCopy,
+            resolveKioskDisplayCopy(this.identity.displayCopy),
+          ),
         };
       } else if (payload.state === 'pending') {
         this.identity = {
@@ -184,8 +204,10 @@ export class KioskRegistration {
           pairingCode: payload.code,
           expiresAt: payload.expiresAt,
         };
-      } else {
+      } else if (['expired', 'revoked', 'unregistered'].includes(payload.state)) {
         this.identity = { ...this.identity, state: payload.state };
+      } else {
+        throw new Error('registration service returned an invalid response');
       }
       this.persist();
       return this.status();

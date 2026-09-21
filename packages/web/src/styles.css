@@ -2132,14 +2132,26 @@ h2.pixel {
 
 .attract .logo {
   font-size: 64px;
+  max-width: 900px;
+  overflow-wrap: anywhere;
   color: var(--text);
   text-shadow:
     0 0 24px rgba(53, 224, 255, 0.5),
     0 6px 0 rgba(217, 117, 20, 0.9);
 }
 
-.attract .logo .spark {
-  color: var(--spark);
+.attract-tagline {
+  max-width: 880px;
+  color: var(--text-dim);
+  font-size: 21px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.home .kiosk-title {
+  min-width: 0;
+  max-width: 520px;
+  overflow-wrap: anywhere;
 }
 
 .press-start {

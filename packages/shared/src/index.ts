@@ -11,6 +11,7 @@ export * from './presentation';
 export * from './shooter-styles';
 export * from './adventure-styles';
 export * from './cloud-generation';
+export * from './kiosk-display-copy';
 
 export * from './fighter-styles';
 export * from './racing-assets';

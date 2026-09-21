@@ -1223,6 +1223,11 @@ export interface PublicGamePublication {
 
 export type KioskFeedVisibility = 'listed' | 'unlisted';
 
+export interface KioskDisplayCopy {
+  title: string;
+  tagline: string;
+}
+
 export type KioskRegistrationState =
   'disabled' | 'unregistered' | 'pairing' | 'registered' | 'expired' | 'revoked' | 'error';
 
@@ -1234,6 +1239,7 @@ export interface KioskRegistrationStatus {
   pairingCode?: string;
   expiresAt?: string;
   defaultFeedVisibility?: KioskFeedVisibility;
+  displayCopy?: KioskDisplayCopy;
   message?: string;
   legacy?: boolean;
 }

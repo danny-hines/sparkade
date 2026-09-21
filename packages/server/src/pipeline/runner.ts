@@ -7543,76 +7543,100 @@ export class GenerationRunner {
                 }
               }
 
-              const identityDescriptors: FighterIdentityCandidateDescriptor[] =
-                identityCandidates.map(({ id, slot, name, visualConcept, photoIdentity }) => ({
-                  id,
-                  slot,
-                  name,
-                  visualConcept,
-                  photoIdentity,
-                }));
-              const identityBoard = await buildFighterIdentityJudgeBoard({
-                ...(photoReference ? { sourcePhoto: photoReference } : {}),
-                keyArt,
-                bossArt,
-                candidates: identityCandidates,
-              });
-              const firstIdentityBySlot = Object.fromEntries(
-                pendingRoster.map(({ slot }) => [
-                  slot,
-                  identityDescriptors.find((candidate) => candidate.slot === slot)!,
+              // A completed atlas must not change the already-approved identity
+              // selection for unfinished fighters and trigger another cast review.
+              const selectionKey = imagePromptHash(
+                JSON.stringify([
+                  'fighter-identity-selection-v1',
+                  job.attempt,
+                  pipelineFingerprint,
+                  FIGHTER_ROSTER_SLOTS.map((slot) => pipelineHashes.get(slot)),
                 ]),
-              ) as Partial<Record<FighterRosterSlot, FighterIdentityCandidateDescriptor>>;
-              const mockIdentityDecision = {
-                candidateReviews: identityDescriptors.map(({ id, slot }) => ({
-                  id,
-                  slot,
-                  scores: { identity: 5, concept: 5, costume: 5, silhouette: 5, technical: 5 },
-                  fatalIssues: [],
-                  summary: 'Mock identity-safe roster foundation.',
-                })),
-                selections: pendingRoster.map(({ slot }) => ({
-                  slot,
-                  accepted: true,
-                  candidateId: firstIdentityBySlot[slot]!.id,
-                  confidence: 1,
-                  rationale: 'Mock selection.',
-                  retryGuidance: '',
-                })),
-                castReview: {
-                  distinctiveness: 5,
-                  styleConsistency: 5,
-                  fatalIssues: [],
-                  summary: 'Mock coherent and distinct cast.',
-                },
-              };
-              let rawIdentityDecision: unknown = mockIdentityDecision;
-              if (!mockImages) {
-                const prompt = buildFighterIdentityJudgePrompt(
-                  identityDescriptors,
-                  fighterSpec.artDirection,
-                );
-                rawIdentityDecision = await callLlm(
-                  'design',
-                  {
-                    ...prompt,
-                    jsonSchema: buildFighterIdentityJudgeSchema(identityDescriptors),
-                    maxTokens: 5200,
-                    timeoutMs: 120_000,
-                  },
-                  {
-                    stage: 'building-assets',
-                    label: 'Spark selected the fighter identity foundations',
-                    image: identityBoard,
-                    reasoningEffort: 'low',
-                  },
-                );
-              }
-              const identityDecision = normalizeFighterIdentityJudgeDecision(
-                rawIdentityDecision,
-                identityDescriptors,
               );
-              const selectedIdentityIds = bestFighterIdentityCandidateIds(identityDecision);
+              const selectedIdentityIds = await fighterArtifacts.getOrCompute(
+                selectionKey,
+                async () => {
+                  const identityDescriptors: FighterIdentityCandidateDescriptor[] =
+                    identityCandidates.map(({ id, slot, name, visualConcept, photoIdentity }) => ({
+                      id,
+                      slot,
+                      name,
+                      visualConcept,
+                      photoIdentity,
+                    }));
+                  const identityBoard = await buildFighterIdentityJudgeBoard({
+                    ...(photoReference ? { sourcePhoto: photoReference } : {}),
+                    keyArt,
+                    bossArt,
+                    candidates: identityCandidates,
+                  });
+                  const firstIdentityBySlot = Object.fromEntries(
+                    pendingRoster.map(({ slot }) => [
+                      slot,
+                      identityDescriptors.find((candidate) => candidate.slot === slot)!,
+                    ]),
+                  ) as Partial<Record<FighterRosterSlot, FighterIdentityCandidateDescriptor>>;
+                  const mockIdentityDecision = {
+                    candidateReviews: identityDescriptors.map(({ id, slot }) => ({
+                      id,
+                      slot,
+                      scores: { identity: 5, concept: 5, costume: 5, silhouette: 5, technical: 5 },
+                      fatalIssues: [],
+                      summary: 'Mock identity-safe roster foundation.',
+                    })),
+                    selections: pendingRoster.map(({ slot }) => ({
+                      slot,
+                      accepted: true,
+                      candidateId: firstIdentityBySlot[slot]!.id,
+                      confidence: 1,
+                      rationale: 'Mock selection.',
+                      retryGuidance: '',
+                    })),
+                    castReview: {
+                      distinctiveness: 5,
+                      styleConsistency: 5,
+                      fatalIssues: [],
+                      summary: 'Mock coherent and distinct cast.',
+                    },
+                  };
+                  let rawIdentityDecision: unknown = mockIdentityDecision;
+                  if (!mockImages) {
+                    const prompt = buildFighterIdentityJudgePrompt(
+                      identityDescriptors,
+                      fighterSpec.artDirection,
+                    );
+                    rawIdentityDecision = await callLlm(
+                      'design',
+                      {
+                        ...prompt,
+                        jsonSchema: buildFighterIdentityJudgeSchema(identityDescriptors),
+                        maxTokens: 5200,
+                        timeoutMs: 120_000,
+                      },
+                      {
+                        stage: 'building-assets',
+                        label: 'Spark selected the fighter identity foundations',
+                        image: identityBoard,
+                        reasoningEffort: 'low',
+                      },
+                    );
+                  }
+                  const identityDecision = normalizeFighterIdentityJudgeDecision(
+                    rawIdentityDecision,
+                    identityDescriptors,
+                  );
+                  const selectedIds = bestFighterIdentityCandidateIds(identityDecision);
+                  for (const { slot } of pendingRoster)
+                    if (
+                      !identityCandidates.some(
+                        (candidate) =>
+                          candidate.slot === slot && candidate.id === selectedIds[slot],
+                      )
+                    )
+                      throw new Error(`Spark did not select a ${slot} identity`);
+                  return selectedIds;
+                },
+              );
               const selectedFoundations = Object.fromEntries(
                 pendingRoster.map(({ slot }) => {
                   const selected = identityCandidates.find(

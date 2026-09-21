@@ -18,14 +18,22 @@ import {
 import { executeProviderTask, providerUsageEvent } from '../src/pipeline/durable-provider';
 import { validateBundle } from '../src/cloud/generation-client';
 import type { CloudGameBundle } from '@sparkade/shared';
+import * as fighterJudge from '../src/assets/fighter-pose-judge';
 
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 describe('durable generation passes', () => {
   it.each(['hshooter', 'platformer', 'shooter', 'adventure', 'fighter', 'racing'] as const)(
     'generates %s across fresh filesystems without repeating completed provider calls',
     async (archetype) => {
       vi.stubEnv('SPARKADE_PROVIDER', 'mock');
       vi.stubEnv('SPARKADE_MOCK_FAST', '1');
+      const identityReview =
+        archetype === 'fighter'
+          ? vi.spyOn(fighterJudge, 'buildFighterIdentityJudgeBoard')
+          : undefined;
       const config = defaultConfig();
       const dir = mkdtempSync(join(tmpdir(), 'sparkade-durable-test-'));
       const db = new JobState();
@@ -63,6 +71,8 @@ describe('durable generation passes', () => {
       let adventureSiblingSheetReady = false;
       const adventureImageRoles: string[] = [];
       let parallelEnemyRepairs = false;
+      let heldFighterSheet: string | undefined;
+      let partialRosterReady = false;
       for (; passes < 40; passes++) {
         const output = await advancePipeline(
           JSON.parse(JSON.stringify(checkpoint)),
@@ -73,6 +83,15 @@ describe('durable generation passes', () => {
         expect(output.state.job?.status).not.toBe('failed');
         if (output.state.job?.status === 'done') break;
         expect(output.pending.length).toBeGreaterThan(0);
+        if (archetype === 'fighter') {
+          heldFighterSheet ??= output.pending.find(
+            (r) => r.kind === 'image' && r.request.role === 'fighter-opponent1-sheet-mobility',
+          )?.id;
+          if (heldFighterSheet && !responses[heldFighterSheet])
+            partialRosterReady ||= Object.keys(output.files).some((path) =>
+              path.endsWith('/fighter-player-atlas.png'),
+            );
+        }
         heldDependency ??= output.pending.find(
           (request) =>
             request.kind === 'image' &&
@@ -129,6 +148,7 @@ describe('durable generation passes', () => {
           sawHeroWhileBackdropPending = true;
         for (const request of output.pending) {
           expect(responses[request.id]).toBeUndefined();
+          if (request.id === heldFighterSheet && !partialRosterReady) continue;
           if (request.id === heldDependency && !independentBranchAdvanced) continue;
           if (
             request.id === heldDependency &&
@@ -217,6 +237,11 @@ describe('durable generation passes', () => {
       }
       expect(passes).toBeGreaterThan(2);
       expect(checkpoint.state.job?.status).toBe('done');
+      if (identityReview) {
+        expect(heldFighterSheet).toBeTruthy();
+        expect(partialRosterReady).toBe(true);
+        expect(identityReview).toHaveBeenCalledTimes(1);
+      }
       if (['racing', 'fighter', 'adventure'].includes(archetype)) {
         expect(heldDependency).toBeTruthy();
         expect(independentBranchAdvanced).toBe(true);

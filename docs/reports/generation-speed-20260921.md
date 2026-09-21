@@ -44,6 +44,13 @@ available reference, allowing the player and three opponents to start while
 the boss illustration is pending. The complete-roster review remains. Normalized
 identity/pose candidates and split pose sheets are cached across resumes.
 
+The first live preview exposed another repeated step: once one atlas finished,
+the smaller unfinished roster caused another identity selection, sometimes
+changing foundations and requesting new sheets. The follow-up persists the
+approved selection for the full source/roster/attempt fingerprint. A staggered
+completion regression test verifies that only one identity board is reviewed;
+six additional fighter pipeline/retry tests pass.
+
 ### Adventure
 
 Story art and portraits can start from the approved hero foundation while the
@@ -76,7 +83,21 @@ Existing multi-enemy image boards remain in use.
   deletions, cold reads, selected-file reads and recovery after corrupt/missing
   storage. Unchanged large files require no new pack uploads.
 - Local PostgreSQL verification passed 55 website/capacity tests.
+- The full suite passed 2,195 tests; 90 were skipped behind their existing
+  environment/fixture gates (the 55 PostgreSQL tests ran separately). Root and
+  site typechecks, lint, root build, and the preview deployment build passed.
 
 Historical timings above are small-sample observations from older deployments,
 not measurements of the optimized implementation. Live preview results will be
 recorded below after verification; production rollout is separate.
+
+## Live preview audit
+
+Preview `dpl_HeUzuz1muyKuQvFFFbNkMzkHXBbY` runs commit `80d5615`. Six games use
+one test owner, with at most three active concurrently. Racing, fighter and
+adventure start first; horizontal shooter, vertical shooter and platformer fill
+the freed slots in that order. These are fresh, no-photo games. Platformer uses
+the earlier Danny/Meta prompt; the other archetypes use a fictional courier or
+inventor premise. Timings cover cloud creation to publication, not Portal
+download or installation. Individual results are diagnostic samples, not p50/p90
+or reliability estimates.

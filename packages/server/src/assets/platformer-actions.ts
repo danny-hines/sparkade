@@ -24,7 +24,7 @@ import {
   normalizePlatformerJumpJudgeDecision,
 } from './platformer-jump-judge';
 
-export const PLATFORMER_ACTION_PROMPT_VERSION = 'platformer-actions-v5';
+export const PLATFORMER_ACTION_PROMPT_VERSION = 'platformer-actions-v6';
 export const PLATFORMER_ACTION_MAX_CANDIDATES = 4;
 
 interface ActionRepair {
@@ -46,6 +46,7 @@ export async function buildPlatformerActionReference(
   repair: boolean,
   referenceMode: 'pose' | 'identity' = 'pose',
 ): Promise<Buffer> {
+  if (platformerActionReference(pose) === 'wallSlide') referenceMode = 'pose';
   if (!repair || !pose.includes('Up')) return prepareGeneratedPlatformerReference(approved);
   const character = await sharp(approved)
     .resize(704, 800, { fit: 'contain', kernel: 'nearest', background: '#00ff00' })
@@ -150,8 +151,15 @@ export async function generatePlatformerActions(
     required.filter((p) => platformerActionReference(p) !== 'wallSlide'),
     required.filter((p) => platformerActionReference(p) === 'wallSlide'),
   ];
-  for (const group of groups) {
-    if (group.some((pose) => !referenceFor(pose))) continue;
+  let resolveWallSlide!: () => void;
+  let rejectWallSlide!: (reason: unknown) => void;
+  const wallSlide = new Promise<void>((resolve, reject) => {
+    resolveWallSlide = resolve;
+    rejectWallSlide = reject;
+  });
+  void wallSlide.catch(() => {});
+  const processGroup = async (group: PlatformerActionPose[]) => {
+    if (group.some((pose) => !referenceFor(pose))) return;
     for (const pose of group) {
       const hash = imagePromptHash(
         PLATFORMER_ACTION_PROMPT_VERSION +
@@ -168,7 +176,10 @@ export async function generatePlatformerActions(
         PLATFORMER_ACTION_PROMPT_VERSION,
         hash,
       );
-      if (cached) accepted[pose] = cached;
+      if (cached) {
+        accepted[pose] = cached;
+        if (pose === 'wallSlide') resolveWallSlide();
+      }
     }
     const batchesKey = `review-batches:${o.attempt}:${imagePromptHash(JSON.stringify(group.map((pose) => hashes.get(pose))))}`;
     const plannedBatches = o.cache.read<ReviewCandidate[][]>(batchesKey) ?? [];
@@ -200,7 +211,7 @@ export async function generatePlatformerActions(
             ` Candidate ${repair.candidates + 1} of ${PLATFORMER_ACTION_MAX_CANDIDATES}.` +
             (repair.guidance ? ` Retry correction: ${repair.guidance}` : '') +
             (repair.candidates > 0 && pose.includes('Up')
-              ? ` The reference LEFT panel is the approved character: preserve its identity and costume${o.referenceMode === 'identity' ? ', then use the requested action leg posture' : ' and leg pose'}. The RIGHT panel is an arm geometry guide only: use a bent elbow and visibly upward-facing empty palm. Never copy its colors, diagram, arrow or labels. Output one full character on green.`
+              ? ` The reference LEFT panel is the approved character: preserve its identity and costume${o.referenceMode === 'identity' && platformerActionReference(pose) !== 'wallSlide' ? ', then use the requested action leg posture' : ' and leg pose'}. The RIGHT panel is an arm geometry guide only: use a bent elbow and visibly upward-facing empty palm. Never copy its colors, diagram, arrow or labels. Output one full character on green.`
               : '');
           const candidate = await o.cache.getOrCompute(
             `candidate:${o.attempt}:${imagePromptHash(prompt, reference)}`,
@@ -319,6 +330,7 @@ export async function generatePlatformerActions(
                 hashes.get(candidate.id)!,
               );
               accepted[candidate.id] = candidate.processed;
+              if (candidate.id === 'wallSlide') resolveWallSlide();
             } else {
               reject(
                 candidate.id,
@@ -335,7 +347,18 @@ export async function generatePlatformerActions(
       );
       if (failed) throw failed.reason;
     }
-  }
+  };
+  const independent = processGroup(groups[0]!);
+  // Start wall attacks as soon as their own reference is accepted. Drain both
+  // branches on suspension/failure so sibling progress reaches the checkpoint.
+  void independent.then(
+    () => resolveWallSlide(),
+    (error) => rejectWallSlide(error),
+  );
+  await settleAll([
+    independent,
+    groups[1]!.length ? wallSlide.then(() => processGroup(groups[1]!)) : Promise.resolve(),
+  ]);
   const missing = required.filter((pose) => !accepted[pose]);
   if (missing.length)
     throw new Error(

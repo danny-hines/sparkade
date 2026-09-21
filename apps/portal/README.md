@@ -410,6 +410,10 @@ and a sustained gameplay run before choosing kiosk management or native UI work.
 
 ## Prepare an office release (maintainers)
 
+First assess all affected clients using the [release guide](../../docs/releases.md).
+Shared shell, engine, and built-in game changes can require a Portal APK even when
+the change does not touch Android source.
+
 Office setup always installs the same fleet-signed APK. Keep the original private
 key in secure backup; `release-certificate.sha256` contains only its public
 certificate fingerprint. The packager checks the APK signature against that

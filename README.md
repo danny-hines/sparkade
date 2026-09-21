@@ -103,6 +103,11 @@ atomically to the stable procedural stage if it cannot be normalized.
 To hit the real models, copy `.env.example` to `.env`, set `META_API_KEY`, and use `npm run dev`.
 The same key is used for Muse Spark 1.2 Contributor, Muse Voice Transcribe 1.0, and Muse Image 1.0.
 
+## Releasing changes
+
+For changes that ship to users, follow the [release guide](docs/releases.md) to
+identify the required website deployment, Pi update, and Portal APK release.
+
 ## Other kiosk hardware: Meta Portal
 
 The standalone [Portal kiosk](apps/portal/README.md) packages the shared shell and

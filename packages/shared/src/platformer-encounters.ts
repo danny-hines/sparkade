@@ -147,28 +147,47 @@ export function encounterModifiers(
   ];
 }
 
-export const ENCOUNTER_SECTION_SCHEMA = {
-  type: 'object',
-  properties: {
-    pattern: { enum: [...PLATFORMER_ENCOUNTER_IDS] },
-    variant: { type: 'integer', minimum: 0, maximum: 2 },
-    challenge: { enum: ['introduce', 'develop', 'test'] },
-    enemy: { enum: allEnemies },
-    reward: { enum: ['coins', 'heart', 'doubleJump', 'projectile', 'shield'] },
-    modifier: { enum: [...PLATFORMER_ENCOUNTER_MODIFIERS] },
-  },
-  required: ['pattern', 'variant', 'challenge', 'enemy', 'reward'],
-  additionalProperties: false,
-} as const;
+function encounterSectionSchema(patterns: readonly PlatformerEncounterId[]) {
+  // Each decoder alternative is a complete, compatible section. Independent
+  // enums allowed impossible combinations such as bounce-run + flyer through.
+  return {
+    anyOf: patterns.map((pattern) => ({
+      type: 'object',
+      properties: {
+        pattern: { enum: [pattern] },
+        variant: { type: 'integer', minimum: 0, maximum: 2 },
+        challenge: { enum: ['introduce', 'develop', 'test'] },
+        enemy: { enum: [...PLATFORMER_ENCOUNTERS[pattern].enemies] },
+        reward: { enum: ['coins', 'heart', 'doubleJump', 'projectile', 'shield'] },
+        modifier: { enum: [...encounterModifiers(pattern)] },
+      },
+      required: ['pattern', 'variant', 'challenge', 'enemy', 'reward'],
+      additionalProperties: false,
+    })),
+  };
+}
+
+export const ENCOUNTER_SECTION_SCHEMA = encounterSectionSchema(PLATFORMER_ENCOUNTER_IDS);
 export const ENCOUNTER_ROUTE_SCHEMA = {
-  type: 'object',
-  properties: {
-    orientation: { enum: ['horizontal', 'tower'] },
-    direction: { enum: ['left', 'right'] },
-    sections: { type: 'array', minItems: 5, maxItems: 6, items: ENCOUNTER_SECTION_SCHEMA },
-  },
-  required: ['orientation', 'direction', 'sections'],
-  additionalProperties: false,
+  anyOf: (['horizontal', 'tower'] as const).map((orientation) => ({
+    type: 'object',
+    properties: {
+      orientation: { enum: [orientation] },
+      direction: { enum: ['left', 'right'] },
+      sections: {
+        type: 'array',
+        minItems: 5,
+        maxItems: 6,
+        items: encounterSectionSchema(
+          PLATFORMER_ENCOUNTER_IDS.filter(
+            (pattern) => PLATFORMER_ENCOUNTERS[pattern].orientation === orientation,
+          ),
+        ),
+      },
+    },
+    required: ['orientation', 'direction', 'sections'],
+    additionalProperties: false,
+  })),
 } as const;
 
 /** Only actual compiled encounter labels participate; legacy entity labels stay useful. */

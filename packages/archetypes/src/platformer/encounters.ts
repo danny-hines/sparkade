@@ -28,22 +28,34 @@ export function compilePlatformerEncounterRoute(value: unknown): Geometry {
     throw new Error('encounterRoute needs an orientation, direction and 5-6 sections');
   route.sections.forEach((s, i) => {
     const pattern = s && PLATFORMER_ENCOUNTERS[s.pattern];
+    const invalid = (reason: string): never => {
+      throw new Error(`invalid encounter section ${i}: ${reason}`);
+    };
+    if (!pattern) invalid(`unknown pattern ${JSON.stringify(s?.pattern)}`);
+    if (pattern.orientation !== route.orientation)
+      invalid(
+        `pattern "${s.pattern}" requires orientation "${pattern.orientation}", received "${route.orientation}"`,
+      );
+    if (!pattern.enemies.includes(s.enemy))
+      invalid(
+        `pattern "${s.pattern}" does not support enemy "${s.enemy}"; choose ${pattern.enemies.join(', ')}`,
+      );
+    if (!encounterModifiers(s.pattern).includes(s.modifier ?? 'none'))
+      invalid(
+        `pattern "${s.pattern}" does not support modifier "${s.modifier}"; choose ${encounterModifiers(s.pattern).join(', ')}`,
+      );
     if (
-      !pattern ||
-      pattern.orientation !== route.orientation ||
-      !pattern.enemies.includes(s.enemy) ||
       !Number.isInteger(s.variant) ||
       s.variant < 0 ||
       s.variant > 2 ||
       !['introduce', 'develop', 'test'].includes(s.challenge) ||
       !['coins', 'heart', 'doubleJump', 'projectile', 'shield'].includes(s.reward) ||
-      !encounterModifiers(s.pattern).includes(s.modifier ?? 'none') ||
       Object.keys(s).some(
         (k) => !['pattern', 'variant', 'challenge', 'enemy', 'reward', 'modifier'].includes(k),
       )
     )
-      throw new Error(
-        `invalid encounter section ${i}: check pattern, enemy and variant compatibility`,
+      invalid(
+        'expected variant 0–2, challenge introduce/develop/test, reward coins/heart/doubleJump/projectile/shield, and no extra fields',
       );
     if (i && s.pattern === route.sections[i - 1]!.pattern)
       throw new Error('adjacent encounters must use different patterns');

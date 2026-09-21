@@ -2209,7 +2209,9 @@ export class GenerationRunner {
                 {
                   stage: 'writing-spec',
                   checkpoint: 'levels',
-                  label: 'Correcting compact level rows…',
+                  label: error.path.includes('encounterRoute')
+                    ? 'Correcting level encounters…'
+                    : 'Correcting compact level rows…',
                   reasoningEffort: 'minimal',
                 },
               );
@@ -8830,9 +8832,11 @@ export class GenerationRunner {
       const err =
         e instanceof PipelineError
           ? e
-          : e instanceof GeneratedAssetStorageError
-            ? new PipelineError('storage', e.message, 'building-assets')
-            : new PipelineError('internal', e instanceof Error ? e.message : String(e));
+          : e instanceof TileRunsError
+            ? new PipelineError('validation-failed', e.message, 'writing-spec')
+            : e instanceof GeneratedAssetStorageError
+              ? new PipelineError('storage', e.message, 'building-assets')
+              : new PipelineError('internal', e instanceof Error ? e.message : String(e));
       const friendly = {
         code: err.code,
         message: err.message.slice(0, 500),

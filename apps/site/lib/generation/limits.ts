@@ -11,7 +11,7 @@ export function generationLimits() {
     requests,
     ownerRequests: Math.min(
       requests,
-      positiveInteger(process.env.SPARKADE_CLOUD_OWNER_CONCURRENCY, 16),
+      positiveInteger(process.env.SPARKADE_CLOUD_OWNER_CONCURRENCY, 128),
     ),
     pendingJobs: positiveInteger(process.env.SPARKADE_CLOUD_MAX_PENDING_JOBS, 10_000),
   };

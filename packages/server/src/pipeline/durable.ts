@@ -1,6 +1,15 @@
 import type { CompleteRequest, CompleteResponse, StageName } from '@sparkade/shared';
 import type { Db } from '../storage/db';
 
+/** Control flow for one branch reaching an unfinished external dependency. */
+export class PipelineSuspended extends Error {
+  readonly code = 'suspended';
+  constructor() {
+    super('Waiting for cloud steps');
+    this.name = 'PipelineSuspended';
+  }
+}
+
 /** The runner needs a job ledger, not a particular database implementation. */
 export type PipelineStore = Pick<
   Db,

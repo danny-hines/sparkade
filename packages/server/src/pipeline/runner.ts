@@ -7,7 +7,10 @@ import { RACING_BASE_ROLES, RACING_MOTION_ROLES, RACING_LOCOMOTION_VERSION, buil
 import { generatePlatformerActions } from '../assets/platformer-actions';
 import { randomInt } from 'node:crypto';
 import { alignRacingCast, racingIdentityProblems } from './racing-identity';
-import type { DurablePipelineCalls, PipelineStore } from './durable';
+import { PipelineSuspended, type DurablePipelineCalls, type PipelineStore } from './durable';
+import { settleAll } from './parallel';
+import { ArtifactCache } from './artifact-cache';
+import { loadGolden } from '@sparkade/generation';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { nanoid } from 'nanoid';
@@ -304,7 +307,10 @@ import {
   PLATFORMER_PROP_PIPELINE_PROMPT_VERSION,
   PLATFORMER_PROP_PROMPT_VERSION,
   buildPlatformerPropPrompt,
+  buildPlatformerPropBoardPrompt,
+  platformerPropBoardLayout,
   processGeneratedPlatformerProp,
+  processGeneratedPlatformerPropBoard,
   type GeneratedPlatformerProp,
 } from '../assets/platformer-prop';
 import {
@@ -1388,13 +1394,14 @@ export class GenerationRunner {
     };
     const abort = this.durable?.abort ?? new AbortController();
     this.aborts.set(jobId, abort);
-    const startedAt = Date.now();
+    const startedAt = this.durable && job.startedAt ? Date.parse(job.startedAt) : Date.now();
     let slow = false;
     const softTimer = setTimeout(() => {
       slow = true;
     }, GENERATION.softBudgetMs);
     const hardTimer = setTimeout(() => abort.abort(), GENERATION.hardBudgetMs);
-    const throwIfSuspended = () => {
+    const throwIfSuspended = (error?: unknown) => {
+      if (error instanceof PipelineSuspended) throw error;
       if (this.durable?.suspended() && abort.signal.aborted)
         throw new PipelineError('suspended', 'Waiting for cloud steps');
     };
@@ -1507,7 +1514,7 @@ export class GenerationRunner {
           }
           return parsed;
         } catch (e) {
-          throwIfSuspended();
+          throwIfSuspended(e);
           if (abort.signal.aborted)
             throw new PipelineError('timeout', 'generation hit the time limit', opts.stage);
           if (e instanceof ProviderAuthError) {
@@ -1655,7 +1662,7 @@ export class GenerationRunner {
           emit('building-assets', opts.label);
           return result.image;
         } catch (error) {
-          throwIfSuspended();
+          throwIfSuspended(error);
           if (abort.signal.aborted) {
             throw new PipelineError('timeout', 'generation hit the time limit', 'building-assets');
           }
@@ -1815,7 +1822,7 @@ export class GenerationRunner {
           cumulativeCostUsd: this.db.gameCost(gameId),
         });
       } catch (error) {
-        throwIfSuspended();
+        throwIfSuspended(error);
         console.warn('could not capture generation incident:', error);
         return null;
       }
@@ -1834,7 +1841,7 @@ export class GenerationRunner {
         try {
           getImageAdapter();
         } catch (error) {
-          throwIfSuspended();
+          throwIfSuspended(error);
           throw new PipelineError(
             'image-config',
             error instanceof Error ? error.message : String(error),
@@ -2117,6 +2124,7 @@ export class GenerationRunner {
       }
 
       let spec: GameSpec;
+      let musicPending = false;
       if (resumedValidatedSpec) {
         spec = resumedValidatedSpec;
         pushPartial({ sprites: spec.sprites, music: spec.music });
@@ -2189,7 +2197,7 @@ export class GenerationRunner {
           try {
             return compileGeneratedLevels(archetype, raw, true);
           } catch (error) {
-            throwIfSuspended();
+            throwIfSuspended(error);
             if (!(error instanceof TileRunsError)) throw error;
             const diagnostic = tileRunsDiagnostic(error);
             const retryStarted = Date.now();
@@ -2208,7 +2216,7 @@ export class GenerationRunner {
               try {
                 compiled = compileGeneratedLevels(archetype, retryRaw, true);
               } catch (retryError) {
-                throwIfSuspended();
+                throwIfSuspended(retryError);
                 if (!(retryError instanceof TileRunsError)) throw retryError;
                 compiled = canonicalLevelsFallback(archetype, retryRaw, retryError);
               }
@@ -2222,7 +2230,7 @@ export class GenerationRunner {
               );
               return compiled;
             } catch (retryError) {
-              throwIfSuspended();
+              throwIfSuspended(retryError);
               const after =
                 retryError instanceof TileRunsError
                   ? [tileRunsDiagnostic(retryError)]
@@ -2308,8 +2316,19 @@ export class GenerationRunner {
             tick(resumedMusic !== undefined ? 'Music restored' : 'Music');
           }),
         ]);
+        if (
+          this.durable &&
+          results[0]?.status === 'fulfilled' &&
+          results[1]?.status === 'fulfilled' &&
+          results[2]?.status === 'rejected' &&
+          results[2].reason instanceof PipelineSuspended
+        ) {
+          musicPending = true;
+          parts.music = structuredClone(loadGolden(archetype).music);
+        }
         const firstFailure = results.find(
-          (r): r is PromiseRejectedResult => r.status === 'rejected',
+          (r, index): r is PromiseRejectedResult =>
+            r.status === 'rejected' && !(musicPending && index === 2),
         );
         if (firstFailure) throw firstFailure.reason;
 
@@ -2337,7 +2356,7 @@ export class GenerationRunner {
       }
 
       spec = ensurePlatformerImageCharacterFallbacks(spec, recentUse.bosses);
-      if (this.durable?.suspended()) return;
+      if (this.durable?.suspended() && !musicPending) return;
       // Repairs may alter geometry, but the committed presentation remains design-owned.
       if (spec.archetype === 'platformer')
         spec.presentationFamily = design.presentationFamily ?? 'arcade';
@@ -2398,13 +2417,14 @@ export class GenerationRunner {
       }
 
       try {
-        this.files.writeValidatedSpecCheckpoint(jobId, job.attempt, {
-          engineVersion: ENGINE_VERSION,
-          specVersion: SPEC_VERSION,
-          archetypeVersion: archetypes[archetype].version,
-          design,
-          spec,
-        });
+        if (!musicPending)
+          this.files.writeValidatedSpecCheckpoint(jobId, job.attempt, {
+            engineVersion: ENGINE_VERSION,
+            specVersion: SPEC_VERSION,
+            archetypeVersion: archetypes[archetype].version,
+            design,
+            spec,
+          });
       } catch {
         // A valid in-memory spec can still publish if checkpoint storage is
         // unavailable; a future retry will fall back to raw-stage restoration.
@@ -2557,7 +2577,7 @@ export class GenerationRunner {
             await assetWorkspace.store(opts.role, normalized, opts.promptVersion, promptSha);
             return companion ? { image: normalized, companion } : normalized;
           } catch (error) {
-            throwIfSuspended();
+            throwIfSuspended(error);
             if (error instanceof PipelineError) {
               // Racing preserves provider content-policy refusals as
               // terminal failures: a refused racing image (key art, story
@@ -2676,7 +2696,7 @@ export class GenerationRunner {
                   size: horizontal ? '1536x1024' : '1024x1536',
                 });
               } catch (error) {
-                throwIfSuspended();
+                throwIfSuspended(error);
                 if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                 validationFailure(`${horizontal ? 'hshooter' : 'shooter'}-player-craft-${id}`);
                 emit(
@@ -2686,7 +2706,7 @@ export class GenerationRunner {
                 return null;
               }
               try {
-                const [gameplay, presentation] = await Promise.all([
+                const [gameplay, presentation] = await settleAll([
                   horizontal
                     ? processGeneratedHShooterCraft(raw).then((result) => result.png)
                     : processGeneratedShooterCraft(raw).then((result) => result.png),
@@ -2696,7 +2716,7 @@ export class GenerationRunner {
                 ]);
                 return { id, gameplay, presentation };
               } catch (_error) {
-                throwIfSuspended();
+                throwIfSuspended(_error);
                 validationFailure(`${horizontal ? 'hshooter' : 'shooter'}-player-craft-${id}`);
                 emit('building-assets', `Player craft candidate ${id} was unusable; continuing…`);
                 return null;
@@ -2705,12 +2725,12 @@ export class GenerationRunner {
 
             emit('building-assets', 'Painting three player craft candidates…');
             let candidates = (
-              await Promise.all(['A', 'B', 'C'].map((id) => generateCandidate(id)))
+              await settleAll(['A', 'B', 'C'].map((id) => generateCandidate(id)))
             ).filter((candidate): candidate is CraftCandidate => candidate !== null);
             if (candidates.length === 0) {
               emit('building-assets', 'Repainting the player craft candidate pool…');
               candidates = (
-                await Promise.all(
+                await settleAll(
                   ['D', 'E', 'F'].map((id) =>
                     generateCandidate(
                       id,
@@ -2806,7 +2826,7 @@ export class GenerationRunner {
       const racingSpec = spec.archetype === 'racing' ? spec : null;
       const racingIdentity = racingSpec?.identity;
       const racingAssetFailure = (error: unknown): never => {
-        throwIfSuspended();
+        throwIfSuspended(error);
         if (error instanceof PipelineError || error instanceof GeneratedAssetStorageError)
           throw error;
         throw new PipelineError(
@@ -2915,8 +2935,8 @@ export class GenerationRunner {
           concept: slot.vehicleConcept,
         });
         const board = await buildRacingRosterJudgeBoard([
-          ...await Promise.all(strips.map(async (png, k) => ({ id: reviewSlots[k]!.id, png: await extractRacingNeutralCell(png) }))),
-          ...await Promise.all(references.map(async ({ slot, png }) => ({ id: slot.id, png: await extractRacingNeutralCell(png), referenceOnly: true }))),
+          ...await settleAll(strips.map(async (png, k) => ({ id: reviewSlots[k]!.id, png: await extractRacingNeutralCell(png) }))),
+          ...await settleAll(references.map(async ({ slot, png }) => ({ id: slot.id, png: await extractRacingNeutralCell(png), referenceOnly: true }))),
         ]);
         if (mockImages) {
           return { accepted: true, rejectedIds: [], retryGuidance: '', slotGuidance: {} };
@@ -3071,7 +3091,7 @@ export class GenerationRunner {
             return strip;
           })()
         : Promise.resolve(null);
-      const keyArtTask = Promise.all([playerCraftTask, racingPlayerStripTask]).then(
+      const keyArtTask = settleAll([playerCraftTask, racingPlayerStripTask]).then(
         async ([craftAssets, racingCraft]) => {
           const craftBrief = craftAssets
             ? playerCraftIdentity
@@ -3150,7 +3170,7 @@ export class GenerationRunner {
                     },
                   );
                 } catch (error) {
-                  throwIfSuspended();
+                  throwIfSuspended(error);
                   if (error instanceof PipelineError) throw error;
                   lastError = error;
                   validationFailure('portrait');
@@ -3210,7 +3230,7 @@ export class GenerationRunner {
                     },
                   );
                 } catch (error) {
-                  throwIfSuspended();
+                  throwIfSuspended(error);
                   if (error instanceof PipelineError) throw error;
                   lastError = error;
                   validationFailure('portrait-defeat');
@@ -3283,7 +3303,7 @@ export class GenerationRunner {
                     emit('building-assets', 'Restored the generated Adventure player');
                     return restored.downIdle;
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     const repairs =
                       error instanceof Error && error.message.includes('change character height')
                         ? await adventurePlayerScaleRetryPoses(
@@ -3348,7 +3368,7 @@ export class GenerationRunner {
                       size: '1024x1024',
                     });
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                     validationFailure(`adventure-player-${id}`);
                     emit('building-assets', `${label} was rejected; continuing…`);
@@ -3360,7 +3380,7 @@ export class GenerationRunner {
                     try {
                       png = await processGeneratedAdventurePlayerPose(raw);
                     } catch (initialError) {
-                      throwIfSuspended();
+                      throwIfSuspended(initialError);
                       const recovery = await recoverGeneratedPlatformerGreenPanel(raw);
                       if (!recovery.recovered) throw initialError;
                       normalizedReference = recovery.image;
@@ -3368,7 +3388,7 @@ export class GenerationRunner {
                     }
                     return { id, reference: normalizedReference, png };
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     validationFailure(`adventure-player-${id}`);
                     const reason =
                       error instanceof Error
@@ -3402,7 +3422,7 @@ export class GenerationRunner {
                   );
                   const offset = (round - 1) * 3;
                   const candidates = (
-                    await Promise.all(
+                    await settleAll(
                       [1, 2, 3].map((index) => {
                         const id = `I${offset + index}`;
                         return generateCandidate(
@@ -3518,7 +3538,7 @@ export class GenerationRunner {
                       size: '1024x1024',
                     });
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                     validationFailure(`adventure-player-sheet-${group.id}`);
                     emit(
@@ -3531,7 +3551,7 @@ export class GenerationRunner {
                   try {
                     cells = await splitGeneratedAdventurePlayerSheet(raw, group);
                   } catch (_error) {
-                    throwIfSuspended();
+                    throwIfSuspended(_error);
                     validationFailure(`adventure-player-sheet-${group.id}`);
                     emit(
                       'building-assets',
@@ -3580,7 +3600,7 @@ export class GenerationRunner {
                   ...(resumedWithPoseCheckpoints
                     ? []
                     : (
-                        await Promise.all(
+                        await settleAll(
                           ADVENTURE_PLAYER_SHEET_GROUPS.map((group) => generateSheet(group)),
                         )
                       ).flat()),
@@ -3621,7 +3641,7 @@ export class GenerationRunner {
                     'building-assets',
                     `Recovering ${missingAfterSheets.length} Adventure poses missing from both sheets…`,
                   );
-                  const recoveries = await Promise.all(
+                  const recoveries = await settleAll(
                     missingAfterSheets.map(async (pose) => {
                       for (let attempt = 1; attempt <= 2; attempt++) {
                         const candidate = await generateIsolatedPose(
@@ -3738,7 +3758,7 @@ export class GenerationRunner {
                     );
                     const selectedIds = bestAdventurePlayerCandidateIds(setDecision);
                     const alternatives = (
-                      await Promise.all(
+                      await settleAll(
                         retryPoses.flatMap(({ pose, guidance }) => {
                           if (pose === 'downIdle') return [];
                           const directionAnchorPose =
@@ -3786,7 +3806,7 @@ export class GenerationRunner {
                       'building-assets',
                       `Repainting ${repairs.length} Adventure poses to match the hero's scale…`,
                     );
-                    const alternatives = await Promise.all(
+                    const alternatives = await settleAll(
                       repairs.map(async ({ pose, guidance }) => {
                         const anchorPose = pose.startsWith('side')
                           ? 'sideIdle'
@@ -3827,7 +3847,7 @@ export class GenerationRunner {
                   }),
                 ) as Record<GeneratedAdventurePlayerPose, Buffer>;
                 await validateGeneratedAdventurePlayerPoseSet(generated);
-                await Promise.all(
+                await settleAll(
                   GENERATED_ADVENTURE_PLAYER_POSES.map((pose) => {
                     const selected = poseCandidates.find(
                       (candidate) => candidate.pose === pose && candidate.id === selectedIds[pose],
@@ -3839,7 +3859,7 @@ export class GenerationRunner {
                 emit('building-assets', 'Finished the generated Adventure player');
                 return generated.downIdle;
               } catch (error) {
-                throwIfSuspended();
+                throwIfSuspended(error);
                 if (abort.signal.aborted) throw error;
                 const reason =
                   error instanceof Error
@@ -3858,7 +3878,7 @@ export class GenerationRunner {
           : Promise.resolve(null);
 
       if (spec.archetype === 'adventure' && photo) {
-        void Promise.all([keyArtTask, adventurePlayerTask])
+        void settleAll([keyArtTask, adventurePlayerTask])
           .then(async ([keyArt, adventurePlayer]) => {
             if (!adventurePlayer) {
               throw new Error('Adventure portrait requires the selected gameplay hero');
@@ -3876,7 +3896,7 @@ export class GenerationRunner {
         role: StoryArtRole,
         assetRole: GeneratedGameAssetRole,
       ): Promise<Buffer> =>
-        Promise.all([keyArtTask, playerCraftTask, racingPlayerStripTask, adventurePlayerTask]).then(
+        settleAll([keyArtTask, playerCraftTask, racingPlayerStripTask, adventurePlayerTask]).then(
           async ([keyArt, craftAssets, racingCraft, adventurePlayer]) => {
             const craftBrief = craftAssets
               ? playerCraftIdentity
@@ -3924,7 +3944,7 @@ export class GenerationRunner {
         victory: storyAssetTask('victory', 'storyVictory'),
         defeat: storyAssetTask('defeat', 'storyDefeat'),
       } satisfies Record<StoryArtRole, Promise<Buffer>>;
-      const storyTask = Promise.all(Object.values(storyAssets)).then(() => undefined);
+      const storyTask = settleAll(Object.values(storyAssets)).then(() => undefined);
 
       // Racing world + roster pack. Required for identity-bearing cups: every
       // one of the ten roles must validate, and the five-strip roster must
@@ -3932,7 +3952,7 @@ export class GenerationRunner {
       // the job can go ready. Nothing degrades to generic art silently.
       let racingArtStatus: GameMetaFile['racingArt'];
       const racingPackTask: Promise<void> = racingIdentity
-        ? Promise.all([keyArtTask, racingPlayerStripTask]).then(async ([keyArt, playerStrip]) => {
+        ? settleAll([keyArtTask, racingPlayerStripTask]).then(async ([keyArt, playerStrip]) => {
             if (!playerStrip) {
               throw new PipelineError(
                 'image-invalid',
@@ -4368,7 +4388,7 @@ export class GenerationRunner {
               };
 
               emit('building-assets', 'Painting four panoramic level backgrounds in parallel…');
-              await Promise.all(
+              await settleAll(
                 GENERATED_PLATFORMER_BACKDROPS.map(async (role) => {
                   const scene = sceneFor(role);
                   const prompt = buildPlatformerBackdropPrompt({
@@ -4392,7 +4412,7 @@ export class GenerationRunner {
                     });
                     generated.add(role);
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     if (
                       abort.signal.aborted ||
                       error instanceof GeneratedAssetStorageError ||
@@ -4476,7 +4496,7 @@ export class GenerationRunner {
               };
 
               emit('building-assets', 'Painting four panoramic H-scroll backgrounds in parallel…');
-              await Promise.all(
+              await settleAll(
                 GENERATED_HSHOOTER_BACKDROPS.map(async (role) => {
                   const scene = sceneFor(role);
                   const prompt = buildHShooterBackdropPrompt({
@@ -4502,7 +4522,7 @@ export class GenerationRunner {
                     });
                     generated.add(role);
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     if (
                       abort.signal.aborted ||
                       error instanceof GeneratedAssetStorageError ||
@@ -4585,7 +4605,7 @@ export class GenerationRunner {
               };
 
               emit('building-assets', 'Painting four vertical flyover backgrounds in parallel…');
-              await Promise.all(
+              await settleAll(
                 GENERATED_SHOOTER_BACKDROPS.map(async (role) => {
                   const scene = sceneFor(role);
                   const prompt = buildShooterBackdropPrompt({
@@ -4611,7 +4631,7 @@ export class GenerationRunner {
                     });
                     generated.add(role);
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     if (
                       abort.signal.aborted ||
                       error instanceof GeneratedAssetStorageError ||
@@ -4694,7 +4714,7 @@ export class GenerationRunner {
                 adventureRoomPlateArtStatus = { mode: 'generated', attempted: true };
                 emit('building-assets', 'Finished the Adventure room surfaces');
               } catch (error) {
-                throwIfSuspended();
+                throwIfSuspended(error);
                 if (
                   abort.signal.aborted ||
                   error instanceof GeneratedAssetStorageError ||
@@ -4918,7 +4938,7 @@ export class GenerationRunner {
                 };
                 emit('building-assets', 'Finished the generated Adventure enemy cast');
               } catch (error) {
-                throwIfSuspended();
+                throwIfSuspended(error);
                 if (
                   abort.signal.aborted ||
                   error instanceof PipelineError ||
@@ -5111,7 +5131,7 @@ export class GenerationRunner {
                 };
                 emit('building-assets', 'Finished the themed Adventure gameplay objects');
               } catch (error) {
-                throwIfSuspended();
+                throwIfSuspended(error);
                 if (
                   abort.signal.aborted ||
                   error instanceof PipelineError ||
@@ -5192,7 +5212,7 @@ export class GenerationRunner {
                   candidates = split.candidates;
                   failures = split.failures;
                 } catch (error) {
-                  throwIfSuspended();
+                  throwIfSuspended(error);
                   failures = [
                     {
                       id: 'B1',
@@ -5224,14 +5244,14 @@ export class GenerationRunner {
                     try {
                       processed = await processGeneratedAdventureBoss(retryRaw);
                     } catch (initialError) {
-                      throwIfSuspended();
+                      throwIfSuspended(initialError);
                       const recovery = await recoverGeneratedPlatformerGreenPanel(retryRaw);
                       if (!recovery.recovered) throw initialError;
                       processed = await processGeneratedAdventureBoss(recovery.image);
                     }
                     candidates.push({ id: 'R1', png: processed.png, metrics: processed.metrics });
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     validationFailure('adventure-boss-retry');
                     throw new Error(
                       `isolated Adventure boss retry failed validation: ${error instanceof Error ? error.message : String(error)}`,
@@ -5283,7 +5303,7 @@ export class GenerationRunner {
                       },
                     );
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     if (abort.signal.aborted) throw error;
                     throw new Error(
                       `Adventure boss art review failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -5306,7 +5326,7 @@ export class GenerationRunner {
                   `Spark selected ${selected.id} as the Adventure finale boss`,
                 );
               } catch (error) {
-                throwIfSuspended();
+                throwIfSuspended(error);
                 if (
                   abort.signal.aborted ||
                   error instanceof GeneratedAssetStorageError ||
@@ -5401,7 +5421,7 @@ export class GenerationRunner {
                       size: '1536x1024',
                     });
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                     validationFailure(`hshooter-boss-${id}`);
                     emit(
@@ -5424,7 +5444,7 @@ export class GenerationRunner {
                 };
                 emit('building-assets', 'Painting three H-scroll boss candidates…');
                 let candidates = (
-                  await Promise.all([1, 2, 3].map((index) => generateBossCandidate(index)))
+                  await settleAll([1, 2, 3].map((index) => generateBossCandidate(index)))
                 ).filter((candidate): candidate is BossCandidate => candidate !== null);
                 if (candidates.length === 0) {
                   emit(
@@ -5432,7 +5452,7 @@ export class GenerationRunner {
                     'The first boss pool was mechanically unusable; painting three replacements…',
                   );
                   candidates = (
-                    await Promise.all(
+                    await settleAll(
                       [4, 5, 6].map((index) =>
                         generateBossCandidate(
                           index,
@@ -5493,7 +5513,7 @@ export class GenerationRunner {
                       },
                     );
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     if (abort.signal.aborted) throw error;
                     throw new Error(
                       `H-scroll boss art review failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -5513,7 +5533,7 @@ export class GenerationRunner {
                 hshooterBossArtStatus = { mode: 'generated', attempted: true };
                 emit('building-assets', `Spark selected ${selected.id} as the H-scroll boss`);
               } catch (error) {
-                throwIfSuspended();
+                throwIfSuspended(error);
                 if (
                   abort.signal.aborted ||
                   error instanceof GeneratedAssetStorageError ||
@@ -5686,7 +5706,7 @@ export class GenerationRunner {
                       metrics: processed.metrics,
                     });
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     validationFailure(`hshooter-enemy-replacement-${role}`);
                     await assetWorkspace.discardPrivate(privateRole);
                     throw new PipelineError(
@@ -5772,7 +5792,7 @@ export class GenerationRunner {
                   HSHOOTER_ENEMY_PIPELINE_PROMPT_VERSION,
                   pipelineSha,
                 );
-                await Promise.all([
+                await settleAll([
                   assetWorkspace.discardPrivate('hshooterEnemyBoard'),
                   ...GENERATED_HSHOOTER_ENEMIES.map((role) =>
                     assetWorkspace.discardPrivate(HSHOOTER_ENEMY_REPLACEMENT_ASSET_ROLES[role]),
@@ -5786,7 +5806,7 @@ export class GenerationRunner {
                 };
                 emit('building-assets', 'Finished the generated H-scroll enemy cast');
               } catch (error) {
-                throwIfSuspended();
+                throwIfSuspended(error);
                 if (
                   abort.signal.aborted ||
                   error instanceof PipelineError ||
@@ -5862,7 +5882,7 @@ export class GenerationRunner {
                       size: '1024x1536',
                     });
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                     validationFailure(`shooter-boss-${id}`);
                     emit(
@@ -5886,7 +5906,7 @@ export class GenerationRunner {
 
                 emit('building-assets', 'Painting three vertical-shooter boss candidates…');
                 let candidates = (
-                  await Promise.all([1, 2, 3].map((index) => generateBossCandidate(index)))
+                  await settleAll([1, 2, 3].map((index) => generateBossCandidate(index)))
                 ).filter((candidate): candidate is BossCandidate => candidate !== null);
                 if (candidates.length === 0) {
                   emit(
@@ -5894,7 +5914,7 @@ export class GenerationRunner {
                     'The first vertical boss pool was unusable; painting one corrective pool…',
                   );
                   candidates = (
-                    await Promise.all(
+                    await settleAll(
                       [4, 5, 6].map((index) =>
                         generateBossCandidate(
                           index,
@@ -5966,7 +5986,7 @@ export class GenerationRunner {
                 shooterBossArtStatus = { mode: 'generated', attempted: true };
                 emit('building-assets', `Spark selected ${selected.id} as the vertical boss`);
               } catch (error) {
-                throwIfSuspended();
+                throwIfSuspended(error);
                 if (
                   abort.signal.aborted ||
                   error instanceof GeneratedAssetStorageError ||
@@ -6133,7 +6153,7 @@ export class GenerationRunner {
                       metrics: processed.metrics,
                     });
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     validationFailure(`shooter-enemy-replacement-${role}`);
                     await assetWorkspace.discardPrivate(privateRole);
                     throw new PipelineError(
@@ -6218,7 +6238,7 @@ export class GenerationRunner {
                   SHOOTER_ENEMY_PIPELINE_PROMPT_VERSION,
                   pipelineSha,
                 );
-                await Promise.all([
+                await settleAll([
                   assetWorkspace.discardPrivate('shooterEnemyBoard'),
                   ...GENERATED_SHOOTER_ENEMIES.map((role) =>
                     assetWorkspace.discardPrivate(SHOOTER_ENEMY_REPLACEMENT_ASSET_ROLES[role]),
@@ -6232,7 +6252,7 @@ export class GenerationRunner {
                 };
                 emit('building-assets', 'Finished the generated vertical enemy cast');
               } catch (error) {
-                throwIfSuspended();
+                throwIfSuspended(error);
                 if (
                   abort.signal.aborted ||
                   error instanceof PipelineError ||
@@ -6297,7 +6317,7 @@ export class GenerationRunner {
                 }
                 emit('building-assets', 'Painting three signature boss candidates…');
                 const candidates = (
-                  await Promise.all(
+                  await settleAll(
                     [1, 2, 3].map(async (index): Promise<BossCandidate | null> => {
                       const id = `B${index}`;
                       let raw: Buffer;
@@ -6315,7 +6335,7 @@ export class GenerationRunner {
                           size: '1024x1024',
                         });
                       } catch (error) {
-                        throwIfSuspended();
+                        throwIfSuspended(error);
                         if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                         validationFailure(`platformer-boss-${id}`);
                         emit(
@@ -6329,7 +6349,7 @@ export class GenerationRunner {
                         try {
                           processed = await processGeneratedPlatformerBoss(raw);
                         } catch (initialError) {
-                          throwIfSuspended();
+                          throwIfSuspended(initialError);
                           const recovery = await recoverGeneratedPlatformerGreenPanel(raw);
                           if (!recovery.recovered) throw initialError;
                           processed = await processGeneratedPlatformerBoss(recovery.image);
@@ -6396,7 +6416,7 @@ export class GenerationRunner {
                       },
                     );
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     if (abort.signal.aborted) throw error;
                     throw new Error(
                       `platformer boss art review failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -6416,7 +6436,7 @@ export class GenerationRunner {
                 platformerBossArtStatus = { mode: 'generated', attempted: true };
                 emit('building-assets', `Spark selected ${selected.id} as the signature boss`);
               } catch (error) {
-                throwIfSuspended();
+                throwIfSuspended(error);
                 if (
                   abort.signal.aborted ||
                   error instanceof GeneratedAssetStorageError ||
@@ -6534,7 +6554,7 @@ export class GenerationRunner {
                   `Painting ${missing.length * 2} enemy candidates in parallel…`,
                 );
                 const candidates = (
-                  await Promise.all(
+                  await settleAll(
                     missing.flatMap((role) =>
                       [1, 2].map(async (index): Promise<EnemyCandidate | null> => {
                         const id = `${role[0]!.toUpperCase()}${index}`;
@@ -6555,7 +6575,7 @@ export class GenerationRunner {
                             size: '1024x1024',
                           });
                         } catch (error) {
-                          throwIfSuspended();
+                          throwIfSuspended(error);
                           if (abort.signal.aborted) throw error;
                           if (!(error instanceof PipelineError)) throw error;
                           validationFailure(`platformer-enemy-${role}-${id}`);
@@ -6570,7 +6590,7 @@ export class GenerationRunner {
                           try {
                             processed = await processGeneratedPlatformerEnemy(raw, role);
                           } catch (initialError) {
-                            throwIfSuspended();
+                            throwIfSuspended(initialError);
                             const recovery = await recoverGeneratedPlatformerGreenPanel(raw);
                             if (!recovery.recovered) throw initialError;
                             processed = await processGeneratedPlatformerEnemy(recovery.image, role);
@@ -6657,7 +6677,7 @@ export class GenerationRunner {
                         },
                       );
                     } catch (error) {
-                      throwIfSuspended();
+                      throwIfSuspended(error);
                       if (abort.signal.aborted) throw error;
                       emit(
                         'building-assets',
@@ -6666,7 +6686,7 @@ export class GenerationRunner {
                     }
                   }
                   const decision = normalizePlatformerEnemyJudgeDecision(rawDecision, descriptors);
-                  await Promise.all(
+                  await settleAll(
                     decision.selections.map(async ({ role, candidateId }) => {
                       const selected = candidates.find(
                         (candidate) => candidate.role === role && candidate.id === candidateId,
@@ -6723,7 +6743,7 @@ export class GenerationRunner {
                   `Using stable library art for ${missingRoles.join(', ')}; the remaining enemies are generated`,
                 );
               } catch (error) {
-                throwIfSuspended();
+                throwIfSuspended(error);
                 if (
                   abort.signal.aborted ||
                   error instanceof GeneratedAssetStorageError ||
@@ -6830,9 +6850,62 @@ export class GenerationRunner {
                 return;
               }
 
-              emit('building-assets', `Painting ${missing.length} gameplay props in parallel…`);
-              await Promise.all(
-                missing.map(async (role) => {
+              if (missing.length > 1) {
+                emit(
+                  'building-assets',
+                  `Painting ${propRoles.length} gameplay props on one sheet…`,
+                );
+                try {
+                  const layout = platformerPropBoardLayout(propRoles.length);
+                  const raw = await callImage({
+                    role: 'platformer-prop-board',
+                    label: 'Gameplay prop sheet',
+                    prompt: buildPlatformerPropBoardPrompt(
+                      propRoles.map((role) => ({
+                        gameTitle: spec.meta.title,
+                        tagline: spec.meta.tagline,
+                        premise,
+                        role,
+                        ability: platformerPropAbility(platformerSpec, role),
+                        colors,
+                      })),
+                    ),
+                    reference: keyArt,
+                    size: `${layout.width}x${layout.height}`,
+                  });
+                  const cells = await processGeneratedPlatformerPropBoard(raw, propRoles);
+                  await settleAll(
+                    cells.map(async (cell) => {
+                      if (!cell.png || generated.has(cell.role)) return;
+                      await assetWorkspace.store(
+                        PLATFORMER_PROP_ASSET_ROLES[cell.role],
+                        cell.png,
+                        PLATFORMER_PROP_PIPELINE_PROMPT_VERSION,
+                        promptHashes[cell.role],
+                      );
+                      generated.add(cell.role);
+                    }),
+                  );
+                } catch (error) {
+                  throwIfSuspended(error);
+                  if (
+                    abort.signal.aborted ||
+                    error instanceof GeneratedAssetStorageError ||
+                    (error instanceof PipelineError &&
+                      !isOptionalGeneratedArtProviderFailure(error))
+                  )
+                    throw error;
+                  validationFailure('platformer-prop-board');
+                }
+              }
+              const individual = propRoles.filter((role) => !generated.has(role));
+              if (individual.length)
+                emit(
+                  'building-assets',
+                  `Painting ${individual.length} remaining gameplay props individually…`,
+                );
+              await settleAll(
+                individual.map(async (role) => {
                   try {
                     const raw = await callImage({
                       role: `platformer-prop-${role}`,
@@ -6852,7 +6925,7 @@ export class GenerationRunner {
                     try {
                       processed = await processGeneratedPlatformerProp(raw, role);
                     } catch (initialError) {
-                      throwIfSuspended();
+                      throwIfSuspended(initialError);
                       const recovery = await recoverGeneratedPlatformerGreenPanel(raw);
                       if (!recovery.recovered) throw initialError;
                       processed = await processGeneratedPlatformerProp(recovery.image, role);
@@ -6865,7 +6938,7 @@ export class GenerationRunner {
                     );
                     generated.add(role);
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     if (
                       abort.signal.aborted ||
                       error instanceof GeneratedAssetStorageError ||
@@ -6942,7 +7015,7 @@ export class GenerationRunner {
                 fighterArenaArtStatus = { mode: 'generated', attempted: true };
                 emit('building-assets', 'Finished the generated ladder and boss arenas');
               } catch (error) {
-                throwIfSuspended();
+                throwIfSuspended(error);
                 if (
                   abort.signal.aborted ||
                   error instanceof GeneratedAssetStorageError ||
@@ -6968,7 +7041,7 @@ export class GenerationRunner {
         spec.archetype === 'fighter'
           ? (async (): Promise<void> => {
               const fighterSpec = spec as FighterSpec;
-              const [keyArt, bossArt] = await Promise.all([keyArtTask, storyAssets.boss]);
+              const [keyArt, bossArt] = await settleAll([keyArtTask, storyAssets.boss]);
               const player: FighterCharacter = fighterSpec.player;
               const boss: FighterCharacter = {
                 name: fighterSpec.boss.name,
@@ -7131,7 +7204,7 @@ export class GenerationRunner {
                     size: '1024x1024',
                   });
                 } catch (error) {
-                  throwIfSuspended();
+                  throwIfSuspended(error);
                   if (abort.signal.aborted) throw error;
                   if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                   validationFailure(opts.role);
@@ -7155,7 +7228,7 @@ export class GenerationRunner {
                 `Painting ${pendingRoster.length * 3} fighter identity foundations for ${pendingRoster.length} unfinished roster slot${pendingRoster.length === 1 ? '' : 's'}…`,
               );
               const identityCandidates = (
-                await Promise.all(
+                await settleAll(
                   pendingRoster.flatMap((entry) =>
                     [1, 2, 3].map(async (index): Promise<IdentityCandidate | null> => {
                       const id = `${entry.slot}-I${index}`;
@@ -7330,7 +7403,7 @@ export class GenerationRunner {
                         size: '1024x1024',
                       });
                     } catch (error) {
-                      throwIfSuspended();
+                      throwIfSuspended(error);
                       if (abort.signal.aborted) throw error;
                       if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                       validationFailure(`fighter-${id}`);
@@ -7385,7 +7458,7 @@ export class GenerationRunner {
                   };
 
                   const candidates = (
-                    await Promise.all(
+                    await settleAll(
                       FIGHTER_POSE_SHEET_GROUPS.map((group) => generatePoseSheet(group)),
                     )
                   ).flat();
@@ -7516,7 +7589,7 @@ export class GenerationRunner {
                         `Repainting ${retryPoses.length} weak ${entry.character.name} poses with Spark guidance…`,
                       );
                       const alternatives = (
-                        await Promise.all(
+                        await settleAll(
                           retryPoses.flatMap(({ pose, guidance }) => [
                             generatePoseCandidate(pose, 'B', guidance),
                             generatePoseCandidate(pose, 'C', guidance),
@@ -7623,7 +7696,7 @@ export class GenerationRunner {
                   reference: Buffer;
                   png: Buffer;
                 }
-                const generateCandidate = async (
+                const generateCandidateUncached = async (
                   id: string,
                   kind: CandidateKind,
                   label: string,
@@ -7640,7 +7713,7 @@ export class GenerationRunner {
                       size: '1024x1024',
                     });
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     if (!isOptionalGeneratedArtProviderFailure(error)) throw error;
                     validationFailure(`platformer-${id}`);
                     emit(
@@ -7655,15 +7728,25 @@ export class GenerationRunner {
                     try {
                       processed = await processGeneratedPlatformerPose(raw);
                     } catch (initialError) {
-                      throwIfSuspended();
+                      throwIfSuspended(initialError);
                       const recovery = await recoverGeneratedPlatformerGreenPanel(raw);
                       if (!recovery.recovered) throw initialError;
                       normalizedReference = recovery.image;
                       processed = await processGeneratedPlatformerPose(normalizedReference);
                     }
-                    return { id, kind, reference: normalizedReference, png: processed.png };
+                    return {
+                      id,
+                      kind,
+                      png: processed.png,
+                      // Only identity foundations are used as future model
+                      // references. Keep animation cache entries tiny.
+                      reference:
+                        kind === 'idle' || kind === 'side-anchor'
+                          ? normalizedReference
+                          : processed.png,
+                    };
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     validationFailure(`platformer-${id}`);
                     feed(
                       'decision',
@@ -7682,6 +7765,24 @@ export class GenerationRunner {
                     return null;
                   }
                 };
+
+                const candidateCache = new ArtifactCache(
+                  join(this.files.checkpointsDir, jobId, 'artifacts'),
+                );
+                const generateCandidate = (...args: Parameters<typeof generateCandidateUncached>) =>
+                  candidateCache.getOrCompute(
+                    imagePromptHash(
+                      JSON.stringify([
+                        'platformer-candidate-v1',
+                        GENERATED_PLATFORMER_POSE_PROMPT_VERSION,
+                        args[0],
+                        args[1],
+                        args[3],
+                      ]),
+                      args[4],
+                    ),
+                    () => generateCandidateUncached(...args),
+                  );
 
                 const judge = async (
                   prompt: { system: string; user: string },
@@ -7709,7 +7810,7 @@ export class GenerationRunner {
                       },
                     );
                   } catch (error) {
-                    throwIfSuspended();
+                    throwIfSuspended(error);
                     if (abort.signal.aborted) throw error;
                     throw new Error(
                       `platformer art review failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -7730,7 +7831,7 @@ export class GenerationRunner {
                   );
                   const offset = (round - 1) * 3;
                   const idleCandidates = (
-                    await Promise.all(
+                    await settleAll(
                       [1, 2, 3].map((index) => {
                         const id = `I${offset + index}`;
                         return generateCandidate(
@@ -7871,9 +7972,9 @@ export class GenerationRunner {
                     ),
                   );
                 }
-                const [runResults, jumpResults] = await Promise.all([
-                  Promise.all(runTasks),
-                  Promise.all(
+                const [runResults, jumpResults] = await settleAll([
+                  settleAll(runTasks),
+                  settleAll(
                     [1, 2, 3].map((index) =>
                       generateCandidate(
                         `J${index}`,
@@ -7888,214 +7989,222 @@ export class GenerationRunner {
                     ),
                   ),
                 ]);
-                const jumpCandidates = jumpResults.filter(
-                  (candidate): candidate is Candidate => candidate !== null,
-                );
                 const sourceKind = photoReference ? ('photo' as const) : ('key-art' as const);
-                const reviewJumpCandidates = async (candidates: Candidate[]) => {
-                  const jumpDescriptors: PlatformerJumpCandidateDescriptor[] = candidates.map(
-                    ({ id }) => ({ id }),
+                const selectJump = async () => {
+                  const jumpCandidates = jumpResults.filter(
+                    (candidate): candidate is Candidate => candidate !== null,
                   );
-                  const board = await buildPlatformerJumpJudgeBoard({
+                  const reviewJumpCandidates = async (candidates: Candidate[]) => {
+                    const jumpDescriptors: PlatformerJumpCandidateDescriptor[] = candidates.map(
+                      ({ id }) => ({ id }),
+                    );
+                    const board = await buildPlatformerJumpJudgeBoard({
+                      source: playerReference,
+                      sourceKind,
+                      idle: idle.png,
+                      sideAnchor: sideAnchor.png,
+                      candidates: candidates.map(({ id, png: processed }) => ({ id, processed })),
+                    });
+                    const mockDecision = {
+                      candidateReviews: jumpDescriptors.map(({ id }) => ({
+                        id,
+                        scores: { identity: 5, costume: 5, pose: 5, technical: 5 },
+                        fatalIssues: [],
+                        summary: 'Mock identity-safe jump candidate.',
+                      })),
+                      selection: {
+                        accepted: true,
+                        candidateId: jumpDescriptors[0]!.id,
+                        confidence: 1,
+                        rationale: 'Mock selection.',
+                        retryGuidance: '',
+                      },
+                    };
+                    return normalizePlatformerJumpJudgeDecision(
+                      await judge(
+                        buildPlatformerJumpJudgePrompt(jumpDescriptors, {
+                          heroConcept: canonicalHeroConcept,
+                          sourceKind,
+                        }),
+                        buildPlatformerJumpJudgeSchema(jumpDescriptors),
+                        board,
+                        2400,
+                        'Spark selected the player jump pose',
+                        mockDecision,
+                      ),
+                      jumpDescriptors,
+                    );
+                  };
+
+                  let jumpDecision =
+                    jumpCandidates.length > 0
+                      ? await reviewJumpCandidates(jumpCandidates)
+                      : undefined;
+                  const initialJumpGuidance =
+                    jumpDecision?.selection.retryGuidance ||
+                    'Return the same complete canonical costume and adult identity in a clear RIGHT-facing airborne jump.';
+                  let jumpRetried = false;
+                  const jumpRetryStarted = Date.now();
+                  if (!jumpDecision?.selection.accepted) {
+                    jumpRetried = true;
+                    emit(
+                      'building-assets',
+                      'Repainting three jump poses with Spark wardrobe guidance…',
+                    );
+                    const retryResults = await settleAll(
+                      [4, 5, 6].map((index) =>
+                        generateCandidate(
+                          `J${index}`,
+                          'jump',
+                          `Player jump retry candidate ${index}`,
+                          buildPlatformerJumpCandidatePrompt(index, {
+                            heroConcept: canonicalHeroConcept,
+                            colors,
+                            retryGuidance: initialJumpGuidance,
+                          }),
+                          sideReference,
+                        ),
+                      ),
+                    );
+                    const retryCandidates = retryResults.filter(
+                      (candidate): candidate is Candidate => candidate !== null,
+                    );
+                    jumpCandidates.push(...retryCandidates);
+                    if (retryCandidates.length > 0) {
+                      jumpDecision = await reviewJumpCandidates(jumpCandidates);
+                    }
+                  }
+                  const selectedJumpId = jumpDecision?.selection.accepted
+                    ? jumpDecision.selection.candidateId
+                    : jumpDecision
+                      ? bestPlatformerJumpCandidateId(jumpDecision)
+                      : null;
+                  const selectedJump = jumpCandidates.find(({ id }) => id === selectedJumpId);
+                  const jump = selectedJump?.png ?? sideAnchor.png;
+                  if (selectedJump) {
+                    emit(
+                      'building-assets',
+                      jumpDecision?.selection.accepted
+                        ? `Spark selected ${selectedJump.id} for the player jump pose`
+                        : `Spark selected ${selectedJump.id} as the best available player jump pose`,
+                    );
+                  } else {
+                    emit(
+                      'building-assets',
+                      'Jump candidates were unusable; keeping the generated side pose for jumping',
+                    );
+                  }
+                  if (jumpRetried) {
+                    recordEarlyRepairEvent(
+                      'entities',
+                      'platformer-jump-candidate-retry',
+                      [
+                        {
+                          code: 'PLATFORMER_JUMP_CONTINUITY_REJECTED',
+                          path: '/assets/platformer-player/jump',
+                          message: initialJumpGuidance.slice(0, 240),
+                        },
+                      ],
+                      [],
+                      jumpRetryStarted,
+                      jumpDecision?.selection.accepted ? 'fixed' : 'downgraded',
+                    );
+                  }
+                  return jump;
+                };
+                const selectRun = async () => {
+                  const runCandidates = runResults.filter(
+                    (candidate): candidate is Candidate & { kind: 'phase-a' | 'phase-b' } =>
+                      candidate?.kind === 'phase-a' || candidate?.kind === 'phase-b',
+                  );
+                  const descriptors: PlatformerPoseCandidateDescriptor[] = runCandidates.map(
+                    ({ id, kind }) => ({ id, kind }),
+                  );
+                  if (!descriptors.some(({ kind }) => kind === 'phase-a')) {
+                    throw new Error('all Phase A run candidates failed local validation');
+                  }
+                  if (!descriptors.some(({ kind }) => kind === 'phase-b')) {
+                    throw new Error('all Phase B run candidates failed local validation');
+                  }
+                  const pairBoard = await buildPlatformerPoseJudgeBoard({
                     source: playerReference,
-                    sourceKind,
                     idle: idle.png,
                     sideAnchor: sideAnchor.png,
-                    candidates: candidates.map(({ id, png: processed }) => ({ id, processed })),
-                  });
-                  const mockDecision = {
-                    candidateReviews: jumpDescriptors.map(({ id }) => ({
+                    candidates: runCandidates.map(({ id, kind, png: processed }) => ({
                       id,
+                      kind,
+                      processed,
+                    })),
+                  });
+                  const pairPrompt = buildPlatformerPoseJudgePrompt(descriptors);
+                  const firstA = descriptors.find(({ kind }) => kind === 'phase-a')!.id;
+                  const firstB = descriptors.find(({ kind }) => kind === 'phase-b')!.id;
+                  const mockPairDecision = {
+                    anchorReview: {
+                      identity: 5,
+                      sideView: 5,
+                      costume: 5,
+                      fatalIssues: [],
+                      summary: 'Mock side anchor.',
+                    },
+                    candidateReviews: descriptors.map(({ id, kind }) => ({
+                      id,
+                      kind,
                       scores: { identity: 5, costume: 5, pose: 5, technical: 5 },
                       fatalIssues: [],
-                      summary: 'Mock identity-safe jump candidate.',
+                      summary: 'Mock usable run candidate.',
                     })),
+                    pairReviews: descriptors
+                      .filter(({ kind }) => kind === 'phase-a')
+                      .flatMap(({ id: phaseAId }) =>
+                        descriptors
+                          .filter(({ kind }) => kind === 'phase-b')
+                          .map(({ id: phaseBId }) => ({
+                            phaseAId,
+                            phaseBId,
+                            legAlternation: 5,
+                            armAlternation: 5,
+                            pairConsistency: 5,
+                            fatalIssues: [],
+                            summary: 'Mock visibly alternating pair.',
+                          })),
+                      ),
                     selection: {
                       accepted: true,
-                      candidateId: jumpDescriptors[0]!.id,
+                      phaseAId: firstA,
+                      phaseBId: firstB,
                       confidence: 1,
                       rationale: 'Mock selection.',
                       retryGuidance: '',
                     },
                   };
-                  return normalizePlatformerJumpJudgeDecision(
+                  const pairDecision = normalizePlatformerPoseJudgeDecision(
                     await judge(
-                      buildPlatformerJumpJudgePrompt(jumpDescriptors, {
-                        heroConcept: canonicalHeroConcept,
-                        sourceKind,
-                      }),
-                      buildPlatformerJumpJudgeSchema(jumpDescriptors),
-                      board,
-                      2400,
-                      'Spark selected the player jump pose',
-                      mockDecision,
+                      pairPrompt,
+                      buildPlatformerPoseJudgeSchema(descriptors),
+                      pairBoard,
+                      4000,
+                      'Spark selected the player run animation',
+                      mockPairDecision,
                     ),
-                    jumpDescriptors,
+                    descriptors,
                   );
-                };
+                  const selectedPair = pairDecision.selection.accepted
+                    ? pairDecision.selection
+                    : bestPlatformerPosePair(pairDecision);
+                  if (!selectedPair) throw new Error('Spark did not return any run-pair reviews');
+                  const walk1 = runCandidates.find(({ id }) => id === selectedPair.phaseAId)!;
+                  const walk2 = runCandidates.find(({ id }) => id === selectedPair.phaseBId)!;
+                  emit(
+                    'building-assets',
+                    pairDecision.selection.accepted
+                      ? `Spark selected ${walk1.id} + ${walk2.id} for the player run animation`
+                      : `Spark selected ${walk1.id} + ${walk2.id} as the best available run animation`,
+                  );
 
-                let jumpDecision =
-                  jumpCandidates.length > 0
-                    ? await reviewJumpCandidates(jumpCandidates)
-                    : undefined;
-                const initialJumpGuidance =
-                  jumpDecision?.selection.retryGuidance ||
-                  'Return the same complete canonical costume and adult identity in a clear RIGHT-facing airborne jump.';
-                let jumpRetried = false;
-                const jumpRetryStarted = Date.now();
-                if (!jumpDecision?.selection.accepted) {
-                  jumpRetried = true;
-                  emit(
-                    'building-assets',
-                    'Repainting three jump poses with Spark wardrobe guidance…',
-                  );
-                  const retryResults = await Promise.all(
-                    [4, 5, 6].map((index) =>
-                      generateCandidate(
-                        `J${index}`,
-                        'jump',
-                        `Player jump retry candidate ${index}`,
-                        buildPlatformerJumpCandidatePrompt(index, {
-                          heroConcept: canonicalHeroConcept,
-                          colors,
-                          retryGuidance: initialJumpGuidance,
-                        }),
-                        sideReference,
-                      ),
-                    ),
-                  );
-                  const retryCandidates = retryResults.filter(
-                    (candidate): candidate is Candidate => candidate !== null,
-                  );
-                  jumpCandidates.push(...retryCandidates);
-                  if (retryCandidates.length > 0) {
-                    jumpDecision = await reviewJumpCandidates(jumpCandidates);
-                  }
-                }
-                const selectedJumpId = jumpDecision?.selection.accepted
-                  ? jumpDecision.selection.candidateId
-                  : jumpDecision
-                    ? bestPlatformerJumpCandidateId(jumpDecision)
-                    : null;
-                const selectedJump = jumpCandidates.find(({ id }) => id === selectedJumpId);
-                const jump = selectedJump?.png ?? sideAnchor.png;
-                if (selectedJump) {
-                  emit(
-                    'building-assets',
-                    jumpDecision?.selection.accepted
-                      ? `Spark selected ${selectedJump.id} for the player jump pose`
-                      : `Spark selected ${selectedJump.id} as the best available player jump pose`,
-                  );
-                } else {
-                  emit(
-                    'building-assets',
-                    'Jump candidates were unusable; keeping the generated side pose for jumping',
-                  );
-                }
-                if (jumpRetried) {
-                  recordEarlyRepairEvent(
-                    'entities',
-                    'platformer-jump-candidate-retry',
-                    [
-                      {
-                        code: 'PLATFORMER_JUMP_CONTINUITY_REJECTED',
-                        path: '/assets/platformer-player/jump',
-                        message: initialJumpGuidance.slice(0, 240),
-                      },
-                    ],
-                    [],
-                    jumpRetryStarted,
-                    jumpDecision?.selection.accepted ? 'fixed' : 'downgraded',
-                  );
-                }
-                const runCandidates = runResults.filter(
-                  (candidate): candidate is Candidate & { kind: 'phase-a' | 'phase-b' } =>
-                    candidate?.kind === 'phase-a' || candidate?.kind === 'phase-b',
-                );
-                const descriptors: PlatformerPoseCandidateDescriptor[] = runCandidates.map(
-                  ({ id, kind }) => ({ id, kind }),
-                );
-                if (!descriptors.some(({ kind }) => kind === 'phase-a')) {
-                  throw new Error('all Phase A run candidates failed local validation');
-                }
-                if (!descriptors.some(({ kind }) => kind === 'phase-b')) {
-                  throw new Error('all Phase B run candidates failed local validation');
-                }
-                const pairBoard = await buildPlatformerPoseJudgeBoard({
-                  source: playerReference,
-                  idle: idle.png,
-                  sideAnchor: sideAnchor.png,
-                  candidates: runCandidates.map(({ id, kind, png: processed }) => ({
-                    id,
-                    kind,
-                    processed,
-                  })),
-                });
-                const pairPrompt = buildPlatformerPoseJudgePrompt(descriptors);
-                const firstA = descriptors.find(({ kind }) => kind === 'phase-a')!.id;
-                const firstB = descriptors.find(({ kind }) => kind === 'phase-b')!.id;
-                const mockPairDecision = {
-                  anchorReview: {
-                    identity: 5,
-                    sideView: 5,
-                    costume: 5,
-                    fatalIssues: [],
-                    summary: 'Mock side anchor.',
-                  },
-                  candidateReviews: descriptors.map(({ id, kind }) => ({
-                    id,
-                    kind,
-                    scores: { identity: 5, costume: 5, pose: 5, technical: 5 },
-                    fatalIssues: [],
-                    summary: 'Mock usable run candidate.',
-                  })),
-                  pairReviews: descriptors
-                    .filter(({ kind }) => kind === 'phase-a')
-                    .flatMap(({ id: phaseAId }) =>
-                      descriptors
-                        .filter(({ kind }) => kind === 'phase-b')
-                        .map(({ id: phaseBId }) => ({
-                          phaseAId,
-                          phaseBId,
-                          legAlternation: 5,
-                          armAlternation: 5,
-                          pairConsistency: 5,
-                          fatalIssues: [],
-                          summary: 'Mock visibly alternating pair.',
-                        })),
-                    ),
-                  selection: {
-                    accepted: true,
-                    phaseAId: firstA,
-                    phaseBId: firstB,
-                    confidence: 1,
-                    rationale: 'Mock selection.',
-                    retryGuidance: '',
-                  },
+                  return { walk1, walk2 };
                 };
-                const pairDecision = normalizePlatformerPoseJudgeDecision(
-                  await judge(
-                    pairPrompt,
-                    buildPlatformerPoseJudgeSchema(descriptors),
-                    pairBoard,
-                    4000,
-                    'Spark selected the player run animation',
-                    mockPairDecision,
-                  ),
-                  descriptors,
-                );
-                const selectedPair = pairDecision.selection.accepted
-                  ? pairDecision.selection
-                  : bestPlatformerPosePair(pairDecision);
-                if (!selectedPair) throw new Error('Spark did not return any run-pair reviews');
-                const walk1 = runCandidates.find(({ id }) => id === selectedPair.phaseAId)!;
-                const walk2 = runCandidates.find(({ id }) => id === selectedPair.phaseBId)!;
-                emit(
-                  'building-assets',
-                  pairDecision.selection.accepted
-                    ? `Spark selected ${walk1.id} + ${walk2.id} for the player run animation`
-                    : `Spark selected ${walk1.id} + ${walk2.id} as the best available run animation`,
-                );
+                const [jump, { walk1, walk2 }] = await settleAll([selectJump(), selectRun()]);
 
                 const generated = await alignGeneratedPlatformerPoseCanvases({
                   idle: idle.png,
@@ -8105,7 +8214,7 @@ export class GenerationRunner {
                   jump,
                 });
                 await validateGeneratedPlatformerPoseSet(generated, { strictMotion: false });
-                await Promise.all(
+                await settleAll(
                   GENERATED_PLATFORMER_POSES.map((pose) =>
                     assetWorkspace.store(
                       PLATFORMER_ASSET_ROLES[pose],
@@ -8117,9 +8226,9 @@ export class GenerationRunner {
                 );
                 platformerPlayerArtStatus = { mode: 'generated', attempted: true };
               } catch (error) {
-                throwIfSuspended();
+                throwIfSuspended(error);
                 if (abort.signal.aborted) throw error;
-                await Promise.all([
+                await settleAll([
                   assetWorkspace.discard(Object.values(PLATFORMER_ASSET_ROLES)),
                   assetWorkspace.discardPrivate('platformerReference'),
                   assetWorkspace.discardPrivate('platformerSideReference'),
@@ -8197,7 +8306,7 @@ export class GenerationRunner {
                   rejected: (pose) => validationFailure(`platformer-action-${pose}`),
                 });
               } catch (error) {
-                throwIfSuspended();
+                throwIfSuspended(error);
                 if (
                   abort.signal.aborted ||
                   error instanceof PipelineError ||
@@ -8356,7 +8465,7 @@ export class GenerationRunner {
             recoveredIncident?.id,
           );
         } catch (error) {
-          throwIfSuspended();
+          throwIfSuspended(error);
           console.warn('could not update generation incident retry outcome:', error);
         }
       }
@@ -8411,7 +8520,7 @@ export class GenerationRunner {
             failedIncident?.id,
           );
         } catch (error) {
-          throwIfSuspended();
+          throwIfSuspended(error);
           console.warn('could not update generation incident retry outcome:', error);
         }
       }
@@ -8896,7 +9005,7 @@ export class GenerationRunner {
             );
           if (onlyIndexedFailures) {
             const currentLevels = structuredClone(spec.levels) as unknown[];
-            const replacements = await Promise.all(
+            const replacements = await settleAll(
               indexes.map(async (index) => {
                 const levelDiagnostics = before.filter((diagnostic) =>
                   diagnostic.path.startsWith(`/levels/${index}`),

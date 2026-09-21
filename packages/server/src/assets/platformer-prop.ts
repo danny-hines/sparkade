@@ -1,4 +1,5 @@
 import type { PlatformerAbility } from '@sparkade/shared';
+import sharp from 'sharp';
 import {
   FighterPoseImageError,
   processGeneratedFighterPose,
@@ -19,7 +20,7 @@ export const GENERATED_PLATFORMER_PROPS = [
 export type GeneratedPlatformerProp = (typeof GENERATED_PLATFORMER_PROPS)[number];
 
 export const PLATFORMER_PROP_PROMPT_VERSION = 'platformer-prop-v2';
-export const PLATFORMER_PROP_PIPELINE_PROMPT_VERSION = 'platformer-prop-pipeline-v2';
+export const PLATFORMER_PROP_PIPELINE_PROMPT_VERSION = 'platformer-prop-pipeline-v3';
 
 export interface PlatformerPropPromptOptions {
   gameTitle: string;
@@ -51,6 +52,73 @@ const ROLE_DIRECTION: Record<GeneratedPlatformerProp, string> = {
 
 function clean(value: string, max = 500): string {
   return value.replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+/** Fixed slots keep request identity stable when a replay restores some props. */
+export function platformerPropBoardLayout(count: number) {
+  if (!Number.isInteger(count) || count < 2 || count > GENERATED_PLATFORMER_PROPS.length)
+    throw new RangeError('A platformer prop board requires 2–8 roles');
+  return { columns: 3, rows: count <= 6 ? 2 : 3, width: count <= 6 ? 1536 : 1024, height: 1024 };
+}
+
+export function buildPlatformerPropBoardPrompt(
+  options: readonly PlatformerPropPromptOptions[],
+): string {
+  const { columns, rows } = platformerPropBoardLayout(options.length);
+  const first = options[0]!;
+  return [
+    `PLATFORMER PROP BOARD: exactly ${columns} columns and ${rows} equal rows, read left-to-right then top-to-bottom.`,
+    `Game: ${clean(first.gameTitle, 80)} — ${clean(first.tagline, 120)}. Premise: ${clean(first.premise, 240)}.`,
+    'Use the attached key art as visual direction for world, materials, shapes, era, mood and rendering style.',
+    'Each occupied cell contains exactly ONE complete isolated item, centered inside the middle 60% of its cell. Leave generous flat green gutters; nothing may cross a cell boundary.',
+    ...options.map(
+      (option, index) =>
+        `Cell ${index + 1} (row ${Math.floor(index / columns) + 1}, column ${(index % columns) + 1}), asset role ${option.role}: ${ROLE_DIRECTION[option.role]}${option.ability ? ` Ability identity: ${clean(option.ability.name, 40)}. Ability visual contract: ${clean(option.ability.visualConcept, 220)}.` : ''}`,
+    ),
+    ...(options.length < columns * rows
+      ? [`Leave cells ${options.length + 1} through ${columns * rows} empty.`]
+      : []),
+    'Do not draw labels, text, numbers, grid lines, borders, shadows, scenery, people or extra objects.',
+    `Color direction: ${clean(first.colors)}. Make each silhouette distinct and readable at 12x12 gameplay pixels (projectiles at 8x8).`,
+    'Polished high-density 16-bit SNES pixel art: crisp square clusters, hard edges, limited flat color ramps, strong outline separation, no blur, gradients or photorealism.',
+    'The entire background, gutters and enclosed gaps must be perfectly flat #00ff00. Never use neon green inside an object.',
+  ].join(' ');
+}
+
+/** Validate each crop independently; bad cells get the existing single-image retry. */
+export async function processGeneratedPlatformerPropBoard(
+  image: Buffer,
+  roles: readonly GeneratedPlatformerProp[],
+) {
+  const { columns, rows, width, height } = platformerPropBoardLayout(roles.length);
+  const board = await sharp(image).resize(width, height, { fit: 'fill' }).png().toBuffer();
+  return Promise.all(
+    roles.map(async (role, index) => {
+      try {
+        const left = Math.floor(((index % columns) * width) / columns);
+        const top = Math.floor((Math.floor(index / columns) * height) / rows);
+        const cellWidth = Math.floor((((index % columns) + 1) * width) / columns) - left;
+        const cellHeight = Math.floor(((Math.floor(index / columns) + 1) * height) / rows) - top;
+        const crop = await sharp(board)
+          .extract({ left, top, width: cellWidth, height: cellHeight })
+          .png()
+          .toBuffer();
+        const processed = await processGeneratedPlatformerProp(crop, role);
+        const bounds = processed.metrics.sourceBounds;
+        const margin = Math.ceil(Math.min(cellWidth, cellHeight) * 0.025);
+        if (
+          bounds.left < margin ||
+          bounds.top < margin ||
+          bounds.left + bounds.width > cellWidth - margin ||
+          bounds.top + bounds.height > cellHeight - margin
+        )
+          throw new Error('Prop touches its cell boundary');
+        return { role, png: processed.png };
+      } catch (error) {
+        return { role, error: error instanceof Error ? error.message : String(error) };
+      }
+    }),
+  );
 }
 
 export function buildPlatformerPropPrompt(options: PlatformerPropPromptOptions): string {

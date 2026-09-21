@@ -5,9 +5,15 @@ the player (their likeness becomes the hero) and a voice prompt. Runs on a dev P
 production target: a Raspberry Pi 3B+ inside a 3D-printed mini cabinet with a 1024×600 display,
 USB webcam + mic, and arcade controls on a Zero Delay USB encoder.
 
-Five **golden games** currently ship preinstalled with curated Muse-generated art packs, so the
+Six **golden games** currently ship preinstalled with curated Muse-generated art packs, so the
 cabinet is playable out of the box with no API key. Everything except the AI API calls works fully
 offline.
+
+The built-in racer is **Spark Token Rally**, starring Tom in a blue-and-ivory hover roadster.
+Race through Neighborhood Loop, Creator Coast, and Festival Circuit against four friendly rivals,
+collect Spark Tokens to bank boost, launch off coastal ramps, and choose a lane in the festival
+finale. Its portraits, story scenes, five racers, course panoramas, scenery, and track materials
+ship with the game and work offline.
 
 ---
 
@@ -127,7 +133,7 @@ Chromium kiosk (with a relaunch loop that waits for the server, so a crash or sl
 strands the cabinet), and scopes a sudoers rule to the exact `nmcli` invocations the WiFi settings
 screen uses. Set `SPARKADE_REPO=owner/repo` to install a fork; `--force` allows other Debian ARM
 boxes. Muse Image and Muse Voice Transcribe always run through Meta, so a non-Meta text provider
-still needs `META_API_KEY` for generated art and voice. Without it, the five preinstalled
+still needs `META_API_KEY` for generated art and voice. Without it, the six preinstalled
 games and mock demo remain playable, but new real-model games cannot publish.
 
 After reboot the cabinet boots straight to the attract screen. Useful commands:

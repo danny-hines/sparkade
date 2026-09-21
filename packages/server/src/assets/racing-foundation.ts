@@ -1,3 +1,9 @@
+import {
+  RACING_CAMERA_REVIEW,
+  racingCameraViewsSchema,
+  validRacingRearCamera,
+} from './racing-camera';
+import { RACING_REAR_CAMERA } from './racing-camera';
 // Single-rear foundation for animated racing cups (generation side).
 //
 // For authored non-static traversal.motion the ENGINE owns continuous
@@ -7,7 +13,7 @@
 // the compatible 192x64 foundation (the neutral cell repeated in all three
 // row-0 storage cells as explicit placeholders — never claimed as generated
 // bank poses), and judges it with a bank-free semantic gate. Static or
-// absent motion keeps the legacy three-pose strips byte-identical.
+// absent motion uses three-pose strips with the same camera contract.
 import sharp from 'sharp';
 import {
   RACING_CRAFT_CELL,
@@ -16,10 +22,7 @@ import {
   resolveTraversal,
   type RacingTraversal,
 } from '@sparkade/shared';
-import {
-  FighterPoseImageError,
-  processGeneratedFighterPose,
-} from './fighter-pose';
+import { FighterPoseImageError, processGeneratedFighterPose } from './fighter-pose';
 import { processGeneratedRacingCraftReference } from './racing-craft';
 import {
   racingConveyanceAxisLine,
@@ -32,7 +35,10 @@ import type { RacingPropulsion } from '@sparkade/shared';
  * Exhaust/VFX fiction for the single rear: same propulsion rules as the
  * strip line, but with no banking-pose tail — no bank poses exist here.
  */
-function racingFoundationExhaustLine(propulsion: RacingPropulsion | undefined, water: boolean): string {
+function racingFoundationExhaustLine(
+  propulsion: RacingPropulsion | undefined,
+  water: boolean,
+): string {
   if (propulsion === 'human') {
     return 'Human-powered fiction: no motor exhaust flames, engine plumes, or mechanical exhaust anywhere — the runtime owns all motion VFX.';
   }
@@ -44,8 +50,8 @@ function racingFoundationExhaustLine(propulsion: RacingPropulsion | undefined, w
     : 'No baked boost exhaust flames or drive plumes — the runtime owns all throttle and boost VFX.';
 }
 
-/** Motion-only foundation lineage. Legacy strips keep their versions. */
-export const RACING_FOUNDATION_PROMPT_VERSION = 'racing-foundation-v1';
+/** Motion-only foundation lineage; v2 enforces low rear camera elevation. */
+export const RACING_FOUNDATION_PROMPT_VERSION = 'racing-foundation-v2';
 
 /** Image-call budget for one foundation identity (single rear image). */
 export const RACING_FOUNDATION_IMAGE_CALLS = 1;
@@ -77,13 +83,12 @@ export function buildRacingFoundationPrompt(options: RacingFoundationPromptOptio
   const rider = traversal?.rider ?? 'none';
   const water = traversal?.surface === 'water';
   const subject = racingSubjectNoun(rider);
-  const concept =
-    clean(options.concept, 280) ?? `distinctive rear-view racing ${subject}`;
+  const concept = clean(options.concept, 280) ?? `distinctive rear-view racing ${subject}`;
   const artDirection = clean(options.artDirection, 280);
   const colors = clean(options.colors, 300);
   const retry = clean(options.retryGuidance, 320);
   return [
-    `RACING FOUNDATION: paint exactly ONE isolated rear-view ${subject} on flat #00ff00 for ${name}: a single neutral-rear pose with the camera behind and slightly above, the subject pointing directly AWAY toward the horizon. One subject only.`,
+    `RACING FOUNDATION: paint exactly ONE isolated rear-view ${subject} on flat #00ff00 for ${name}: a single neutral-rear pose with the camera directly behind at a low chase-camera height, the subject pointing directly AWAY toward the horizon. One subject only.`,
     artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
     `Rear identity: ${concept}. Same silhouette, materials, outfit, markings, and livery as the roster concept.`,
     'The roster concept above describes identity only: use its silhouette, outfit, markings, and color wording. Any run-cycle, animation-frame, stride-sequence, or motion wording in the concept does NOT add poses, frames, or subjects and never turns the camera.',
@@ -91,6 +96,7 @@ export function buildRacingFoundationPrompt(options: RacingFoundationPromptOptio
       ? 'On-foot rear identity: freeze ONE mid-stride phase with opposite arm-and-leg positions. Rear anatomy only: the back of the head, back, clothes, arms, legs, and heels are visible. No face, eyes, chest, or front of the torso. Facial likeness belongs to the separate portrait art; this image identifies the runner by outfit and rear silhouette only.'
       : '',
     `Rear camera only: ${rider === 'onFoot' ? 'runner back, rear head, and stride silhouette are visible; never a face-on view' : rider === 'none' ? 'tail, stern, and rear markings are visible; no front, cockpit front, or face-on view' : 'rider back, conveyance stern and rear, and tail markings are visible; no front, cockpit front, or face-on view'}. Never render the subject standing detached, floating beside, facing the camera, or pasted into a second view.`,
+    RACING_REAR_CAMERA,
     racingConveyanceAxisLine(rider),
     water ? 'Water cup: the subject touches the water with a small waterline contact patch.' : '',
     racingFoundationExhaustLine(traversal?.propulsion, water),
@@ -127,10 +133,16 @@ export async function processGeneratedRacingFoundation(
   try {
     meta = await sharp(raw).metadata();
   } catch {
-    throw new FighterPoseImageError('invalid-image', 'generated racing foundation is not decodable');
+    throw new FighterPoseImageError(
+      'invalid-image',
+      'generated racing foundation is not decodable',
+    );
   }
   if (!meta.width || !meta.height) {
-    throw new FighterPoseImageError('invalid-image', 'generated racing foundation has no dimensions');
+    throw new FighterPoseImageError(
+      'invalid-image',
+      'generated racing foundation has no dimensions',
+    );
   }
   let png: Buffer;
   try {
@@ -150,7 +162,10 @@ export async function processGeneratedRacingFoundation(
     ).png;
   } catch (error) {
     if (error instanceof FighterPoseImageError) {
-      throw new FighterPoseImageError(error.code, `generated racing foundation rejected: ${error.message}`);
+      throw new FighterPoseImageError(
+        error.code,
+        `generated racing foundation rejected: ${error.message}`,
+      );
     }
     throw error;
   }
@@ -221,7 +236,8 @@ export function buildRacingFoundationJudgePrompt(
       references.length
         ? `Frozen REFERENCE images (already approved, never judge, never list in slotReviews or rejectedIds): ${references.map((s) => `${s.id} (${s.name})`).join(', ')}. Compare every target against the references for distinctness — a target duplicating a reference subject is fatal.`
         : '',
-      'Required: true rear camera (behind and slightly above, subject pointing away), the SAME subject as its concept, readable rear silhouette, no green panels, no text, no cropping. Every image must show exactly one complete rear subject.',
+      RACING_CAMERA_REVIEW,
+      'Required: true rear camera (directly behind at a low chase-camera height, subject pointing away), the SAME subject as its concept, readable rear silhouette, no green panels, no text, no cropping. Every image must show exactly one complete rear subject.',
       'Banking is never assessed and never requested: accept or reject on rear-camera truth only. A rear view with no lean is correct; do not demand bank angles.',
       'A fatal issue is a wrong camera direction (face-on, front, or side view), a sideways conveyance deck, a missing or doubled subject, a conveyance on an on-foot runner (or vice versa), malformed anatomy (missing or extra limbs, detached parts), motor exhaust on a human-powered subject, cropped/multiple subjects, duplicated subjects across targets or references, or broken transparency.',
       'accepted should be true only when every target has no fatal issue and is production quality. Even when accepted is false, retryGuidance must describe the single most important correction for the rejected targets, and each rejected target needs its own fix in guidance.',
@@ -247,9 +263,10 @@ export function buildRacingFoundationJudgeSchema(
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['id', 'fatalIssues', 'summary', 'guidance'],
+          required: ['id', 'cameraViews', 'fatalIssues', 'summary', 'guidance'],
           properties: {
             id: { type: 'string', enum: ids },
+            cameraViews: racingCameraViewsSchema(1),
             fatalIssues: { type: 'array', items: { type: 'string' }, maxItems: 8 },
             summary: { type: 'string' },
             guidance: { type: 'string' },
@@ -300,18 +317,23 @@ export function normalizeRacingFoundationDecision(
     rejectedIds?: unknown;
     retryGuidance?: unknown;
   };
-  if (typeof accepted !== 'boolean' || !Array.isArray(rejectedIds) ||
-      rejectedIds.some((id) => typeof id !== 'string' || !idSet.has(id))) {
+  if (
+    typeof accepted !== 'boolean' ||
+    !Array.isArray(rejectedIds) ||
+    rejectedIds.some((id) => typeof id !== 'string' || !idSet.has(id))
+  ) {
     return fail('Unparseable foundation selection.');
   }
   const seen = new Set<string>();
   const fatalById = new Map<string, string[]>();
   const guidanceById = new Map<string, string>();
   for (const review of slotReviews) {
-    if (typeof review !== 'object' || review === null) return fail('Unparseable foundation review.');
-    const { id, fatalIssues, guidance } = review as {
+    if (typeof review !== 'object' || review === null)
+      return fail('Unparseable foundation review.');
+    const { id, fatalIssues, guidance, cameraViews } = review as {
       id?: unknown;
       fatalIssues?: unknown;
+      cameraViews?: unknown;
       guidance?: unknown;
     };
     if (typeof id !== 'string' || !idSet.has(id) || seen.has(id)) {
@@ -323,9 +345,18 @@ export function normalizeRacingFoundationDecision(
     seen.add(id);
     fatalById.set(
       id,
-      fatalIssues,
+      validRacingRearCamera(cameraViews, 1)
+        ? fatalIssues
+        : [...fatalIssues, 'Missing or invalid low rear camera assessment.'],
     );
-    guidanceById.set(id, typeof guidance === 'string' ? guidance : '');
+    guidanceById.set(
+      id,
+      validRacingRearCamera(cameraViews, 1)
+        ? typeof guidance === 'string'
+          ? guidance
+          : ''
+        : 'Restore a low rear chase camera with foreshortened depth; reject overhead views.',
+    );
   }
   if (seen.size !== ids.length) return fail('Foundation review has no selection.');
   const rejected = new Set<string>();
@@ -339,9 +370,13 @@ export function normalizeRacingFoundationDecision(
   const rejectedList = [...rejected];
   return {
     accepted: accepted === true && rejectedList.length === 0,
-    rejectedIds: accepted === true && rejectedList.length === 0 ? [] : rejectedList.length ? rejectedList : [...ids],
+    rejectedIds:
+      accepted === true && rejectedList.length === 0
+        ? []
+        : rejectedList.length
+          ? rejectedList
+          : [...ids],
     retryGuidance: typeof retryGuidance === 'string' && retryGuidance ? retryGuidance : '',
-    slotGuidance: Object.fromEntries(ids.map((id) => [id, guidanceById.get(id) ?? '']),
-    ),
+    slotGuidance: Object.fromEntries(ids.map((id) => [id, guidanceById.get(id) ?? ''])),
   };
 }

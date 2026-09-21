@@ -1,3 +1,4 @@
+import { RACING_REAR_CAMERA } from './racing-camera';
 // Targeted banking correction for racing craft strips: when a semantic
 // review rejects only the banking poses (both banks yaw the same way is the
 // classic failure), regenerate the two bank poses as single-object edits of
@@ -21,20 +22,10 @@ import {
 } from './racing-traversal-art';
 
 /** Prompt fingerprint for the two single-pose bank edits. */
-export const RACING_BANK_PROMPT_VERSION = 'racing-craft-bank-v1';
-/**
- * Jetski bank-edit fingerprint. Hover keeps v1 byte-identical so old
- * approved assets reuse correctly.
- */
-export const RACING_JETSKI_BANK_PROMPT_VERSION = 'racing-jetski-bank-v2';
-/**
- * Traversal bank-edit fingerprint. Any present traversal takes this
- * lineage; absent traversal keeps the legacy lineages byte-identical.
- * v3 drops the whole-strip retry guidance from the single-pose edit (it
- * names BOTH bank directions and can override the one pose being fixed),
- * matching the jetski path.
- */
-export const RACING_TRAVERSAL_BANK_PROMPT_VERSION = 'racing-traversal-bank-v3';
+export const RACING_BANK_PROMPT_VERSION = 'racing-craft-bank-v2';
+/** Separate lineages, all enforcing the same low rear camera during roll. */
+export const RACING_JETSKI_BANK_PROMPT_VERSION = 'racing-jetski-bank-v3';
+export const RACING_TRAVERSAL_BANK_PROMPT_VERSION = 'racing-traversal-bank-v4';
 
 export type RacingBankDiscipline = 'hover' | 'jetski';
 
@@ -89,7 +80,8 @@ export function buildRacingBankEditPrompt(options: RacingBankEditPromptOptions):
       `Paint exactly ONE isolated rear-view jetski pose on flat #00ff00: the SAME watercraft plus its SAME seated adult rider as the reference image (${name}'s craft), banking ${side}. This is the ${side}-bank pose; the opposite bank is a separate image.`,
       artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
       `Identical watercraft and rider to the reference: same compact hull, handlebars, markings, livery, outfit, and rear head. The rider stays seated astride the hull, leaning together with it; never redesign either and never mirror an asymmetric livery into this pose. The hull touches the water with a small waterline contact patch.`,
-      `ROLL ONLY, NO YAW: ${options.posedReference ? 'The reference ALREADY has the exact desired 10-degree roll. Copy its orientation and silhouette; do not rotate it again or straighten it.' : `Tilt rider and craft together roughly 8-12 degrees around the camera axis so its ${drop}.`} The craft still points directly AWAY toward the horizon with the rear camera behind and slightly above: rider back, stern, and jet nozzle stay visible; no bow front, yawed side profile, or face-on view. Never paste a face into the hull and never render the rider standing, detached, or facing the camera.`,
+      RACING_REAR_CAMERA,
+      `ROLL ONLY, NO YAW: ${options.posedReference ? 'The reference ALREADY has the exact desired 10-degree roll. Copy its orientation and silhouette; do not rotate it again or straighten it.' : `Tilt rider and craft together roughly 8-12 degrees around the camera axis so its ${drop}.`} The craft still points directly AWAY toward the horizon with the rear camera directly behind at a low chase-camera height: rider back, stern, and jet nozzle stay visible; no bow front, yawed side profile, or face-on view. Never paste a face into the hull and never render the rider standing, detached, or facing the camera.`,
       options.pose === 'bankLeft'
         ? `SCREEN DIRECTION CHECK: ${options.posedReference ? 'the reference is already tilted' : 'rotate the upright reference'} COUNTERCLOCKWISE by 10 degrees as seen on this image. The rider head MUST lie to the LEFT of the rear jet nozzle. The stern edge slopes upward toward the RIGHT. LEFT means screen-left, not the watercraft port/starboard perspective. Do not rotate clockwise.`
         : `SCREEN DIRECTION CHECK: ${options.posedReference ? 'the reference is already tilted' : 'rotate the upright reference'} CLOCKWISE by 10 degrees as seen on this image. The rider head MUST lie to the RIGHT of the rear jet nozzle. The stern edge slopes downward toward the RIGHT. RIGHT means screen-right, not the watercraft port/starboard perspective. Do not rotate counterclockwise.`,
@@ -110,7 +102,8 @@ export function buildRacingBankEditPrompt(options: RacingBankEditPromptOptions):
     `Paint exactly ONE isolated rear-view hovercraft pose on flat #00ff00: the SAME vehicle as the reference image (${name}'s craft), banking ${side}. This is the ${side}-bank pose; the opposite bank is a separate image.`,
     artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
     `Identical craft to the reference: same silhouette, materials, canopy, markings, and livery. Copy the reference vehicle exactly; never redesign it and never mirror an asymmetric livery into this pose.`,
-    `ROLL ONLY, NO YAW: tilt the craft roughly 8-12 degrees around the camera axis so its ${drop} and it leans toward the ${side} of frame, shifting slightly sideways. The craft still points directly AWAY toward the horizon with the rear camera behind and slightly above: thrusters, tail light bar, rear skirt, and canopy rear stay visible; no nose, cockpit front, yawed side profile, or face-on view.`,
+    RACING_REAR_CAMERA,
+    `ROLL ONLY, NO YAW: tilt the craft roughly 8-12 degrees around the camera axis so its ${drop} and it leans toward the ${side} of frame, shifting slightly sideways. The craft still points directly AWAY toward the horizon with the rear camera directly behind at a low chase-camera height: thrusters, tail light bar, rear skirt, and canopy rear stay visible; no nose, cockpit front, yawed side profile, or face-on view.`,
     'No large exhaust plumes or thruster flames — a small idle thruster glow at most. The runtime owns all throttle and boost VFX.',
     'Closed or dark readable canopy rear; no person, pilot, rider, passenger, face, head, eyes, portrait, human body, initials, text, letters, numbers, logo, watermark, signature, UI, border, or scenery.',
     colors ? `Use this limited game color direction with strong contrast: ${colors}.` : '',
@@ -164,7 +157,8 @@ function buildTraversalRacingBankEditPrompt(
     `Paint exactly ONE isolated rear-view pose on flat #00ff00: the SAME ${subject} as the reference image (${referenceNoun}), banking ${side}. This is the ${side}-bank pose; the opposite bank is a separate image.`,
     artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
     `${racingRiderIdentityLine(rider, `the reference ${subject}`)} Never redesign it and never mirror an asymmetric livery into this pose.${water ? ' The subject touches the water with a small waterline contact patch.' : ''}`,
-    `ROLL ONLY, NO YAW: ${options.posedReference ? 'The reference ALREADY has the exact desired 10-degree roll. Copy its orientation and silhouette; do not rotate it again or straighten it.' : `Tilt the subject roughly 8-12 degrees around the camera axis so its ${drop}.`} The subject still points directly AWAY toward the horizon with the rear camera behind and slightly above.`,
+    RACING_REAR_CAMERA,
+    `ROLL ONLY, NO YAW: ${options.posedReference ? 'The reference ALREADY has the exact desired 10-degree roll. Copy its orientation and silhouette; do not rotate it again or straighten it.' : `Tilt the subject roughly 8-12 degrees around the camera axis so its ${drop}.`} The subject still points directly AWAY toward the horizon with the rear camera directly behind at a low chase-camera height.`,
     racingConveyanceAxisLine(rider),
     directionCheck,
     racingExhaustLine(traversal.propulsion, water),

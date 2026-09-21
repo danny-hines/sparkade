@@ -291,7 +291,13 @@ export class MockProvider implements Provider {
     try {
       for (const f of readdirSync(dir)) {
         if (!f.endsWith('.json')) continue;
-        const spec = readJson<GameSpec>(join(dir, f));
+        // Keep the mock's legacy hover/pads baseline independent of curated
+        // starter-game upgrades (riders, hills, ramps and forks are opt-in).
+        const path =
+          f === 'golden-racing.json'
+            ? join(dir, '..', 'fixtures', 'racing-legacy.json')
+            : join(dir, f);
+        const spec = readJson<GameSpec>(path);
         if (spec) this.goldens.set(spec.archetype, spec);
       }
     } catch {

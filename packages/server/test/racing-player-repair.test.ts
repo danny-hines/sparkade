@@ -225,8 +225,8 @@ describe('racing bank single-pose prompt scoping', () => {
   });
 
   it('bumps only the traversal bank lineage', () => {
-    expect(RACING_TRAVERSAL_BANK_PROMPT_VERSION).toBe('racing-traversal-bank-v3');
-    expect(RACING_BANK_PROMPT_VERSION).toBe('racing-craft-bank-v1');
-    expect(RACING_JETSKI_BANK_PROMPT_VERSION).toBe('racing-jetski-bank-v2');
+    expect(RACING_TRAVERSAL_BANK_PROMPT_VERSION).toBe('racing-traversal-bank-v4');
+    expect(RACING_BANK_PROMPT_VERSION).toBe('racing-craft-bank-v2');
+    expect(RACING_JETSKI_BANK_PROMPT_VERSION).toBe('racing-jetski-bank-v3');
   });
 });

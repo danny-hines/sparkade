@@ -46,7 +46,7 @@ import { racingSceneryObjectPrompts } from '../src/assets/racing-scenery-pack';
 import { buildKeyArtPrompt, isJetskiSpec, mockGeneratedImage } from '../src/assets/game-art';
 
 const golden = JSON.parse(
-  readFileSync(join(__dirname, '../../generation/golden/golden-racing.json'), 'utf8'),
+  readFileSync(join(__dirname, '../../generation/fixtures/racing-legacy.json'), 'utf8'),
 ) as RacingSpec;
 
 const JETSKI_REQUEST =
@@ -359,11 +359,11 @@ describe('jetski cup end-to-end slice', () => {
   });
 
   it('separates jetski prompt versions so hover approvals reuse correctly', () => {
-    expect(RACING_CRAFT_STRIP_PROMPT_VERSION).toBe('racing-craft-strip-v3');
+    expect(RACING_CRAFT_STRIP_PROMPT_VERSION).toBe('racing-craft-strip-v4');
     expect(RACING_JETSKI_STRIP_PROMPT_VERSION).not.toBe(RACING_CRAFT_STRIP_PROMPT_VERSION);
-    expect(RACING_BANK_PROMPT_VERSION).toBe('racing-craft-bank-v1');
+    expect(RACING_BANK_PROMPT_VERSION).toBe('racing-craft-bank-v2');
     expect(RACING_JETSKI_BANK_PROMPT_VERSION).not.toBe(RACING_BANK_PROMPT_VERSION);
-    expect(RACING_JUDGE_PROMPT_VERSION).toBe('racing-roster-judge-v1');
+    expect(RACING_JUDGE_PROMPT_VERSION).toBe('racing-roster-judge-v2');
     expect(RACING_JETSKI_JUDGE_PROMPT_VERSION).not.toBe(RACING_JUDGE_PROMPT_VERSION);
     expect(RACING_JETSKI_PANORAMA_PROMPT_VERSION).not.toBe('racing-jetski-panorama-v1');
     const plan = buildRacingPackPlan(jetskiSpec());
@@ -372,7 +372,7 @@ describe('jetski cup end-to-end slice', () => {
     expect(plan.panoramas[0]!.promptVersion).toBe(RACING_JETSKI_PANORAMA_PROMPT_VERSION);
     const hoverSpec = structuredClone(golden);
     const hoverPlan = buildRacingPackPlan(hoverSpec);
-    expect(hoverPlan.playerStrip.promptVersion).toBe('racing-craft-strip-v3');
+    expect(hoverPlan.playerStrip.promptVersion).toBe('racing-craft-strip-v4');
     expect(hoverPlan.playerStrip.prompt).toMatch(/no person, pilot, rider/i);
   });
 

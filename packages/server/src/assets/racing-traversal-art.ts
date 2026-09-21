@@ -2,9 +2,8 @@
 //
 // Only the bounded enum axes (surface/rider/propulsion) drive art prompts;
 // the freeform label NEVER does. Absent traversal preserves the legacy
-// hover/jetski behavior exactly — every legacy prompt below keeps its
-// byte-identical branch and these helpers are consulted only when a
-// validated traversal contract is present.
+// hover/jetski subject routing. All generation paths share the low rear
+// camera contract in racing-camera.ts.
 import {
   resolveTraversal,
   type RacingIdentity,
@@ -107,16 +106,16 @@ export function racingBankLine(rider: RacingRider): string {
 /** Rear-camera contract for the rider axis. */
 export function racingRearCameraLine(rider: RacingRider): string {
   if (rider === 'none') {
-    return 'Rear camera orientation: the camera sits behind and slightly above every conveyance and all three point directly AWAY toward the horizon. Rear-view composition only: tail, stern, and rear markings are visible; no front, cockpit front, or face-on view.';
+    return 'Rear camera orientation: the camera sits at a low chase-camera height directly behind every conveyance and all three point directly AWAY toward the horizon. Rear-view composition only: tail, stern, and rear markings are visible; no front, cockpit front, or face-on view.';
   }
   if (rider === 'onFoot') {
-    return 'Rear camera orientation: the camera sits behind and slightly above the runner and all three point directly AWAY toward the horizon. Rear-view composition only: runner back, rear head, and stride silhouette are visible; never a face-on view. Never render a second runner, a conveyance, or a face pasted into the scene.';
+    return 'Rear camera orientation: the camera sits at a low chase-camera height directly behind the runner and all three point directly AWAY toward the horizon. Rear-view composition only: runner back, rear head, and stride silhouette are visible; never a face-on view. Never render a second runner, a conveyance, or a face pasted into the scene.';
   }
   const forbidden =
     rider === 'standing'
       ? 'never render the rider seated, detached, floating beside, or facing the camera'
       : 'never render the rider standing, detached, floating beside, or facing the camera';
-  return `Rear camera orientation: the camera sits behind and slightly above every conveyance and all three point directly AWAY toward the horizon. Rear-view composition only: rider back, conveyance stern and rear, and tail markings are visible; no front, cockpit front, or face-on view. The rider may show the rear of the head; never paste a face into the conveyance and ${forbidden}.`;
+  return `Rear camera orientation: the camera sits at a low chase-camera height directly behind every conveyance and all three point directly AWAY toward the horizon. Rear-view composition only: rider back, conveyance stern and rear, and tail markings are visible; no front, cockpit front, or face-on view. The rider may show the rear of the head; never paste a face into the conveyance and ${forbidden}.`;
 }
 
 /**

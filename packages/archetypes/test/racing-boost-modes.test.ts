@@ -111,7 +111,7 @@ describe('boost mode exclusivity', () => {
       expect(circuit.pads).toEqual([]);
       expect(circuit.pickups).toEqual([]);
     }
-    for (const { circuit } of resolveCupRaces(golden())) {
+    for (const { circuit } of resolveCupRaces(withBoostMode(golden(), 'pads'))) {
       expect(circuit.boostMode).toBe('pads');
       expect(circuit.pads.length).toBeGreaterThan(0);
       expect(circuit.pickups).toEqual([]);

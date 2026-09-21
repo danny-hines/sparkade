@@ -138,7 +138,7 @@ describe('lintRacing diagnostics', () => {
     ).toContain('RACING_RIVAL_COUNT');
     expect(
       mutate((s) => {
-        s.levels[1]!.rivals[1]!.name = 'VEX';
+        s.levels[1]!.rivals[1]!.name = s.levels[1]!.rivals[0]!.name;
       }),
     ).toContain('RACING_DUP_NAME');
     expect(
@@ -209,6 +209,7 @@ describe('resolveCupRaces', () => {
 
   it('applies every spec parameter instead of just accepting it', () => {
     const spec = golden();
+    spec.difficulty = 'standard';
     spec.levels[0]!.name = 'Custom Loop';
     spec.levels[0]!.rivals[0] = { name: 'CUSTOM RIVAL', topScale: 0.75 };
     spec.levels[0]!.theme = { scenery: 'crystals', sun: '#123456' };
@@ -223,8 +224,8 @@ describe('resolveCupRaces', () => {
     expect(c.theme.sun).toBe('#123456');
     expect(c.timeout).toBe(200);
     expect(races[0]!.musicSong).toBe('boss');
-    // Unspecified circuits keep template identity.
-    expect(races[1]!.circuit.names[1]).toBe('VEX');
+    // Unchanged circuits keep the authored identity.
+    expect(races[1]!.circuit.names[1]).toBe(spec.levels[1]!.rivals[0]!.name);
   });
 });
 
@@ -256,7 +257,7 @@ describe('spec-driven runtime', () => {
     // Run out the countdown: the phase becomes racing proper, not countdown.
     for (let k = 0; k < Math.ceil(3 / DT) + 5; k++) game.update(DT, blankInput());
     expect(game.racingDev.snapshot().phase).toBe('race');
-    expect(game.racingDev.snapshot().trackName).toBe('Ember Loop');
+    expect(game.racingDev.snapshot().trackName).toBe(golden().levels[0]!.name);
     // START never advances the cup (host pause owns it).
     game.update(DT, pressButton('START'));
     expect(game.racingDev.snapshot().phase).toBe('race');
@@ -458,12 +459,15 @@ describe('spec-driven runtime', () => {
   });
 
   it('applies difficulty as bounded rival pace', () => {
-    const chill = resolveCupRaces({ ...golden(), difficulty: 'chill' });
-    expect(chill[0]!.circuit.aiScales[1]).toBeCloseTo(0.93 * 0.92, 3);
-    const spicy = resolveCupRaces({ ...golden(), difficulty: 'spicy' });
+    const spec = golden();
+    spec.levels[2]!.rivals[spec.boss.rivalIndex - 1]!.topScale = 1;
+    const openingPace = spec.levels[0]!.rivals[0]!.topScale;
+    const chill = resolveCupRaces({ ...spec, difficulty: 'chill' });
+    expect(chill[0]!.circuit.aiScales[1]).toBeCloseTo(openingPace * 0.92, 3);
+    const spicy = resolveCupRaces({ ...spec, difficulty: 'spicy' });
     // Finale pace clamps at player top speed, never above it.
-    expect(spicy[2]!.circuit.aiScales[1]).toBe(1);
-    expect(spicy[0]!.circuit.aiScales[1]).toBeGreaterThan(0.93);
+    expect(spicy[2]!.circuit.aiScales[spec.boss.rivalIndex]).toBe(1);
+    expect(spicy[0]!.circuit.aiScales[1]).toBeGreaterThan(openingPace);
   });
 
   it('self-drives in attract mode with no input', () => {

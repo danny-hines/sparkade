@@ -114,7 +114,7 @@ describe('racing craft strip prompt', () => {
     });
     expect(prompt).toContain(CONCEPTS.rivals[0]);
     expect(prompt).toContain(CONCEPTS.artDirection);
-    expect(prompt).toContain('behind and slightly above');
+    expect(prompt).toContain('low chase-camera height directly behind');
     expect(prompt).toContain('point directly AWAY');
     expect(prompt).toContain('neutral-rear cruise, banking LEFT, banking RIGHT');
     expect(prompt).toContain('no person, pilot, rider, passenger, face, head');
@@ -124,7 +124,7 @@ describe('racing craft strip prompt', () => {
     expect(prompt).toContain('ample clear green gutters and margins');
     expect(prompt).toContain('No baked boost exhaust flames');
     expect(prompt).toContain('runtime owns all throttle and boost VFX');
-    expect(RACING_CRAFT_STRIP_PROMPT_VERSION).toBe('racing-craft-strip-v3');
+    expect(RACING_CRAFT_STRIP_PROMPT_VERSION).toBe('racing-craft-strip-v4');
   });
 
   it('authors five distinct roster strips from the identity cast', () => {

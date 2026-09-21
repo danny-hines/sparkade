@@ -178,7 +178,9 @@ describe('resolveCupRaces traversal path', () => {
       expect('traversal' in circuit).toBe(false);
       expect(circuit.discipline).toBe('hover');
     }
-    for (const { circuit } of resolveCupRaces(golden())) {
+    const legacy = golden();
+    delete legacy.identity;
+    for (const { circuit } of resolveCupRaces(legacy)) {
       expect('traversal' in circuit).toBe(false);
       expect(circuit.discipline).toBe('hover');
     }

@@ -100,7 +100,7 @@ describe('racing bank edit prompts', () => {
       expect(prompt).toContain('never mirror');
       expect(prompt).toContain('both banks yaw left');
     }
-    expect(RACING_BANK_PROMPT_VERSION).toBe('racing-craft-bank-v1');
+    expect(RACING_BANK_PROMPT_VERSION).toBe('racing-craft-bank-v2');
     expect(RACING_BANK_CORRECTION_IMAGE_CALLS).toBe(2);
   });
 });

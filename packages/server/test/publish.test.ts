@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Db } from '../src/storage/db';
 import { GameFiles, reconcileGames, seedGoldenGames } from '../src/storage/files';
+import { generatedAssetForRole } from '../src/assets/manifest';
 import { ensureDir } from '../src/util';
 
 let dir: string;
@@ -129,41 +130,77 @@ describe('atomic publish', () => {
 });
 
 describe('playable golden seeding', () => {
-  it('publishes all five complete golden games, including the Fighter art pack', () => {
+  it('publishes all six complete golden games, including the Fighter and Racing art packs', () => {
     seedGoldenGames(files, db, {
       platformer: '1.0.0',
       shooter: '1.0.0',
       adventure: '1.0.0',
       hshooter: '1.0.0',
       fighter: '1.0.0',
+      racing: '1.0.0',
     });
 
-    for (const archetype of ['fighter', 'platformer', 'shooter', 'adventure', 'hshooter']) {
+    for (const archetype of [
+      'fighter',
+      'platformer',
+      'shooter',
+      'adventure',
+      'hshooter',
+      'racing',
+    ]) {
       expect(db.getGame(`golden-${archetype}`)?.status).toBe('ready');
       expect(existsSync(join(files.gameDir(`golden-${archetype}`), 'game.json'))).toBe(true);
     }
     expect(
       existsSync(join(files.gameDir('golden-fighter'), 'assets', 'fighter-player-atlas.png')),
     ).toBe(true);
+    const racingAssets = join(files.gameDir('golden-racing'), 'assets');
+    for (const role of [
+      'keyArt',
+      'storyIntro',
+      'storyBoss',
+      'storyVictory',
+      'storyDefeat',
+      'generatedPortrait',
+      'generatedPortraitDefeat',
+      'racingCraftPlayer',
+      'racingCraftRival1',
+      'racingCraftRival2',
+      'racingCraftRival3',
+      'racingCraftRival4',
+      'racingPanorama1',
+      'racingPanorama2',
+      'racingPanorama3',
+      'racingSceneryAtlas',
+      'racingMaterialAtlas',
+    ] as const) {
+      expect(generatedAssetForRole(racingAssets, role), role).not.toBeNull();
+    }
   });
 
-  it('re-seeds a golden when its stored generated art no longer matches the source manifest', () => {
-    const versions = {
-      platformer: '1.0.0',
-      shooter: '1.0.0',
-      adventure: '1.0.0',
-      hshooter: '1.0.0',
-      fighter: '1.0.0',
-    };
-    seedGoldenGames(files, db, versions);
-    const atlas = join(files.gameDir('golden-fighter'), 'assets', 'fighter-player-atlas.png');
-    const original = readFileSync(atlas);
-    writeFileSync(atlas, Buffer.from('tampered'));
+  it.each(['fighter', 'racing'] as const)(
+    're-seeds %s when its stored art no longer matches the source manifest',
+    (archetype) => {
+      const versions = {
+        platformer: '1.0.0',
+        shooter: '1.0.0',
+        adventure: '1.0.0',
+        hshooter: '1.0.0',
+        fighter: '1.0.0',
+        racing: '1.0.0',
+      };
+      seedGoldenGames(files, db, versions);
+      const filename =
+        archetype === 'fighter' ? 'fighter-player-atlas.png' : 'racing-craft-player.png';
+      const atlas = join(files.gameDir(`golden-${archetype}`), 'assets', filename);
+      const original = readFileSync(atlas);
+      writeFileSync(atlas, Buffer.from('tampered'));
 
-    seedGoldenGames(files, db, versions);
+      seedGoldenGames(files, db, versions);
 
-    expect(readFileSync(atlas)).toEqual(original);
-  });
+      expect(readFileSync(atlas)).toEqual(original);
+    },
+  );
 });
 
 describe('jobs and the immutable cost ledger', () => {

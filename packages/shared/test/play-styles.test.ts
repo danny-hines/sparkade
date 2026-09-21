@@ -51,6 +51,11 @@ describe('mechanical diversity', () => {
     const spec: RacingSpec = JSON.parse(
       readFileSync(join(__dirname, '../../generation/golden/golden-racing.json'), 'utf8'),
     );
+    for (const level of spec.levels) {
+      delete level.elevation;
+      delete level.jumps;
+      delete level.forks;
+    }
     const baseline = mechanicalFingerprint(spec);
     // Legacy omission is byte-identical to explicit flat/none defaults.
     for (const level of spec.levels) {

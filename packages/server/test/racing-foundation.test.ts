@@ -63,7 +63,7 @@ describe('racing foundation prompt', () => {
     expect(
       buildRacingFoundationPrompt({ name: 'R', concept: 'c', traversal: renamed }),
     ).toBe(buildRacingFoundationPrompt({ name: 'R', concept: 'c', traversal: ONFOOT }));
-    expect(RACING_FOUNDATION_PROMPT_VERSION).toBe('racing-foundation-v1');
+    expect(RACING_FOUNDATION_PROMPT_VERSION).toBe('racing-foundation-v2');
     expect(RACING_FOUNDATION_IMAGE_CALLS).toBe(1);
   });
 
@@ -75,7 +75,7 @@ describe('racing foundation prompt', () => {
     motionSpec.identity!.traversal = { ...ONFOOT, label: 'Test Stride' };
     const motionPlan = buildRacingPackPlan(motionSpec);
     for (const entry of [motionPlan.playerStrip, ...motionPlan.rivalStrips]) {
-      expect(entry.promptVersion).toBe('racing-foundation-v1');
+      expect(entry.promptVersion).toBe('racing-foundation-v2');
       expect(entry.prompt).toContain('RACING FOUNDATION:');
       expect(entry.size).toBe('1024x1024');
     }
@@ -83,7 +83,7 @@ describe('racing foundation prompt', () => {
     staticSpec.identity!.traversal = { ...ONFOOT, motion: 'static', label: 'Test Static' };
     const staticPlan = buildRacingPackPlan(staticSpec);
     for (const entry of [staticPlan.playerStrip, ...staticPlan.rivalStrips]) {
-      expect(entry.promptVersion).not.toBe('racing-foundation-v1');
+      expect(entry.promptVersion).not.toBe('racing-foundation-v2');
       expect(entry.prompt).not.toContain('RACING FOUNDATION:');
     }
   });
@@ -135,7 +135,7 @@ describe('racing foundation gate', () => {
   it('accepts a clean unanimous verdict', () => {
     const decision = normalizeRacingFoundationDecision(
       {
-        slotReviews: SLOTS.map((s) => ({ id: s.id, fatalIssues: [], summary: 'ok', guidance: '' })),
+        slotReviews: SLOTS.map((s) => ({ id: s.id, cameraViews: ['low-rear'], fatalIssues: [], summary: 'ok', guidance: '' })),
         selection: { accepted: true, rejectedIds: [], rationale: 'ok', retryGuidance: '' },
       },
       SLOTS,
@@ -143,12 +143,27 @@ describe('racing foundation gate', () => {
     expect(decision).toMatchObject({ accepted: true, rejectedIds: [] });
   });
 
+  it.each(['overhead', 'front', 'side', 'unclear', undefined])(
+    'blocks foundation acceptance when camera evidence is %s', (view) => {
+      const result = normalizeRacingFoundationDecision({
+        slotReviews: SLOTS.map(s => ({
+          id: s.id, cameraViews: s.id === 'player' ? (view ? [view] : undefined) : ['low-rear'],
+          fatalIssues: [], summary: 'same subject', guidance: '',
+        })),
+        selection: { accepted: true, rejectedIds: [], retryGuidance: '' },
+      }, SLOTS);
+      expect(result.accepted).toBe(false);
+      expect(result.rejectedIds).toEqual(['player']);
+      expect(result.slotGuidance.player).toContain('low rear chase camera');
+    },
+  );
+
   it('fails closed: fatal issues contradict acceptance, unknown shapes reject all', () => {
     const contradict = normalizeRacingFoundationDecision(
       {
         slotReviews: [
-          { id: 'player', fatalIssues: ['face-on view'], summary: 'bad', guidance: 'turn around' },
-          { id: 'rival1', fatalIssues: [], summary: 'ok', guidance: '' },
+          { id: 'player', cameraViews: ['low-rear'], fatalIssues: ['face-on view'], summary: 'bad', guidance: 'turn around' },
+          { id: 'rival1', cameraViews: ['low-rear'], fatalIssues: [], summary: 'ok', guidance: '' },
         ],
         selection: { accepted: true, rejectedIds: [], rationale: 'bad', retryGuidance: '' },
       },
@@ -164,8 +179,8 @@ describe('racing foundation gate', () => {
   it('preserves clean targets when one identity is rejected', () => {
     const decision = normalizeRacingFoundationDecision({
       slotReviews: [
-        { id: 'player', fatalIssues: [], guidance: '' },
-        { id: 'rival1', fatalIssues: ['side view'], guidance: 'Rear camera required' },
+        { id: 'player', cameraViews: ['low-rear'], fatalIssues: [], guidance: '' },
+        { id: 'rival1', cameraViews: ['low-rear'], fatalIssues: ['side view'], guidance: 'Rear camera required' },
       ],
       selection: { accepted: false, rejectedIds: ['rival1'], retryGuidance: 'Rear camera required' },
     }, SLOTS);
@@ -182,7 +197,7 @@ describe('racing foundation gate', () => {
 
   it('rejects an unknown selection target even when acceptance is claimed', () => {
     expect(normalizeRacingFoundationDecision({
-      slotReviews: SLOTS.map((slot) => ({ id: slot.id, fatalIssues: [], guidance: '' })),
+      slotReviews: SLOTS.map((slot) => ({ id: slot.id, cameraViews: ['low-rear'], fatalIssues: [], guidance: '' })),
       selection: { accepted: true, rejectedIds: ['unknown'], retryGuidance: '' },
     }, SLOTS)).toMatchObject({ accepted: false, rejectedIds: ['player', 'rival1'] });
   });

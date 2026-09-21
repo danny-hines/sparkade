@@ -1,0 +1,192 @@
+{
+  "version": 1,
+  "assets": [
+    {
+      "role": "generatedPortrait",
+      "filename": "portrait.png",
+      "mimeType": "image/png",
+      "width": 64,
+      "height": 64,
+      "model": "muse-image-1.0",
+      "promptVersion": "generated-portrait-v5",
+      "promptSha256": "3facd3dad0892d568f46e5bc7bdfb2c23a91bee06b8cd3c972e01144bb0073fd",
+      "sha256": "3fe4ab432466b516baec7799fe781cc060d912f299a15a86a8546a86fd71416b"
+    },
+    {
+      "role": "generatedPortraitDefeat",
+      "filename": "portrait-defeat.png",
+      "mimeType": "image/png",
+      "width": 64,
+      "height": 64,
+      "model": "muse-image-1.0",
+      "promptVersion": "generated-defeat-portrait-v5",
+      "promptSha256": "6eeeeae304547dd352fd7e862e0a6290adb1918038b75e31649325fef1c41fcf",
+      "sha256": "bc8698bec286c7c1c15ff78cdf8fd19f47a1125c23c8f2bb621cbe497ca818f5"
+    },
+    {
+      "role": "keyArt",
+      "filename": "key-art.png",
+      "mimeType": "image/png",
+      "width": 480,
+      "height": 270,
+      "model": "muse-image-1.0",
+      "promptVersion": "key-art-v6",
+      "promptSha256": "4b5db5393b2d5c6b62ffd6cc68f977a361e904212d0c48fcf9286a0275ee41f1",
+      "sha256": "1d322abe21ad6be23f1725a7c74a541153c2e0c7c3b5da32cd49739f253ca382"
+    },
+    {
+      "role": "racingCraftPlayer",
+      "filename": "racing-craft-player.png",
+      "mimeType": "image/png",
+      "width": 192,
+      "height": 64,
+      "model": "muse-image-1.0",
+      "promptVersion": "racing-traversal-strip-v4-rear-camera-correction-v1",
+      "promptSha256": "c7b4d2be87f765e8b1840943a2b31624f00fb30dd069eb6cec5c34d44b616551",
+      "sha256": "48af5cc9894e27ba0ef56af87320df87b068aec9b7436b6e38490e84cd6f2985"
+    },
+    {
+      "role": "racingCraftRival1",
+      "filename": "racing-craft-rival-1.png",
+      "mimeType": "image/png",
+      "width": 192,
+      "height": 64,
+      "model": "muse-image-1.0",
+      "promptVersion": "racing-traversal-strip-v3-approved-v1",
+      "promptSha256": "99da99cc7de6575f8a9830f08eb2521b35a9aa8de63eb18a49db3d13d25af45a",
+      "sha256": "0dbf3c62ac069de82f232a8a9643c869c031e0e829c80dcd21a051c96adfc627"
+    },
+    {
+      "role": "racingCraftRival2",
+      "filename": "racing-craft-rival-2.png",
+      "mimeType": "image/png",
+      "width": 192,
+      "height": 64,
+      "model": "muse-image-1.0",
+      "promptVersion": "racing-traversal-strip-v3-approved-v1",
+      "promptSha256": "4fe7e7288dc9225c32609cd96770f1ddd7cc0a131f17bea96c1d92cf687b9493",
+      "sha256": "66074cdfd9a2c1d4f377b9058f5691e1d08456e66b98e11218fdf006b0dc9327"
+    },
+    {
+      "role": "racingCraftRival3",
+      "filename": "racing-craft-rival-3.png",
+      "mimeType": "image/png",
+      "width": 192,
+      "height": 64,
+      "model": "muse-image-1.0",
+      "promptVersion": "racing-traversal-strip-v3-approved-v1",
+      "promptSha256": "fe0966dbf3bb8255e81185a774ab7e3dd2af8e865fe4f875a5b82efcd4719c25",
+      "sha256": "064ddf79df03f372fc0845eff6d4fdbebd0e7eefc6d60adf90141e87b3b262ae"
+    },
+    {
+      "role": "racingCraftRival4",
+      "filename": "racing-craft-rival-4.png",
+      "mimeType": "image/png",
+      "width": 192,
+      "height": 64,
+      "model": "muse-image-1.0",
+      "promptVersion": "racing-traversal-strip-v3-approved-v1",
+      "promptSha256": "c79f6648c835fba62d2d11569f131b2ea3839d352ce8df2c9eb5b778caecf9fc",
+      "sha256": "c58cb1525594ab854e3f84561d10d9d6ea1e18663eea324196d9647043740075"
+    },
+    {
+      "role": "racingMaterialAtlas",
+      "filename": "racing-material-atlas.png",
+      "mimeType": "image/png",
+      "width": 256,
+      "height": 256,
+      "model": "muse-image-1.0",
+      "promptVersion": "racing-materials-v1",
+      "promptSha256": "29bc530ef1b66b482aa6b732a2b8c1b67dcabf6839b4a18e406800f40e5ed44c",
+      "sha256": "69909841fa53fa43c5c0eb50831a995e2ec5ddeb8a1edbbd49d248b0a39e5b60"
+    },
+    {
+      "role": "racingPanorama1",
+      "filename": "racing-panorama-1.png",
+      "mimeType": "image/png",
+      "width": 1536,
+      "height": 480,
+      "model": "muse-image-1.0",
+      "promptVersion": "racing-traversal-panorama-v2",
+      "promptSha256": "6163199f950c0da652146c45b3afc8081495ea890617af8807bf608d37beee4d",
+      "sha256": "74d1bd6475b3bff9c18e929cd5b863a16c16eda72f6e73cf1cf37d603abe5757"
+    },
+    {
+      "role": "racingPanorama2",
+      "filename": "racing-panorama-2.png",
+      "mimeType": "image/png",
+      "width": 1536,
+      "height": 480,
+      "model": "muse-image-1.0",
+      "promptVersion": "racing-traversal-panorama-v2",
+      "promptSha256": "04e390f70c070a2cf3a1fb3155922f96a3b192e55fba49a94850d6e20924c10d",
+      "sha256": "4f3233dad03fba376d2a2b56f1461612c302cdfab7276c629674bb7438b02f32"
+    },
+    {
+      "role": "racingPanorama3",
+      "filename": "racing-panorama-3.png",
+      "mimeType": "image/png",
+      "width": 1536,
+      "height": 480,
+      "model": "muse-image-1.0",
+      "promptVersion": "racing-traversal-panorama-v2",
+      "promptSha256": "ddf66ef7d4c843292157a74925cda00ae26bce90944123391022218a5be2583c",
+      "sha256": "b806d1cc219b65eb5d66715f72af05a7c98aa62057698b4ea8c5d95a3750c229"
+    },
+    {
+      "role": "racingSceneryAtlas",
+      "filename": "racing-scenery-atlas.png",
+      "mimeType": "image/png",
+      "width": 288,
+      "height": 192,
+      "model": "muse-image-1.0",
+      "promptVersion": "racing-traversal-objects-v2",
+      "promptSha256": "de57f79c910c1bf3c11ab7c8cb14142990cdf46f871dcbec712aff021046e1e0",
+      "sha256": "069f7c3c7879d148399d38b46a6527ca4d0369db185af15a5f247b4d98d1c820"
+    },
+    {
+      "role": "storyBoss",
+      "filename": "story-boss.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v4",
+      "promptSha256": "717d0f9408b11637181cb4fb7944f84977c5c46b3de7ec03e402dea368f52cfd",
+      "sha256": "2c58b8f251bcec0fd061b3799b10f84c0d542fa7924758234b687d472b037f77"
+    },
+    {
+      "role": "storyDefeat",
+      "filename": "story-defeat.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v4",
+      "promptSha256": "930fa66214cd8a2243538bbdb553c73b5aba5258acb235a5aae94628fba8f4d0",
+      "sha256": "e66bd248ee3b517ab0377816687a2b7dfb0477661f24c074bc8c7d3806415332"
+    },
+    {
+      "role": "storyIntro",
+      "filename": "story-intro.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v4",
+      "promptSha256": "c34466ab5683bc1fb71eaf514f936d588b0e9b4cf34f5d79deb02745d7c00b44",
+      "sha256": "a3153b2c7abd8aa7cc5c029f62efa96d59f45eb22a8ed205e8799d157875cf5c"
+    },
+    {
+      "role": "storyVictory",
+      "filename": "story-victory.png",
+      "mimeType": "image/png",
+      "width": 420,
+      "height": 180,
+      "model": "muse-image-1.0",
+      "promptVersion": "story-scenes-v4",
+      "promptSha256": "da4ad84149a5493a514fdbfb890fa2959515f294fef6b4e3c94802d3ffb5c1c4",
+      "sha256": "05b8083867e95c0f929337945ad70f16c198a7ce9ad8d9a400c509a62af70cc0"
+    }
+  ]
+}

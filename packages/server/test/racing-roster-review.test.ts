@@ -44,10 +44,17 @@ function decision(overrides: Record<string, unknown> = {}): Record<string, unkno
       coherence: 5,
       readability: 5,
       technical: 5,
+      cameraViews: ['low-rear', 'low-rear', 'low-rear'],
       fatalIssues: [],
       summary: 'clean',
     })),
-    selection: { accepted: true, rejectedIds: [], rationale: 'ok', retryGuidance: '', ...overrides },
+    selection: {
+      accepted: true,
+      rejectedIds: [],
+      rationale: 'ok',
+      retryGuidance: '',
+      ...overrides,
+    },
   };
 }
 
@@ -72,13 +79,19 @@ describe('roster review target/reference split', () => {
   it('excludes reference ids from the schema enums and lengths', () => {
     const schema = buildRacingRosterJudgeSchema(targets) as {
       properties: {
-        slotReviews: { minItems: number; maxItems: number; items: { properties: { id: { enum: string[] } } } };
+        slotReviews: {
+          minItems: number;
+          maxItems: number;
+          items: { properties: { id: { enum: string[] } } };
+        };
         selection: { properties: { rejectedIds: { items: { enum: string[] } } } };
       };
     };
     expect(schema.properties.slotReviews.minItems).toBe(targets.length);
     expect(schema.properties.slotReviews.maxItems).toBe(targets.length);
-    expect(schema.properties.slotReviews.items.properties.id.enum).toEqual(targets.map((s) => s.id));
+    expect(schema.properties.slotReviews.items.properties.id.enum).toEqual(
+      targets.map((s) => s.id),
+    );
     expect(schema.properties.slotReviews.items.properties.id.enum).not.toContain('player');
     expect(schema.properties.selection.properties.rejectedIds.items.enum).not.toContain('player');
   });
@@ -89,6 +102,46 @@ describe('roster review target/reference split', () => {
     const out = normalizeRacingRosterJudgeDecision(raw, targets);
     expect(out.accepted).toBe(false);
     expect(out.rejectedIds).toContain(targets[0]!.id);
+  });
+
+  it.each(
+    [['overhead', 'overhead', 'overhead'], ['unclear', 'low-rear', 'low-rear'], undefined, []].map(
+      (cameraViews) => ({ cameraViews }),
+    ),
+  )(
+    'rejects a bad or missing neutral camera assessment despite acceptance: %j',
+    ({ cameraViews }) => {
+      const raw = decision();
+      const row = (raw.slotReviews as Array<Record<string, unknown>>)[0]!;
+      row.cameraViews = cameraViews;
+      row.correction = 'banking';
+      const out = normalizeRacingRosterJudgeDecision(raw, targets);
+      expect(out.accepted).toBe(false);
+      expect(out.rejectedIds).toEqual([targets[0]!.id]);
+      expect(out.correctionKinds[targets[0]!.id]).toBe('vehicle');
+    },
+  );
+
+  it('rejects an overhead bank while preserving a valid neutral for bank repair', () => {
+    const raw = decision();
+    (raw.slotReviews as Array<Record<string, unknown>>)[0]!.correction = 'banking';
+    (raw.slotReviews as Array<Record<string, unknown>>)[0]!.cameraViews = [
+      'low-rear',
+      'overhead',
+      'low-rear',
+    ];
+    const out = normalizeRacingRosterJudgeDecision(raw, targets);
+    expect(out.accepted).toBe(false);
+    expect(out.rejectedIds).toEqual([targets[0]!.id]);
+    expect(out.correctionKinds[targets[0]!.id]).toBe('banking');
+  });
+
+  it('rejects absent target reviews rather than trusting the selection', () => {
+    const raw = decision();
+    raw.slotReviews = [];
+    expect(normalizeRacingRosterJudgeDecision(raw, targets).rejectedIds).toEqual(
+      targets.map((s) => s.id),
+    );
   });
 
   it('drops reference ids from rejectedIds and rejects unknown shapes', () => {
@@ -110,31 +163,39 @@ describe('roster review target/reference split', () => {
     const approved = new Map<string, Buffer>([['player', Buffer.from('frozen-player')]]);
     const buffers = [approved.get('player')!, Buffer.from('rival-one'), Buffer.from('rival-two')];
     const seen: { targets: string[]; references: string[] }[] = [];
-    const run = () => reviewPendingRacingStrips({
-      slots: allSlots,
-      buffers,
-      approvedIds: new Set(approved.keys()),
-      review: async (images, slots, references) => {
-        seen.push({ targets: slots.map(s => s.id), references: references.map(r => r.slot.id) });
-        expect(images).toEqual(slots.map(s => buffers[allSlots.findIndex(a => a.id === s.id)]));
-        return seen.length === 1
-          ? {
-              accepted: false,
-              rejectedIds: ['rival2'],
-              retryGuidance: 'fix rival2 banking',
-              correctionKinds: { rival1: 'none', rival2: 'banking' },
-              slotGuidance: { rival1: '', rival2: 'roll the banks opposite ways' },
-            }
-          : {
-              accepted: true,
-              rejectedIds: [],
-              retryGuidance: '',
-              correctionKinds: { rival1: 'none', rival2: 'none' },
-              slotGuidance: { rival1: '', rival2: '' },
-            };
-      },
-      approve: async (id, png) => { approved.set(id, png); },
-    });
+    const run = () =>
+      reviewPendingRacingStrips({
+        slots: allSlots,
+        buffers,
+        approvedIds: new Set(approved.keys()),
+        review: async (images, slots, references) => {
+          seen.push({
+            targets: slots.map((s) => s.id),
+            references: references.map((r) => r.slot.id),
+          });
+          expect(images).toEqual(
+            slots.map((s) => buffers[allSlots.findIndex((a) => a.id === s.id)]),
+          );
+          return seen.length === 1
+            ? {
+                accepted: false,
+                rejectedIds: ['rival2'],
+                retryGuidance: 'fix rival2 banking',
+                correctionKinds: { rival1: 'none', rival2: 'banking' },
+                slotGuidance: { rival1: '', rival2: 'roll the banks opposite ways' },
+              }
+            : {
+                accepted: true,
+                rejectedIds: [],
+                retryGuidance: '',
+                correctionKinds: { rival1: 'none', rival2: 'none' },
+                slotGuidance: { rival1: '', rival2: '' },
+              };
+        },
+        approve: async (id, png) => {
+          approved.set(id, png);
+        },
+      });
     expect((await run()).accepted).toBe(false);
     expect([...approved.keys()]).toEqual(['player', 'rival1']);
     buffers[2] = Buffer.from('corrected-rival-two');
@@ -204,7 +265,10 @@ describe('roster review correction categories', () => {
     // rival2 carries no correction field: unclassified rejection.
     const out = normalizeRacingRosterJudgeDecision(raw, targets);
     expect(out.accepted).toBe(false);
-    expect(out.correctionKinds).toEqual({ [targets[0]!.id]: 'banking', [targets[1]!.id]: 'vehicle' });
+    expect(out.correctionKinds).toEqual({
+      [targets[0]!.id]: 'banking',
+      [targets[1]!.id]: 'vehicle',
+    });
     expect(out.slotGuidance).toEqual({
       [targets[0]!.id]: 'roll the banks opposite ways',
       [targets[1]!.id]: '',
@@ -229,7 +293,7 @@ describe('roster review correction categories', () => {
 
   it('assigns a vehicle correction when a rejection omits rejected ids', () => {
     const out = normalizeRacingRosterJudgeDecision(decision({ accepted: false }), targets);
-    expect(out.rejectedIds).toEqual(targets.map(s => s.id));
+    expect(out.rejectedIds).toEqual(targets.map((s) => s.id));
     expect(out.correctionKinds).toEqual({ rival1: 'vehicle', rival2: 'vehicle' });
   });
 });

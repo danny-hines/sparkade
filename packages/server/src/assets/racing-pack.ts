@@ -1,3 +1,8 @@
+import {
+  RACING_CAMERA_REVIEW,
+  racingCameraViewsSchema,
+  validRacingRearCamera,
+} from './racing-camera';
 // Racing generated-art pack plan: pure prompt/data flow for the pipeline
 // stage, plus the compact roster judge. No I/O here; the runner drives
 // cachedGeneratedAsset/callImage and the validators from the M2 builders.
@@ -26,10 +31,7 @@ import {
   buildRacingPanoramaPrompt,
 } from './racing-scenery';
 import { racingArtSubject, racingTraversalCameraLock } from './racing-traversal-art';
-import {
-  RACING_FOUNDATION_PROMPT_VERSION,
-  buildRacingFoundationPrompt,
-} from './racing-foundation';
+import { RACING_FOUNDATION_PROMPT_VERSION, buildRacingFoundationPrompt } from './racing-foundation';
 import {
   RACING_JETSKI_MATERIAL_TILES_VERSION,
   RACING_MATERIALS_PROMPT_VERSION,
@@ -43,11 +45,11 @@ import {
   racingSceneryObjectPrompts,
 } from './racing-scenery-pack';
 
-export const RACING_JUDGE_PROMPT_VERSION = 'racing-roster-judge-v1';
-/** Jetski roster-judge fingerprint; hover keeps v1 byte-identical. */
-export const RACING_JETSKI_JUDGE_PROMPT_VERSION = 'racing-jetski-judge-v1';
-/** Traversal roster-judge fingerprint; legacy judges keep their versions. */
-export const RACING_TRAVERSAL_JUDGE_PROMPT_VERSION = 'racing-traversal-judge-v2';
+export const RACING_JUDGE_PROMPT_VERSION = 'racing-roster-judge-v2';
+/** Per-discipline review lineages include explicit per-frame camera assessments. */
+export const RACING_JETSKI_JUDGE_PROMPT_VERSION = 'racing-jetski-judge-v2';
+/** Traversal review uses the same fail-closed camera contract. */
+export const RACING_TRAVERSAL_JUDGE_PROMPT_VERSION = 'racing-traversal-judge-v3';
 
 export type RacingPackDiscipline = 'hover' | 'jetski';
 
@@ -133,9 +135,11 @@ export function buildRacingPackPlan(spec: RacingSpec): RacingPackPlan {
     : discipline === 'jetski'
       ? RACING_JETSKI_PANORAMA_PROMPT_VERSION
       : RACING_PANORAMA_PROMPT_VERSION;
-  const sceneryVersion = subject.hasTraversal ? RACING_TRAVERSAL_SCENERY_VERSION : water
-    ? RACING_JETSKI_SCENERY_OBJECTS_VERSION
-    : RACING_SCENERY_OBJECTS_VERSION;
+  const sceneryVersion = subject.hasTraversal
+    ? RACING_TRAVERSAL_SCENERY_VERSION
+    : water
+      ? RACING_JETSKI_SCENERY_OBJECTS_VERSION
+      : RACING_SCENERY_OBJECTS_VERSION;
   // Single source of truth shared with the generator: the plan advertises
   // the exact prompts generateRacingSceneryPack will issue — and, for
   // water, the exact tile prompts generateRacingJetskiMaterialsPack will
@@ -154,7 +158,7 @@ export function buildRacingPackPlan(spec: RacingSpec): RacingPackPlan {
   // Animated cups (authored non-static motion) run on the single-rear
   // foundation: the engine owns lean, so no bank poses are generated. Same
   // roles, motion-only prompt lineage, square size. Static or absent motion
-  // keeps the legacy three-pose strips byte-identical (camera lock kept).
+  // keeps the three-pose strip path (including its camera lock).
   const useFoundation = !!traversal && !!traversal.motion && traversal.motion !== 'static';
   const stripEntry = (
     role: RacingCraftRole,
@@ -319,8 +323,8 @@ export function buildRacingRosterJudgePrompt(
       : 'rear-view hovercraft strips';
   const required =
     discipline === 'jetski'
-      ? 'Required: true rear camera (behind and slightly above, craft pointing away), the SAME watercraft plus its SAME seated adult rider across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent hulls across rows, readable rear camera, no green panels, no text, no cropping. Every row must show exactly one seated rider astride the hull: a missing rider, a standing or detached rider, or a face pasted into the hull is fatal.'
-      : 'Required: true rear camera (behind and slightly above, craft pointing away), the SAME vehicle across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent vehicles across rows, no green panels, no people, no text, no cropping.';
+      ? 'Required: true rear camera (directly behind at a low chase-camera height, craft pointing away), the SAME watercraft plus its SAME seated adult rider across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent hulls across rows, readable rear camera, no green panels, no text, no cropping. Every row must show exactly one seated rider astride the hull: a missing rider, a standing or detached rider, or a face pasted into the hull is fatal.'
+      : 'Required: true rear camera (directly behind at a low chase-camera height, craft pointing away), the SAME vehicle across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent vehicles across rows, no green panels, no people, no text, no cropping.';
   const fatal =
     discipline === 'jetski'
       ? 'Score concept fidelity, exact rear orientation, same rider-plus-hull coherence, small gameplay readability, and technical pixel-art quality from 1 to 5. A fatal issue is a wrong camera direction, mismatched poses within a row, same-direction banks, duplicated hulls across rows, a missing or doubled rider, a detached rider, a face pasted into the hull, cropped/multiple craft, or broken transparency.'
@@ -335,6 +339,7 @@ export function buildRacingRosterJudgePrompt(
         ? `Frozen REFERENCE rows (already approved, never judge, never list in slotReviews or rejectedIds): ${references.map((s) => `${s.id} (${s.name})`).join(', ')}. Compare every target against the references for distinctness — a target duplicating a reference vehicle is fatal.`
         : '',
       required,
+      RACING_CAMERA_REVIEW,
       'Banking is opposite ROLL, never yaw and never a mirrored livery: the banking-left cell leans left (left side low, right side high) and the banking-right cell leans right (right side low, left side high). Two banks yawing the same way, yawed side profiles, or mirrored asymmetric markings are fatal.',
       fatal,
       'accepted should be true only when every target row has no fatal issue and is production quality. Even when accepted is false, retryGuidance must describe the single most important correction for the rejected rows.',
@@ -370,12 +375,12 @@ function buildTraversalRacingRosterJudgePrompt(
     rider === 'none' ? 'vehicles' : rider === 'onFoot' ? 'runners' : 'rider-plus-conveyance pairs';
   const required =
     rider === 'none'
-      ? 'Required: true rear camera (behind and slightly above, conveyance pointing away), the SAME vehicle across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent vehicles across rows, no green panels, no people, no text, no cropping.'
+      ? 'Required: true rear camera (directly behind at a low chase-camera height, conveyance pointing away), the SAME vehicle across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent vehicles across rows, no green panels, no people, no text, no cropping.'
       : rider === 'onFoot'
-        ? 'Required: true rear camera (behind and slightly above, runner pointing away), the SAME runner mid-stride across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent runners across rows, readable rear camera, no green panels, no text, no cropping. Every row must show exactly one runner and no conveyance: a missing or doubled runner, a conveyance, or a face-on view is fatal.'
+        ? 'Required: true rear camera (directly behind at a low chase-camera height, runner pointing away), the SAME runner mid-stride across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent runners across rows, readable rear camera, no green panels, no text, no cropping. Every row must show exactly one runner and no conveyance: a missing or doubled runner, a conveyance, or a face-on view is fatal.'
         : rider === 'standing'
-          ? 'Required: true rear camera (behind and slightly above, conveyance pointing away), the SAME conveyance plus its SAME standing adult rider across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent pairs across rows, readable rear camera, no green panels, no text, no cropping. Every row must show exactly one rider standing on the conveyance: a missing, seated, or detached rider, or a face pasted into the conveyance is fatal.'
-          : 'Required: true rear camera (behind and slightly above, conveyance pointing away), the SAME conveyance plus its SAME seated adult rider across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent pairs across rows, readable rear camera, no green panels, no text, no cropping. Every row must show exactly one rider seated astride the conveyance: a missing rider, a standing or detached rider, or a face pasted into the conveyance is fatal.';
+          ? 'Required: true rear camera (directly behind at a low chase-camera height, conveyance pointing away), the SAME conveyance plus its SAME standing adult rider across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent pairs across rows, readable rear camera, no green panels, no text, no cropping. Every row must show exactly one rider standing on the conveyance: a missing, seated, or detached rider, or a face pasted into the conveyance is fatal.'
+          : 'Required: true rear camera (directly behind at a low chase-camera height, conveyance pointing away), the SAME conveyance plus its SAME seated adult rider across neutral-rear, banking-left, and banking-right cells of each row, distinct coherent pairs across rows, readable rear camera, no green panels, no text, no cropping. Every row must show exactly one rider seated astride the conveyance: a missing rider, a standing or detached rider, or a face pasted into the conveyance is fatal.';
   const exhaustFatal =
     traversal.propulsion === 'human'
       ? ' A human-powered conveyance showing motor exhaust flames or engine plumes is fatal.'
@@ -403,6 +408,7 @@ function buildTraversalRacingRosterJudgePrompt(
         ? `Frozen REFERENCE rows (already approved, never judge, never list in slotReviews or rejectedIds): ${references.map((s) => `${s.id} (${s.name})`).join(', ')}. Compare every target against the references for distinctness — a target duplicating a reference vehicle is fatal.`
         : '',
       required,
+      RACING_CAMERA_REVIEW,
       axisRule,
       'Banking is opposite ROLL, never yaw and never a mirrored livery: the banking-left cell leans left (left side low, right side high) and the banking-right cell leans right (right side low, left side high). Two banks yawing the same way, yawed side profiles, or mirrored asymmetric markings are fatal.',
       fatal,
@@ -434,6 +440,7 @@ export function buildRacingRosterJudgeSchema(
             'id',
             'concept',
             'orientation',
+            'cameraViews',
             'coherence',
             'readability',
             'technical',
@@ -447,6 +454,7 @@ export function buildRacingRosterJudgeSchema(
             correction: { type: 'string', enum: ['none', 'banking', 'vehicle'] },
             guidance: { type: 'string' },
             concept: { type: 'integer', minimum: 1, maximum: 5 },
+            cameraViews: racingCameraViewsSchema(3),
             orientation: { type: 'integer', minimum: 1, maximum: 5 },
             coherence: { type: 'integer', minimum: 1, maximum: 5 },
             readability: { type: 'integer', minimum: 1, maximum: 5 },
@@ -537,19 +545,43 @@ export function normalizeRacingRosterJudgeDecision(
     for (const id of rejectedIds) if (typeof id === 'string' && ids.has(id)) rejected.add(id);
   }
   const reviews = new Map<string, { correction?: unknown; guidance?: unknown }>();
+  const invalidNeutral = new Set<string>();
   const reviewsRaw = (raw as { slotReviews?: unknown }).slotReviews;
   if (Array.isArray(reviewsRaw)) {
     for (const review of reviewsRaw) {
       if (typeof review !== 'object' || review === null) continue;
-      const { id, correction, guidance, fatalIssues } = review as {
+      const { id, correction, guidance, fatalIssues, cameraViews } = review as {
         id?: unknown;
         correction?: unknown;
         guidance?: unknown;
         fatalIssues?: unknown;
+        cameraViews?: unknown;
       };
       if (typeof id !== 'string' || !ids.has(id) || reviews.has(id)) continue;
-      reviews.set(id, { correction, guidance });
+      const cameraValid = validRacingRearCamera(cameraViews, 3);
+      if (!cameraValid) {
+        rejected.add(id);
+        if (
+          !Array.isArray(cameraViews) ||
+          cameraViews.length !== 3 ||
+          cameraViews[0] !== 'low-rear'
+        ) {
+          invalidNeutral.add(id);
+        }
+      }
+      reviews.set(id, {
+        correction,
+        guidance: cameraValid
+          ? guidance
+          : `${typeof guidance === 'string' ? guidance : ''} Restore the low rear chase camera; rear/back surfaces must dominate, with foreshortened depth and no overhead view.`.trim(),
+      });
       if (Array.isArray(fatalIssues) && fatalIssues.length > 0) rejected.add(id);
+    }
+  }
+  for (const id of ids) {
+    if (!reviews.has(id)) {
+      rejected.add(id);
+      invalidNeutral.add(id);
     }
   }
   if (accepted !== true && rejected.size === 0) {
@@ -568,7 +600,7 @@ export function normalizeRacingRosterJudgeDecision(
       continue;
     }
     const stated = reviews.get(id)?.correction;
-    correctionKinds[id] = stated === 'banking' || stated === 'vehicle' ? stated : 'vehicle';
+    correctionKinds[id] = !invalidNeutral.has(id) && stated === 'banking' ? 'banking' : 'vehicle';
     const guidance = reviews.get(id)?.guidance;
     slotGuidance[id] = typeof guidance === 'string' ? guidance : '';
   }

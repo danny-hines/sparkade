@@ -518,7 +518,9 @@ describe('pack vs legacy render', () => {
 
   it('samples boost only in pads mode and never decorates with it', () => {
     const pack = stubPack();
-    const pads = makeGame(pack, goldenSpec());
+    const padsSpec = goldenSpec();
+    padsSpec.identity!.boost.mode = 'pads';
+    const pads = makeGame(pack, padsSpec);
     pads.game.render();
     // Scrolling V means sy roams the boost quadrant ([128,256)), not one row.
     const isBoost = (d: DrawCall): boolean =>
@@ -576,7 +578,9 @@ describe('pack vs legacy render', () => {
 
   it('keeps every material sample inside its quadrant across the lap seam', () => {
     const pack = stubPack();
-    const { game, draws } = makeGame(pack, goldenSpec());
+    const spec = goldenSpec();
+    spec.identity!.boost.mode = 'pads';
+    const { game, draws } = makeGame(pack, spec);
     const input = blankInput();
     input.A.pressed = true;
     game.update(1 / 60, input);

@@ -105,6 +105,7 @@ describe('racing discipline contract', () => {
 
   it('rejects an invalid discipline at resolve time instead of racing wrong physics', () => {
     const spec = golden();
+    delete spec.identity!.traversal;
     (spec as unknown as { identity: unknown }).identity = {
       ...(spec.identity ?? {}),
       pilotName: 'REEF',

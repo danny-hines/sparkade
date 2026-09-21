@@ -1,3 +1,4 @@
+import { RACING_REAR_CAMERA } from './racing-camera';
 import sharp, { type OverlayOptions } from 'sharp';
 import {
   RACING_CRAFT_CELL,
@@ -23,23 +24,10 @@ import {
   racingSubjectNoun,
 } from './racing-traversal-art';
 
-export const RACING_CRAFT_STRIP_PROMPT_VERSION = 'racing-craft-strip-v3';
-/**
- * Jetski strip prompt fingerprint. Hover keeps v3 byte-identical so old
- * approved assets reuse correctly; jetski semantics (required rider, water
- * hull) are a separate cache lineage.
- */
-export const RACING_JETSKI_STRIP_PROMPT_VERSION = 'racing-jetski-strip-v1';
-/**
- * Traversal strip prompt fingerprint. Any present traversal takes this
- * lineage (enum-driven generic wording); absent traversal keeps the legacy
- * hover/jetski lineages byte-identical.
- * v3 frames the strip as a rear-camera steering strip (never a
- * front/side/back turnaround sheet), pins per-cell roll directions, scopes
- * the concept's animation wording away from the orientation contract, and
- * freezes one identical stride phase per on-foot strip.
- */
-export const RACING_TRAVERSAL_STRIP_PROMPT_VERSION = 'racing-traversal-strip-v3';
+export const RACING_CRAFT_STRIP_PROMPT_VERSION = 'racing-craft-strip-v4';
+/** Each lineage requires low rear elevation, including every banking pose. */
+export const RACING_JETSKI_STRIP_PROMPT_VERSION = 'racing-jetski-strip-v2';
+export const RACING_TRAVERSAL_STRIP_PROMPT_VERSION = 'racing-traversal-strip-v4';
 
 /** Runtime movement discipline selecting hover vs jetski strip semantics. */
 export type RacingStripDiscipline = 'hover' | 'jetski';
@@ -97,7 +85,7 @@ function clean(value: string | undefined, max: number): string | null {
 
 /**
  * One 3-pose rear-view strip for a single roster vehicle. The premise governs
- * the vehicle; the camera stays behind and slightly above, every pose points
+ * the vehicle; the camera stays directly behind at a low chase-camera height, every pose points
  * away toward the horizon, and no pilot is ever shown on the chassis.
  * Jetski discipline instead requires one visible seated adult rider astride
  * each watercraft (same rider and hull across all three cells).
@@ -120,7 +108,8 @@ export function buildRacingCraftStripPrompt(options: RacingCraftStripPromptOptio
       `Create exactly ONE isolated rear-view jetski turnaround strip for ${name}: THREE poses of the SAME watercraft plus its SAME seated rider side by side in one row, left to right: neutral-rear cruise, banking LEFT, banking RIGHT. Do not render pose labels.`,
       artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
       `Watercraft and rider identity: ${concept}. Keep one identical compact-hull watercraft with handlebars across all three cells: same silhouette, materials, markings, and livery. The hull touches the water with a small waterline contact patch. The SAME adult rider sits astride it in every cell: same outfit, same rear head, leaning physically together with the hull. Banking poses tilt rider and craft together gently, roughly 8-12 degrees, and shift them sideways; never redesign either and never mirror an asymmetric livery into a missing pose.`,
-      'Rear camera orientation: the camera sits behind and slightly above every craft and all three point directly AWAY toward the horizon. Rear-view composition only: rider back, watercraft stern, jet nozzle, and tail markings are visible; no bow front, cockpit front, or face-on view. The rider may show the rear of the head; never paste a face into the hull and never render the rider standing, detached, floating beside, or facing the camera.',
+      RACING_REAR_CAMERA,
+      'Rear camera orientation: the camera sits at a low chase-camera height directly behind every craft and all three point directly AWAY toward the horizon. Rear-view composition only: rider back, watercraft stern, jet nozzle, and tail markings are visible; no bow front, cockpit front, or face-on view. The rider may show the rear of the head; never paste a face into the hull and never render the rider standing, detached, floating beside, or facing the camera.',
       'No baked wakes, spray plumes, or exhaust flames on the neutral-rear cruise pose — the runtime owns all water and boost VFX. Banking poses may show a small idle spray hint at most.',
       'No second person, passenger, portrait, initials, text, letters, numbers, logo, watermark, signature, UI, border, or scenery.',
       colors ? `Use this limited game color direction with strong contrast: ${colors}.` : '',
@@ -142,7 +131,8 @@ export function buildRacingCraftStripPrompt(options: RacingCraftStripPromptOptio
     `Create exactly ONE isolated rear-view hovercraft turnaround strip for ${name}: THREE poses of the SAME vehicle side by side in one row, left to right: neutral-rear cruise, banking LEFT, banking RIGHT. Do not render pose labels.`,
     artDirection ? `IMMUTABLE ROSTER-WIDE ART DIRECTION: ${artDirection}` : '',
     `Vehicle identity: ${concept}. Keep one identical vehicle across all three cells: same silhouette, materials, canopy, markings, and livery. Banking poses tilt the SAME craft gently, roughly 8-12 degrees, and shift it sideways; never redesign it and never mirror an asymmetric livery into a missing pose.`,
-    'Rear camera orientation: the camera sits behind and slightly above every craft and all three point directly AWAY toward the horizon. Rear-view composition only: thrusters, tail light bar, rear skirt, and canopy rear are visible; no nose, cockpit front, or face-on view.',
+    RACING_REAR_CAMERA,
+    'Rear camera orientation: the camera sits at a low chase-camera height directly behind every craft and all three point directly AWAY toward the horizon. Rear-view composition only: thrusters, tail light bar, rear skirt, and canopy rear are visible; no nose, cockpit front, or face-on view.',
     'No baked boost exhaust flames or thruster plumes on the neutral-rear cruise pose — the runtime owns all throttle and boost VFX. Banking poses may show a small idle thruster glow but no large exhaust plumes.',
     'This vehicle identity is independent from the human pilot. Closed or dark readable canopy rear; no person, pilot, rider, passenger, face, head, eyes, portrait, human body, initials, text, letters, numbers, logo, watermark, signature, UI, border, or scenery.',
     colors ? `Use this limited game color direction with strong contrast: ${colors}.` : '',
@@ -197,6 +187,7 @@ function buildTraversalRacingCraftStripPrompt(
     rider === 'onFoot'
       ? 'On-foot steering pose: freeze ONE identical mid-stride phase — the same opposite arm-and-leg positions — in all three cells, then apply only the per-cell roll above. Do NOT advance the stride across cells and do NOT render a multi-frame run sequence; the full run cycle is produced separately from the approved strip.'
       : '',
+    RACING_REAR_CAMERA,
     racingRearCameraLine(rider),
     rider === 'onFoot'
       ? 'Rear anatomy only: the back of the head, back, clothes, arms, legs, and heels are visible. No face, eyes, chest, or front of the torso in any cell. Facial likeness belongs to the separate portrait art; this strip identifies the runner by outfit and rear silhouette only.'

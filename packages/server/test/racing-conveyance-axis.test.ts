@@ -3,7 +3,7 @@
 // (rear closest, nose farthest, foreshortened), even under a sideways
 // rider stance — and reviews must reject a wrong base orientation rather
 // than accepting frames that merely copy it. All wording stays generic
-// and enum-driven: no sport or label branches, legacy prompts untouched.
+// and enum-driven: no sport or label branches.
 import { describe, expect, it } from 'vitest';
 import {
   BICYCLE_TRAVERSAL,
@@ -130,17 +130,17 @@ describe('racing conveyance-axis contract', () => {
     expect(judge.user).toContain('opposite ROLL');
   });
 
-  it('bumps traversal/motion lineages while legacy prompts stay byte-identical', () => {
-    expect(RACING_TRAVERSAL_STRIP_PROMPT_VERSION).toBe('racing-traversal-strip-v3');
-    expect(RACING_TRAVERSAL_BANK_PROMPT_VERSION).toBe('racing-traversal-bank-v3');
-    expect(RACING_TRAVERSAL_JUDGE_PROMPT_VERSION).toBe('racing-traversal-judge-v2');
-    expect(RACING_LOCOMOTION_VERSION).toBe('racing-locomotion-v3');
-    expect(RACING_CRAFT_STRIP_PROMPT_VERSION).toBe('racing-craft-strip-v3');
-    expect(RACING_JETSKI_STRIP_PROMPT_VERSION).toBe('racing-jetski-strip-v1');
-    expect(RACING_BANK_PROMPT_VERSION).toBe('racing-craft-bank-v1');
-    expect(RACING_JETSKI_BANK_PROMPT_VERSION).toBe('racing-jetski-bank-v2');
-    expect(RACING_JUDGE_PROMPT_VERSION).toBe('racing-roster-judge-v1');
-    expect(RACING_JETSKI_JUDGE_PROMPT_VERSION).toBe('racing-jetski-judge-v1');
+  it('versions every camera-sensitive generation and review lineage', () => {
+    expect(RACING_TRAVERSAL_STRIP_PROMPT_VERSION).toBe('racing-traversal-strip-v4');
+    expect(RACING_TRAVERSAL_BANK_PROMPT_VERSION).toBe('racing-traversal-bank-v4');
+    expect(RACING_TRAVERSAL_JUDGE_PROMPT_VERSION).toBe('racing-traversal-judge-v3');
+    expect(RACING_LOCOMOTION_VERSION).toBe('racing-locomotion-v4');
+    expect(RACING_CRAFT_STRIP_PROMPT_VERSION).toBe('racing-craft-strip-v4');
+    expect(RACING_JETSKI_STRIP_PROMPT_VERSION).toBe('racing-jetski-strip-v2');
+    expect(RACING_BANK_PROMPT_VERSION).toBe('racing-craft-bank-v2');
+    expect(RACING_JETSKI_BANK_PROMPT_VERSION).toBe('racing-jetski-bank-v3');
+    expect(RACING_JUDGE_PROMPT_VERSION).toBe('racing-roster-judge-v2');
+    expect(RACING_JETSKI_JUDGE_PROMPT_VERSION).toBe('racing-jetski-judge-v2');
     const legacy = [
       buildRacingCraftStripPrompt({ name: 'R', vehicleConcept: CONCEPT, artDirection: 'a' }),
       buildRacingCraftStripPrompt({

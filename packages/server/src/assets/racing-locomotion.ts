@@ -1,3 +1,4 @@
+import { RACING_REAR_CAMERA } from './racing-camera';
 import sharp from 'sharp';
 import { RACING_MOTION_FRAMES, type RacingMotion, type RacingTraversal } from '@sparkade/shared';
 import { processGeneratedFighterPose } from './fighter-pose';
@@ -5,9 +6,9 @@ import { GeneratedAssetStorageError, imagePromptHash } from './manifest';
 import { splitRacingStripCells, validateRacingCraftStrip } from './racing-craft';
 import { racingConveyanceAxisLine } from './racing-traversal-art';
 
-// v3 rejects opaque background panels, including previously approved v2
-// candidates. Old ready games are unchanged; generation approvals refresh.
-export const RACING_LOCOMOTION_VERSION = 'racing-locomotion-v3';
+// v4 adds low rear camera elevation to generation and semantic review.
+// Existing published games stay unchanged; generation approvals refresh.
+export const RACING_LOCOMOTION_VERSION = 'racing-locomotion-v4';
 const MOTION_BRIEFS: Record<Exclude<RacingMotion, 'static'>, string> = {
   pedal:
     'one complete alternating pedal rotation, with knees and feet moving through six evenly spaced crank positions while hands stay on the controls',
@@ -32,6 +33,7 @@ export function buildRacingLocomotionPrompt(
     `The attached approved rear view is identity truth. Subject: ${concept}. Art direction: ${art}.`,
     `Keep identical adult proportions, outfit, conveyance, colors and rear-facing camera. Rider contract: ${traversal.rider}; propulsion: ${traversal.propulsion}; surface: ${traversal.surface}.`,
     'All frames face directly AWAY toward the horizon. No turns, banking, camera changes, face-on views, redesign, passengers or extra subjects. No conveyance when rider is onFoot; no rider when rider is none.',
+    RACING_REAR_CAMERA,
     axis,
     'Same framing, scale and grounded support baseline in every cell. Preserve the torso or rigid chassis while limbs and flexible parts visibly move. Final frame leads naturally into the first. Every complete subject has wide empty gutters; no cropping or overlapping cells.',
     'Crisp pixel art. No text, labels, scenery, shadows, exhaust or effects. All empty space including enclosed gaps must be perfectly flat #00ff00; no neon green on the subject.',
@@ -200,7 +202,7 @@ export const racingLocomotionJudgeSchema = {
 };
 
 export function racingLocomotionJudgePrompt(motion: RacingMotion): string {
-  return `Review this racing motion atlas. Row 1 contains the approved identity reference: legacy rear/left/right cells or neutral placeholder cells repeating the approved rear. Rows 2 and 3 are six temporal ${motion} frames, read left to right. Accept ONLY if all six preserve the exact reference subject, outfit/conveyance, rear orientation, scale, pixel art and support baseline, and form readable coherent ${motion} locomotion with meaningful limb/flexible-part changes and a plausible loop. No missing/extra limbs, identity drift, frozen duplicate poses, green screen residue, cropping or viewpoint changes. Every cell must have transparent negative space around the actual subject silhouette: reject any opaque black/green/colored panel or painted scenery behind it, even with transparent outer padding. Independently verify the reference orientation itself: reject when any conveyance deck or board lies sideways across the road (screen-left to screen-right) instead of nose-tail aligned with travel into the screen (rear closest, nose farthest, foreshortened rear perspective); six frames faithfully copying a wrong reference still fail, since matching the reference never excuses a sideways deck. Return JSON accepted:boolean and reason:string. A visually attractive but mechanically wrong cycle must fail.`;
+  return `Review this racing motion atlas. ${RACING_REAR_CAMERA} Independently reject overhead or unclear camera elevation in the reference and every temporal frame, even if their direction points away and all six frames match. Row 1 contains the approved identity reference: legacy rear/left/right cells or neutral placeholder cells repeating the approved rear. Rows 2 and 3 are six temporal ${motion} frames, read left to right. Accept ONLY if all six preserve the exact reference subject, outfit/conveyance, rear orientation, scale, pixel art and support baseline, and form readable coherent ${motion} locomotion with meaningful limb/flexible-part changes and a plausible loop. No missing/extra limbs, identity drift, frozen duplicate poses, green screen residue, cropping or viewpoint changes. Every cell must have transparent negative space around the actual subject silhouette: reject any opaque black/green/colored panel or painted scenery behind it, even with transparent outer padding. Independently verify the reference orientation itself: reject when any conveyance deck or board lies sideways across the road (screen-left to screen-right) instead of nose-tail aligned with travel into the screen (rear closest, nose farthest, foreshortened rear perspective); six frames faithfully copying a wrong reference still fail, since matching the reference never excuses a sideways deck. Return JSON accepted:boolean and reason:string. A visually attractive but mechanically wrong cycle must fail.`;
 }
 
 export const RACING_BASE_ROLES = [

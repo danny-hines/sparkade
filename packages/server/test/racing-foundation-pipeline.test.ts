@@ -29,7 +29,7 @@ it.each(['accepted', 'rejected', 'refused', 'offline', 'review-offline', 'review
   const originalStore = GameAssetWorkspace.prototype.store;
   let failPublish = true;
   const store = vi.spyOn(GameAssetWorkspace.prototype, 'store').mockImplementation(async function(this: GameAssetWorkspace, role, image, version, hash) {
-    if (failPublish && role === 'racingCraftRival4' && version === 'racing-locomotion-v3-approved')
+    if (failPublish && role === 'racingCraftRival4' && version === 'racing-locomotion-v4-approved')
       throw new GeneratedAssetStorageError('controlled late persistence failure');
     return originalStore.call(this, role, image, version, hash);
   });
@@ -49,7 +49,7 @@ it.each(['accepted', 'rejected', 'refused', 'offline', 'review-offline', 'review
           const rejected = !rejectedOnce && ids.includes('rival2') ? ['rival2'] : [];
           if (rejected.length) rejectedOnce = true;
           return { text: JSON.stringify({
-            slotReviews: ids.map(id => ({ id, fatalIssues: rejected.includes(id) ? ['side-facing rear'] : [],
+            slotReviews: ids.map(id => ({ id, cameraViews: ['low-rear'], fatalIssues: rejected.includes(id) ? ['side-facing rear'] : [],
               summary: 'controlled fixture verdict', guidance: rejected.includes(id) ? 'Face directly away' : '' })),
             selection: { accepted: !rejected.length, rejectedIds: rejected, rationale: 'fixture', retryGuidance: 'Face directly away' },
           }), usage: { input: 1, output: 1 } };

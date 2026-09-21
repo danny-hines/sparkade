@@ -12,6 +12,7 @@ import { ArcadeError, env } from './arcade';
 import { readPrivate } from './generation/storage';
 import { acquireSlot, releaseSlot, type GenerationRow } from './generation/store';
 import { websiteSpendPolicy } from './website-spend';
+import { MetaBudgetError, MetaCapacityError } from './kiosk-meta-spend';
 import {
   assertWebsiteRunnable,
   releaseWebsiteCredits,
@@ -109,6 +110,12 @@ export async function reviewContent(
       WHERE job_id=${row.id} AND attempt=${row.attempt} AND phase=${phase} AND policy=${CONTENT_POLICY}
       AND version_hash=${version} AND lease_token=${token}`;
       if (error instanceof RetryableError) throw error;
+      if (error instanceof MetaBudgetError || error instanceof MetaCapacityError) {
+        await sql`UPDATE arcade_content_reviews SET provider_attempts=GREATEST(0,provider_attempts-1)
+          WHERE job_id=${row.id} AND attempt=${row.attempt} AND phase=${phase}
+          AND policy=${CONTENT_POLICY} AND version_hash=${version}`;
+        throw new RetryableError(error.message, { retryAfter: error instanceof MetaCapacityError ? '10s' : '5m' });
+      }
       if (Number(claimed[0]!.provider_attempts) < 2 && !(error instanceof ArcadeError))
         throw new RetryableError('Content check temporarily unavailable', { retryAfter: '15s' });
       throw new FatalError('The content check could not finish. Your credits will be returned.');

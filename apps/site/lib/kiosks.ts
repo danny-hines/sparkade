@@ -132,7 +132,7 @@ export function hashKioskCredential(token: string): string {
   return digest(token);
 }
 
-async function ensureSchema(): Promise<void> {
+export async function ensureKioskSchema(): Promise<void> {
   if (!schemaPromise) {
     schemaPromise = (async () => {
       const sql = getSql();
@@ -208,7 +208,7 @@ export async function createKioskPairing(input: {
   if (!KIOSK_CREDENTIAL_HASH_PATTERN.test(input.secretHash)) {
     throw new PairingCodeError('credential hash is invalid');
   }
-  await ensureSchema();
+  await ensureKioskSchema();
   const sql = getSql();
   const existing = await sql`
     SELECT code, expires_at, claimed_at
@@ -269,7 +269,7 @@ export async function createKioskPairing(input: {
 async function credentialRowForToken(token: string): Promise<CredentialRow | null> {
   const match = KIOSK_TOKEN_PATTERN.exec(token);
   if (!match) return null;
-  await ensureSchema();
+  await ensureKioskSchema();
   const sql = getSql();
   const rows = await sql`
     SELECT c.id AS credential_id,
@@ -334,7 +334,7 @@ export async function getKioskCredentialStatus(token: string): Promise<KioskCred
     };
   }
 
-  await ensureSchema();
+  await ensureKioskSchema();
   const sql = getSql();
   const rows = await sql`
     SELECT code, expires_at, claimed_at
@@ -360,7 +360,7 @@ export async function claimKioskPairing(input: {
   if (!code || !name || !isFeedVisibility(input.defaultFeedVisibility)) {
     throw new PairingCodeError('Enter a valid pairing code and kiosk name.');
   }
-  await ensureSchema();
+  await ensureKioskSchema();
   const sql = getSql();
   const kioskId = randomUUID();
   const rows = await sql`
@@ -420,7 +420,7 @@ function mapKioskRow(row: KioskRow): ManagedKiosk {
 }
 
 export async function listManagedKiosks(ownerUserId: string): Promise<ManagedKiosk[]> {
-  await ensureSchema();
+  await ensureKioskSchema();
   await import('./public-games').then((module) => module.ensurePublicGamesSchema());
   const sql = getSql();
   const rows = await sql`
@@ -462,7 +462,7 @@ export async function updateManagedKiosk(input: {
   if (displayCopy === null) return false;
   if (name === undefined && input.defaultFeedVisibility === undefined && displayCopy === undefined)
     return false;
-  await ensureSchema();
+  await ensureKioskSchema();
   if (name) {
     await import('./public-games').then((module) => module.ensurePublicGamesSchema());
   }
@@ -492,7 +492,7 @@ export async function updateManagedKiosk(input: {
 }
 
 export async function revokeManagedKiosk(kioskId: string, ownerUserId: string): Promise<boolean> {
-  await ensureSchema();
+  await ensureKioskSchema();
   const sql = getSql();
   const rows = await sql`
     UPDATE kiosks
@@ -517,7 +517,7 @@ export async function recordKioskRuntime(
   kioskId: string,
   report: KioskRuntimeReport,
 ): Promise<void> {
-  await ensureSchema();
+  await ensureKioskSchema();
   const sql = getSql();
   const json = JSON.stringify(report);
   await sql`

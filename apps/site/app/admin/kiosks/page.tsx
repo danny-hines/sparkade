@@ -1,4 +1,8 @@
 import { listManagedKiosks } from '@/lib/kiosks';
+import { listKioskMetaAssignments, listKioskMetaCredentials } from '@/lib/kiosk-meta-credentials';
+import { kioskMetaEncryptionConfigured } from '@/lib/kiosk-meta-secret';
+import { KioskBilling, MetaCredentials } from './billing';
+import { metaSpendSummaries, SHARED_META_KEY } from '@/lib/kiosk-meta-spend';
 import {
   DEFAULT_KIOSK_DISPLAY_COPY,
   KIOSK_TITLE_MAX_LENGTH,
@@ -28,7 +32,13 @@ function relativeTime(value: string | null): string {
 export default async function KiosksPage({ searchParams }: { searchParams: Promise<AdminQuery> }) {
   const identity = await getAdminPageIdentity('/admin/kiosks');
   if (!identity) return null;
-  const [kiosks, query] = await Promise.all([listManagedKiosks(identity.userId), searchParams]);
+  const [kiosks, query, credentials, assignments] = await Promise.all([
+    listManagedKiosks(identity.userId),
+    searchParams,
+    listKioskMetaCredentials(identity.userId),
+    listKioskMetaAssignments(identity.userId),
+  ]);
+  const spending = await metaSpendSummaries([SHARED_META_KEY, ...credentials.map((c) => c.id)]);
   return (
     <>
       <section className="admin-hero">
@@ -171,6 +181,12 @@ export default async function KiosksPage({ searchParams }: { searchParams: Promi
                     Save screen copy
                   </button>
                 </form>
+                <KioskBilling
+                  kioskId={kiosk.id}
+                  credentialId={assignments[kiosk.id]}
+                  credentials={credentials}
+                  disabled={!!kiosk.revokedAt}
+                />
                 {!kiosk.revokedAt ? (
                   <details className="admin-danger-zone">
                     <summary>Revoke access</summary>
@@ -188,6 +204,11 @@ export default async function KiosksPage({ searchParams }: { searchParams: Promi
           <div className="admin-empty">No kiosks yet. Open Registration on a cabinet to begin.</div>
         )}
       </section>
+      <MetaCredentials
+        credentials={credentials}
+        configured={kioskMetaEncryptionConfigured()}
+        spending={spending}
+      />
     </>
   );
 }

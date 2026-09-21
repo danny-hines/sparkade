@@ -190,6 +190,23 @@ and checkpoints. Completed games download once and play locally, including offli
 See the [cloud rollout guide](docs/roadmaps/cloud-generation.md) for configuration and recovery.
 Enable `SPARKADE_GENERATION_MODE=cloud` on a registered cabinet after deploying the site.
 
+### Per-kiosk Meta billing
+
+Admins can save named Meta API credentials in **Admin → Kiosks → Meta API credentials**, then
+assign a credential to one or more kiosks. Unassigned kiosks use the existing shared key.
+Overrides cover cloud text, image, and voice requests; an unavailable override blocks requests
+without falling back to shared billing. Existing jobs keep their credential assignment through
+retries. Replacing a saved key updates all kiosks and unfinished jobs using that credential.
+The console shows daily, weekly, monthly, and tracked lifetime spend for each credential and the
+shared key, with separate reservations for uncertain charges. Optional daily/weekly budgets and
+request concurrency limits apply across all uses of the key. Daily budgets reset at midnight
+Pacific; weekly budgets reset Monday at midnight Pacific. Reporting starts when tracking is deployed.
+
+The site needs `SPARKADE_GENERATION_BACKEND=vercel` and a server-only
+`SPARKADE_KIOSK_META_SECRET` (32 random bytes encoded as 64 hex characters). Keep this encryption
+secret stable across deployments and separate between production and preview. See
+[kiosk billing setup and behavior](docs/kiosk-billing.md) before adding credentials.
+
 ## Architecture
 
 ```

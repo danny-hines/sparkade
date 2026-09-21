@@ -5,7 +5,7 @@
 // binary results. Pipeline/config integration can therefore evolve without
 // leaking image-specific concerns into chat completion providers.
 import { GENERATION } from '@sparkade/shared';
-import { apiKeyFor, httpJson } from './base';
+import { metaApiKeyFor, httpJson } from './base';
 
 export const META_IMAGE_DEFAULT_BASE_URL = 'https://api.meta.ai/v1';
 export const META_IMAGE_DEFAULT_MODEL = 'muse-image-1.0';
@@ -146,7 +146,7 @@ export class MetaImageAdapter {
   }
 
   private key(): string {
-    return apiKeyFor(this.apiKeyEnv, this.name);
+    return metaApiKeyFor(this.apiKeyEnv, this.name);
   }
 }
 

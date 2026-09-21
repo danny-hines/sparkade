@@ -18,6 +18,9 @@ import { stageProvider } from '@sparkade/server/providers/index';
 import { transcodeToWav } from '@sparkade/server/providers/audio';
 import ffmpeg from '@ffmpeg-installer/ffmpeg';
 import { getSql } from '@/lib/db';
+import { kioskMetaCredentialId, withKioskMetaCredential } from '@/lib/kiosk-meta-credentials';
+import { ProviderAuthError } from '@sparkade/server/providers/base';
+import { assertMetaBudgetAvailable, MetaBudgetError, MetaCapacityError, SHARED_META_KEY } from '@/lib/kiosk-meta-spend';
 import { reservePublicGame } from '@/lib/public-games';
 import {
   scope,
@@ -112,10 +115,9 @@ async function handle(request: NextRequest, context: Context): Promise<Response>
       try {
         const { provider, model } = stageProvider(defaultConfig(), 'stt');
         const wav = await transcodeToWav(Buffer.from(await audio.arrayBuffer()), ffmpeg.path);
-        const result = await provider.transcribe?.(
-          wav,
-          'audio/wav',
-          { model },
+        const credentialId = await kioskMetaCredentialId(principal);
+        const result = await withKioskMetaCredential(principal, credentialId, async () =>
+          provider.transcribe?.(wav, 'audio/wav', { model }),
         );
         return result?.text
           ? NextResponse.json({ text: result.text })
@@ -187,6 +189,15 @@ async function handle(request: NextRequest, context: Context): Promise<Response>
     }
     return error('Not found', 404);
   } catch (e) {
+    if (e instanceof MetaBudgetError || e instanceof MetaCapacityError) {
+      return error(e.message, 429);
+    }
+    if (e instanceof ProviderAuthError) {
+      return error(
+        'The Meta API credential is unavailable or was rejected. Ask an administrator to check kiosk billing.',
+        503,
+      );
+    }
     console.error('Generation API failed', e instanceof Error ? e.message : 'unknown');
     return error('Cloud generation is temporarily unavailable; try again', 503);
   }
@@ -237,6 +248,10 @@ async function createJob(request: NextRequest, principal: GenerationPrincipal): 
     if (row.status === 'queued' && !row.run_id) await dispatch(row);
     return NextResponse.json(await snapshot(row), { status: 202 });
   }
+  const metaCredentialId = await kioskMetaCredentialId(principal);
+  // Reject disabled/unreadable overrides before accepting a paid generation.
+  await withKioskMetaCredential(principal, metaCredentialId, async () => undefined);
+  await assertMetaBudgetAvailable(metaCredentialId ?? SHARED_META_KEY);
   const dir = mkdtempSync(join(tmpdir(), 'sparkade-new-'));
   const db = new JobState();
   db.state.config = defaultConfig();
@@ -268,8 +283,8 @@ async function createJob(request: NextRequest, principal: GenerationPrincipal): 
   });
   const inserted = await sql.transaction([
     sql`SELECT pg_advisory_xact_lock(hashtext(${`sparkade-admission-${scope()}`}))`,
-    sql`INSERT INTO generation_jobs(id,scope,owner,idempotency_key,input_hash,principal,state,checkpoint)
-      SELECT ${id},${scope()},${principal.owner},${input.idempotencyKey},${inputHash},${JSON.stringify(principal)}::jsonb,${JSON.stringify(db.state)}::jsonb,${checkpoint}
+    sql`INSERT INTO generation_jobs(id,scope,owner,idempotency_key,input_hash,principal,state,checkpoint,meta_credential_id,meta_credential_bound)
+      SELECT ${id},${scope()},${principal.owner},${input.idempotencyKey},${inputHash},${JSON.stringify(principal)}::jsonb,${JSON.stringify(db.state)}::jsonb,${checkpoint},${metaCredentialId},TRUE
       WHERE (SELECT count(*) FROM generation_jobs WHERE scope=${scope()} AND status IN ('queued','running','waiting-network','publishing'))<${generationLimits().pendingJobs}
       AND (SELECT count(*) FROM generation_jobs WHERE scope=${scope()} AND owner=${principal.owner} AND status IN ('queued','running','waiting-network','publishing'))<50
       ON CONFLICT DO NOTHING RETURNING *`,

@@ -12,6 +12,8 @@ export interface GenerationRow {
   seq: number;
   owner: string;
   principal: GenerationPrincipal;
+  meta_credential_id?: string | null;
+  meta_credential_bound?: boolean;
   input_hash: string;
   state: PipelineState;
   checkpoint: string;
@@ -35,6 +37,8 @@ export function ensureGenerationSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       UNIQUE(scope, owner, idempotency_key))`;
     await sql`ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS cleanup_pending BOOLEAN NOT NULL DEFAULT FALSE`;
+    await sql`ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS meta_credential_id TEXT`;
+    await sql`ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS meta_credential_bound BOOLEAN NOT NULL DEFAULT FALSE`;
     await sql`CREATE INDEX IF NOT EXISTS generation_jobs_owner_seq ON generation_jobs(scope, owner, seq)`;
     await sql`CREATE TABLE IF NOT EXISTS generation_passes (
       job_id TEXT NOT NULL, attempt INTEGER NOT NULL, pass INTEGER NOT NULL, result JSONB NOT NULL,

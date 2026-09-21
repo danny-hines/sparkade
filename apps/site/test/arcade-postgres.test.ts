@@ -46,6 +46,8 @@ import { websiteProgress, websiteAssetPreview } from '../lib/website-progress';
 import { gameNotifications, updateGameNotifications } from '../lib/notifications';
 import { getJob } from '../lib/generation/store';
 import { websiteSpendPolicy } from '../lib/website-spend';
+import { ensureKioskBillingSchema } from '../lib/kiosk-billing-store';
+import { metaSpendSummaries, setMetaKeyLimits } from '../lib/kiosk-meta-spend';
 import {
   getPublicGame,
   updatePublicGame,
@@ -78,6 +80,7 @@ beforeAll(async () => {
   await pool.query(`CREATE SCHEMA ${schema}`);
   context.sql = createLocalPgClient(pool) as Sql;
   await ensureArcadeSchema();
+  await ensureKioskBillingSchema();
 }, 60000);
 afterAll(async () => {
   if (pool) {
@@ -90,7 +93,7 @@ beforeEach(async () => {
   if (!enabled) return;
   vi.stubEnv('SPARKADE_CLOUD_MAX_PENDING_JOBS', undefined);
   await pool.query(
-    'TRUNCATE arcade_generations,arcade_profiles,arcade_settings,arcade_spend,arcade_favorites,arcade_plays,arcade_play_tickets,public_games,generation_jobs,credit_accounts,credit_ledger,admin_audit_events CASCADE',
+    'TRUNCATE arcade_generations,arcade_profiles,arcade_settings,arcade_spend,arcade_favorites,arcade_plays,arcade_play_tickets,public_games,generation_jobs,credit_accounts,credit_ledger,admin_audit_events,kiosk_meta_limits,kiosk_meta_spend CASCADE',
   );
   await settings();
   await context.sql`UPDATE arcade_settings SET enabled=TRUE,game_cap=5,daily_cap=10,total_cap=50 WHERE environment='arcade-test'`;
@@ -1054,10 +1057,42 @@ describe.skipIf(!enabled)('arcade domain against real PostgreSQL', () => {
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(2);
     const [{ sum }] = await context.sql`SELECT sum(COALESCE(charged,reserved)) FROM arcade_spend`;
     expect(Number(sum)).toBe(0.02);
+    // Rejected website admissions must not inflate the shared Meta ledger.
+    expect((await metaSpendSummaries(['shared'])).shared!.periods.daily.reserved).toBe(0.02);
     await context.sql`UPDATE arcade_settings SET enabled=FALSE`;
     await expect(policy('https://api.meta.ai/v1/images/generations', body)).rejects.toThrow(
       'paused',
     );
+  });
+  it('counts website generation against shared-key spend and applies both budget layers', async () => {
+    await account();
+    const { jobId } = await create();
+    await reviewWebsiteGame('admin', jobId, 'approve-input', '', 'Fine');
+    const row = (await getJob(jobId))!;
+    const policy = websiteSpendPolicy(row),
+      url = 'https://api.meta.ai/v1/images/generations';
+    const body = JSON.stringify({ model: row.state.config!.imageGeneration.model, n: 1 });
+    await setMetaKeyLimits('admin', 'shared', {
+      dailyUsd: '0.01',
+      weeklyUsd: '1',
+      concurrency: '2',
+    });
+    const settle = await policy(url, body);
+    await settle({ data: [{}] });
+    await settle.finish?.();
+    expect((await metaSpendSummaries(['shared'])).shared!.periods.daily).toEqual({
+      spent: 0.01,
+      reserved: 0,
+    });
+    await expect(policy(url, body)).rejects.toThrow('daily');
+    expect(await context.sql`SELECT * FROM arcade_spend`).toHaveLength(1);
+    await setMetaKeyLimits('admin', 'shared', { dailyUsd: '1', weeklyUsd: '1', concurrency: '' });
+    await context.sql`UPDATE arcade_settings SET enabled=FALSE`;
+    await expect(policy(url, body)).rejects.toThrow('paused');
+    expect((await metaSpendSummaries(['shared'])).shared!.periods.daily).toEqual({
+      spent: 0.01,
+      reserved: 0,
+    });
   });
   it('stores an immutable private version before approval and detects tampering', async () => {
     await account();

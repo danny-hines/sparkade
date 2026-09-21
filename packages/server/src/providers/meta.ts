@@ -39,7 +39,7 @@ import type {
 import { DEFAULT_MODEL, DEFAULT_STT_MODEL, GENERATION } from '@sparkade/shared';
 import { sleep } from '../util';
 import { needsWavTranscode, transcodeToWav } from './audio';
-import { apiKeyFor, httpJson, ProviderHttpError, ProviderNetworkError } from './base';
+import { metaApiKeyFor, httpJson, ProviderHttpError, ProviderNetworkError } from './base';
 
 interface ChatCompletionResponse {
   choices?: { message?: { content?: string | null } }[];
@@ -113,7 +113,7 @@ export class MetaProvider implements Provider {
   }
 
   private key(): string {
-    return apiKeyFor(this.cfg.apiKeyEnv ?? 'META_API_KEY', this.name);
+    return metaApiKeyFor(this.cfg.apiKeyEnv ?? 'META_API_KEY', this.name);
   }
 
   async complete(

@@ -1,5 +1,5 @@
 import { formats, recordsOfKind, type SegmentationMaskRecord } from '@meta-sam/parser';
-import { apiKeyFor, httpJson } from './base';
+import { metaApiKeyFor, httpJson } from './base';
 import sharp from 'sharp';
 
 export const META_SAM_MODEL = 'sam-3.1';
@@ -46,7 +46,7 @@ export class MetaSamAdapter {
       output?: Array<{ type: string; content?: Array<{ type: string; text?: string }> }>;
     }>(`${base}/responses`, {
       headers: {
-        Authorization: `Bearer ${apiKeyFor(this.config.apiKeyEnv ?? 'META_API_KEY', 'meta-sam')}`,
+        Authorization: `Bearer ${metaApiKeyFor(this.config.apiKeyEnv ?? 'META_API_KEY', 'meta-sam')}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({

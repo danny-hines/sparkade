@@ -15,7 +15,7 @@ import {
   racingRosterSlots,
 } from '../src/assets/racing-pack';
 import { buildRacingBankEditPrompt } from '../src/assets/racing-bank';
-import { buildKeyArtPrompt } from '../src/assets/game-art';
+import { buildKeyArtPrompt, buildStoryArtPrompt, buildStoryArtPolicyFallbackPrompt } from '../src/assets/game-art';
 function fixture(traversal: RacingTraversal): RacingSpec {
   const spec: RacingSpec = JSON.parse(
     readFileSync(join(__dirname, '../../generation/golden/golden-racing.json'), 'utf8'),
@@ -79,6 +79,14 @@ describe('composable racing art contracts', () => {
       visualConcept: spec.identity!.playerCraftConcept,
     });
     expect(prompt).toContain('photo likeness');
+    expect(prompt).toContain(spec.identity!.artDirection);
+    expect(prompt).not.toContain("wholly separate from the pilot's likeness");
+    for (const scene of [buildStoryArtPrompt, buildStoryArtPolicyFallbackPrompt]) {
+      const story = scene(spec, 'intro', undefined, { visualConcept: spec.identity!.playerCraftConcept });
+      expect(story).toContain(spec.identity!.artDirection);
+      expect(story).toContain('headwear');
+      expect(story).toContain('including in rear views');
+    }
     expect(prompt).toContain('standing');
     expect(prompt).not.toContain('never render the rider seated, detached, or facing the camera');
     expect(buildRacingPackPlan(spec).playerStrip.prompt).toContain('AWAY toward the horizon');

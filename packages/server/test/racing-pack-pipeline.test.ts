@@ -189,7 +189,7 @@ describe.sequential('mock racing pack pipeline', () => {
       for (const role of RACING_PACK_REQUIRED_ROLES)
         expect(generatedAssetForRole(dir, role)).not.toBeNull();
       expect(generatedAssetForRole(dir, 'racingCraftPlayer')!.promptVersion).toBe(
-        'racing-traversal-strip-v4-approved-v1',
+        'racing-traversal-strip-v4-photo-v1-approved-v1',
       );
       if (surface === 'water')
         expect(generatedAssetForRole(dir, 'racingMaterialAtlas')!.promptVersion).toBe(
@@ -228,7 +228,7 @@ describe.sequential('mock racing pack pipeline', () => {
     for (const role of RACING_PACK_REQUIRED_ROLES)
       expect(generatedAssetForRole(assetsDir, role)).not.toBeNull();
     const player = generatedAssetForRole(assetsDir, 'racingCraftPlayer');
-    expect(player!.promptVersion).toBe('racing-jetski-strip-v2-approved-v1');
+    expect(player!.promptVersion).toBe('racing-jetski-strip-v2-photo-v1-approved-v1');
   }, 90_000);
 
   it('publishes the complete ten-file pack with manifest, metadata, and private reference', async () => {

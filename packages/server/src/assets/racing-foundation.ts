@@ -93,7 +93,7 @@ export function buildRacingFoundationPrompt(options: RacingFoundationPromptOptio
     `Rear identity: ${concept}. Same silhouette, materials, outfit, markings, and livery as the roster concept.`,
     'The roster concept above describes identity only: use its silhouette, outfit, markings, and color wording. Any run-cycle, animation-frame, stride-sequence, or motion wording in the concept does NOT add poses, frames, or subjects and never turns the camera.',
     rider === 'onFoot'
-      ? 'On-foot rear identity: freeze ONE mid-stride phase with opposite arm-and-leg positions. Rear anatomy only: the back of the head, back, clothes, arms, legs, and heels are visible. No face, eyes, chest, or front of the torso. Facial likeness belongs to the separate portrait art; this image identifies the runner by outfit and rear silhouette only.'
+      ? 'On-foot rear identity: freeze ONE mid-stride phase with opposite arm-and-leg positions. Rear anatomy only: the back of the head, back, clothes, arms, legs, and heels are visible. No face, eyes, chest, or front of the torso. Preserve rear-visible identity, including headwear and hair, without turning the head to show facial likeness.'
       : '',
     `Rear camera only: ${rider === 'onFoot' ? 'runner back, rear head, and stride silhouette are visible; never a face-on view' : rider === 'none' ? 'tail, stern, and rear markings are visible; no front, cockpit front, or face-on view' : 'rider back, conveyance stern and rear, and tail markings are visible; no front, cockpit front, or face-on view'}. Never render the subject standing detached, floating beside, facing the camera, or pasted into a second view.`,
     RACING_REAR_CAMERA,

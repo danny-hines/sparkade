@@ -12,8 +12,48 @@ import {
 } from '../src/likeness/portrait-gen';
 import type { FaceFeatures } from '../src/likeness/features';
 import type { MetaImageCallOptions, MetaImageEditRequest } from '../src/providers/meta-image';
+import { buildPortraitIdentityReference } from '../src/likeness/portrait-reference';
 
 describe('generated likeness heads', () => {
+  it('gives both portrait expressions the same photo and key-art style without cropping either', async () => {
+    const image = (width: number, height: number, background: string) =>
+      sharp({ create: { width, height, channels: 3, background } })
+        .png()
+        .toBuffer();
+    const photo = await image(80, 160, '#ff0000');
+    const keyArt = await image(480, 270, '#0000ff');
+    const board = await buildPortraitIdentityReference(photo, keyArt);
+    const requests: MetaImageEditRequest[] = [];
+    const edit: LikenessImageEdit = async (request) => {
+      requests.push(request);
+      return { image: photo, outputFormat: 'png', imageCount: 1, usage: undefined };
+    };
+    const options = { referenceLayout: 'game-hero-board' as const };
+    await generatePortrait(board, null, edit, options);
+    await generateDefeatPortrait(board, null, 'Try the race again', edit, options);
+    expect(requests).toHaveLength(2);
+    expect(requests[0]!.image).toEqual(requests[1]!.image);
+    for (const request of requests) {
+      expect(request.imageFilename).toBe('game-hero-reference-board.png');
+      expect(request.prompt).toContain('LEFT is the exact player photo');
+      expect(request.prompt).toContain('RIGHT is the canonical key art');
+      expect(request.prompt).toContain('source photo remains authoritative for apparent age');
+      expect(request.prompt).not.toContain('a bold dark outline');
+      const { data, info } = await sharp(request.image)
+        .removeAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      expect(info).toMatchObject({ width: 1024, height: 1024 });
+      const pixel = (x: number, y: number) => [
+        ...data.subarray((y * info.width + x) * 3, (y * info.width + x) * 3 + 3),
+      ];
+      expect(pixel(256, 85)).toEqual([255, 0, 0]);
+      expect(pixel(256, 955)).toEqual([255, 0, 0]);
+      expect(pixel(540, 520)).toEqual([0, 0, 255]);
+      expect(pixel(996, 520)).toEqual([0, 0, 255]);
+    }
+  });
+
   it('describes occluded hair without inventing baldness', () => {
     const features = {
       hairStyle: 'hidden',

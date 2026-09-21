@@ -189,7 +189,8 @@ describe('racing conveyance-axis contract', () => {
     expect(prompt).toMatch(/back of the head/);
     expect(prompt).toMatch(/heels/);
     expect(prompt).toMatch(/No face, eyes, chest/);
-    expect(prompt).toMatch(/separate portrait art/);
+    expect(prompt).toContain('Preserve rear-visible identity, including headwear and hair');
+    expect(prompt).not.toContain('separate portrait art');
   });
 
   it('keeps on-foot steering sentences out of conveyance strips', () => {

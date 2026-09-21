@@ -7,6 +7,7 @@ import {
 // stage, plus the compact roster judge. No I/O here; the runner drives
 // cachedGeneratedAsset/callImage and the validators from the M2 builders.
 import sharp from 'sharp';
+import { RACING_PLAYER_PHOTO_PROMPT } from './racing-photo-identity';
 import {
   RACING_CRAFT_ROLES,
   RACING_PANORAMA_ROLES,
@@ -115,7 +116,7 @@ function colorsOf(spec: RacingSpec): string {
  * `generateRacingJetskiMaterialsPack`), never a grid the model must honor.
  * Legacy specs (no identity) never reach this function.
  */
-export function buildRacingPackPlan(spec: RacingSpec): RacingPackPlan {
+export function buildRacingPackPlan(spec: RacingSpec, hasPlayerPhoto = false): RacingPackPlan {
   const identity = spec.identity!;
   const colors = colorsOf(spec);
   const subject = racingArtSubject(identity);
@@ -187,13 +188,18 @@ export function buildRacingPackPlan(spec: RacingSpec): RacingPackPlan {
     label,
     size: useFoundation ? '1024x1024' : '1536x1024',
   });
+  const playerStrip = stripEntry(
+    craftRole(0),
+    identity.pilotName,
+    identity.playerCraftConcept,
+    'Player vehicle strip',
+  );
+  if (hasPlayerPhoto && subject.rider !== 'none') {
+    playerStrip.prompt += ` ${RACING_PLAYER_PHOTO_PROMPT}`;
+    playerStrip.promptVersion += '-photo-v1';
+  }
   return {
-    playerStrip: stripEntry(
-      craftRole(0),
-      identity.pilotName,
-      identity.playerCraftConcept,
-      'Player vehicle strip',
-    ),
+    playerStrip,
     rivalStrips: identity.rivalCrafts.map((rival, k) =>
       stripEntry(craftRole(k + 1), rival.name, rival.vehicleConcept, `Rival ${rival.name} strip`),
     ),

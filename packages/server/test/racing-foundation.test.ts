@@ -41,7 +41,7 @@ describe('racing foundation prompt', () => {
     expect(prompt).toMatch(/does NOT add poses, frames, or subjects/);
   });
 
-  it('keeps rear-only anatomy and portrait-path likeness for on-foot', () => {
+  it('keeps rear-only anatomy and rear-visible likeness for on-foot', () => {
     const prompt = buildRacingFoundationPrompt({
       name: 'Rin',
       concept: 'runner',
@@ -50,7 +50,8 @@ describe('racing foundation prompt', () => {
     expect(prompt).toMatch(/back of the head/);
     expect(prompt).toMatch(/heels/);
     expect(prompt).toMatch(/No face, eyes, chest/);
-    expect(prompt).toMatch(/separate portrait art/);
+    expect(prompt).toContain('Preserve rear-visible identity, including headwear and hair');
+    expect(prompt).not.toContain('separate portrait art');
     // onFoot has no conveyance to orient; rider-bearing cups keep the axis.
     expect(prompt).not.toMatch(/nose-tail axis/);
     expect(

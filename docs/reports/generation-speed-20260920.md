@@ -66,9 +66,54 @@ replay. Hero candidates retain their individual images and visual reviews.
 
 A live Muse image test using the original game's key art returned all six props
 in **one 19.7-second request**. Every crop passed validation and the normalized
-sprites were visually inspected. This measures the sheet request only, not a new
-end-to-end game generation. The total latency improvement still needs measuring
-on fresh deployed generations; a 4–6 minute target is not a measured result.
+sprites were visually inspected. This measures the sheet request only; the
+end-to-end measurements below were collected separately.
 
 Existing workflow runs remain pinned to their original deployment. New runs use
 the new behavior after deployment.
+
+## Three simultaneous live platformers
+
+On September 20 at 19:54:36 Pacific, three games started within 113 ms under one
+preview test owner, using commit `0b5841db029eb2ff31c46836b0853a089eaf5419` on
+deployment `dpl_BE928d73AANgDtc2zxZbn9W2QAdB`. All used the original Danny/Meta
+platformer prompt. No source photo was supplied. The completed games use the same
+`runAndGun` play style as the baseline, but these are fresh generated games, not
+a controlled replay of identical provider outputs.
+
+| Run | First-attempt outcome | Time | Image / text calls |
+| --- | --- | --- | --- |
+| [1 — Danny Ships It](https://sparkade.dev/p/cx47smx) | Published | 350.474 s (5:50) | 42 / 14 |
+| [2 — Danny Ships It](https://sparkade.dev/p/vqwy7hj) | Failed visual review | 439.557 s (7:20) | 45 / 16 |
+| [3 — Danny Debugs Launch Day](https://sparkade.dev/p/bgb2vvk) | Published | 348.311 s (5:48) | 43 / 15 |
+
+The two successful first attempts averaged 349.393 seconds, 41.9% shorter than
+the 600.880-second baseline. This is a small sample with a different photo input
+and a one-in-three first-attempt failure; it is not an estimate of overall
+success rate or a guaranteed speedup.
+
+Observed behavior:
+
+- No provider workflow step retried for capacity or transient errors. Each
+  logical request executed its provider call once. Intentional art regeneration
+  still produced new logical requests.
+- All three used one prop sheet. Run 3 regenerated only the health cell. Both
+  completed games report generated player, boss, enemies, props and backdrops.
+- Hero identity selection finished at 165.1, 196.1 and 168.8 seconds, versus
+  approximately 360 seconds in the baseline.
+- Run 2 received one key-art refusal, recovered automatically, then failed
+  `runShootUp1` after three candidates. The judge consistently identified a
+  forward-facing arm instead of an upward-facing palm; identity and costume
+  remained correct. This was an enforced pose-quality requirement.
+- Pipeline passes increased to 30, 32 and 24, consuming 162.189, 157.663 and
+  140.200 seconds respectively. Average passes became shorter, but total
+  checkpoint overhead remains substantial. Dependency overlap delivered the
+  observed reduction despite that overhead; further checkpoint optimization
+  remains worthwhile.
+
+The failed run was subsequently retried from its saved assets and published in
+another **60.841 seconds**, using one replacement image and one visual-review
+call. All three games are now playable. Run 2's full wall time was 727.219 seconds
+(12:07), including a 226.821-second pause to inspect the failed first attempt
+before requesting retry. Its first-attempt failure remains in the table rather
+than being replaced with a successful retry.

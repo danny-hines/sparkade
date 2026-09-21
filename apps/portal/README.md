@@ -197,19 +197,31 @@ adb -s PORTAL_IP:5555 shell getevent -pl
 A device appearing on the USB bus does not guarantee an Android input device or
 WebView Gamepad API entry. Inspect each layer before changing control mappings.
 
-### Kiwitata USB fallback
+### Direct USB controller fallback
 
 The tested Kiwitata SNES pad identifies as `0079:0011` (`USB Gamepad`). The Portal+
 successfully enumerates it in USB host mode, but this firmware has no `usbhid`
 driver or corresponding Android input device. Consequently,
 `navigator.getGamepads()` stays empty even when the controller sends reports.
 
-The Android host now has a direct USB reader scoped to this vendor/product and
-the exact tested HID report descriptor. Allow Sparkade's USB access prompt. It
-decodes ten raw buttons and the D-pad axes, then passes bounded controller state
+The Android host has a direct USB reader scoped to supported vendor/product pairs
+and their exact tested HID report descriptors. Allow Sparkade's USB access prompt.
+For the Kiwitata it decodes ten raw buttons and the D-pad axes, then passes bounded controller state
 one way to the shared input broker. The normal mapping wizard configures these
 inputs; the source stays separate from keyboard/touch input. No root or OS driver
 installation is required. Controllers already handled by Android use that path.
+
+From **v0.4.6**, the fallback also supports the tested **DragonRise Zero Delay
+encoder `0079:0006`** (`Generic USB Joystick`). This Portal+ enumerates the encoder
+but does not expose it to Android's input system. Its descriptor provides twelve
+buttons, X/Y directions, and a hat; unused axes/vendor bits are ignored. Captures
+from the connected arcade pad include all four joystick directions and eight wired
+buttons (USB button numbers 1, 2, and 7–12). Unwired-axis noise is discarded before
+sending state to the WebView. The shared bridge accepts both supported button counts,
+so buttons 11/12 can initiate the five-second remapping hold as well.
+
+This qualifies the captured USB identity/descriptor, not every board sold as “Zero
+Delay.” Do not treat a controller's USB power LED alone as evidence of usable input.
 
 The reader releases input when detached, backgrounded, or stopped, and while the
 native connection panel is open. Open **Android Back → Retry USB controller** to
@@ -490,10 +502,10 @@ native update screen for test devices. Channels point to immutable versioned APK
 publishing an APK alone does not promote it. Maintainers validate a published release:
 
 ```sh
-npm run portal:promote -- --release portal-v0.4.5 --channel pilot
-npm run portal:promote -- --release portal-v0.4.5 --channel pilot --publish
+npm run portal:promote -- --release portal-v0.4.6 --channel pilot
+npm run portal:promote -- --release portal-v0.4.6 --channel pilot --publish
 # After hardware acceptance, approve the identical binary for ordinary kiosks:
-npm run portal:promote -- --release portal-v0.4.5 --channel stable --publish
+npm run portal:promote -- --release portal-v0.4.6 --channel stable --publish
 # Withdraw approval without uninstalling or altering devices:
 npm run portal:promote -- --channel stable --disable --publish
 ```

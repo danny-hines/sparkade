@@ -105,6 +105,9 @@ These full-generation measurements **precede** the final wall-attack scheduling
 and repair-reference follow-up in `eb13d78`. That follow-up passed 19 action and
 durable tests, including all six archetypes, early wall completion during an
 unrelated suspended repair, and no duplicate wall images after a fresh resume.
+The final code preview is Ready at
+<https://sparkade-poy1llrjm-danny-hines-projects.vercel.app>
+(`dpl_3yxm1LG56WmjVBzGKtdfSftrZshd`, code `eb13d78`).
 It has not received another fresh full-game timing measurement. No production
 promotion or local Portal installation was performed.
 

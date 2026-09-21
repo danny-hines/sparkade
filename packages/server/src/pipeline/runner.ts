@@ -3760,6 +3760,17 @@ export class GenerationRunner {
                   );
                 }
 
+                // A finished repair can replace a pose checkpoint while its
+                // sibling is still pending. Keep the original review pool so
+                // resume reuses that review and its exact repair requests.
+                const reviewPoolKey = `review-pool-v1:${job.attempt}:${pipelineSha}`;
+                const savedReviewPool = adventureArtifacts.read<PoseCandidate[]>(reviewPoolKey);
+                if (savedReviewPool) {
+                  poseCandidates.splice(0, poseCandidates.length, ...savedReviewPool);
+                } else {
+                  adventureArtifacts.write(reviewPoolKey, poseCandidates);
+                }
+
                 const reviewPoseSet = async (
                   pool: readonly PoseCandidate[],
                 ): Promise<AdventurePlayerSetJudgeDecision> => {

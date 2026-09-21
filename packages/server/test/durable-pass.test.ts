@@ -19,6 +19,7 @@ import { executeProviderTask, providerUsageEvent } from '../src/pipeline/durable
 import { validateBundle } from '../src/cloud/generation-client';
 import type { CloudGameBundle } from '@sparkade/shared';
 import * as fighterJudge from '../src/assets/fighter-pose-judge';
+import * as adventureJudge from '../src/assets/adventure-player-judge';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -34,6 +35,23 @@ describe('durable generation passes', () => {
         archetype === 'fighter'
           ? vi.spyOn(fighterJudge, 'buildFighterIdentityJudgeBoard')
           : undefined;
+      if (archetype === 'adventure') {
+        const normalize = adventureJudge.normalizeAdventurePlayerSetJudgeDecision;
+        vi.spyOn(adventureJudge, 'normalizeAdventurePlayerSetJudgeDecision').mockImplementation(
+          (raw, descriptors) => {
+            const decision = normalize(raw, descriptors);
+            const ids = descriptors.map(({ id }) => id);
+            if (!ids.includes('upWalk-R1') || !ids.includes('upWalk-R2')) {
+              decision.setReview.accepted = false;
+              decision.retryPoses = [{
+                pose: 'upWalk',
+                guidance: `Improve the up-facing walk in this reviewed pool: ${ids.join(', ')}`,
+              }];
+            }
+            return decision;
+          },
+        );
+      }
       const config = defaultConfig();
       const dir = mkdtempSync(join(tmpdir(), 'sparkade-durable-test-'));
       const db = new JobState();
@@ -73,6 +91,8 @@ describe('durable generation passes', () => {
       let parallelEnemyRepairs = false;
       let heldFighterSheet: string | undefined;
       let partialRosterReady = false;
+      let heldAdventureRepair: string | undefined;
+      let adventureRepairPass = -1;
       for (; passes < 40; passes++) {
         const output = await advancePipeline(
           JSON.parse(JSON.stringify(checkpoint)),
@@ -83,6 +103,12 @@ describe('durable generation passes', () => {
         expect(output.state.job?.status).not.toBe('failed');
         if (output.state.job?.status === 'done') break;
         expect(output.pending.length).toBeGreaterThan(0);
+        if (archetype === 'adventure' && !heldAdventureRepair) {
+          heldAdventureRepair = output.pending.find(
+            (r) => r.kind === 'image' && r.request.role === 'adventure-player-upWalk-R2',
+          )?.id;
+          if (heldAdventureRepair) adventureRepairPass = passes;
+        }
         if (archetype === 'fighter') {
           heldFighterSheet ??= output.pending.find(
             (r) => r.kind === 'image' && r.request.role === 'fighter-opponent1-sheet-mobility',
@@ -148,6 +174,7 @@ describe('durable generation passes', () => {
           sawHeroWhileBackdropPending = true;
         for (const request of output.pending) {
           expect(responses[request.id]).toBeUndefined();
+          if (request.id === heldAdventureRepair && passes === adventureRepairPass) continue;
           if (request.id === heldFighterSheet && !partialRosterReady) continue;
           if (request.id === heldDependency && !independentBranchAdvanced) continue;
           if (
@@ -247,6 +274,11 @@ describe('durable generation passes', () => {
         expect(independentBranchAdvanced).toBe(true);
       }
       if (archetype === 'adventure') {
+        expect(heldAdventureRepair).toBeTruthy();
+        expect(adventureImageRoles.filter((role) => /-R[12]$/.test(role)).sort()).toEqual([
+          'adventure-player-upWalk-R1',
+          'adventure-player-upWalk-R2',
+        ]);
         expect(adventureSiblingSheetReady).toBe(true);
         expect(
           adventureImageRoles.filter((role) => role.startsWith('adventure-player-sheet-')),

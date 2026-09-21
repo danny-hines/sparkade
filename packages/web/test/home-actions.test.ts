@@ -21,16 +21,25 @@ function game(overrides: Partial<GameListItem> = {}): GameListItem {
 
 describe('home game actions', () => {
   it('never offers deletion for a built-in game', () => {
-    expect(actionsFor(game({ golden: true })).map((action) => action.key)).toEqual(['play']);
+    expect(actionsFor(game({ golden: true })).map((action) => action.key)).toEqual([
+      'play',
+      'scores',
+    ]);
   });
 
   it('keeps deletion available for a player-created game', () => {
-    expect(actionsFor(game()).map((action) => action.key)).toEqual(['play', 'publish', 'delete']);
+    expect(actionsFor(game()).map((action) => action.key)).toEqual([
+      'play',
+      'scores',
+      'publish',
+      'delete',
+    ]);
   });
 
   it('shows publishing and published cloud states without moving the action', () => {
     expect(actionsFor(game(), true).map((action) => action.key)).toEqual([
       'play',
+      'scores',
       'publishing',
       'delete',
     ]);
@@ -43,7 +52,7 @@ describe('home game actions', () => {
           },
         }),
       ).map((action) => action.key),
-    ).toEqual(['play', 'share', 'delete']);
+    ).toEqual(['play', 'scores', 'share', 'delete']);
   });
 
   it('returns a failed publish to the retryable outline action', () => {
@@ -56,6 +65,6 @@ describe('home game actions', () => {
           },
         }),
       ).map((action) => action.key),
-    ).toEqual(['play', 'publish', 'delete']);
+    ).toEqual(['play', 'scores', 'publish', 'delete']);
   });
 });

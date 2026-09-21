@@ -10,6 +10,7 @@ export type IconName =
   | 'refresh'
   | 'play'
   | 'close'
+  | 'trash'
   | 'plus'
   | 'check'
   | 'chevronRight'
@@ -52,6 +53,16 @@ const PATHS: Record<IconName, ComponentChildren> = {
     />
   ),
   play: <path d="M6 4 L20 12 L6 20 Z" fill="currentColor" />,
+  trash: (
+    <path
+      d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  ),
   close: (
     <path
       d="M5 5 L19 19 M19 5 L5 19"

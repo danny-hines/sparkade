@@ -281,10 +281,10 @@ test('delete flow: Cancel is the default; hold-A deletes', async ({ page }) => {
   const countBefore = await page.locator('.home-item.game').count();
   expect(countBefore).toBeGreaterThanOrEqual(7);
   await tap(page, 'ArrowDown'); // first game (newest generated)
-  await tap(page, 'KeyX'); // focus into the detail panel (actions: Play | Cloud | Delete)
+  await tap(page, 'KeyX'); // focus into the detail panel (Play | High Scores | Cloud | Delete)
 
   // open delete modal: move to Delete, A
-  await tap(page, 'ArrowRight', 2); // → Delete action
+  await tap(page, 'ArrowRight', 3); // → Delete action
   await tap(page, 'KeyX');
   await expect(page.locator('.modal')).toContainText('Delete');
 

@@ -1,6 +1,7 @@
 import type { ArcadeCard } from '@/lib/arcade';
 import { ArcadeGameCard, ArcadeEmpty } from './arcade-ui';
 import { FavoriteButton, OwnerControls, RetryGameControl } from './game-controls';
+import { HighScoresButton } from './high-scores-button';
 export function GameGrid({
   games,
   signedIn = false,
@@ -34,7 +35,10 @@ export function GameGrid({
           game={{ ...game, href: owner && game.jobId ? `/me/games/${game.id}` : undefined }}
           action={
             game.status === 'ready' && game.moderation === 'approved' && !game.deleted ? (
-              <FavoriteButton id={game.id} saved={game.favorite} signedIn={signedIn} />
+              <>
+                <FavoriteButton id={game.id} saved={game.favorite} signedIn={signedIn} />
+                <HighScoresButton id={game.id} title={game.title} />
+              </>
             ) : undefined
           }
         >

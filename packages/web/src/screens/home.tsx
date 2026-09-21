@@ -20,6 +20,7 @@ import { Icon, Btn, type IconName } from '../icons';
 import { LibraryDemo } from './library-demo';
 import type { Screen } from '../app';
 import { KioskTitle } from '../kiosk-title';
+import { HighScoresModal } from './high-scores';
 
 type Action = {
   key: string;
@@ -56,7 +57,7 @@ function statusLabel(s: GameListItem['status']): string {
 export function actionsFor(game: GameListItem | null, publishingLocally = false): Action[] {
   if (!game) return [];
   const a: Action[] = [];
-  if (game.status === 'ready')
+  if (game.status === 'ready') {
     a.push({
       key: 'play',
       label: (
@@ -65,6 +66,8 @@ export function actionsFor(game: GameListItem | null, publishingLocally = false)
         </>
       ),
     });
+    a.push({ key: 'scores', label: 'High Scores' });
+  }
   if (game.status === 'generating' || game.status === 'queued')
     a.push({
       key: 'progress',
@@ -111,11 +114,9 @@ export function actionsFor(game: GameListItem | null, publishingLocally = false)
   if (!game.golden)
     a.push({
       key: 'delete',
-      label: (
-        <>
-          <Icon name="close" /> Delete
-        </>
-      ),
+      label: <Icon name="trash" />,
+      title: 'Delete game',
+      className: 'icon-only',
       danger: true,
     });
   return a;
@@ -135,6 +136,7 @@ export function HomeScreen(props: {
   const [detail, setDetail] = useState<GameDetail | null>(null);
   const [scores, setScores] = useState<ScoreRow[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showScores, setShowScores] = useState(false);
   const [publishingIds, setPublishingIds] = useState<Set<string>>(() => new Set());
   const [publishErrorIds, setPublishErrorIds] = useState<Set<string>>(() => new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -224,6 +226,7 @@ export function HomeScreen(props: {
     }
     let live = true;
     setDetail(null);
+    setScores([]);
     void api
       .getGame(selectedGame.id)
       .then((d) => live && setDetail(d))
@@ -241,14 +244,32 @@ export function HomeScreen(props: {
     focusRef.current?.scrollIntoView({ block: 'nearest' });
   }, [sel]);
 
-  const stateRef = useRef({ sel, zone, actionCursor, total, selectedGame, actions, confirmDelete });
-  stateRef.current = { sel, zone, actionCursor, total, selectedGame, actions, confirmDelete };
+  const stateRef = useRef({
+    sel,
+    zone,
+    actionCursor,
+    total,
+    selectedGame,
+    actions,
+    confirmDelete,
+    showScores,
+  });
+  stateRef.current = {
+    sel,
+    zone,
+    actionCursor,
+    total,
+    selectedGame,
+    actions,
+    confirmDelete,
+    showScores,
+  };
 
   useEffect(
     () =>
       shellInput.pushHandler((btn) => {
         const s = stateRef.current;
-        if (s.confirmDelete) return; // delete modal owns input
+        if (s.confirmDelete || s.showScores) return; // modal owns input
         if (s.zone === 'list') {
           if (btn === 'UP') {
             setSel((c) => (c + s.total - 1) % s.total);
@@ -284,6 +305,7 @@ export function HomeScreen(props: {
           if (!g) return;
           shellInput.blip('select');
           if (key === 'play') props.go({ name: 'play', id: g.id });
+          else if (key === 'scores') setShowScores(true);
           else if (key === 'retry')
             void api
               .retryGame(g.id)
@@ -471,6 +493,15 @@ export function HomeScreen(props: {
       </div>
 
       <FooterLegend items={footer} />
+
+      {showScores && selectedGame && (
+        <HighScoresModal
+          key={selectedGame.id}
+          gameId={selectedGame.id}
+          title={selectedGame.title}
+          onClose={() => setShowScores(false)}
+        />
+      )}
 
       {confirmDelete && selectedGame && !selectedGame.golden && (
         <DeleteModal

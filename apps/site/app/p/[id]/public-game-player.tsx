@@ -9,6 +9,7 @@ import type {
   RuntimeGameAssetFilename,
 } from '@sparkade/web/likeness-assets';
 import { dpadKeysAtPoint, type DpadKey } from './dpad-direction';
+import { fetchHighScores, submitHighScore } from '@/lib/score-client';
 
 type PlayerState = 'idle' | 'playing' | 'exited' | 'error';
 
@@ -194,6 +195,11 @@ export function PublicGamePlayer({
   const [fullscreenAvailable, setFullscreenAvailable] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showInstallHint, setShowInstallHint] = useState(false);
+  const [scoreError, setScoreError] = useState('');
+
+  useEffect(() => {
+    scoresRef.current = [];
+  }, [id]);
 
   useEffect(() => {
     const standalone =
@@ -217,13 +223,21 @@ export function PublicGamePlayer({
     let disposed = false;
 
     setLoading(true);
+    setScoreError('');
     void (async () => {
       try {
-        const [{ archetypes }, { GameHost, InputBroker }, { loadLikenessAssets }] =
+        const [{ archetypes }, { GameHost, InputBroker }, { loadLikenessAssets }, initialScores] =
           await Promise.all([
             import('@sparkade/archetypes'),
             import('@sparkade/engine'),
             import('@sparkade/web/likeness-assets'),
+            trackPlays
+              ? fetchHighScores(id).catch(() => {
+                  if (!disposed)
+                    setScoreError('High scores are unavailable right now. You can still play.');
+                  return scoresRef.current;
+                })
+              : Promise.resolve(scoresRef.current),
           ]);
         const archetype = archetypes[spec.archetype];
         if (!archetype) {
@@ -235,6 +249,7 @@ export function PublicGamePlayer({
           (filename: RuntimeGameAssetFilename) => assets[filename] ?? '',
         );
         if (disposed || !canvasRef.current) return;
+        scoresRef.current = initialScores;
 
         input = new InputBroker();
         input.attach(window);
@@ -250,6 +265,21 @@ export function PublicGamePlayer({
             onVolumesChanged: () => {},
             initialScores: scoresRef.current,
             submitScore: async (initials, score) => {
+              if (trackPlays) {
+                try {
+                  const rows = await submitHighScore(id, initials, score);
+                  if (!disposed) {
+                    scoresRef.current = rows;
+                    setScoreError('');
+                  }
+                  return rows;
+                } catch {
+                  if (!disposed)
+                    setScoreError('Your score could not be saved. Please check your connection.');
+                }
+                return scoresRef.current;
+              }
+              // Admin previews keep their scores in this session only.
               scoresRef.current = [...scoresRef.current, { initials, score }]
                 .sort((left, right) => right.score - left.score)
                 .slice(0, 10);
@@ -272,7 +302,7 @@ export function PublicGamePlayer({
       host?.dispose();
       input?.detach(window);
     };
-  }, [assets, id, spec, state]);
+  }, [assets, id, spec, state, trackPlays]);
 
   const inactive = state !== 'playing' || loading;
   usePlayTracking(id, !inactive, trackPlays);
@@ -368,6 +398,11 @@ export function PublicGamePlayer({
       <p className="public-player-help">
         Arrow keys to move <span>·</span> X = A <span>·</span> Z = B <span>·</span> Enter = Start
       </p>
+      {scoreError && (
+        <p role="status" className="public-player-help">
+          {scoreError}
+        </p>
+      )}
     </section>
   );
 }

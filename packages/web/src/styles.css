@@ -375,10 +375,11 @@ h2.pixel {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 20px;
+  padding: 10px 14px;
   border: 2px solid var(--line);
   border-radius: 9px;
   font-size: 16px;
+  white-space: nowrap;
 }
 .home-action.focused {
   border-color: var(--spark);
@@ -388,7 +389,8 @@ h2.pixel {
   border-color: var(--danger);
   box-shadow: 0 0 0 3px var(--danger);
 }
-.home-action.cloud {
+.home-action.cloud,
+.home-action.icon-only {
   min-width: 52px;
   justify-content: center;
   padding-inline: 13px;
@@ -731,6 +733,37 @@ h2.pixel {
 .modal h3 {
   font-size: 24px;
   margin-bottom: 14px;
+}
+
+.high-scores-modal {
+  width: 480px;
+  max-width: 100%;
+}
+.high-scores-modal .score-table {
+  margin: 12px 0;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+.high-scores-modal .score-table td,
+.high-scores-modal .score-table th {
+  padding: 4px 8px;
+}
+.high-scores-modal .score-table th {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.high-scores-modal .score-table td:last-child,
+.high-scores-modal .score-table th:last-child {
+  text-align: right;
+}
+.high-scores-modal .high-scores-game {
+  font-size: 16px;
+  max-height: 42px;
+  overflow: auto;
+}
+.high-scores-modal .high-scores-help {
+  font-size: 14px;
+  margin: 14px 0 0;
 }
 
 .modal p {

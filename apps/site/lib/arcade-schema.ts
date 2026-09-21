@@ -69,6 +69,14 @@ export function ensureArcadeSchema() {
     await sql`CREATE TABLE IF NOT EXISTS arcade_play_tickets (
       id TEXT PRIMARY KEY,environment TEXT NOT NULL,game_id TEXT NOT NULL REFERENCES public_games(id),
       viewer TEXT NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT now(), consumed BOOLEAN NOT NULL DEFAULT FALSE)`;
+    await sql`CREATE TABLE IF NOT EXISTS arcade_scores (
+      id BIGSERIAL PRIMARY KEY, environment TEXT NOT NULL,
+      game_id TEXT NOT NULL REFERENCES public_games(id) ON DELETE CASCADE,
+      initials TEXT NOT NULL CHECK(initials ~ '^[A-Z0-9.]{3}$'),
+      score INTEGER NOT NULL CHECK(score BETWEEN 0 AND 99999999),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now())`;
+    await sql`CREATE INDEX IF NOT EXISTS arcade_scores_leaderboard
+      ON arcade_scores(environment,game_id,score DESC,created_at,id)`;
   })().catch((error) => {
     schema = undefined;
     throw error;

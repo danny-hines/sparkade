@@ -1,5 +1,6 @@
 import { viewer } from '../../components/site-frame';
 import { FavoriteButton } from '../../components/game-controls';
+import { HighScoresButton } from '../../components/high-scores-button';
 import { ensureArcadeSchema, env } from '@/lib/arcade';
 import { getSql } from '@/lib/db';
 import type { Metadata } from 'next';
@@ -54,6 +55,7 @@ export default async function PublicGamePage({ params }: PublicGamePageProps) {
               signedIn={Boolean(user)}
               returnTo={`/p/${game.id}`}
             />
+            <HighScoresButton id={game.id} title={game.title ?? 'Untitled game'} />
             {stats.handle && <Link href={`/u/${stats.handle}`}>More by @{stats.handle} →</Link>}
           </div>
         )}

@@ -20,6 +20,7 @@ import {
   type OskState,
 } from '../components';
 import {
+  cameraErrorMessage,
   enumerateInputs,
   getUserMediaForDevice,
   probeMedia,
@@ -210,9 +211,11 @@ export function SettingsScreen(props: {
   }, [tab, networks]);
 
   useEffect(() => {
+    let canceled = false;
     if (tab === 'devices' && inputs === null) {
       void enumerateInputs()
         .then((r) => {
+          if (canceled) return;
           setInputs(r);
           // Nothing enumerated → probe the media stack so we can see WHY on-device.
           if (r.cameras.length === 0 && r.mics.length === 0)
@@ -220,9 +223,26 @@ export function SettingsScreen(props: {
               .then(setProbe)
               .catch(() => {});
         })
-        .catch(() => setInputs({ cameras: [], mics: [] }));
+        .catch(() => {
+          if (!canceled) setInputs({ cameras: [], mics: [] });
+        });
     }
+    return () => {
+      canceled = true;
+    };
   }, [tab, inputs]);
+
+  useEffect(() => {
+    const md = navigator.mediaDevices;
+    if (tab !== 'devices' || !md?.addEventListener) return;
+    const rescan = () => {
+      setInputs(null);
+      setProbe(null);
+      setPanelCursor(0);
+    };
+    md.addEventListener('devicechange', rescan);
+    return () => md.removeEventListener('devicechange', rescan);
+  }, [tab]);
 
   useEffect(
     () => () => {
@@ -672,7 +692,7 @@ export function SettingsScreen(props: {
                   <>
                     <div class="device-group">Camera</div>
                     {inputs.cameras.length === 0 && (
-                      <div class="device-none">No camera found — check the USB connection</div>
+                      <div class="device-none">No camera visible to the browser</div>
                     )}
                     {inputs.cameras.map((d, i) => (
                       <div
@@ -1070,12 +1090,12 @@ function barsFor(signal: number): number {
 function DeviceMonitor(props: { cameraId?: string; micId?: string }): ComponentChildren {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [level, setLevel] = useState(0);
-  const [camErr, setCamErr] = useState(false);
+  const [camErr, setCamErr] = useState('');
 
   useEffect(() => {
     let stopped = false;
     let stream: MediaStream | null = null;
-    setCamErr(false);
+    setCamErr('');
     void getUserMediaForDevice('video', props.cameraId, {
       width: { ideal: 640 },
       height: { ideal: 480 },
@@ -1091,7 +1111,9 @@ function DeviceMonitor(props: { cameraId?: string; micId?: string }): ComponentC
           void videoRef.current.play().catch(() => {});
         }
       })
-      .catch(() => setCamErr(true));
+      .catch((error: Error) => {
+        if (!stopped) setCamErr(cameraErrorMessage(error));
+      });
     return () => {
       stopped = true;
       stream?.getTracks().forEach((t) => t.stop());
@@ -1143,10 +1165,9 @@ function DeviceMonitor(props: { cameraId?: string; micId?: string }): ComponentC
   return (
     <div class="device-monitor">
       <div class="device-preview">
-        {camErr ? (
-          <div class="device-preview-err">no camera signal</div>
-        ) : (
-          <video ref={videoRef} autoplay muted playsinline />
+        <video ref={videoRef} autoplay muted playsinline hidden={!!camErr} />
+        {camErr && (
+          <div class="device-preview-err" role="alert">{camErr}</div>
         )}
       </div>
       <div class="mic-meter">

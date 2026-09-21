@@ -12,6 +12,27 @@ export interface DeviceInfo {
   label: string;
 }
 
+/** Keep a device-discovery failure distinct from a permission or startup failure. */
+export function cameraErrorMessage(error: Error): string {
+  if (error.message === 'getUserMedia timed out') {
+    return 'The camera took too long to start. Check for a browser permission prompt, then retry.';
+  }
+  switch (error.name) {
+    case 'NotFoundError':
+      return 'The browser cannot see a camera. Reconnect it, or restart the browser if the camera works elsewhere. (NotFoundError)';
+    case 'NotAllowedError':
+      return 'Camera access was denied. Check camera permissions for this site and browser. (NotAllowedError)';
+    case 'NotReadableError':
+      return 'The camera could not start. Close other apps using it, then retry. (NotReadableError)';
+    case 'OverconstrainedError':
+      return 'The camera cannot use the requested settings. Select another camera in Settings, then retry. (OverconstrainedError)';
+    case 'AbortError':
+      return 'Camera startup was interrupted. Please retry. (AbortError)';
+    default:
+      return `Camera could not start. ${error.name || 'Error'}: ${error.message || 'Please retry.'}`;
+  }
+}
+
 /**
  * getUserMedia that rejects after `ms` if the device never opens. A late stream
  * (arriving after the timeout) is stopped so it can't leak.

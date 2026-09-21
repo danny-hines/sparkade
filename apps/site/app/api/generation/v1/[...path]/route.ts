@@ -18,6 +18,7 @@ import { stageProvider } from '@sparkade/server/providers/index';
 import { transcodeToWav } from '@sparkade/server/providers/audio';
 import ffmpeg from '@ffmpeg-installer/ffmpeg';
 import { getSql } from '@/lib/db';
+import { readCheckpointFile } from '@/lib/generation/checkpoints';
 import { reservePublicGame } from '@/lib/public-games';
 import {
   scope,
@@ -180,7 +181,7 @@ async function handle(request: NextRequest, context: Context): Promise<Response>
     if (path[2] === 'partial' && method === 'GET') {
       if (row.status === 'done') return NextResponse.json({ partial: null });
       const checkpoint = await readPrivate<PassCheckpoint>(row.checkpoint);
-      const raw = checkpoint.files[`staging/${row.id}/partial.json`];
+      const raw = await readCheckpointFile(checkpoint, `staging/${row.id}/partial.json`);
       return NextResponse.json({
         partial: raw ? JSON.parse(Buffer.from(raw, 'base64').toString('utf8')) : null,
       });

@@ -10,6 +10,7 @@ import type { CloudGameBundle, CompleteRequest } from '@sparkade/shared';
 import { getSql } from './db';
 import { ArcadeError, env } from './arcade';
 import { readPrivate } from './generation/storage';
+import { readCheckpointFile } from './generation/checkpoints';
 import { acquireSlot, releaseSlot, type GenerationRow } from './generation/store';
 import { websiteSpendPolicy } from './website-spend';
 import {
@@ -140,7 +141,7 @@ export async function reviewWebsiteInput(row: GenerationRow): Promise<boolean> {
   if (!web || web.review_policy !== CONTENT_POLICY || web.input_review === 'approved') return true;
   await assertWebsiteRunnable(row, true);
   const checkpoint = await readPrivate<PassCheckpoint>(row.checkpoint);
-  const photo = checkpoint.files[`staging/${row.id}/photo.jpg`];
+  const photo = await readCheckpointFile(checkpoint, `staging/${row.id}/photo.jpg`);
   if (row.state.job?.hasPhoto && !photo)
     throw new FatalError('Source photo unavailable for content check.');
   const content = { prompt: row.state.job?.promptText, brief: row.state.job?.creationBrief };

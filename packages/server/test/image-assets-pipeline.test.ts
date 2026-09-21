@@ -616,8 +616,9 @@ describe.sequential('mock image asset pipeline', () => {
       successfulImageStages.filter((stage) => stage.includes('adventure-player-sheet-')),
     ).toHaveLength(2);
     const messages = db.generationEventsForJob(jobId).map((event) => event.message);
+    expect(messages.indexOf('Adventure player identity ready')).toBeGreaterThan(-1);
     expect(messages.indexOf('Player portrait')).toBeGreaterThan(
-      messages.indexOf('Finished the generated Adventure player'),
+      messages.indexOf('Adventure player identity ready'),
     );
   });
 

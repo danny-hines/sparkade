@@ -1,4 +1,6 @@
 import { settleAll } from '../pipeline/parallel';
+import { ArtifactCache } from '../pipeline/artifact-cache';
+import sharp from 'sharp';
 import {
   PLATFORMER_ACTION_ASSET_ROLES,
   PLATFORMER_ACTION_DESCRIPTIONS,
@@ -22,7 +24,48 @@ import {
   normalizePlatformerJumpJudgeDecision,
 } from './platformer-jump-judge';
 
-export const PLATFORMER_ACTION_PROMPT_VERSION = 'platformer-actions-v3';
+export const PLATFORMER_ACTION_PROMPT_VERSION = 'platformer-actions-v4';
+export const PLATFORMER_ACTION_MAX_CANDIDATES = 4;
+
+interface ActionRepair {
+  candidates: number;
+  guidance: string;
+}
+
+interface ReviewCandidate {
+  id: PlatformerActionPose;
+  processed: Buffer;
+  candidate: number;
+}
+
+/** Repair-only arm diagram: the approved sprite remains identity/stride truth.
+ * Give the model visible aiming geometry after a text-only correction failed. */
+export async function buildPlatformerActionReference(
+  pose: PlatformerActionPose,
+  approved: Buffer,
+  repair: boolean,
+): Promise<Buffer> {
+  if (!repair || !pose.includes('Up')) return prepareGeneratedPlatformerReference(approved);
+  const character = await sharp(approved)
+    .resize(704, 800, { fit: 'contain', kernel: 'nearest', background: '#00ff00' })
+    .png()
+    .toBuffer();
+  const guide = Buffer.from(`<svg width="1024" height="1024" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1024" height="1024" fill="#eeeeee"/>
+    <text x="28" y="52" font-size="28" font-family="sans-serif">APPROVED CHARACTER / KEEP STRIDE</text>
+    <text x="720" y="120" font-size="22" font-family="sans-serif">ARM AIM ONLY</text>
+    <path d="M765 650 L890 650 L890 410" fill="none" stroke="#333333" stroke-width="26" stroke-linejoin="round"/>
+    <path d="M850 405 Q890 445 930 405" fill="none" stroke="#333333" stroke-width="16"/>
+    <path d="M890 340 L890 230 M860 265 L890 230 L920 265" fill="none" stroke="#555555" stroke-width="10"/>
+    <text x="770" y="710" font-size="23" font-family="sans-serif">Bent elbow</text>
+    <text x="747" y="750" font-size="23" font-family="sans-serif">Empty palm UP</text>
+    <text x="28" y="972" font-size="24" font-family="sans-serif">Output ONE character only. Omit diagram, labels and arrows.</text>
+  </svg>`);
+  return sharp(guide)
+    .composite([{ input: character, left: 0, top: 100 }])
+    .png()
+    .toBuffer();
+}
 
 export function buildPlatformerActionPrompt(
   pose: PlatformerActionPose,
@@ -48,6 +91,9 @@ export interface PlatformerActionGenerationOptions {
   sourceKind: 'photo' | 'key-art';
   wardrobe: PlatformerPosePromptOptions;
   workspace: GameAssetWorkspace;
+  cache: ArtifactCache;
+  /** User retry starts a new bounded budget; workflow resumes keep this value. */
+  attempt: number;
   generate(pose: PlatformerActionPose, prompt: string, reference: Buffer): Promise<Buffer>;
   judge(
     prompt: { system: string; user: string },
@@ -68,7 +114,16 @@ export async function generatePlatformerActions(
   const required = requiredPlatformerActionPoses(o.spec);
   const accepted: Partial<Record<PlatformerActionPose, Buffer>> = {};
   const hashes = new Map<PlatformerActionPose, string>();
-  const guidance = new Map<PlatformerActionPose, string>();
+  const repairs = new Map<PlatformerActionPose, ActionRepair>();
+  const repairKey = (pose: PlatformerActionPose) =>
+    `repair:${hashes.get(pose)}:attempt:${o.attempt}`;
+  const reject = (pose: PlatformerActionPose, guidance: string) => {
+    const repair = repairs.get(pose)!;
+    repair.candidates++;
+    repair.guidance = guidance.slice(0, 1200);
+    o.cache.write(repairKey(pose), repair);
+    o.rejected?.(pose);
+  };
   const referenceFor = (pose: PlatformerActionPose) => {
     const ref = platformerActionReference(pose);
     return ref === 'wallSlide' ? accepted.wallSlide : o.base[ref];
@@ -82,10 +137,14 @@ export async function generatePlatformerActions(
     if (group.some((pose) => !referenceFor(pose))) continue;
     for (const pose of group) {
       const hash = imagePromptHash(
-        buildPlatformerActionPrompt(pose, o.wardrobe),
+        PLATFORMER_ACTION_PROMPT_VERSION + buildPlatformerActionPrompt(pose, o.wardrobe),
         Buffer.concat([o.source, o.base.idle, referenceFor(pose)!]),
       );
       hashes.set(pose, hash);
+      repairs.set(
+        pose,
+        o.cache.read<ActionRepair>(repairKey(pose)) ?? { candidates: 0, guidance: '' },
+      );
       const cached = o.workspace.load(
         PLATFORMER_ACTION_ASSET_ROLES[pose],
         PLATFORMER_ACTION_PROMPT_VERSION,
@@ -93,56 +152,102 @@ export async function generatePlatformerActions(
       );
       if (cached) accepted[pose] = cached;
     }
-    for (let round = 0; round < 2; round++) {
-      const pending = group.filter((pose) => !accepted[pose]);
+    const batchesKey = `review-batches:${o.attempt}:${imagePromptHash(JSON.stringify(group.map((pose) => hashes.get(pose))))}`;
+    const plannedBatches = o.cache.read<ReviewCandidate[][]>(batchesKey) ?? [];
+    for (let round = 0; round < PLATFORMER_ACTION_MAX_CANDIDATES; round++) {
+      const pending = group.filter(
+        (pose) =>
+          !accepted[pose] && repairs.get(pose)!.candidates < PLATFORMER_ACTION_MAX_CANDIDATES,
+      );
       if (!pending.length) break;
       o.report(
-        `${round ? 'Retrying' : 'Painting'} ${pending.length} mechanic-specific player poses…`,
+        `${pending.some((p) => repairs.get(p)!.candidates) ? 'Repairing' : 'Painting'} ${pending.length} mechanic-specific player poses…`,
       );
       // The caller owns provider concurrency and retry limits.
       const generated = await Promise.allSettled(
         pending.map(async (pose) => {
-          const reference = await prepareGeneratedPlatformerReference(referenceFor(pose)!);
+          const repair = repairs.get(pose)!;
+          const reference = await o.cache.getOrCompute(
+            `reference:${hashes.get(pose)}:${repair.candidates > 0}`,
+            () => buildPlatformerActionReference(pose, referenceFor(pose)!, repair.candidates > 0),
+          );
           const prompt =
             buildPlatformerActionPrompt(pose, o.wardrobe) +
-            (guidance.has(pose) ? ` Retry correction: ${guidance.get(pose)}` : '');
-          const raw = await o.generate(pose, prompt, reference);
-          try {
-            const recovered = await recoverGeneratedPlatformerGreenPanel(raw);
-            const { png } = await processGeneratedPlatformerPose(recovered.image, { width: 160 });
-            return { id: pose, processed: png };
-          } catch (error) {
-            guidance.set(
-              pose,
-              `The image failed sprite normalization: ${error instanceof Error ? error.message : String(error)}. Keep one complete compact character on flat green.`,
-            );
-            o.rejected?.(pose);
+            ` Candidate ${repair.candidates + 1} of ${PLATFORMER_ACTION_MAX_CANDIDATES}.` +
+            (repair.guidance ? ` Retry correction: ${repair.guidance}` : '') +
+            (repair.candidates > 0 && pose.includes('Up')
+              ? ' The reference LEFT panel is the approved character: preserve its identity, costume and leg pose. The RIGHT panel is an arm geometry guide only: use a bent elbow and visibly upward-facing empty palm. Never copy its colors, diagram, arrow or labels. Output one full character on green.'
+              : '');
+          const candidate = await o.cache.getOrCompute(
+            `candidate:${o.attempt}:${imagePromptHash(prompt, reference)}`,
+            async () => {
+              const raw = await o.generate(pose, prompt, reference);
+              try {
+                const recovered = await recoverGeneratedPlatformerGreenPanel(raw);
+                const { png } = await processGeneratedPlatformerPose(recovered.image, {
+                  width: 160,
+                });
+                return { processed: png, error: '' };
+              } catch (error) {
+                return {
+                  processed: null,
+                  error: `The image failed sprite normalization: ${error instanceof Error ? error.message : String(error)}. Keep one complete compact character on flat green.`,
+                };
+              }
+            },
+          );
+          if (!candidate.processed) {
+            reject(pose, candidate.error);
             return null;
           }
+          return { id: pose, processed: candidate.processed, candidate: repair.candidates };
         }),
       );
       const candidates = generated.flatMap((result) =>
         result.status === 'fulfilled' && result.value ? [result.value] : [],
       );
-      const batches = Array.from({ length: Math.ceil(candidates.length / 6) }, (_, index) =>
-        candidates.slice(index * 6, index * 6 + 6),
-      );
+      // Freeze a review's membership before dispatch. Newly completed images
+      // must not replace an already-running review with a different board.
+      const assigned = new Set(plannedBatches.flat().map((c) => `${c.id}:${c.candidate}`));
+      const unassigned = candidates.filter((c) => !assigned.has(`${c.id}:${c.candidate}`));
+      for (let index = 0; index < unassigned.length; index += 6)
+        plannedBatches.push(unassigned.slice(index, index + 6));
+      if (unassigned.length) o.cache.write(batchesKey, plannedBatches);
+      const current = (c: ReviewCandidate) =>
+        !accepted[c.id] && repairs.get(c.id)!.candidates === c.candidate;
+      const batches = plannedBatches.filter((batch) => batch.some(current));
       await settleAll(
         batches.map(async (batch) => {
-          const board = await buildPlatformerJumpJudgeBoard({
-            source: o.source,
-            sourceKind: o.sourceKind,
-            idle: o.base.idle,
-            sideAnchor: o.base.sideIdle,
-            candidates:
-              platformerActionReference(batch[0]!.id) === 'wallSlide'
-                ? [
-                    { id: 'REFERENCE wallSlide (keep feet)', processed: accepted.wallSlide! },
-                    ...batch,
-                  ]
-                : batch,
-            purpose: 'actions',
-          });
+          const wallReference =
+            platformerActionReference(batch[0]!.id) === 'wallSlide'
+              ? accepted.wallSlide
+              : undefined;
+          const boardKey = imagePromptHash(
+            JSON.stringify(['action-board-v1', o.sourceKind, batch.map((c) => c.id)]),
+            Buffer.concat([
+              o.source,
+              o.base.idle,
+              o.base.sideIdle,
+              ...batch.map((c) => c.processed),
+              ...(wallReference ? [wallReference] : []),
+            ]),
+          );
+          const board = await o.cache.getOrCompute(boardKey, () =>
+            buildPlatformerJumpJudgeBoard({
+              source: o.source,
+              sourceKind: o.sourceKind,
+              idle: o.base.idle,
+              sideAnchor: o.base.sideIdle,
+              candidates:
+                platformerActionReference(batch[0]!.id) === 'wallSlide'
+                  ? [
+                      { id: 'REFERENCE wallSlide (keep feet)', processed: accepted.wallSlide! },
+                      ...batch,
+                    ]
+                  : batch,
+              purpose: 'actions',
+            }),
+          );
           const schema = buildPlatformerJumpJudgeSchema(batch);
           const prompt = {
             system:
@@ -167,10 +272,14 @@ export async function generatePlatformerActions(
             },
           };
           const decision = normalizePlatformerJumpJudgeDecision(
-            await o.judge(prompt, schema, board, mockDecision),
+            await o.cache.getOrCompute(
+              `review:${o.attempt}:${imagePromptHash(JSON.stringify([prompt, schema, batch.map((c) => c.candidate)]), board)}`,
+              () => o.judge(prompt, schema, board, mockDecision),
+            ),
             batch,
           );
           for (const candidate of batch) {
+            if (!current(candidate)) continue;
             const review = decision.candidateReviews.find((r) => r.id === candidate.id)!;
             if (
               !review.fatalIssues.length &&
@@ -187,8 +296,7 @@ export async function generatePlatformerActions(
               );
               accepted[candidate.id] = candidate.processed;
             } else {
-              o.rejected?.(candidate.id);
-              guidance.set(
+              reject(
                 candidate.id,
                 [review.summary, ...review.fatalIssues, decision.selection.retryGuidance]
                   .join(' ')

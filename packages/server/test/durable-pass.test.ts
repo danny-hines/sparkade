@@ -25,6 +25,7 @@ describe('durable generation passes', () => {
     'generates %s across fresh filesystems without repeating completed provider calls',
     async (archetype) => {
       vi.stubEnv('SPARKADE_PROVIDER', 'mock');
+      vi.stubEnv('SPARKADE_MOCK_FAST', '1');
       const config = defaultConfig();
       const dir = mkdtempSync(join(tmpdir(), 'sparkade-durable-test-'));
       const db = new JobState();
@@ -57,6 +58,11 @@ describe('durable generation passes', () => {
       let deferredBackdrop: string | undefined;
       let sawHeroWhileBackdropPending = false;
       const propRequests: string[] = [];
+      let heldDependency: string | undefined;
+      let independentBranchAdvanced = false;
+      let adventureSiblingSheetReady = false;
+      const adventureImageRoles: string[] = [];
+      let parallelEnemyRepairs = false;
       for (; passes < 40; passes++) {
         const output = await advancePipeline(
           JSON.parse(JSON.stringify(checkpoint)),
@@ -67,6 +73,48 @@ describe('durable generation passes', () => {
         expect(output.state.job?.status).not.toBe('failed');
         if (output.state.job?.status === 'done') break;
         expect(output.pending.length).toBeGreaterThan(0);
+        heldDependency ??= output.pending.find(
+          (request) =>
+            request.kind === 'image' &&
+            ((archetype === 'racing' && request.request.role === 'racing-scenery-object-1') ||
+              (archetype === 'fighter' && request.request.role === 'storyBoss') ||
+              (archetype === 'adventure' &&
+                request.request.role.startsWith('adventure-player-sheet-'))),
+        )?.id;
+        if (heldDependency && !responses[heldDependency]) {
+          const roles = output.pending.flatMap((r) => (r.kind === 'image' ? [r.request.role] : []));
+          if (archetype === 'fighter' && roles.some((role) => role.startsWith('fighter-player-I')))
+            independentBranchAdvanced = true;
+          if (archetype === 'adventure' && roles.includes('storyIntro'))
+            independentBranchAdvanced = true;
+          if (archetype === 'adventure') {
+            adventureSiblingSheetReady ||= Object.keys(output.files).some((path) =>
+              path.endsWith('/adventure-player-side-secondary.png'),
+            );
+          }
+          if (archetype === 'racing') {
+            const rawManifest =
+              output.files[`staging/${output.state.job!.id}/assets/manifest.json`];
+            const manifest = rawManifest
+              ? JSON.parse(Buffer.from(rawManifest, 'base64').toString())
+              : null;
+            if (
+              manifest?.assets.some(
+                (asset: { role: string; promptVersion: string }) =>
+                  asset.role === 'racingCraftRival1' &&
+                  asset.promptVersion.endsWith('-approved-v1'),
+              )
+            )
+              independentBranchAdvanced = true;
+          }
+        }
+        if (archetype === 'hshooter' || archetype === 'shooter') {
+          const repairs = output.pending.filter(
+            (r) =>
+              r.kind === 'image' && r.request.role.startsWith(`${archetype}-enemy-replacement-`),
+          );
+          if (repairs.length >= 2) parallelEnemyRepairs = true;
+        }
         if (deferredMusic && !responses[deferredMusic]) {
           expect(output.pending.some((request) => request.kind === 'image')).toBe(true);
           sawArtWhileMusicPending = true;
@@ -81,6 +129,13 @@ describe('durable generation passes', () => {
           sawHeroWhileBackdropPending = true;
         for (const request of output.pending) {
           expect(responses[request.id]).toBeUndefined();
+          if (request.id === heldDependency && !independentBranchAdvanced) continue;
+          if (
+            request.id === heldDependency &&
+            archetype === 'adventure' &&
+            !adventureSiblingSheetReady
+          )
+            continue;
           if (
             archetype === 'platformer' &&
             request.kind === 'text' &&
@@ -103,6 +158,30 @@ describe('durable generation passes', () => {
             config,
             output.state.job!.gameId,
           );
+          if (archetype === 'adventure' && request.kind === 'image')
+            adventureImageRoles.push(request.request.role);
+          if (
+            (archetype === 'hshooter' || archetype === 'shooter') &&
+            request.kind === 'image' &&
+            request.request.role === `${archetype}-enemy-board`
+          ) {
+            const result = responses[request.id]!;
+            if (result.kind === 'image') {
+              // Erase both candidates of popcorn and weaver. Both replacements
+              // must be dispatched in one pass, even while either is pending.
+              const empty = await sharp({
+                create: { width: 1024, height: 341, channels: 4, background: '#00ff00' },
+              })
+                .png()
+                .toBuffer();
+              result.image = (
+                await sharp(Buffer.from(result.image, 'base64'))
+                  .composite([{ input: empty, left: 0, top: 0 }])
+                  .png()
+                  .toBuffer()
+              ).toString('base64');
+            }
+          }
           if (
             archetype === 'platformer' &&
             request.kind === 'image' &&
@@ -138,6 +217,19 @@ describe('durable generation passes', () => {
       }
       expect(passes).toBeGreaterThan(2);
       expect(checkpoint.state.job?.status).toBe('done');
+      if (['racing', 'fighter', 'adventure'].includes(archetype)) {
+        expect(heldDependency).toBeTruthy();
+        expect(independentBranchAdvanced).toBe(true);
+      }
+      if (archetype === 'adventure') {
+        expect(adventureSiblingSheetReady).toBe(true);
+        expect(
+          adventureImageRoles.filter((role) => role.startsWith('adventure-player-sheet-')),
+        ).toHaveLength(2);
+        expect(adventureImageRoles.filter((role) => role.includes('sheet-recovery'))).toEqual([]);
+      }
+      if (archetype === 'hshooter' || archetype === 'shooter')
+        expect(parallelEnemyRepairs).toBe(true);
       if (archetype === 'platformer') {
         expect(sawArtWhileMusicPending).toBe(true);
         expect(sawHeroWhileBackdropPending).toBe(true);

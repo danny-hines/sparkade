@@ -1,3 +1,4 @@
+import { characterReferenceInstruction, type CharacterReferenceKind } from './character-reference';
 import { settleAll } from '../pipeline/parallel';
 import { ArtifactCache } from '../pipeline/artifact-cache';
 import sharp from 'sharp';
@@ -102,7 +103,7 @@ export interface PlatformerActionGenerationOptions {
    * reviews remain required; wall attacks still use the approved wall slide. */
   referenceMode?: 'pose' | 'identity';
   source: Buffer;
-  sourceKind: 'photo' | 'key-art';
+  sourceKind: CharacterReferenceKind;
   wardrobe: PlatformerPosePromptOptions;
   workspace: GameAssetWorkspace;
   cache: ArtifactCache;
@@ -286,6 +287,8 @@ export async function generatePlatformerActions(
           const schema = buildPlatformerJumpJudgeSchema(batch);
           const prompt = {
             system:
+              characterReferenceInstruction(o.sourceKind) +
+              ' ' +
               'A panel labeled REFERENCE wallSlide is approved context, not a candidate; compare wall-shot legs and body contact against it and do not return a review for the reference. You review mechanic-specific platformer animation. Inspect the labeled board. SOURCE is identity truth; FRONT IDLE and SIDE ANCHOR define immutable costume and proportions. Judge EVERY candidate independently against its named action below. Reject identity or wardrobe drift, changed head accessories, changed body scale, extra limbs, cropping, held objects, effects, scenery, wrong facing, wrong aim, a standing pose for airborne actions, or missing wall contact posture. Running actions must preserve a clearly separated running stride while aiming; a natural flight phase with both feet airborne is valid. Never accept a standing shot as a running shot. Wall poses have an imaginary wall to the RIGHT; wallShoot aims LEFT away from it, wallShootUp aims UP. No actual wall should be drawn. UP aiming needs a visibly upward-facing empty palm with a bent elbow; slight diagonal forearms or a hand near/slightly above head height are acceptable when aim reads clearly. Do not invent a floor requirement for isolated sprites. Judge gameplay readability and character continuity, not exact joint angles. Score identity/costume/pose/technical from 0 to 5 and list fatal issues. Scores must be identity/costume/pose >=4 and technical >=3 to pass. Return a candidateReviews entry for every ID. The selection field is unused; leave accepted=false, candidateId="", confidence=0 and give concise retry guidance.',
             user:
               batch.map((c) => `${c.id}: ${PLATFORMER_ACTION_DESCRIPTIONS[c.id]}`).join('\n') +

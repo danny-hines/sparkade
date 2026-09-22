@@ -3,9 +3,9 @@ import type { FighterArtDirection } from '@sparkade/shared';
 import { fighterArtDirectionPrompt } from './fighter-art-direction';
 import type { GeneratedFighterPose } from './fighter-pose';
 
-export const FIGHTER_IDENTITY_JUDGE_PROMPT_VERSION = 'fighter-identity-judge-v2';
+export const FIGHTER_IDENTITY_JUDGE_PROMPT_VERSION = 'fighter-identity-judge-v3';
 export const FIGHTER_POSE_JUDGE_PROMPT_VERSION = 'fighter-pose-judge-v2';
-export const FIGHTER_ROSTER_PIPELINE_PROMPT_VERSION = 'fighter-roster-pipeline-v3';
+export const FIGHTER_ROSTER_PIPELINE_PROMPT_VERSION = 'fighter-roster-pipeline-v4';
 
 export const FIGHTER_ROSTER_SLOTS = [
   'player',
@@ -202,6 +202,7 @@ export function buildFighterIdentityJudgePrompt(
       'You are the exacting roster art director for a premium SNES-style fighting game.',
       'Inspect the labeled board and judge only visible evidence. Every candidate must be exactly one complete adult fighter in a neutral right-facing guard stance with coherent anatomy and clean native pixel technique.',
       'For PHOTO-IDENTITY candidates, SOURCE PHOTO is the only physical-identity truth. Preserve apparent adult age, face/head shape, jaw, cheek structure, eye size and spacing, nose, mouth, skin tone, hairline, hair texture/style, facial hair, eyewear/headwear, and proportions. The concept may change clothing only. De-aging, childlike or anime facial anatomy, identity drift, invented or missing eyewear, or generic replacement is fatal.',
+      'For the PLAYER slot, KEY ART is the canonical wardrobe and rendering-style truth. Compare garment types, sleeves, colors, footwear, accessories, proportions and pixel technique directly with its player hero. A photo anchors physical likeness only; do not copy its street clothes or independently reinterpret the outfit. Without a photo, KEY ART also anchors the player physical identity.',
       'For other candidates, judge fidelity to the named visual concept and the correct reference role. Opponents must not be copies of the player; the boss must visibly read as the primary villain in BOSS STORY ART rather than the hero or a bystander.',
       'Costume construction, hair/headwear, face or mask, footwear, motif, body build, and palette must be stable enough to seed twelve later pose edits. Reject cropped bodies, extra people, props, weapons, text, scenery, green spill, malformed anatomy, or unreadable silhouettes.',
       'Score 0 (unusable) to 5 (excellent). Select one candidate per roster slot only when it has no fatal issue and identity/concept, costume, silhouette, and technical quality are each at least 4. Otherwise return accepted=false for that slot but still review every candidate and give concrete retry guidance.',

@@ -68,7 +68,10 @@ import {
   generatePortrait,
   type LikenessImageEdit,
 } from '../likeness/portrait-gen';
-import { buildPortraitIdentityReference } from '../likeness/portrait-reference';
+import {
+  buildCharacterArtReference,
+  type CharacterReferenceKind,
+} from '../assets/character-reference';
 import {
   ProviderAuthError,
   ProviderHttpError,
@@ -2869,7 +2872,7 @@ export class GenerationRunner {
         ? paintKeyArt(photoReference)
         : Promise.resolve(null);
       const racingPlayerReferenceTask = racingCharacterArtTask.then((keyArt) => keyArt
-        ? racingPlayerPhoto ? buildPortraitIdentityReference(racingPlayerPhoto, keyArt) : keyArt
+        ? buildCharacterArtReference(keyArt, racingPlayerPhoto)
         : undefined);
       const racingAssetFailure = (error: unknown): never => {
         throwIfSuspended(error);
@@ -3176,6 +3179,16 @@ export class GenerationRunner {
         },
       );
 
+      // One visual identity feeds gameplay foundations and both portrait expressions.
+      // Racing establishes this before its gameplay work; other genres share keyArtTask.
+      const characterArtReferenceTask: Promise<Buffer> = visibleRacingPlayer
+        ? racingPlayerReferenceTask.then((reference) => reference!)
+        : keyArtTask.then((keyArt) => buildCharacterArtReference(keyArt, photoReference));
+      const characterReferenceKind: CharacterReferenceKind = photoReference
+        ? 'character-art'
+        : 'key-art';
+      void characterArtReferenceTask.catch(() => {});
+
       let resolveAdventurePortraitReference!: (reference: Buffer) => void;
       let rejectAdventurePortraitReference!: (error: unknown) => void;
       const adventurePortraitReferenceTask = new Promise<Buffer>((resolve, reject) => {
@@ -3188,11 +3201,9 @@ export class GenerationRunner {
       // Share one likeness/style board between expressions. This reuses key art
       // already required by the scenes; it introduces no new model call.
       const portraitReferenceTask = photo
-        ? visibleRacingPlayer
-          ? racingPlayerReferenceTask.then((reference) => reference!)
-          : spec.archetype === 'adventure'
+        ? spec.archetype === 'adventure'
           ? adventurePortraitReferenceTask
-          : keyArtTask.then((keyArt) => buildPortraitIdentityReference(photo, keyArt))
+          : characterArtReferenceTask
         : Promise.resolve(null);
       const identityKey = JSON.stringify({
         portraitVersion: GENERATED_PORTRAIT_PROMPT_VERSION,
@@ -7404,15 +7415,15 @@ export class GenerationRunner {
                 slot: FighterRosterSlot;
                 character: FighterCharacter;
                 source: Buffer | Promise<Buffer>;
-                sourceKind: 'photo' | 'key-art' | 'boss-art';
+                sourceKind: 'photo' | 'key-art' | 'boss-art' | 'character-art';
                 photoIdentity: boolean;
               }
               const roster: RosterEntry[] = [
                 {
                   slot: 'player',
                   character: player,
-                  source: photoReference ?? keyArt,
-                  sourceKind: photoReference ? 'photo' : 'key-art',
+                  source: characterArtReferenceTask,
+                  sourceKind: 'character-art',
                   photoIdentity: !!photoReference,
                 },
                 ...fighterSpec.levels.map((level, index): RosterEntry => ({
@@ -7590,6 +7601,7 @@ export class GenerationRunner {
                           artDirection,
                           colors: colorsFor(entry.character),
                           source: entry.sourceKind,
+                          hasPhoto: entry.photoIdentity,
                           ...(entry.photoIdentity && identity ? { identity } : {}),
                         }),
                         reference: source,
@@ -8053,7 +8065,7 @@ export class GenerationRunner {
         rejectPlatformerIdentity = reject;
       });
       void platformerIdentityTask.catch(() => {});
-      const platformerPlayerSource = photoReference ? Promise.resolve(photoReference) : keyArtTask;
+      const platformerPlayerSource = characterArtReferenceTask;
       const platformerPlayerTask =
         spec.archetype === 'platformer'
           ? platformerPlayerSource.then(async (playerReference): Promise<void> => {
@@ -8075,7 +8087,7 @@ export class GenerationRunner {
                   },
                   heroConcept: canonicalHeroConcept,
                   colors,
-                  sourceKind: photoReference ? 'photo' : 'key-art',
+                  sourceKind: characterReferenceKind,
                 });
                 const pipelineSha = imagePromptHash(pipelineFingerprint, playerReference);
                 const identityFrameCache = new ArtifactCache(
@@ -8256,6 +8268,7 @@ export class GenerationRunner {
                           'idle',
                           `Player identity candidate ${id}`,
                           buildPlatformerIdleCandidatePrompt(id, {
+                            sourceKind: characterReferenceKind,
                             heroConcept: canonicalHeroConcept,
                             colors,
                             ...(retryGuidance ? { retryGuidance } : {}),
@@ -8276,6 +8289,7 @@ export class GenerationRunner {
                   );
                   const board = await buildPlatformerIdleJudgeBoard({
                     source: playerReference,
+                    sourceKind: characterReferenceKind,
                     candidates: idleCandidates.map(({ id, reference: raw, png: processed }) => ({
                       id,
                       raw,
@@ -8284,7 +8298,7 @@ export class GenerationRunner {
                   });
                   const judgePrompt = buildPlatformerIdleJudgePrompt(descriptors, {
                     heroConcept: canonicalHeroConcept,
-                    sourceKind: photoReference ? 'photo' : 'key-art',
+                    sourceKind: characterReferenceKind,
                   });
                   const mockDecision = {
                     sourceReview: { eyewear: 'absent', summary: 'Mock source identity.' },
@@ -8409,7 +8423,7 @@ export class GenerationRunner {
                     ),
                   ),
                 ]);
-                const sourceKind = photoReference ? ('photo' as const) : ('key-art' as const);
+                const sourceKind = characterReferenceKind;
                 const selectJump = async () => {
                   const jumpCandidates = jumpResults.filter(
                     (candidate): candidate is Candidate => candidate !== null,
@@ -8548,6 +8562,7 @@ export class GenerationRunner {
                   }
                   const pairBoard = await buildPlatformerPoseJudgeBoard({
                     source: playerReference,
+                    sourceKind: characterReferenceKind,
                     idle: idle.png,
                     sideAnchor: sideAnchor.png,
                     candidates: runCandidates.map(({ id, kind, png: processed }) => ({
@@ -8556,7 +8571,10 @@ export class GenerationRunner {
                       processed,
                     })),
                   });
-                  const pairPrompt = buildPlatformerPoseJudgePrompt(descriptors);
+                  const pairPrompt = buildPlatformerPoseJudgePrompt(
+                    descriptors,
+                    characterReferenceKind,
+                  );
                   const firstA = descriptors.find(({ kind }) => kind === 'phase-a')!.id;
                   const firstB = descriptors.find(({ kind }) => kind === 'phase-b')!.id;
                   const mockPairDecision = {
@@ -8680,8 +8698,8 @@ export class GenerationRunner {
                   spec,
                   base,
                   referenceMode: 'identity',
-                  source: photoReference ?? (await keyArtTask),
-                  sourceKind: photoReference ? 'photo' : 'key-art',
+                  source: await characterArtReferenceTask,
+                  sourceKind: characterReferenceKind,
                   wardrobe: {
                     heroConcept: canonicalHeroConcept,
                     colors: spec.palette

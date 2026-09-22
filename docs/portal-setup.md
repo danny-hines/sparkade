@@ -12,7 +12,7 @@ Open **Terminal** on the Mac and paste:
 
 ```sh
 curl -fL --proto '=https' --proto-redir '=https' \
-  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.7/install-portal.sh \
+  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.8/install-portal.sh \
   -o /tmp/install-sparkade-portal.sh && bash /tmp/install-sparkade-portal.sh
 ```
 
@@ -180,6 +180,10 @@ Version **0.4.6** adds the DragonRise Zero Delay encoder's joystick and twelve
 button inputs, including buttons that the previous ten-button USB bridge rejected.
 Version **0.4.7** also makes racing follow the Portal's **Show touch controls**
 setting, keeping the screen clear when using arcade controls.
+Version **0.4.8** includes camera preview recovery and clearer camera errors,
+correct generation-versus-publishing retry instructions, and the shared platformer
+validation changes merged through `b6666e6`. Cloud generation speed and character-art
+improvements are deployed separately; updating the APK does not regenerate saved games.
 
 **Dedicated kiosk option:** setup asks whether to enable on-device app updates.
 This disables Meta's additional OS-wide app-install verifier, which otherwise

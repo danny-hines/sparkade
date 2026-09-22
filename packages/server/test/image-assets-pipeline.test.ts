@@ -783,7 +783,7 @@ describe.sequential('mock image asset pipeline', () => {
     expect(HEAD_ROLES.some((role) => role in dimensions)).toBe(false);
     expect(
       db.usageForGame(gameId).filter((event) => event.stage.startsWith('image:') && !event.failed),
-    ).toHaveLength(40);
+    ).toHaveLength(36); // Five individual props now share one image sheet.
     expect(existsSync(join(files.gameDir(gameId), 'photo.jpg'))).toBe(false);
   });
 
@@ -804,7 +804,7 @@ describe.sequential('mock image asset pipeline', () => {
     const successfulImagesBeforeRetry = db
       .usageForGame(gameId)
       .filter((event) => event.stage.startsWith('image:') && !event.failed);
-    expect(successfulImagesBeforeRetry).toHaveLength(40);
+    expect(successfulImagesBeforeRetry).toHaveLength(36);
 
     expect(runner.retryJob(gameId)).toEqual({ jobId });
     expect(await waitForTerminal(db, jobId)).toMatchObject({ status: 'done', attempt: 2 });

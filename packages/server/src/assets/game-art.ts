@@ -1,4 +1,5 @@
 import { mockRacingLocomotionSource } from './racing-mock';
+import { platformerPropBoardLayout } from './platformer-prop';
 import sharp, { type OverlayOptions } from 'sharp';
 import { FIGHTER_POSES, type FighterPose, type GameSpec } from '@sparkade/shared';
 import { fighterArtDirectionPrompt } from './fighter-art-direction';
@@ -429,6 +430,27 @@ async function normalizeLandscape(image: Buffer, width: number, height: number):
  * pretending that a local placeholder came from Muse Image. Racing fixtures
  * come from the MOCK-ONLY racing-mock module, never from a real provider. */
 export async function mockGeneratedImage(prompt: string): Promise<Buffer> {
+  if (prompt.startsWith('PLATFORMER PROP BOARD:')) {
+    const roles = [...prompt.matchAll(/asset role (\w+):/g)].map((match) => match[1]!);
+    const { width, height, columns, rows } = platformerPropBoardLayout(roles.length);
+    const cells = await Promise.all(
+      roles.map(async (role, index) => ({
+        input: await sharp(await mockGeneratedImage(`One isolated ${role} sprite on #00ff00`))
+          .resize(Math.floor((width / columns) * 0.6), Math.floor((height / rows) * 0.6), {
+            fit: 'contain',
+            background: '#00ff00',
+          })
+          .png()
+          .toBuffer(),
+        left: Math.floor((((index % columns) + 0.2) * width) / columns),
+        top: Math.floor(((Math.floor(index / columns) + 0.2) * height) / rows),
+      })),
+    );
+    return sharp({ create: { width, height, channels: 4, background: '#00ff00' } })
+      .composite(cells)
+      .png()
+      .toBuffer();
+  }
   if (prompt.includes("RACING LOCOMOTION SHEET:")) return mockRacingLocomotionSource();
   if (prompt.startsWith('Create exactly ONE isolated racing scenery object.')) {
     const slot = Math.max(0, Math.min(5, Number(prompt.match(/Slot (\d)/)?.[1] ?? 1) - 1));

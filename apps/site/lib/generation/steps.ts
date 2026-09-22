@@ -51,6 +51,7 @@ interface PassResult {
   done: boolean;
   stopped: boolean;
   pending: string[];
+  completed?: string[];
 }
 export async function advanceGeneration(
   id: string,
@@ -77,31 +78,52 @@ export async function advanceGeneration(
       checkpoint.state.usage.push(paid.event);
   const saved =
     await sql`SELECT request_id, result_url FROM generation_requests WHERE job_id=${id} AND request_id LIKE ${`${attempt}:%`} AND result_url IS NOT NULL`;
-  const responses: Record<string, ProviderResult> = {};
-  // Keep Blob download concurrency bounded independently of provider concurrency.
-  for (let i = 0; i < saved.length; i += 8)
-    await Promise.all(
-      saved.slice(i, i + 8).map(async (s) => {
-        responses[String(s.request_id).slice(String(attempt).length + 1)] =
-          await readPrivate<ProviderResult>(String(s.result_url));
-      }),
-    );
-  const output = await advancePipeline(checkpoint, responses, row.state.config ?? defaultConfig());
+  const responseUrls = new Map(
+    saved.map((s) => [
+      String(s.request_id).slice(String(attempt).length + 1),
+      String(s.result_url),
+    ]),
+  );
+  const responses = new Map<string, Promise<ProviderResult>>();
+  // Completed asset branches restore their output directly. Fetch a provider
+  // response only if unfinished work actually asks for it during this pass.
+  const output = await advancePipeline(
+    checkpoint,
+    async (requestId) => {
+      const url = responseUrls.get(requestId);
+      if (!url) return undefined;
+      let response = responses.get(requestId);
+      if (!response) {
+        response = readPrivate<ProviderResult>(url);
+        responses.set(requestId, response);
+      }
+      return response;
+    },
+    row.state.config ?? defaultConfig(),
+  );
   const checkpointUrl = await writePrivate(`${prefix(id)}checkpoints/${attempt}-${pass}.json`, {
     state: output.state,
     files: output.files,
     history: output.history,
   });
-  for (const task of output.pending) {
-    const url = await writePrivate(`${prefix(id)}requests/${attempt}/${task.id}.json`, task);
-    await sql`INSERT INTO generation_requests(job_id,request_id,request_url) VALUES(${id},${`${attempt}:${task.id}`},${url})
-      ON CONFLICT DO NOTHING`;
+  const registered = await sql`SELECT request_id FROM generation_requests WHERE job_id=${id}`;
+  const registeredIds = new Set(registered.map((r) => r.request_id));
+  const newTasks = output.pending.filter((task) => !registeredIds.has(`${attempt}:${task.id}`));
+  for (let offset = 0; offset < newTasks.length; offset += 8) {
+    await Promise.all(
+      newTasks.slice(offset, offset + 8).map(async (task) => {
+        const url = await writePrivate(`${prefix(id)}requests/${attempt}/${task.id}.json`, task);
+        await sql`INSERT INTO generation_requests(job_id,request_id,request_url) VALUES(${id},${`${attempt}:${task.id}`},${url})
+        ON CONFLICT DO NOTHING`;
+      }),
+    );
   }
   const status = output.state.job!.status;
   const result = {
     done: status === 'done',
     stopped: status === 'failed' || status === 'canceled',
     pending: output.pending.map((task) => task.id),
+    completed: [...responseUrls.keys()],
   };
   await sql.transaction([
     sql`UPDATE generation_jobs SET state=${JSON.stringify(output.state)}::jsonb,

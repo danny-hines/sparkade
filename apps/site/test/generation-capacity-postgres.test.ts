@@ -39,14 +39,12 @@ afterAll(async () => {
 });
 
 describe.skipIf(!enabled)('cloud capacity against real PostgreSQL', () => {
-  it('admits more than 32 requests across owners while preserving the 16-request owner cap', async () => {
+  it('admits a full image burst and enforces the 128-request owner cap', async () => {
     const groups = await Promise.all(
-      ['a', 'b', 'c'].map((owner) =>
-        Promise.all(Array.from({ length: 20 }, () => acquireSlot(owner))),
-      ),
+      ['a', 'b'].map((owner) => Promise.all(Array.from({ length: 132 }, () => acquireSlot(owner)))),
     );
-    expect(groups.map((tokens) => tokens.filter(Boolean).length)).toEqual([16, 16, 16]);
-    expect(await context.sql`SELECT token FROM generation_slots`).toHaveLength(48);
+    expect(groups.map((tokens) => tokens.filter(Boolean).length)).toEqual([128, 128]);
+    expect(await context.sql`SELECT token FROM generation_slots`).toHaveLength(256);
   });
 
   it('enforces a configured global cap under contention and reuses released capacity', async () => {

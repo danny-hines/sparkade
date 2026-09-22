@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   PLATFORMER_BASE_POSES,
   platformerActionReference,
@@ -69,6 +69,23 @@ function setup() {
 }
 
 describe('mechanic-specific image pipeline', () => {
+  it('submits independent review batches before waiting for either', async () => {
+    const { options } = setup();
+    const pending: Array<() => void> = [];
+    let released = false;
+    options.judge = async (_prompt, _schema, _board, mock) => {
+      if (!released) await new Promise<void>((resolve) => pending.push(resolve));
+      return mock;
+    };
+    const run = generatePlatformerActions(options);
+    try {
+      await vi.waitFor(() => expect(pending).toHaveLength(2), { timeout: 15_000 });
+    } finally {
+      released = true;
+      pending.forEach((resolve) => resolve());
+    }
+    expect(Object.keys(await run)).toHaveLength(11);
+  });
   it('uses action directions without leaking idle or no-attack jump instructions', () => {
     expect(buildPlatformerActionPrompt('jumpShoot')).toContain('airborne jump');
     expect(buildPlatformerActionPrompt('jumpShoot')).not.toContain('neutral standing pose');

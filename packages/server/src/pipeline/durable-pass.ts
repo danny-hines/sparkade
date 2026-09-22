@@ -10,12 +10,12 @@ import type {
   SparkadeConfig,
   StageName,
 } from '@sparkade/shared';
-import { GenerationRunner, PipelineError } from './runner';
+import { GenerationRunner } from './runner';
 import { JobState, type PipelineState } from './job-state';
 import { GameFiles } from '../storage/files';
 import { SseHub } from './sse';
 import { ProviderAuthError, ProviderHttpError } from '../providers/base';
-import type { DurableImageRequest } from './durable';
+import { PipelineSuspended, type DurableImageRequest } from './durable';
 
 export type ProviderTask =
   | {
@@ -69,27 +69,31 @@ export function restoreFiles(root: string, files: Record<string, string>) {
  * SQLite database are used. Every pass starts in a fresh temporary directory. */
 export async function advancePipeline(
   checkpoint: PassCheckpoint,
-  responses: Record<string, ProviderResult>,
+  responses: Record<string, ProviderResult> | ((id: string) => Promise<ProviderResult | undefined>),
   config: SparkadeConfig,
 ): Promise<PassCheckpoint & { pending: ProviderTask[] }> {
   const root = mkdtempSync(join(tmpdir(), 'sparkade-pass-'));
   const db = new JobState(structuredClone(checkpoint.state));
   const abort = new AbortController();
   const pending = new Map<string, ProviderTask>();
-  const rejects: Array<(reason: Error) => void> = [];
+  const responseReadFailures: unknown[] = [];
   const occurrences = new Map<string, number>();
-  let timer: ReturnType<typeof setTimeout> | undefined;
   const request = async (
     task:
       | Omit<Extract<ProviderTask, { kind: 'text' }>, 'id'>
       | Omit<Extract<ProviderTask, { kind: 'image' }>, 'id'>,
   ) => {
-    if (abort.signal.aborted) throw new PipelineError('suspended', 'Waiting for cloud steps');
     const base = createHash('sha256').update(JSON.stringify(task)).digest('hex');
     const count = occurrences.get(base) ?? 0;
     occurrences.set(base, count + 1);
     const id = `${base}-${count}`;
-    const result = responses[id];
+    const result =
+      typeof responses === 'function'
+        ? await responses(id).catch((error: unknown) => {
+            responseReadFailures.push(error);
+            throw error;
+          })
+        : responses[id];
     if (result) {
       if (result.kind === 'error') {
         if (result.status === 401 || result.status === 403)
@@ -99,13 +103,9 @@ export async function advancePipeline(
       return { id, result };
     }
     pending.set(id, { ...task, id } as ProviderTask);
-    // Give parallel branches time to reach their next external dependency.
-    timer ??= setTimeout(() => {
-      abort.abort();
-      for (const reject of rejects)
-        reject(new PipelineError('suspended', 'Waiting for cloud steps'));
-    }, 300);
-    return await new Promise<never>((_resolve, reject) => rejects.push(reject));
+    // Suspend just this branch. Siblings finish processing and discover their
+    // own dependencies before the runner's structured join saves the pass.
+    throw new PipelineSuspended();
   };
   try {
     restoreFiles(root, checkpoint.files);
@@ -149,6 +149,10 @@ export async function advancePipeline(
     const job = db.state.job;
     if (!job) throw new Error('Missing job');
     await runner.execute(job.id);
+    // A Blob outage is a failed checkpoint step, not an art rejection. The
+    // runner may have caught the error in an optional branch; never persist
+    // that branch's fallback or failed state when a saved response was unreadable.
+    if (responseReadFailures.length) throw responseReadFailures[0];
     return {
       history: checkpoint.history,
       state: db.state,
@@ -156,7 +160,6 @@ export async function advancePipeline(
       pending: [...pending.values()],
     };
   } finally {
-    clearTimeout(timer);
     rmSync(root, { recursive: true, force: true });
   }
 }

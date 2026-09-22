@@ -1,3 +1,4 @@
+import { settleAll } from '../pipeline/parallel';
 import {
   PLATFORMER_ACTION_ASSET_ROLES,
   PLATFORMER_ACTION_DESCRIPTIONS,
@@ -123,76 +124,80 @@ export async function generatePlatformerActions(
       const candidates = generated.flatMap((result) =>
         result.status === 'fulfilled' && result.value ? [result.value] : [],
       );
-      for (let offset = 0; offset < candidates.length; offset += 6) {
-        const batch = candidates.slice(offset, offset + 6);
-        const board = await buildPlatformerJumpJudgeBoard({
-          source: o.source,
-          sourceKind: o.sourceKind,
-          idle: o.base.idle,
-          sideAnchor: o.base.sideIdle,
-          candidates:
-            platformerActionReference(batch[0]!.id) === 'wallSlide'
-              ? [
-                  { id: 'REFERENCE wallSlide (keep feet)', processed: accepted.wallSlide! },
-                  ...batch,
-                ]
-              : batch,
-          purpose: 'actions',
-        });
-        const schema = buildPlatformerJumpJudgeSchema(batch);
-        const prompt = {
-          system:
-            'A panel labeled REFERENCE wallSlide is approved context, not a candidate; compare wall-shot legs and body contact against it and do not return a review for the reference. You review mechanic-specific platformer animation. Inspect the labeled board. SOURCE is identity truth; FRONT IDLE and SIDE ANCHOR define immutable costume and proportions. Judge EVERY candidate independently against its named action below. Reject identity or wardrobe drift, changed head accessories, changed body scale, extra limbs, cropping, held objects, effects, scenery, wrong facing, wrong aim, a standing pose for airborne actions, or missing wall contact posture. Running actions must preserve a clearly separated running stride while aiming; a natural flight phase with both feet airborne is valid. Never accept a standing shot as a running shot. Wall poses have an imaginary wall to the RIGHT; wallShoot aims LEFT away from it, wallShootUp aims UP. No actual wall should be drawn. UP aiming needs a visibly upward-facing empty palm with a bent elbow; slight diagonal forearms or a hand near/slightly above head height are acceptable when aim reads clearly. Do not invent a floor requirement for isolated sprites. Judge gameplay readability and character continuity, not exact joint angles. Score identity/costume/pose/technical from 0 to 5 and list fatal issues. Scores must be identity/costume/pose >=4 and technical >=3 to pass. Return a candidateReviews entry for every ID. The selection field is unused; leave accepted=false, candidateId="", confidence=0 and give concise retry guidance.',
-          user:
-            batch.map((c) => `${c.id}: ${PLATFORMER_ACTION_DESCRIPTIONS[c.id]}`).join('\n') +
-            `\nCostume contract: ${o.wardrobe.heroConcept ?? 'Exactly match the approved base frames.'}`,
-        };
-        const mockDecision = {
-          candidateReviews: batch.map(({ id }) => ({
-            id,
-            scores: { identity: 5, costume: 5, pose: 5, technical: 5 },
-            fatalIssues: [],
-            summary: 'Mock fixture; semantic review is bypassed in mock mode.',
-          })),
-          selection: {
-            accepted: false,
-            candidateId: '',
-            confidence: 0,
-            rationale: '',
-            retryGuidance: '',
-          },
-        };
-        const decision = normalizePlatformerJumpJudgeDecision(
-          await o.judge(prompt, schema, board, mockDecision),
-          batch,
-        );
-        for (const candidate of batch) {
-          const review = decision.candidateReviews.find((r) => r.id === candidate.id)!;
-          if (
-            !review.fatalIssues.length &&
-            review.scores.identity >= 4 &&
-            review.scores.costume >= 4 &&
-            review.scores.pose >= 4 &&
-            review.scores.technical >= 3
-          ) {
-            await o.workspace.store(
-              PLATFORMER_ACTION_ASSET_ROLES[candidate.id],
-              candidate.processed,
-              PLATFORMER_ACTION_PROMPT_VERSION,
-              hashes.get(candidate.id)!,
-            );
-            accepted[candidate.id] = candidate.processed;
-          } else {
-            o.rejected?.(candidate.id);
-            guidance.set(
-              candidate.id,
-              [review.summary, ...review.fatalIssues, decision.selection.retryGuidance]
-                .join(' ')
-                .slice(0, 1200),
-            );
+      const batches = Array.from({ length: Math.ceil(candidates.length / 6) }, (_, index) =>
+        candidates.slice(index * 6, index * 6 + 6),
+      );
+      await settleAll(
+        batches.map(async (batch) => {
+          const board = await buildPlatformerJumpJudgeBoard({
+            source: o.source,
+            sourceKind: o.sourceKind,
+            idle: o.base.idle,
+            sideAnchor: o.base.sideIdle,
+            candidates:
+              platformerActionReference(batch[0]!.id) === 'wallSlide'
+                ? [
+                    { id: 'REFERENCE wallSlide (keep feet)', processed: accepted.wallSlide! },
+                    ...batch,
+                  ]
+                : batch,
+            purpose: 'actions',
+          });
+          const schema = buildPlatformerJumpJudgeSchema(batch);
+          const prompt = {
+            system:
+              'A panel labeled REFERENCE wallSlide is approved context, not a candidate; compare wall-shot legs and body contact against it and do not return a review for the reference. You review mechanic-specific platformer animation. Inspect the labeled board. SOURCE is identity truth; FRONT IDLE and SIDE ANCHOR define immutable costume and proportions. Judge EVERY candidate independently against its named action below. Reject identity or wardrobe drift, changed head accessories, changed body scale, extra limbs, cropping, held objects, effects, scenery, wrong facing, wrong aim, a standing pose for airborne actions, or missing wall contact posture. Running actions must preserve a clearly separated running stride while aiming; a natural flight phase with both feet airborne is valid. Never accept a standing shot as a running shot. Wall poses have an imaginary wall to the RIGHT; wallShoot aims LEFT away from it, wallShootUp aims UP. No actual wall should be drawn. UP aiming needs a visibly upward-facing empty palm with a bent elbow; slight diagonal forearms or a hand near/slightly above head height are acceptable when aim reads clearly. Do not invent a floor requirement for isolated sprites. Judge gameplay readability and character continuity, not exact joint angles. Score identity/costume/pose/technical from 0 to 5 and list fatal issues. Scores must be identity/costume/pose >=4 and technical >=3 to pass. Return a candidateReviews entry for every ID. The selection field is unused; leave accepted=false, candidateId="", confidence=0 and give concise retry guidance.',
+            user:
+              batch.map((c) => `${c.id}: ${PLATFORMER_ACTION_DESCRIPTIONS[c.id]}`).join('\n') +
+              `\nCostume contract: ${o.wardrobe.heroConcept ?? 'Exactly match the approved base frames.'}`,
+          };
+          const mockDecision = {
+            candidateReviews: batch.map(({ id }) => ({
+              id,
+              scores: { identity: 5, costume: 5, pose: 5, technical: 5 },
+              fatalIssues: [],
+              summary: 'Mock fixture; semantic review is bypassed in mock mode.',
+            })),
+            selection: {
+              accepted: false,
+              candidateId: '',
+              confidence: 0,
+              rationale: '',
+              retryGuidance: '',
+            },
+          };
+          const decision = normalizePlatformerJumpJudgeDecision(
+            await o.judge(prompt, schema, board, mockDecision),
+            batch,
+          );
+          for (const candidate of batch) {
+            const review = decision.candidateReviews.find((r) => r.id === candidate.id)!;
+            if (
+              !review.fatalIssues.length &&
+              review.scores.identity >= 4 &&
+              review.scores.costume >= 4 &&
+              review.scores.pose >= 4 &&
+              review.scores.technical >= 3
+            ) {
+              await o.workspace.store(
+                PLATFORMER_ACTION_ASSET_ROLES[candidate.id],
+                candidate.processed,
+                PLATFORMER_ACTION_PROMPT_VERSION,
+                hashes.get(candidate.id)!,
+              );
+              accepted[candidate.id] = candidate.processed;
+            } else {
+              o.rejected?.(candidate.id);
+              guidance.set(
+                candidate.id,
+                [review.summary, ...review.fatalIssues, decision.selection.retryGuidance]
+                  .join(' ')
+                  .slice(0, 1200),
+              );
+            }
           }
-        }
-      }
+        }),
+      );
       const failed = generated.find(
         (result): result is PromiseRejectedResult => result.status === 'rejected',
       );

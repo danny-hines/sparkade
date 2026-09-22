@@ -38,7 +38,7 @@ it.each(['accepted', 'rejected', 'refused', 'offline', 'review-offline', 'review
     const imageRoles: string[] = [];
     const foundationReviews: string[][] = [];
     let rejectedOnce = false;
-    let currentMotion = '';
+    let rejectedMotionSubject = '';
     const durable: DurablePipelineCalls = {
       abort: new AbortController(), suspended: () => false,
       complete: async (_stage, request) => {
@@ -54,17 +54,17 @@ it.each(['accepted', 'rejected', 'refused', 'offline', 'review-offline', 'review
             selection: { accepted: !rejected.length, rejectedIds: rejected, rationale: 'fixture', retryGuidance: 'Face directly away' },
           }), usage: { input: 1, output: 1 } };
         }
-        if (mode === 'review-malformed' && currentMotion === 'racing-motion-1' && request.system.startsWith('Review this racing motion atlas.'))
+        if (mode === 'review-malformed' && !!rejectedMotionSubject && request.user.startsWith(`Subject: ${rejectedMotionSubject}. Art direction:`) && request.system.startsWith('Review this racing motion atlas.'))
           return {text:'invalid JSON',usage:{input:1,output:1}};
-        if (mode === 'review-offline' && currentMotion === 'racing-motion-1' && request.system.startsWith('Review this racing motion atlas.'))
+        if (mode === 'review-offline' && !!rejectedMotionSubject && request.user.startsWith(`Subject: ${rejectedMotionSubject}. Art direction:`) && request.system.startsWith('Review this racing motion atlas.'))
           throw new ProviderNetworkError('review offline');
         if (request.system.startsWith('Review this racing motion atlas.'))
-          return { text: JSON.stringify({ accepted: mode !== 'rejected' || currentMotion !== 'racing-motion-1', reason: 'fixture motion verdict' }), usage: { input: 1, output: 1 } };
+          return { text: JSON.stringify({ accepted: mode !== 'rejected' || !request.user.startsWith(`Subject: ${rejectedMotionSubject}. Art direction:`), reason: 'fixture motion verdict' }), usage: { input: 1, output: 1 } };
         return text.complete(request);
       },
       image: async request => {
         imageRoles.push(request.role);
-        if (request.role.startsWith('racing-motion-')) currentMotion = request.role;
+        if (request.role === 'racing-motion-1') rejectedMotionSubject = request.prompt.match(/Subject: (.*?)\. Art direction:/)![1]!;
         if (mode === 'refused' && request.role === 'racing-motion-1')
           throw new ProviderHttpError('refused', 400, null, 'content_policy_violation');
         if (mode === 'offline' && request.role === 'racing-motion-1')

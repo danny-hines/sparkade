@@ -14,7 +14,6 @@ import { put } from '@vercel/blob';
 import { defaultConfig } from '@sparkade/server/storage/config';
 import {
   advancePipeline,
-  type PassCheckpoint,
   type ProviderResult,
   type ProviderTask,
 } from '@sparkade/server/pipeline/durable-pass';
@@ -28,6 +27,7 @@ import { getSql } from '../db';
 import { reservePublicGame } from '../public-games';
 import { getJob, scope, prefix, acquireSlot, releaseSlot, syncPublicProgress } from './store';
 import { readPrivate, readOptionalPrivate, writePrivate, cleanPrivate } from './storage';
+import { readCheckpoint, writeCheckpoint } from './checkpoints';
 
 export async function claimGeneration(id: string, attempt: number) {
   'use step';
@@ -70,7 +70,9 @@ export async function advanceGeneration(
   const prior =
     await sql`SELECT result FROM generation_passes WHERE job_id=${id} AND attempt=${attempt} AND pass=${pass}`;
   if (prior[0]) return prior[0].result as PassResult;
-  const checkpoint = await readPrivate<PassCheckpoint>(row.checkpoint);
+  const readStart = performance.now();
+  const checkpoint = await readCheckpoint(row.checkpoint);
+  const checkpointReadMs = performance.now() - readStart;
   checkpoint.state = row.state;
   const ledger = await sql`SELECT event FROM generation_usage WHERE job_id=${id}`;
   for (const paid of ledger)
@@ -85,6 +87,7 @@ export async function advanceGeneration(
     ]),
   );
   const responses = new Map<string, Promise<ProviderResult>>();
+  let responseReadMs = 0;
   // Completed asset branches restore their output directly. Fetch a provider
   // response only if unfinished work actually asks for it during this pass.
   const output = await advancePipeline(
@@ -94,18 +97,27 @@ export async function advanceGeneration(
       if (!url) return undefined;
       let response = responses.get(requestId);
       if (!response) {
-        response = readPrivate<ProviderResult>(url);
+        const started = performance.now();
+        response = readPrivate<ProviderResult>(url).finally(() => {
+          responseReadMs += performance.now() - started;
+        });
         responses.set(requestId, response);
       }
       return response;
     },
     row.state.config ?? defaultConfig(),
   );
-  const checkpointUrl = await writePrivate(`${prefix(id)}checkpoints/${attempt}-${pass}.json`, {
-    state: output.state,
-    files: output.files,
-    history: output.history,
-  });
+  const writeStart = performance.now();
+  const savedCheckpoint = await writeCheckpoint(
+    `${prefix(id)}checkpoints/${attempt}-${pass}.json`,
+    {
+      state: output.state,
+      files: output.files,
+      history: output.history,
+    },
+    checkpoint,
+  );
+  const checkpointWriteMs = performance.now() - writeStart;
   const registered = await sql`SELECT request_id FROM generation_requests WHERE job_id=${id}`;
   const registeredIds = new Set(registered.map((r) => r.request_id));
   const newTasks = output.pending.filter((task) => !registeredIds.has(`${attempt}:${task.id}`));
@@ -124,10 +136,19 @@ export async function advanceGeneration(
     stopped: status === 'failed' || status === 'canceled',
     pending: output.pending.map((task) => task.id),
     completed: [...responseUrls.keys()],
+    timings: {
+      ...output.timings,
+      checkpointReadMs,
+      checkpointWriteMs,
+      // Individual reads overlap; this is cumulative request time, not wall time.
+      responseReadMs,
+      responseReads: responses.size,
+      ...savedCheckpoint.metrics,
+    },
   };
   await sql.transaction([
     sql`UPDATE generation_jobs SET state=${JSON.stringify(output.state)}::jsonb,
-      checkpoint=${checkpointUrl},status=${status === 'done' ? 'publishing' : status}, updated_at=now()
+      checkpoint=${savedCheckpoint.url},status=${status === 'done' ? 'publishing' : status}, updated_at=now()
       WHERE id=${id} AND attempt=${attempt} AND status NOT IN ('canceled','failed','done')`,
     sql`INSERT INTO generation_passes(job_id,attempt,pass,result) VALUES(${id},${attempt},${pass},${JSON.stringify(result)}::jsonb)
       ON CONFLICT DO NOTHING`,
@@ -233,9 +254,9 @@ export async function publishGeneration(id: string, attempt: number) {
     ['canceled', 'done', 'review', 'failed'].includes(row.status)
   )
     return;
-  const checkpoint = await readPrivate<PassCheckpoint>(row.checkpoint);
   const gameId = row.state.job!.gameId;
   const base = `games/${gameId}/`;
+  const checkpoint = await readCheckpoint(row.checkpoint, (name) => name.startsWith(base));
   const parse = <T>(path: string): T =>
     JSON.parse(Buffer.from(checkpoint.files[base + path]!, 'base64').toString('utf8'));
   const bundle: CloudGameBundle = {

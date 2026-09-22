@@ -21,6 +21,7 @@ import { getSql } from '@/lib/db';
 import { kioskMetaCredentialId, withKioskMetaCredential } from '@/lib/kiosk-meta-credentials';
 import { ProviderAuthError } from '@sparkade/server/providers/base';
 import { assertMetaBudgetAvailable, MetaBudgetError, MetaCapacityError, SHARED_META_KEY } from '@/lib/kiosk-meta-spend';
+import { readCheckpointFile } from '@/lib/generation/checkpoints';
 import { reservePublicGame } from '@/lib/public-games';
 import {
   scope,
@@ -182,7 +183,7 @@ async function handle(request: NextRequest, context: Context): Promise<Response>
     if (path[2] === 'partial' && method === 'GET') {
       if (row.status === 'done') return NextResponse.json({ partial: null });
       const checkpoint = await readPrivate<PassCheckpoint>(row.checkpoint);
-      const raw = checkpoint.files[`staging/${row.id}/partial.json`];
+      const raw = await readCheckpointFile(checkpoint, `staging/${row.id}/partial.json`);
       return NextResponse.json({
         partial: raw ? JSON.parse(Buffer.from(raw, 'base64').toString('utf8')) : null,
       });

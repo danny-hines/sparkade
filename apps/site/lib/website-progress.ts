@@ -3,6 +3,7 @@ import type { PipelineState } from '@sparkade/server/pipeline/job-state';
 import { ensureArcadeSchema, env } from './arcade';
 import { getSql } from './db';
 import { readPrivate } from './generation/storage';
+import { readCheckpointFile } from './generation/checkpoints';
 import { readWebsiteFinal } from './website-generation';
 import { reconcileWebsiteJob } from './website-recovery';
 import { rejectionMessage } from './content-policy';
@@ -140,7 +141,7 @@ export async function websiteAssetPreview(userId: string, id: string, filename: 
   if (!row.checkpoint) return null;
   const checkpoint = await readPrivate<PassCheckpoint>(row.checkpoint);
   const data =
-    checkpoint.files[`staging/${row.job_id}/assets/${filename}`] ??
-    checkpoint.files[`games/${state.job!.gameId}/assets/${filename}`];
+    (await readCheckpointFile(checkpoint, `staging/${row.job_id}/assets/${filename}`)) ??
+    (await readCheckpointFile(checkpoint, `games/${state.job!.gameId}/assets/${filename}`));
   return data ? Buffer.from(data, 'base64') : null;
 }

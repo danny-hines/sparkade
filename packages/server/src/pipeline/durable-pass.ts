@@ -40,6 +40,13 @@ export interface PassCheckpoint {
   files: Record<string, string>;
 }
 
+export interface PassTimings {
+  restoreMs: number;
+  runMs: number;
+  collectMs: number;
+  fileCount: number;
+}
+
 export function collectFiles(root: string): Record<string, string> {
   const files: Record<string, string> = {};
   const walk = (dir: string, prefix: string) => {
@@ -71,7 +78,7 @@ export async function advancePipeline(
   checkpoint: PassCheckpoint,
   responses: Record<string, ProviderResult> | ((id: string) => Promise<ProviderResult | undefined>),
   config: SparkadeConfig,
-): Promise<PassCheckpoint & { pending: ProviderTask[] }> {
+): Promise<PassCheckpoint & { pending: ProviderTask[]; timings: PassTimings }> {
   const root = mkdtempSync(join(tmpdir(), 'sparkade-pass-'));
   const db = new JobState(structuredClone(checkpoint.state));
   const abort = new AbortController();
@@ -108,7 +115,9 @@ export async function advancePipeline(
     throw new PipelineSuspended();
   };
   try {
+    const restoreStart = performance.now();
     restoreFiles(root, checkpoint.files);
+    const restoreMs = performance.now() - restoreStart;
     const gameFiles = new GameFiles(root);
     const localSpec = gameFiles.readSpec.bind(gameFiles);
     gameFiles.readSpec = (id) =>
@@ -148,16 +157,26 @@ export async function advancePipeline(
     );
     const job = db.state.job;
     if (!job) throw new Error('Missing job');
+    const runStart = performance.now();
     await runner.execute(job.id);
+    const runMs = performance.now() - runStart;
     // A Blob outage is a failed checkpoint step, not an art rejection. The
     // runner may have caught the error in an optional branch; never persist
     // that branch's fallback or failed state when a saved response was unreadable.
     if (responseReadFailures.length) throw responseReadFailures[0];
+    const collectStart = performance.now();
+    const files = collectFiles(root);
     return {
       history: checkpoint.history,
       state: db.state,
-      files: collectFiles(root),
+      files,
       pending: [...pending.values()],
+      timings: {
+        restoreMs,
+        runMs,
+        collectMs: performance.now() - collectStart,
+        fileCount: Object.keys(files).length,
+      },
     };
   } finally {
     rmSync(root, { recursive: true, force: true });

@@ -11,9 +11,13 @@ import { atomicWriteFile } from '../util';
 export class ArtifactCache {
   constructor(private readonly directory: string) {}
 
-  async getOrCompute<T>(key: string, compute: () => Promise<T>): Promise<T> {
+  private path(key: string): string {
     const digest = createHash('sha256').update(key).digest('hex');
-    const path = join(this.directory, `${digest}.bin`);
+    return join(this.directory, `${digest}.bin`);
+  }
+
+  read<T>(key: string): T | undefined {
+    const path = this.path(key);
     if (existsSync(path)) {
       try {
         return deserialize(inflateSync(readFileSync(path))) as T;
@@ -21,8 +25,19 @@ export class ArtifactCache {
         // Corrupt/mismatched local artifacts are recomputed from durable input.
       }
     }
+    return undefined;
+  }
+
+  write<T>(key: string, value: T): void {
+    atomicWriteFile(this.path(key), deflateSync(serialize(value)));
+  }
+
+  async getOrCompute<T>(key: string, compute: () => Promise<T>): Promise<T> {
+    const saved = this.read<T>(key);
+    if (saved !== undefined) return saved;
     const result = await compute();
-    atomicWriteFile(path, deflateSync(serialize(result)));
+    // A rejected candidate may become available on an explicit job retry.
+    if (result !== null) this.write(key, result);
     return result;
   }
 }

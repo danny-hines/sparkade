@@ -2621,6 +2621,7 @@ export class GenerationRunner {
 
       const photoReference = photo ? await prepareImageReference(photo) : undefined;
       const canonicalHeroConcept = spec.meta.heroConcept ?? design.heroConcept;
+      const assetArtifacts = new ArtifactCache(join(this.files.checkpointsDir, jobId, 'asset-processing'));
       const playerCraftIdentity =
         spec.archetype === 'shooter' || spec.archetype === 'hshooter'
           ? spec.playerCraft
@@ -2673,7 +2674,7 @@ export class GenerationRunner {
               gameplay: Buffer;
               presentation: Buffer;
             }
-            const generateCandidate = async (
+            const generateCandidateUncached = async (
               id: string,
               retryGuidance = '',
             ): Promise<CraftCandidate | null> => {
@@ -2723,6 +2724,11 @@ export class GenerationRunner {
               }
             };
 
+            const generateCandidate = (...args: Parameters<typeof generateCandidateUncached>) =>
+              assetArtifacts.getOrCompute(
+                JSON.stringify(['craft-candidate-v1', job.attempt, pipelineSha, spec.meta, args]),
+                () => generateCandidateUncached(...args),
+              );
             emit('building-assets', 'Painting three player craft candidates…');
             let candidates = (
               await settleAll(['A', 'B', 'C'].map((id) => generateCandidate(id)))
@@ -3256,6 +3262,14 @@ export class GenerationRunner {
         : Promise.resolve(null);
 
       let adventurePlayerArtStatus: GameMetaFile['adventurePlayerArt'];
+      let resolveAdventureIdentity!: (image: Buffer | null) => void;
+      let rejectAdventureIdentity!: (error: unknown) => void;
+      const adventureIdentityTask = new Promise<Buffer | null>((resolve, reject) => {
+        resolveAdventureIdentity = resolve;
+        rejectAdventureIdentity = reject;
+      });
+      // Observe early failures until story/portrait branches attach below.
+      void adventureIdentityTask.catch(() => {});
       const adventurePlayerTask: Promise<Buffer | null> =
         spec.archetype === 'adventure'
           ? keyArtTask.then(async (keyArt): Promise<Buffer | null> => {
@@ -3284,6 +3298,9 @@ export class GenerationRunner {
                   hasPhoto: !!photoReference,
                 });
                 const pipelineSha = imagePromptHash(pipelineFingerprint, identityReference);
+                const adventureArtifacts = new ArtifactCache(
+                  join(this.files.checkpointsDir, jobId, 'adventure'),
+                );
                 const cached = Object.fromEntries(
                   GENERATED_ADVENTURE_PLAYER_POSES.map((pose) => [
                     pose,
@@ -3294,14 +3311,27 @@ export class GenerationRunner {
                     ),
                   ]),
                 ) as Record<GeneratedAdventurePlayerPose, Buffer | null>;
+                const poseSetHash = (poses: Record<GeneratedAdventurePlayerPose, Buffer>) =>
+                  imagePromptHash(
+                    'adventure-reviewed-set-v1',
+                    Buffer.concat(GENERATED_ADVENTURE_PLAYER_POSES.map((pose) => poses[pose])),
+                  );
+                const poseCandidateKey = (pose: GeneratedAdventurePlayerPose, png: Buffer) =>
+                  `pose:${pipelineSha}:${pose}:${sha256(png)}`;
                 const cachedScaleGuidance = new Map<GeneratedAdventurePlayerPose, string>();
                 if (GENERATED_ADVENTURE_PLAYER_POSES.every((pose) => cached[pose])) {
                   const restored = cached as Record<GeneratedAdventurePlayerPose, Buffer>;
                   try {
                     await validateGeneratedAdventurePlayerPoseSet(restored);
-                    adventurePlayerArtStatus = { mode: 'generated', attempted: true };
-                    emit('building-assets', 'Restored the generated Adventure player');
-                    return restored.downIdle;
+                    if (
+                      adventureArtifacts.read<string>(`reviewed-set:${pipelineSha}`) ===
+                      poseSetHash(restored)
+                    ) {
+                      adventurePlayerArtStatus = { mode: 'generated', attempted: true };
+                      emit('building-assets', 'Restored the reviewed Adventure player');
+                      resolveAdventureIdentity(restored.downIdle);
+                      return restored.downIdle;
+                    }
                   } catch (error) {
                     throwIfSuspended(error);
                     const repairs =
@@ -3347,12 +3377,16 @@ export class GenerationRunner {
                     ADVENTURE_PLAYER_PIPELINE_PROMPT_VERSION,
                     pipelineSha,
                   );
+                  adventureArtifacts.write(
+                    poseCandidateKey(candidate.pose, candidate.png),
+                    candidate,
+                  );
                   checkpointed[candidate.pose] = candidate.png;
                 };
                 const resumedWithPoseCheckpoints = GENERATED_ADVENTURE_PLAYER_POSES.some(
                   (pose) => pose !== 'downIdle' && cached[pose] !== null,
                 );
-                const generateCandidate = async (
+                const generateCandidateUncached = async (
                   id: string,
                   label: string,
                   prompt: string,
@@ -3402,13 +3436,27 @@ export class GenerationRunner {
                   }
                 };
 
+                const generateCandidate = (...args: Parameters<typeof generateCandidateUncached>) =>
+                  adventureArtifacts.getOrCompute(
+                    imagePromptHash(
+                      JSON.stringify(['candidate', job.attempt, pipelineSha, args[0], args[2]]),
+                      args[3],
+                    ),
+                    () => generateCandidateUncached(...args),
+                  );
                 let downIdle: Candidate | null = cached.downIdle
-                  ? {
+                  ? (adventureArtifacts.read<Candidate>(
+                      poseCandidateKey('downIdle', cached.downIdle),
+                    ) ?? {
                       id: 'checkpoint-downIdle',
                       reference: cached.downIdle,
                       png: cached.downIdle,
-                    }
+                    })
                   : null;
+                let identityApproved =
+                  !!downIdle &&
+                  adventureArtifacts.read<string>(`approved-identity:${pipelineSha}`) ===
+                    sha256(downIdle.png);
                 let retryGuidance = '';
                 if (downIdle) {
                   emit('building-assets', 'Restored the Adventure player identity checkpoint');
@@ -3509,6 +3557,7 @@ export class GenerationRunner {
                     ? decision.selection.candidateId
                     : bestPlatformerIdleCandidateId(decision);
                   downIdle = candidates.find(({ id }) => id === selectedId) ?? null;
+                  identityApproved = decision.selection.accepted && !!downIdle;
                   retryGuidance = decision.selection.retryGuidance;
                 }
                 if (!downIdle) {
@@ -3517,11 +3566,19 @@ export class GenerationRunner {
 
                 const downIdlePose: PoseCandidate = { ...downIdle, pose: 'downIdle' };
                 await checkpointPose(downIdlePose);
+                if (identityApproved) {
+                  adventureArtifacts.write(
+                    `approved-identity:${pipelineSha}`,
+                    sha256(downIdle.png),
+                  );
+                  emit('building-assets', 'Adventure player identity ready');
+                  resolveAdventureIdentity(downIdle.png);
+                }
                 const downReference = await prepareGeneratedAdventurePlayerReference(
                   downIdle.reference,
                 );
                 const sheetSeed = await buildAdventurePlayerSheetSeed(downIdle.png);
-                const generateSheet = async (
+                const generateSheetUncached = async (
                   group: AdventurePlayerSheetGroup,
                 ): Promise<PoseCandidate[]> => {
                   let raw: Buffer;
@@ -3561,7 +3618,7 @@ export class GenerationRunner {
                   }
                   const candidates: PoseCandidate[] = [];
                   for (const cell of cells) {
-                    if (cell.pose === 'downIdle') continue;
+                    if (cell.pose === 'downIdle' || cached[cell.pose]) continue;
                     if (!cell.processed) {
                       validationFailure(`adventure-player-${cell.pose}-sheet-${group.id}`);
                       emit(
@@ -3582,10 +3639,31 @@ export class GenerationRunner {
                   return candidates;
                 };
 
+                const sheetAttemptKey = (group: AdventurePlayerSheetGroup) =>
+                  `sheet-attempt:${pipelineSha}:${group.id}`;
+                const generateSheet = (group: AdventurePlayerSheetGroup) => {
+                  adventureArtifacts.write(sheetAttemptKey(group), job.attempt);
+                  return adventureArtifacts.getOrCompute(
+                    imagePromptHash(
+                      JSON.stringify(['sheet-v1', job.attempt, pipelineSha, group.id]),
+                      sheetSeed,
+                    ),
+                    () => generateSheetUncached(group),
+                  );
+                };
                 const restoredPoseCandidates = GENERATED_ADVENTURE_PLAYER_POSES.flatMap(
                   (pose): PoseCandidate[] => {
                     const png = cached[pose];
-                    return png ? [{ id: `checkpoint-${pose}`, pose, reference: png, png }] : [];
+                    return png
+                      ? [
+                          adventureArtifacts.read<PoseCandidate>(poseCandidateKey(pose, png)) ?? {
+                            id: `checkpoint-${pose}`,
+                            pose,
+                            reference: png,
+                            png,
+                          },
+                        ]
+                      : [];
                   },
                 ).filter((candidate) => candidate.pose !== 'downIdle');
                 emit(
@@ -3597,13 +3675,26 @@ export class GenerationRunner {
                 const poseCandidates: PoseCandidate[] = [
                   downIdlePose,
                   ...restoredPoseCandidates,
-                  ...(resumedWithPoseCheckpoints
-                    ? []
-                    : (
-                        await settleAll(
-                          ADVENTURE_PLAYER_SHEET_GROUPS.map((group) => generateSheet(group)),
-                        )
-                      ).flat()),
+                  ...(
+                    await settleAll(
+                      ADVENTURE_PLAYER_SHEET_GROUPS.filter(
+                        (group) =>
+                          // Resume an in-flight sheet within this attempt. An
+                          // explicit retry repairs only the missing saved poses.
+                          (!resumedWithPoseCheckpoints ||
+                            adventureArtifacts.read<number>(sheetAttemptKey(group)) ===
+                              job.attempt) &&
+                          group.poses.some(
+                            (pose) =>
+                              pose !== 'downIdle' &&
+                              !cached[pose] &&
+                              !cachedScaleGuidance.has(pose),
+                          ),
+                      ).map((group) => generateSheet(group)),
+                    )
+                  )
+                    .flat()
+                    .filter((candidate) => !cached[candidate.pose]),
                 ];
 
                 const generateIsolatedPose = async (
@@ -3667,6 +3758,17 @@ export class GenerationRunner {
                   throw new Error(
                     `no locally valid Adventure candidate was available for ${stillMissing.join(', ')}`,
                   );
+                }
+
+                // A finished repair can replace a pose checkpoint while its
+                // sibling is still pending. Keep the original review pool so
+                // resume reuses that review and its exact repair requests.
+                const reviewPoolKey = `review-pool-v1:${job.attempt}:${pipelineSha}`;
+                const savedReviewPool = adventureArtifacts.read<PoseCandidate[]>(reviewPoolKey);
+                if (savedReviewPool) {
+                  poseCandidates.splice(0, poseCandidates.length, ...savedReviewPool);
+                } else {
+                  adventureArtifacts.write(reviewPoolKey, poseCandidates);
                 }
 
                 const reviewPoseSet = async (
@@ -3847,6 +3949,8 @@ export class GenerationRunner {
                   }),
                 ) as Record<GeneratedAdventurePlayerPose, Buffer>;
                 await validateGeneratedAdventurePlayerPoseSet(generated);
+                if (identityApproved && !generated.downIdle.equals(downIdle.png))
+                  throw new Error('Adventure foundation changed after story identity was frozen');
                 await settleAll(
                   GENERATED_ADVENTURE_PLAYER_POSES.map((pose) => {
                     const selected = poseCandidates.find(
@@ -3855,6 +3959,7 @@ export class GenerationRunner {
                     return checkpointPose(selected);
                   }),
                 );
+                adventureArtifacts.write(`reviewed-set:${pipelineSha}`, poseSetHash(generated));
                 adventurePlayerArtStatus = { mode: 'generated', attempted: true };
                 emit('building-assets', 'Finished the generated Adventure player');
                 return generated.downIdle;
@@ -3877,8 +3982,9 @@ export class GenerationRunner {
             })
           : Promise.resolve(null);
 
+      void adventurePlayerTask.then(resolveAdventureIdentity, rejectAdventureIdentity);
       if (spec.archetype === 'adventure' && photo) {
-        void settleAll([keyArtTask, adventurePlayerTask])
+        void settleAll([keyArtTask, adventureIdentityTask])
           .then(async ([keyArt, adventurePlayer]) => {
             if (!adventurePlayer) {
               throw new Error('Adventure portrait requires the selected gameplay hero');
@@ -3896,7 +4002,7 @@ export class GenerationRunner {
         role: StoryArtRole,
         assetRole: GeneratedGameAssetRole,
       ): Promise<Buffer> =>
-        settleAll([keyArtTask, playerCraftTask, racingPlayerStripTask, adventurePlayerTask]).then(
+        settleAll([keyArtTask, playerCraftTask, racingPlayerStripTask, adventureIdentityTask]).then(
           async ([keyArt, craftAssets, racingCraft, adventurePlayer]) => {
             const craftBrief = craftAssets
               ? playerCraftIdentity
@@ -3970,7 +4076,11 @@ export class GenerationRunner {
                 imagePromptHash(entry.prompt),
               );
               const baseIndex = plan.rivalStrips.indexOf(entry) + 1;
-              const savedBase = assetWorkspace.loadPrivate(RACING_BASE_ROLES[baseIndex]!, `${entry.promptVersion}-approved-v1`, imagePromptHash(entry.prompt));
+              const savedBase = assetWorkspace.loadPrivate(
+                RACING_BASE_ROLES[baseIndex]!,
+                `${entry.promptVersion}-approved-v1`,
+                imagePromptHash(entry.prompt),
+              );
               if (approved || savedBase) return Promise.resolve((approved ?? savedBase)!);
               return cachedGeneratedAsset({
                 role: entry.role,
@@ -3980,9 +4090,10 @@ export class GenerationRunner {
                 ...(entry.size ? { size: entry.size } : {}),
                 normalize: useFoundation
                   ? async (raw) =>
-                      assembleRacingFoundationStrip((await processGeneratedRacingFoundation(raw)).png)
-                  : (raw) =>
-                      processGeneratedRacingCraftStrip(raw).then((strip) => strip.png),
+                      assembleRacingFoundationStrip(
+                        (await processGeneratedRacingFoundation(raw)).png,
+                      )
+                  : (raw) => processGeneratedRacingCraftStrip(raw).then((strip) => strip.png),
               });
             };
             const generateEntry = (
@@ -4018,13 +4129,14 @@ export class GenerationRunner {
               if (failed?.status === 'rejected') throw failed.reason;
               return outcomes.map((result) => (result as PromiseFulfilledResult<T>).value);
             };
-            const [rivalBuffers] = await drain<Buffer[]>([
-              drain(plan.rivalStrips.map((entry) => generateStrip(entry))),
+            const worldTask = drain<Buffer[]>([
               drain(
                 plan.panoramas.map((entry) =>
-                  generateEntry(entry, (raw) => processGeneratedRacingPanorama(raw,
-                    racingPackDiscipline(racingSpec)),
-                    entry.reference === 'keyArt' ? keyArt : undefined),
+                  generateEntry(
+                    entry,
+                    (raw) => processGeneratedRacingPanorama(raw, racingPackDiscipline(racingSpec)),
+                    entry.reference === 'keyArt' ? keyArt : undefined,
+                  ),
                 ),
               ),
               generateRacingSceneryPack({
@@ -4048,308 +4160,426 @@ export class GenerationRunner {
                 ? generateRacingJetskiMaterialsPack({
                     spec: racingSpec,
                     workspace: assetWorkspace,
-                    generate: (prompt, slot) => callImage({
-                      role: `racing-material-tile-${slot + 1}`,
-                      label: `Water material ${slot + 1} of 4`,
-                      prompt,
-                      size: '1024x1024',
-                    }),
+                    generate: (prompt, slot) =>
+                      callImage({
+                        role: `racing-material-tile-${slot + 1}`,
+                        label: `Water material ${slot + 1} of 4`,
+                        prompt,
+                        size: '1024x1024',
+                      }),
                     checkActive: throwIfSuspended,
                     validationFailure,
                   }).catch(racingAssetFailure)
-                : generateEntry(plan.materials, (raw) => processGeneratedRacingMaterials(raw)))
-                .then((image) => [image]),
+                : generateEntry(plan.materials, (raw) => processGeneratedRacingMaterials(raw))
+              ).then((image) => [image]),
             ]);
-            // Rival-only review: the player strip was already reviewed
-            // before its reference froze into key/story art, so it rides
-            // the board as a reference-only row and can never receive a
-            // new random verdict. Only rival targets can reject here.
-            const buffers = [playerStrip.gameplay, ...rivalBuffers!];
-            const approvedIds = new Set(['player']);
-            for (const [index, entry] of plan.rivalStrips.entries()) {
-              if (assetWorkspace.load(entry.role, `${entry.promptVersion}-approved-v1`, imagePromptHash(entry.prompt)) || assetWorkspace.loadPrivate(RACING_BASE_ROLES[index + 1]!, `${entry.promptVersion}-approved-v1`, imagePromptHash(entry.prompt))) {
-                approvedIds.add(slots[index + 1]!.id);
-              }
-            }
-            const reviewPending = (label: string) => reviewPendingRacingStrips({
-              slots,
-              buffers,
-              approvedIds,
-              review: async (pending, targets, references) => {
-                if (!useFoundation) return reviewRacingStrips(pending, targets, label, references);
-                // Foundation rejects are always identity rejects (the gate
-                // has no banking vocabulary), so every pending rival maps to
-                // a full repaint. The existing round planner then gives at
-                // most one repaint and never a bank correction or swap —
-                // even a malformed banking verdict cannot occur here.
-                const verdict = await reviewRacingFoundation(pending, targets, label, references);
-                return {
-                  ...verdict,
-                  correctionKinds: Object.fromEntries(
-                    targets.map((target) => [target.id, 'vehicle' as const]),
-                  ),
-                };
-              },
-              approve: async (id, png) => {
-                const index = slots.findIndex((slot) => slot.id === id);
-                const entry = plan.rivalStrips[index - 1]!;
-                await assetWorkspace.store(entry.role, png, `${entry.promptVersion}-approved-v1`, imagePromptHash(entry.prompt));
-                approvedIds.add(id);
-              },
-            });
-            let decision = await reviewPending('Spark reviews the vehicle roster');
-            // Bounded category-aware rival repair. The CURRENT rejected ids
-            // and categories are re-read every round: per rival at most one
-            // full repaint (vehicle verdict — bad neutral identity, the
-            // distinctness case, or any doubt) and one two-image bank
-            // correction (banking verdict, neutral cell preserved), then at
-            // most one cell-order swap after a bank correction. No exhausted
-            // category is ever retried. Approvals persist immediately inside
-            // reviewPending, so approved rivals ride as reference-only rows
-            // and are never redone; every round re-runs the same full
-            // pending-vs-approved reference gate. Guidance is always the
-            // judge's own slot wording — never a new invented theme.
-            // Provider policy refusals propagate out of the correction calls
-            // below (racingAssetFailure rethrows); the loop never catches
-            // them into another attempt.
-            const rivalRepairStates = new Map<string, RacingRivalRepairState>();
-            for (
-              let round = 0;
-              round < RACING_RIVAL_REPAIR_MAX_ROUNDS && !decision.accepted;
-              round++
-            ) {
-              if (decision.rejectedIds.includes(slots[0]!.id)) {
-                throw new PipelineError(
-                  'image-invalid',
-                  'Vehicle roster review rejected the frozen player strip; key and story art already rendered from it',
-                  'building-assets',
-                );
-              }
-              const retryIds = decision.rejectedIds.length
-                ? decision.rejectedIds
-                : slots.filter((slot) => !approvedIds.has(slot.id)).map((slot) => slot.id);
-              const roundActions = planRacingRivalRepairRound(
-                retryIds,
-                decision.correctionKinds,
-                approvedIds,
-                rivalRepairStates,
-              ).filter(({ action }) => action !== 'exhausted');
-              if (!roundActions.length) break;
-              emit(
-                'building-assets',
-                roundActions.every(
-                  ({ id }) => (decision.correctionKinds[id] ?? 'vehicle') === 'banking',
-                )
-                  ? 'Correcting rejected rival banking poses…'
-                  : 'Correcting rejected rival vehicles…',
+            // Review and repair the roster as soon as its strips are ready.
+            // Scenery is independent, but both branches must drain before checkpointing.
+            const rosterTask = (async () => {
+              const rivalBuffers = await drain(
+                plan.rivalStrips.map((entry) => generateStrip(entry)),
               );
-              let swapsOnly = true;
-              for (const { id, action } of roundActions) {
-                const k = slots.findIndex((slot) => slot.id === id);
-                if (k <= 0) {
+              // Rival-only review: the player strip was already reviewed
+              // before its reference froze into key/story art, so it rides
+              // the board as a reference-only row and can never receive a
+              // new random verdict. Only rival targets can reject here.
+              const buffers = [playerStrip.gameplay, ...rivalBuffers!];
+              const approvedIds = new Set(['player']);
+              for (const [index, entry] of plan.rivalStrips.entries()) {
+                if (
+                  assetWorkspace.load(
+                    entry.role,
+                    `${entry.promptVersion}-approved-v1`,
+                    imagePromptHash(entry.prompt),
+                  ) ||
+                  assetWorkspace.loadPrivate(
+                    RACING_BASE_ROLES[index + 1]!,
+                    `${entry.promptVersion}-approved-v1`,
+                    imagePromptHash(entry.prompt),
+                  )
+                ) {
+                  approvedIds.add(slots[index + 1]!.id);
+                }
+              }
+              const reviewPending = (label: string) =>
+                reviewPendingRacingStrips({
+                  slots,
+                  buffers,
+                  approvedIds,
+                  review: async (pending, targets, references) => {
+                    if (!useFoundation)
+                      return reviewRacingStrips(pending, targets, label, references);
+                    // Foundation rejects are always identity rejects (the gate
+                    // has no banking vocabulary), so every pending rival maps to
+                    // a full repaint. The existing round planner then gives at
+                    // most one repaint and never a bank correction or swap —
+                    // even a malformed banking verdict cannot occur here.
+                    const verdict = await reviewRacingFoundation(
+                      pending,
+                      targets,
+                      label,
+                      references,
+                    );
+                    return {
+                      ...verdict,
+                      correctionKinds: Object.fromEntries(
+                        targets.map((target) => [target.id, 'vehicle' as const]),
+                      ),
+                    };
+                  },
+                  approve: async (id, png) => {
+                    const index = slots.findIndex((slot) => slot.id === id);
+                    const entry = plan.rivalStrips[index - 1]!;
+                    await assetWorkspace.store(
+                      entry.role,
+                      png,
+                      `${entry.promptVersion}-approved-v1`,
+                      imagePromptHash(entry.prompt),
+                    );
+                    approvedIds.add(id);
+                  },
+                });
+              let decision = await reviewPending('Spark reviews the vehicle roster');
+              // Bounded category-aware rival repair. The CURRENT rejected ids
+              // and categories are re-read every round: per rival at most one
+              // full repaint (vehicle verdict — bad neutral identity, the
+              // distinctness case, or any doubt) and one two-image bank
+              // correction (banking verdict, neutral cell preserved), then at
+              // most one cell-order swap after a bank correction. No exhausted
+              // category is ever retried. Approvals persist immediately inside
+              // reviewPending, so approved rivals ride as reference-only rows
+              // and are never redone; every round re-runs the same full
+              // pending-vs-approved reference gate. Guidance is always the
+              // judge's own slot wording — never a new invented theme.
+              // Provider policy refusals propagate out of the correction calls
+              // below (racingAssetFailure rethrows); the loop never catches
+              // them into another attempt.
+              const rivalRepairStates = new Map<string, RacingRivalRepairState>();
+              for (
+                let round = 0;
+                round < RACING_RIVAL_REPAIR_MAX_ROUNDS && !decision.accepted;
+                round++
+              ) {
+                if (decision.rejectedIds.includes(slots[0]!.id)) {
                   throw new PipelineError(
                     'image-invalid',
                     'Vehicle roster review rejected the frozen player strip; key and story art already rendered from it',
                     'building-assets',
                   );
                 }
-                const state = rivalRepairStates.get(id) ?? freshRacingRivalRepairState();
-                rivalRepairStates.set(id, state);
-                const entry = plan.rivalStrips[k - 1]!;
-                const slot = slots[k]!;
-                const guidance = decision.slotGuidance[id] || decision.retryGuidance || 'Correct this rejected vehicle to match its concept, rear camera and distinct silhouette.';
-                if (action === 'repaint') {
-                  // One full-strip regeneration with the slot-specific
-                  // distinctness guidance, cached under the correction
-                  // hash by cachedGeneratedAsset.
-                  buffers[k] = await cachedGeneratedAsset({
-                    role: entry.role,
-                    promptVersion: entry.promptVersion,
-                    prompt: `${entry.prompt} ART DIRECTOR VEHICLE CORRECTION: ${guidance.slice(0, 320)}.`,
-                    label: entry.label,
-                    ...(entry.size ? { size: entry.size } : {}),
-                    normalize: useFoundation
-                      ? async (raw) =>
-                          assembleRacingFoundationStrip((await processGeneratedRacingFoundation(raw)).png)
-                      : (raw) => processGeneratedRacingCraftStrip(raw).then((strip) => strip.png),
-                  }).catch(racingAssetFailure);
-                  await assetWorkspace.store(entry.role, buffers[k]!, entry.promptVersion, imagePromptHash(entry.prompt));
-                  state.didRepaint = true;
-                  swapsOnly = false;
-                  continue;
-                }
-                if (action === 'bank') {
-                  // Targeted banking correction: preserve the accepted
-                  // neutral cell, regenerate only the two banks as
-                  // single-object edits of the enlarged rear cell. The
-                  // corrected strip persists under the correction hash so an
-                  // unrelated later retry reuses the approved selection.
-                  const correctedPrompt = `${entry.prompt} ART DIRECTOR BANKING CORRECTION: ${guidance.slice(0, 320)}.`;
-                  const correctedHash = imagePromptHash(correctedPrompt);
-                  const cachedCorrected = assetWorkspace.load(
-                    entry.role,
-                    entry.promptVersion,
-                    correctedHash,
+                const retryIds = decision.rejectedIds.length
+                  ? decision.rejectedIds
+                  : slots.filter((slot) => !approvedIds.has(slot.id)).map((slot) => slot.id);
+                const roundActions = planRacingRivalRepairRound(
+                  retryIds,
+                  decision.correctionKinds,
+                  approvedIds,
+                  rivalRepairStates,
+                ).filter(({ action }) => action !== 'exhausted');
+                if (!roundActions.length) break;
+                emit(
+                  'building-assets',
+                  roundActions.every(
+                    ({ id }) => (decision.correctionKinds[id] ?? 'vehicle') === 'banking',
+                  )
+                    ? 'Correcting rejected rival banking poses…'
+                    : 'Correcting rejected rival vehicles…',
+                );
+                let swapsOnly = true;
+                await settleAll(
+                  roundActions.map(async ({ id, action }) => {
+                    const k = slots.findIndex((slot) => slot.id === id);
+                    if (k <= 0) {
+                      throw new PipelineError(
+                        'image-invalid',
+                        'Vehicle roster review rejected the frozen player strip; key and story art already rendered from it',
+                        'building-assets',
+                      );
+                    }
+                    const state = rivalRepairStates.get(id) ?? freshRacingRivalRepairState();
+                    rivalRepairStates.set(id, state);
+                    const entry = plan.rivalStrips[k - 1]!;
+                    const slot = slots[k]!;
+                    const guidance =
+                      decision.slotGuidance[id] ||
+                      decision.retryGuidance ||
+                      'Correct this rejected vehicle to match its concept, rear camera and distinct silhouette.';
+                    if (action === 'repaint') {
+                      // One full-strip regeneration with the slot-specific
+                      // distinctness guidance, cached under the correction
+                      // hash by cachedGeneratedAsset.
+                      buffers[k] = await cachedGeneratedAsset({
+                        role: entry.role,
+                        promptVersion: entry.promptVersion,
+                        prompt: `${entry.prompt} ART DIRECTOR VEHICLE CORRECTION: ${guidance.slice(0, 320)}.`,
+                        label: entry.label,
+                        ...(entry.size ? { size: entry.size } : {}),
+                        normalize: useFoundation
+                          ? async (raw) =>
+                              assembleRacingFoundationStrip(
+                                (await processGeneratedRacingFoundation(raw)).png,
+                              )
+                          : (raw) =>
+                              processGeneratedRacingCraftStrip(raw).then((strip) => strip.png),
+                      }).catch(racingAssetFailure);
+                      await assetWorkspace.store(
+                        entry.role,
+                        buffers[k]!,
+                        entry.promptVersion,
+                        imagePromptHash(entry.prompt),
+                      );
+                      state.didRepaint = true;
+                      swapsOnly = false;
+                      return;
+                    }
+                    if (action === 'bank') {
+                      // Targeted banking correction: preserve the accepted
+                      // neutral cell, regenerate only the two banks as
+                      // single-object edits of the enlarged rear cell. The
+                      // corrected strip persists under the correction hash so an
+                      // unrelated later retry reuses the approved selection.
+                      const correctedPrompt = `${entry.prompt} ART DIRECTOR BANKING CORRECTION: ${guidance.slice(0, 320)}.`;
+                      const correctedHash = imagePromptHash(correctedPrompt);
+                      const cachedCorrected = assetWorkspace.load(
+                        entry.role,
+                        entry.promptVersion,
+                        correctedHash,
+                      );
+                      if (cachedCorrected) {
+                        buffers[k] = cachedCorrected;
+                      } else {
+                        const bankReference = await buildRacingBankEditReference(
+                          await extractRacingNeutralCell(buffers[k]!),
+                        );
+                        const rivalIdentity = racingSpec.identity!;
+                        const corrected = await correctRacingBankPoses({
+                          strip: buffers[k]!,
+                          vehicleName: slot.name,
+                          artDirection: rivalIdentity.artDirection,
+                          colors: racingSpec.palette.join(', '),
+                          retryGuidance: guidance,
+                          discipline: racingPackDiscipline(racingSpec),
+                          traversal: rivalIdentity.traversal,
+                          rolePrefix: `racing-craft-${slot.id}`,
+                          generate: (prompt, pose, posedReference) =>
+                            callImage({
+                              role: `racing-craft-${slot.id}-bank-${pose}`,
+                              label: `${slot.name} bank ${pose === 'bankLeft' ? 'left' : 'right'} correction`,
+                              prompt,
+                              reference: posedReference ?? bankReference,
+                              size: '1024x1024',
+                            }),
+                          checkActive: throwIfSuspended,
+                          validationFailure,
+                        }).catch(racingAssetFailure);
+                        await assetWorkspace.store(
+                          entry.role,
+                          corrected,
+                          entry.promptVersion,
+                          correctedHash,
+                        );
+                        buffers[k] = corrected;
+                        await assetWorkspace.store(
+                          entry.role,
+                          corrected,
+                          entry.promptVersion,
+                          imagePromptHash(entry.prompt),
+                        );
+                      }
+                      state.didBankRepair = true;
+                      swapsOnly = false;
+                      return;
+                    }
+                    // Image edits sometimes return correct opposite rolls under
+                    // the wrong labels. One cell-order repair after the bank
+                    // correction, then the same complete review; never mirror
+                    // or waive a verdict.
+                    buffers[k] = await swapRacingBankCells(buffers[k]!);
+                    state.didSwap = true;
+                  }),
+                );
+                // Each approval is already durable. Only remaining rejected
+                // candidates are targets; all unchanged slots are references.
+                decision = await reviewPending(
+                  swapsOnly
+                    ? 'Spark verifies the rival bank order'
+                    : 'Spark re-reviews the corrected vehicles',
+                );
+              }
+              if (!decision.accepted) {
+                throw new PipelineError(
+                  'image-invalid',
+                  `Vehicle roster review rejected the pack${decision.retryGuidance ? `: ${decision.retryGuidance.slice(0, 200)}` : ''}`,
+                  'building-assets',
+                );
+              }
+              // Store the reviewed selection under its immutable design key;
+              // arbitrary correction text must not force another repaint on retry.
+              for (const [index, entry] of plan.rivalStrips.entries()) {
+                await assetWorkspace.store(
+                  entry.role,
+                  buffers[index + 1]!,
+                  `${entry.promptVersion}-approved-v1`,
+                  imagePromptHash(entry.prompt),
+                );
+              }
+              const motion = racingIdentity.traversal?.motion;
+              const motionStatuses: RacingMotionRacerStatus[] = [];
+              if (motion && motion !== 'static') {
+                const entries = [plan.playerStrip, ...plan.rivalStrips];
+                if (
+                  entries.length !== RACING_BASE_ROLES.length ||
+                  buffers.length !== entries.length
+                )
+                  throw new PipelineError(
+                    'image-invalid',
+                    'Locomotion requires one player and four approved rivals',
+                    'building-assets',
                   );
-                  if (cachedCorrected) {
-                    buffers[k] = cachedCorrected;
-                  } else {
-                    const bankReference = await buildRacingBankEditReference(
-                      await extractRacingNeutralCell(buffers[k]!),
+                // Keep approved identity strips private before publishing expanded atlases.
+                // A later unrelated retry restores both identity and animation without repainting.
+                for (let i = 0; i < entries.length; i++) {
+                  const entry = entries[i]!;
+                  await assetWorkspace.storePrivate(
+                    RACING_BASE_ROLES[i]!,
+                    buffers[i]!,
+                    `${entry.promptVersion}-approved-v1`,
+                    imagePromptHash(entry.prompt),
+                  );
+                }
+                // Motion is an optional per-racer enhancement: approved cycles
+                // publish as 192x192 atlases, while a quality rejection or an
+                // optional provider failure keeps the explicit approved 64x64
+                // neutral with an honest per-racer status. Required-art,
+                // suspension, cancellation, storage, and programming errors
+                // still fail the job.
+                const outcomes = await settleAll(
+                  entries.map(async (entry, i): Promise<RacingMotionRacerStatus> => {
+                    const concept =
+                      i === 0
+                        ? racingIdentity.playerCraftConcept
+                        : racingIdentity.rivalCrafts[i - 1]!.vehicleConcept;
+                    const prompt = buildRacingLocomotionPrompt(
+                      racingIdentity.traversal!,
+                      concept,
+                      racingIdentity.artDirection,
                     );
-                    const rivalIdentity = racingSpec.identity!;
-                    const corrected = await correctRacingBankPoses({
-                      strip: buffers[k]!,
-                      vehicleName: slot.name,
-                      artDirection: rivalIdentity.artDirection,
-                      colors: racingSpec.palette.join(', '),
-                      retryGuidance: guidance,
-                      discipline: racingPackDiscipline(racingSpec),
-                      traversal: rivalIdentity.traversal,
-                      rolePrefix: `racing-craft-${slot.id}`,
-                      generate: (prompt, pose, posedReference) =>
-                        callImage({
-                          role: `racing-craft-${slot.id}-bank-${pose}`,
-                          label: `${slot.name} bank ${pose === 'bankLeft' ? 'left' : 'right'} correction`,
-                          prompt,
-                          reference: posedReference ?? bankReference,
-                          size: '1024x1024',
-                        }),
+                    const hash = imagePromptHash(prompt, buffers[i]!);
+                    const version = `${RACING_LOCOMOTION_VERSION}-approved`;
+                    const outcomeRole = RACING_MOTION_OUTCOME_ROLES[i]!;
+                    const key = racingMotionTerminalKey(buffers[i]!, prompt);
+                    const approved = assetWorkspace.loadPrivate(
+                      RACING_MOTION_ROLES[i]!,
+                      version,
+                      hash,
+                    );
+                    if (approved) {
+                      await assetWorkspace.store(entry.role, approved, version, hash);
+                      return { racer: slots[i]!.id, status: 'animated' };
+                    }
+                    const terminal = parseRacingMotionTerminalOutcome(
+                      assetWorkspace.loadMotionOutcome(outcomeRole),
+                      key,
+                    );
+                    if (!terminal)
+                      emit('building-assets', `Animating ${slots[i]!.name}: ${motion} cycle…`);
+                    const reference = await buildRacingBankEditReference(
+                      await extractRacingNeutralCell(buffers[i]!),
+                    );
+                    const result = await generateOptionalRacingMotion({
+                      base: buffers[i]!,
+                      prompt,
+                      motion,
+                      terminal,
+                      generate: async (candidatePrompt, correction) => {
+                        const activeReference = correction
+                          ? await buildRacingLocomotionReference(buffers[i]!)
+                          : reference;
+                        const candidate = await callImage({
+                          role: `racing-motion-${i}`,
+                          optional: true,
+                          label: `${slots[i]!.name} locomotion${correction ? ' correction' : ''}`,
+                          prompt: candidatePrompt,
+                          reference: activeReference,
+                          size: '1536x1024',
+                        });
+                        // Preserve the latest sheet for failed-job diagnosis;
+                        // this private, unapproved version is never restored
+                        // as an accepted atlas or copied into a ready game.
+                        await assetWorkspace.storePrivate(
+                          RACING_MOTION_ROLES[i]!,
+                          candidate,
+                          `${RACING_LOCOMOTION_VERSION}-candidate`,
+                          imagePromptHash(candidatePrompt, activeReference),
+                        );
+                        return candidate;
+                      },
+                      review: async (candidate) =>
+                        mockImages
+                          ? { accepted: true }
+                          : callLlm(
+                              'design',
+                              {
+                                system: racingLocomotionJudgePrompt(motion),
+                                user: `Subject: ${concept}. Art direction: ${racingIdentity.artDirection}.`,
+                                jsonSchema: racingLocomotionJudgeSchema,
+                                maxTokens: 700,
+                                timeoutMs: 120_000,
+                              },
+                              {
+                                stage: 'building-assets',
+                                label: `Spark reviews ${slots[i]!.name} locomotion`,
+                                image: await sharp(candidate)
+                                  .resize(768, 768, { kernel: 'nearest' })
+                                  .png()
+                                  .toBuffer(),
+                                reasoningEffort: 'low',
+                                optional: true,
+                              },
+                            ),
                       checkActive: throwIfSuspended,
-                      validationFailure,
-                    }).catch(racingAssetFailure);
-                    await assetWorkspace.store(
-                      entry.role,
-                      corrected,
-                      entry.promptVersion,
-                      correctedHash,
-                    );
-                    buffers[k] = corrected;
-                    await assetWorkspace.store(
-                      entry.role,
-                      corrected,
-                      entry.promptVersion,
-                      imagePromptHash(entry.prompt),
-                    );
-                  }
-                  state.didBankRepair = true;
-                  swapsOnly = false;
-                  continue;
-                }
-                // Image edits sometimes return correct opposite rolls under
-                // the wrong labels. One cell-order repair after the bank
-                // correction, then the same complete review; never mirror
-                // or waive a verdict.
-                buffers[k] = await swapRacingBankCells(buffers[k]!);
-                state.didSwap = true;
-              }
-              // Each approval is already durable. Only remaining rejected
-              // candidates are targets; all unchanged slots are references.
-              decision = await reviewPending(
-                swapsOnly
-                  ? 'Spark verifies the rival bank order'
-                  : 'Spark re-reviews the corrected vehicles',
-              );
-            }
-            if (!decision.accepted) {
-              throw new PipelineError(
-                'image-invalid',
-                `Vehicle roster review rejected the pack${decision.retryGuidance ? `: ${decision.retryGuidance.slice(0, 200)}` : ''}`,
-                'building-assets',
-              );
-            }
-            // Store the reviewed selection under its immutable design key;
-            // arbitrary correction text must not force another repaint on retry.
-            for (const [index, entry] of plan.rivalStrips.entries()) {
-              await assetWorkspace.store(
-                entry.role,
-                buffers[index + 1]!,
-                `${entry.promptVersion}-approved-v1`,
-                imagePromptHash(entry.prompt),
-              );
-            }
-            const motion = racingIdentity.traversal?.motion;
-            const motionStatuses: RacingMotionRacerStatus[] = [];
-            if (motion && motion !== 'static') {
-              const entries = [plan.playerStrip, ...plan.rivalStrips];
-              if (entries.length !== RACING_BASE_ROLES.length || buffers.length !== entries.length)
-                throw new PipelineError('image-invalid', 'Locomotion requires one player and four approved rivals', 'building-assets');
-              // Keep approved identity strips private before publishing expanded atlases.
-              // A later unrelated retry restores both identity and animation without repainting.
-              for (let i = 0; i < entries.length; i++) {
-                const entry = entries[i]!;
-                await assetWorkspace.storePrivate(RACING_BASE_ROLES[i]!, buffers[i]!,
-                  `${entry.promptVersion}-approved-v1`, imagePromptHash(entry.prompt));
-              }
-              // Motion is an optional per-racer enhancement: approved cycles
-              // publish as 192x192 atlases, while a quality rejection or an
-              // optional provider failure keeps the explicit approved 64x64
-              // neutral with an honest per-racer status. Required-art,
-              // suspension, cancellation, storage, and programming errors
-              // still fail the job.
-              for (let i = 0; i < entries.length; i++) {
-                const entry = entries[i]!;
-                const concept = i === 0 ? racingIdentity.playerCraftConcept : racingIdentity.rivalCrafts[i - 1]!.vehicleConcept;
-                const prompt = buildRacingLocomotionPrompt(racingIdentity.traversal!, concept, racingIdentity.artDirection);
-                const hash = imagePromptHash(prompt, buffers[i]!);
-                const version = `${RACING_LOCOMOTION_VERSION}-approved`;
-                const outcomeRole = RACING_MOTION_OUTCOME_ROLES[i]!;
-                const key = racingMotionTerminalKey(buffers[i]!, prompt);
-                const approved = assetWorkspace.loadPrivate(RACING_MOTION_ROLES[i]!, version, hash);
-                if (approved) {
-                  await assetWorkspace.store(entry.role, approved, version, hash);
-                  motionStatuses.push({ racer: slots[i]!.id, status: 'animated' });
-                  continue;
-                }
-                const terminal = parseRacingMotionTerminalOutcome(
-                  assetWorkspace.loadMotionOutcome(outcomeRole), key);
-                if (!terminal)
-                  emit('building-assets', `Animating ${slots[i]!.name}: ${motion} cycle…`);
-                const reference = await buildRacingBankEditReference(await extractRacingNeutralCell(buffers[i]!));
-                const result = await generateOptionalRacingMotion({
-                  base: buffers[i]!, prompt, motion, terminal,
-                  generate: async (candidatePrompt, correction) => {
-                    const activeReference = correction ? await buildRacingLocomotionReference(buffers[i]!) : reference;
-                    const candidate = await callImage({
-                      role: `racing-motion-${i}`,
-                      optional: true,
-                      label: `${slots[i]!.name} locomotion${correction ? ' correction' : ''}`,
-                      prompt: candidatePrompt, reference: activeReference, size: '1536x1024',
+                      isCancelled: () => abort.signal.aborted,
                     });
-                    // Preserve the latest sheet for failed-job diagnosis;
-                    // this private, unapproved version is never restored
-                    // as an accepted atlas or copied into a ready game.
-                    await assetWorkspace.storePrivate(RACING_MOTION_ROLES[i]!, candidate,
-                      `${RACING_LOCOMOTION_VERSION}-candidate`, imagePromptHash(candidatePrompt, activeReference));
-                    return candidate;
-                  },
-                  review: async (candidate) => mockImages ? { accepted: true } : callLlm('design', {
-                    system: racingLocomotionJudgePrompt(motion), user: `Subject: ${concept}. Art direction: ${racingIdentity.artDirection}.`,
-                    jsonSchema: racingLocomotionJudgeSchema, maxTokens: 700, timeoutMs: 120_000,
-                  }, { stage: 'building-assets', label: `Spark reviews ${slots[i]!.name} locomotion`, image: await sharp(candidate).resize(768, 768, { kernel: 'nearest' }).png().toBuffer(), reasoningEffort: 'low', optional: true }),
-                  checkActive: throwIfSuspended,
-                  isCancelled: () => abort.signal.aborted,
-                });
-                if (result.kind === 'animated') {
-                  await assetWorkspace.storePrivate(RACING_MOTION_ROLES[i]!, result.atlas, version, hash);
-                  await assetWorkspace.store(entry.role, result.atlas, version, hash);
-                  motionStatuses.push({ racer: slots[i]!.id, status: 'animated' });
-                } else {
-                  // Terminal for this base+prompt: an unrelated later retry
-                  // restores the recorded outcome instead of rerolling it.
-                  if (!terminal)
-                    await assetWorkspace.storeMotionOutcome(outcomeRole, JSON.stringify({
-                      version: RACING_LOCOMOTION_VERSION, key,
-                      outcome: result.outcome, reason: result.reason,
-                    }));
-                  const neutral = await extractRacingNeutralCell(buffers[i]!).catch(racingAssetFailure);
-                  await assetWorkspace.store(entry.role, neutral, version, hash);
-                  validationFailure(`racing-motion-${i}`);
-                  motionStatuses.push({ racer: slots[i]!.id, status: 'neutral', reason: result.reason });
-                  emit('building-assets', `${slots[i]!.name} keeps the approved rear (${result.outcome})`);
-                }
+                    if (result.kind === 'animated') {
+                      await assetWorkspace.storePrivate(
+                        RACING_MOTION_ROLES[i]!,
+                        result.atlas,
+                        version,
+                        hash,
+                      );
+                      await assetWorkspace.store(entry.role, result.atlas, version, hash);
+                      return { racer: slots[i]!.id, status: 'animated' };
+                    } else {
+                      // Terminal for this base+prompt: an unrelated later retry
+                      // restores the recorded outcome instead of rerolling it.
+                      if (!terminal)
+                        await assetWorkspace.storeMotionOutcome(
+                          outcomeRole,
+                          JSON.stringify({
+                            version: RACING_LOCOMOTION_VERSION,
+                            key,
+                            outcome: result.outcome,
+                            reason: result.reason,
+                          }),
+                        );
+                      const neutral = await extractRacingNeutralCell(buffers[i]!).catch(
+                        racingAssetFailure,
+                      );
+                      await assetWorkspace.store(entry.role, neutral, version, hash);
+                      validationFailure(`racing-motion-${i}`);
+                      emit(
+                        'building-assets',
+                        `${slots[i]!.name} keeps the approved rear (${result.outcome})`,
+                      );
+                      return { racer: slots[i]!.id, status: 'neutral', reason: result.reason };
+                    }
+                  }),
+                );
+                motionStatuses.push(...outcomes);
               }
-            }
+              return motionStatuses;
+            })();
+            const [motionStatuses] = await settleAll([rosterTask, worldTask]);
             racingArtStatus = {
               mode: 'generated',
               attempted: true,
@@ -5400,7 +5630,7 @@ export class GenerationRunner {
                   id: string;
                   png: Buffer;
                 }
-                const generateBossCandidate = async (
+                const generateBossCandidateUncached = async (
                   index: number,
                   retryGuidance = '',
                 ): Promise<BossCandidate | null> => {
@@ -5442,6 +5672,13 @@ export class GenerationRunner {
                     return null;
                   }
                 };
+                const generateBossCandidate = (
+                  ...args: Parameters<typeof generateBossCandidateUncached>
+                ) =>
+                  assetArtifacts.getOrCompute(
+                    JSON.stringify(['hshooter-boss-candidate-v1', job.attempt, pipelineSha, args]),
+                    () => generateBossCandidateUncached(...args),
+                  );
                 emit('building-assets', 'Painting three H-scroll boss candidates…');
                 let candidates = (
                   await settleAll([1, 2, 3].map((index) => generateBossCandidate(index)))
@@ -5651,7 +5888,10 @@ export class GenerationRunner {
                   );
                 }
 
-                const split = await splitGeneratedHShooterEnemyBoard(rawBoard);
+                const split = await assetArtifacts.getOrCompute(
+                  imagePromptHash(`hshooter-enemy-split-v1:${pipelineSha}`, rawBoard),
+                  () => splitGeneratedHShooterEnemyBoard(rawBoard!),
+                );
                 split.failures.forEach(({ id }) => validationFailure(`hshooter-enemy-board-${id}`));
                 const candidates: HShooterEnemyCandidate[] = [...split.candidates];
                 const missingRoles = GENERATED_HSHOOTER_ENEMIES.filter(
@@ -5663,59 +5903,68 @@ export class GenerationRunner {
                     `Repairing ${missingRoles.join(', ')} with one bounded role-specific replacement each…`,
                   );
                 }
-                for (const role of missingRoles) {
-                  const privateRole = HSHOOTER_ENEMY_REPLACEMENT_ASSET_ROLES[role];
-                  const roleFailures = split.failures
-                    .filter((failure) => failure.role === role)
-                    .map((failure) => failure.reason)
-                    .join('; ');
-                  const replacementPrompt = buildHShooterEnemyReplacementPrompt({
-                    ...promptOptions,
-                    role,
-                    correction:
-                      roleFailures ||
-                      'Return one complete broad silhouette with clean separation from the green background',
-                  });
-                  const replacementSha = imagePromptHash(replacementPrompt, keyArt);
-                  let rawReplacement = assetWorkspace.loadPrivate(
-                    privateRole,
-                    HSHOOTER_ENEMY_REPLACEMENT_PROMPT_VERSION,
-                    replacementSha,
-                  );
-                  if (!rawReplacement) {
-                    rawReplacement = await callImage({
-                      role: `hshooter-enemy-replacement-${role}`,
-                      label: `H-scroll ${role} replacement`,
-                      prompt: replacementPrompt,
-                      reference: keyArt,
-                      size: '1024x1024',
+                const replacements = await settleAll(
+                  missingRoles.map(async (role) => {
+                    const privateRole = HSHOOTER_ENEMY_REPLACEMENT_ASSET_ROLES[role];
+                    const roleFailures = split.failures
+                      .filter((failure) => failure.role === role)
+                      .map((failure) => failure.reason)
+                      .join('; ');
+                    const replacementPrompt = buildHShooterEnemyReplacementPrompt({
+                      ...promptOptions,
+                      role,
+                      correction:
+                        roleFailures ||
+                        'Return one complete broad silhouette with clean separation from the green background',
                     });
-                    await assetWorkspace.storePrivate(
+                    const replacementSha = imagePromptHash(replacementPrompt, keyArt);
+                    let rawReplacement = assetWorkspace.loadPrivate(
                       privateRole,
-                      rawReplacement,
                       HSHOOTER_ENEMY_REPLACEMENT_PROMPT_VERSION,
                       replacementSha,
                     );
-                  }
-                  try {
-                    const processed = await processGeneratedHShooterEnemy(rawReplacement, role);
-                    candidates.push({
-                      id: `${role}-replacement`,
-                      role,
-                      png: processed.png,
-                      metrics: processed.metrics,
-                    });
-                  } catch (error) {
-                    throwIfSuspended(error);
-                    validationFailure(`hshooter-enemy-replacement-${role}`);
-                    await assetWorkspace.discardPrivate(privateRole);
-                    throw new PipelineError(
-                      'image-invalid',
-                      `Required H-scroll ${role} replacement failed validation: ${error instanceof Error ? error.message : String(error)}`,
-                      'building-assets',
-                    );
-                  }
-                }
+                    if (!rawReplacement) {
+                      rawReplacement = await callImage({
+                        role: `hshooter-enemy-replacement-${role}`,
+                        label: `H-scroll ${role} replacement`,
+                        prompt: replacementPrompt,
+                        reference: keyArt,
+                        size: '1024x1024',
+                      });
+                      await assetWorkspace.storePrivate(
+                        privateRole,
+                        rawReplacement,
+                        HSHOOTER_ENEMY_REPLACEMENT_PROMPT_VERSION,
+                        replacementSha,
+                      );
+                    }
+                    try {
+                      const processed = await assetArtifacts.getOrCompute(
+                        imagePromptHash(
+                          `hshooter-enemy-replacement-v1:${pipelineSha}:${role}`,
+                          rawReplacement,
+                        ),
+                        () => processGeneratedHShooterEnemy(rawReplacement!, role),
+                      );
+                      return {
+                        id: `${role}-replacement`,
+                        role,
+                        png: processed.png,
+                        metrics: processed.metrics,
+                      };
+                    } catch (error) {
+                      throwIfSuspended(error);
+                      validationFailure(`hshooter-enemy-replacement-${role}`);
+                      await assetWorkspace.discardPrivate(privateRole);
+                      throw new PipelineError(
+                        'image-invalid',
+                        `Required H-scroll ${role} replacement failed validation: ${error instanceof Error ? error.message : String(error)}`,
+                        'building-assets',
+                      );
+                    }
+                  }),
+                );
+                candidates.push(...replacements);
 
                 const unresolved = GENERATED_HSHOOTER_ENEMIES.filter(
                   (role) => !candidates.some((candidate) => candidate.role === role),
@@ -5861,7 +6110,7 @@ export class GenerationRunner {
                   id: string;
                   png: Buffer;
                 }
-                const generateBossCandidate = async (
+                const generateBossCandidateUncached = async (
                   index: number,
                   retryGuidance = '',
                 ): Promise<BossCandidate | null> => {
@@ -5903,6 +6152,13 @@ export class GenerationRunner {
                     return null;
                   }
                 };
+                const generateBossCandidate = (
+                  ...args: Parameters<typeof generateBossCandidateUncached>
+                ) =>
+                  assetArtifacts.getOrCompute(
+                    JSON.stringify(['shooter-boss-candidate-v1', job.attempt, pipelineSha, args]),
+                    () => generateBossCandidateUncached(...args),
+                  );
 
                 emit('building-assets', 'Painting three vertical-shooter boss candidates…');
                 let candidates = (
@@ -6098,7 +6354,10 @@ export class GenerationRunner {
                   );
                 }
 
-                const split = await splitGeneratedShooterEnemyBoard(rawBoard);
+                const split = await assetArtifacts.getOrCompute(
+                  imagePromptHash(`shooter-enemy-split-v1:${pipelineSha}`, rawBoard),
+                  () => splitGeneratedShooterEnemyBoard(rawBoard!),
+                );
                 split.failures.forEach(({ id }) => validationFailure(`shooter-enemy-board-${id}`));
                 const candidates: ShooterEnemyCandidate[] = [...split.candidates];
                 const missingRoles = GENERATED_SHOOTER_ENEMIES.filter(
@@ -6110,59 +6369,68 @@ export class GenerationRunner {
                     `Repairing ${missingRoles.join(', ')} with one bounded role-specific call each…`,
                   );
                 }
-                for (const role of missingRoles) {
-                  const privateRole = SHOOTER_ENEMY_REPLACEMENT_ASSET_ROLES[role];
-                  const correction =
-                    split.failures
-                      .filter((failure) => failure.role === role)
-                      .map((failure) => failure.reason)
-                      .join('; ') ||
-                    'Return one complete top-down silhouette cleanly separated from the green background';
-                  const replacementPrompt = buildShooterEnemyReplacementPrompt({
-                    ...promptOptions,
-                    role,
-                    correction,
-                  });
-                  const replacementSha = imagePromptHash(replacementPrompt, keyArt);
-                  let rawReplacement = assetWorkspace.loadPrivate(
-                    privateRole,
-                    SHOOTER_ENEMY_REPLACEMENT_PROMPT_VERSION,
-                    replacementSha,
-                  );
-                  if (!rawReplacement) {
-                    rawReplacement = await callImage({
-                      role: `shooter-enemy-replacement-${role}`,
-                      label: `Vertical-shooter ${role} replacement`,
-                      prompt: replacementPrompt,
-                      reference: keyArt,
-                      size: '1024x1024',
+                const replacements = await settleAll(
+                  missingRoles.map(async (role) => {
+                    const privateRole = SHOOTER_ENEMY_REPLACEMENT_ASSET_ROLES[role];
+                    const correction =
+                      split.failures
+                        .filter((failure) => failure.role === role)
+                        .map((failure) => failure.reason)
+                        .join('; ') ||
+                      'Return one complete top-down silhouette cleanly separated from the green background';
+                    const replacementPrompt = buildShooterEnemyReplacementPrompt({
+                      ...promptOptions,
+                      role,
+                      correction,
                     });
-                    await assetWorkspace.storePrivate(
+                    const replacementSha = imagePromptHash(replacementPrompt, keyArt);
+                    let rawReplacement = assetWorkspace.loadPrivate(
                       privateRole,
-                      rawReplacement,
                       SHOOTER_ENEMY_REPLACEMENT_PROMPT_VERSION,
                       replacementSha,
                     );
-                  }
-                  try {
-                    const processed = await processGeneratedShooterEnemy(rawReplacement, role);
-                    candidates.push({
-                      id: `${role}-replacement`,
-                      role,
-                      png: processed.png,
-                      metrics: processed.metrics,
-                    });
-                  } catch (error) {
-                    throwIfSuspended(error);
-                    validationFailure(`shooter-enemy-replacement-${role}`);
-                    await assetWorkspace.discardPrivate(privateRole);
-                    throw new PipelineError(
-                      'image-invalid',
-                      `Required vertical ${role} replacement failed validation: ${error instanceof Error ? error.message : String(error)}`,
-                      'building-assets',
-                    );
-                  }
-                }
+                    if (!rawReplacement) {
+                      rawReplacement = await callImage({
+                        role: `shooter-enemy-replacement-${role}`,
+                        label: `Vertical-shooter ${role} replacement`,
+                        prompt: replacementPrompt,
+                        reference: keyArt,
+                        size: '1024x1024',
+                      });
+                      await assetWorkspace.storePrivate(
+                        privateRole,
+                        rawReplacement,
+                        SHOOTER_ENEMY_REPLACEMENT_PROMPT_VERSION,
+                        replacementSha,
+                      );
+                    }
+                    try {
+                      const processed = await assetArtifacts.getOrCompute(
+                        imagePromptHash(
+                          `shooter-enemy-replacement-v1:${pipelineSha}:${role}`,
+                          rawReplacement,
+                        ),
+                        () => processGeneratedShooterEnemy(rawReplacement!, role),
+                      );
+                      return {
+                        id: `${role}-replacement`,
+                        role,
+                        png: processed.png,
+                        metrics: processed.metrics,
+                      };
+                    } catch (error) {
+                      throwIfSuspended(error);
+                      validationFailure(`shooter-enemy-replacement-${role}`);
+                      await assetWorkspace.discardPrivate(privateRole);
+                      throw new PipelineError(
+                        'image-invalid',
+                        `Required vertical ${role} replacement failed validation: ${error instanceof Error ? error.message : String(error)}`,
+                        'building-assets',
+                      );
+                    }
+                  }),
+                );
+                candidates.push(...replacements);
 
                 const unresolved = GENERATED_SHOOTER_ENEMIES.filter(
                   (role) => !candidates.some((candidate) => candidate.role === role),
@@ -7041,7 +7309,7 @@ export class GenerationRunner {
         spec.archetype === 'fighter'
           ? (async (): Promise<void> => {
               const fighterSpec = spec as FighterSpec;
-              const [keyArt, bossArt] = await settleAll([keyArtTask, storyAssets.boss]);
+              const keyArt = await keyArtTask;
               const player: FighterCharacter = fighterSpec.player;
               const boss: FighterCharacter = {
                 name: fighterSpec.boss.name,
@@ -7058,7 +7326,7 @@ export class GenerationRunner {
               interface RosterEntry {
                 slot: FighterRosterSlot;
                 character: FighterCharacter;
-                source: Buffer;
+                source: Buffer | Promise<Buffer>;
                 sourceKind: 'photo' | 'key-art' | 'boss-art';
                 photoIdentity: boolean;
               }
@@ -7080,7 +7348,7 @@ export class GenerationRunner {
                 {
                   slot: 'boss',
                   character: boss,
-                  source: bossArt,
+                  source: storyAssets.boss,
                   sourceKind: 'boss-art',
                   photoIdentity: false,
                 },
@@ -7144,42 +7412,13 @@ export class GenerationRunner {
                 })),
                 artDirection: fighterSpec.artDirection,
                 keyArt: sha256(keyArt),
-                bossArt: sha256(bossArt),
                 photo: photoReference ? sha256(photoReference) : null,
               });
-              const pipelineSha = imagePromptHash(pipelineFingerprint);
-              const cached = Object.fromEntries(
-                FIGHTER_ROSTER_SLOTS.map((slot) => [
-                  slot,
-                  assetWorkspace.load(
-                    FIGHTER_ROSTER_ASSET_ROLES[slot],
-                    FIGHTER_ROSTER_PIPELINE_PROMPT_VERSION,
-                    pipelineSha,
-                  ),
-                ]),
-              ) as Record<FighterRosterSlot, Buffer | null>;
-              for (const slot of FIGHTER_ROSTER_SLOTS) {
-                const atlas = cached[slot];
-                if (!atlas) continue;
-                try {
-                  await validateGeneratedFighterAtlas(atlas);
-                } catch {
-                  cached[slot] = null;
-                  await assetWorkspace.discard([FIGHTER_ROSTER_ASSET_ROLES[slot]]);
-                }
-              }
-              const pendingRoster = roster.filter((entry) => !cached[entry.slot]);
-              const restoredCount = roster.length - pendingRoster.length;
-              if (restoredCount > 0) {
-                emit(
-                  'building-assets',
-                  `Restored ${restoredCount}/5 completed fighter atlases; generating only the unfinished roster slots`,
-                );
-              }
-              if (pendingRoster.length === 0) {
-                fighterArtStatus = { mode: 'generated', attempted: true };
-                return;
-              }
+              const pipelineHashes = new Map<FighterRosterSlot, string>();
+              const cached: Partial<Record<FighterRosterSlot, Buffer>> = {};
+              const fighterArtifacts = new ArtifactCache(
+                join(this.files.checkpointsDir, jobId, 'fighter'),
+              );
 
               interface IdentityCandidate extends FighterIdentityCandidateDescriptor {
                 raw: Buffer;
@@ -7188,7 +7427,7 @@ export class GenerationRunner {
               interface PoseCandidate extends FighterPoseCandidateDescriptor {
                 processed: Buffer;
               }
-              const generatedCandidate = async (opts: {
+              const generatedCandidateUncached = async (opts: {
                 role: string;
                 label: string;
                 prompt: string;
@@ -7223,13 +7462,43 @@ export class GenerationRunner {
                 }
               };
 
-              emit(
-                'building-assets',
-                `Painting ${pendingRoster.length * 3} fighter identity foundations for ${pendingRoster.length} unfinished roster slot${pendingRoster.length === 1 ? '' : 's'}…`,
-              );
-              const identityCandidates = (
-                await settleAll(
-                  pendingRoster.flatMap((entry) =>
+              const generatedCandidate = (opts: Parameters<typeof generatedCandidateUncached>[0]) =>
+                fighterArtifacts.getOrCompute(
+                  imagePromptHash(
+                    JSON.stringify([
+                      'candidate-v1',
+                      job.attempt,
+                      GENERATED_FIGHTER_POSE_PROMPT_VERSION,
+                      opts.role,
+                      opts.prompt,
+                    ]),
+                    opts.reference,
+                  ),
+                  () => generatedCandidateUncached(opts),
+                );
+              emit('building-assets', 'Preparing unfinished fighter identity foundations…');
+              // Each character starts when its own source is ready. The boss's
+              // story illustration must not hold up the other four identities.
+              const identityPools = await settleAll(
+                roster.map(async (entry) => {
+                  const source = await entry.source;
+                  const hash = imagePromptHash(pipelineFingerprint, source);
+                  pipelineHashes.set(entry.slot, hash);
+                  const atlas = assetWorkspace.load(
+                    FIGHTER_ROSTER_ASSET_ROLES[entry.slot],
+                    FIGHTER_ROSTER_PIPELINE_PROMPT_VERSION,
+                    hash,
+                  );
+                  if (atlas) {
+                    try {
+                      await validateGeneratedFighterAtlas(atlas);
+                      cached[entry.slot] = atlas;
+                      return [];
+                    } catch {
+                      await assetWorkspace.discard([FIGHTER_ROSTER_ASSET_ROLES[entry.slot]]);
+                    }
+                  }
+                  return settleAll(
                     [1, 2, 3].map(async (index): Promise<IdentityCandidate | null> => {
                       const id = `${entry.slot}-I${index}`;
                       const result = await generatedCandidate({
@@ -7246,7 +7515,7 @@ export class GenerationRunner {
                           source: entry.sourceKind,
                           ...(entry.photoIdentity && identity ? { identity } : {}),
                         }),
-                        reference: entry.source,
+                        reference: source,
                       });
                       return result
                         ? {
@@ -7259,9 +7528,24 @@ export class GenerationRunner {
                           }
                         : null;
                     }),
-                  ),
-                )
-              ).filter((candidate): candidate is IdentityCandidate => candidate !== null);
+                  );
+                }),
+              );
+              const pendingRoster = roster.filter((entry) => !cached[entry.slot]);
+              const restoredCount = roster.length - pendingRoster.length;
+              if (restoredCount)
+                emit(
+                  'building-assets',
+                  `Restored ${restoredCount}/5 completed fighter atlases; generating only the unfinished roster slots`,
+                );
+              if (!pendingRoster.length) {
+                fighterArtStatus = { mode: 'generated', attempted: true };
+                return;
+              }
+              const bossArt = await storyAssets.boss;
+              const identityCandidates = identityPools
+                .flat()
+                .filter((candidate): candidate is IdentityCandidate => candidate !== null);
               for (const entry of pendingRoster) {
                 if (!identityCandidates.some((candidate) => candidate.slot === entry.slot)) {
                   throw new Error(
@@ -7270,76 +7554,100 @@ export class GenerationRunner {
                 }
               }
 
-              const identityDescriptors: FighterIdentityCandidateDescriptor[] =
-                identityCandidates.map(({ id, slot, name, visualConcept, photoIdentity }) => ({
-                  id,
-                  slot,
-                  name,
-                  visualConcept,
-                  photoIdentity,
-                }));
-              const identityBoard = await buildFighterIdentityJudgeBoard({
-                ...(photoReference ? { sourcePhoto: photoReference } : {}),
-                keyArt,
-                bossArt,
-                candidates: identityCandidates,
-              });
-              const firstIdentityBySlot = Object.fromEntries(
-                pendingRoster.map(({ slot }) => [
-                  slot,
-                  identityDescriptors.find((candidate) => candidate.slot === slot)!,
+              // A completed atlas must not change the already-approved identity
+              // selection for unfinished fighters and trigger another cast review.
+              const selectionKey = imagePromptHash(
+                JSON.stringify([
+                  'fighter-identity-selection-v1',
+                  job.attempt,
+                  pipelineFingerprint,
+                  FIGHTER_ROSTER_SLOTS.map((slot) => pipelineHashes.get(slot)),
                 ]),
-              ) as Partial<Record<FighterRosterSlot, FighterIdentityCandidateDescriptor>>;
-              const mockIdentityDecision = {
-                candidateReviews: identityDescriptors.map(({ id, slot }) => ({
-                  id,
-                  slot,
-                  scores: { identity: 5, concept: 5, costume: 5, silhouette: 5, technical: 5 },
-                  fatalIssues: [],
-                  summary: 'Mock identity-safe roster foundation.',
-                })),
-                selections: pendingRoster.map(({ slot }) => ({
-                  slot,
-                  accepted: true,
-                  candidateId: firstIdentityBySlot[slot]!.id,
-                  confidence: 1,
-                  rationale: 'Mock selection.',
-                  retryGuidance: '',
-                })),
-                castReview: {
-                  distinctiveness: 5,
-                  styleConsistency: 5,
-                  fatalIssues: [],
-                  summary: 'Mock coherent and distinct cast.',
-                },
-              };
-              let rawIdentityDecision: unknown = mockIdentityDecision;
-              if (!mockImages) {
-                const prompt = buildFighterIdentityJudgePrompt(
-                  identityDescriptors,
-                  fighterSpec.artDirection,
-                );
-                rawIdentityDecision = await callLlm(
-                  'design',
-                  {
-                    ...prompt,
-                    jsonSchema: buildFighterIdentityJudgeSchema(identityDescriptors),
-                    maxTokens: 5200,
-                    timeoutMs: 120_000,
-                  },
-                  {
-                    stage: 'building-assets',
-                    label: 'Spark selected the fighter identity foundations',
-                    image: identityBoard,
-                    reasoningEffort: 'low',
-                  },
-                );
-              }
-              const identityDecision = normalizeFighterIdentityJudgeDecision(
-                rawIdentityDecision,
-                identityDescriptors,
               );
-              const selectedIdentityIds = bestFighterIdentityCandidateIds(identityDecision);
+              const selectedIdentityIds = await fighterArtifacts.getOrCompute(
+                selectionKey,
+                async () => {
+                  const identityDescriptors: FighterIdentityCandidateDescriptor[] =
+                    identityCandidates.map(({ id, slot, name, visualConcept, photoIdentity }) => ({
+                      id,
+                      slot,
+                      name,
+                      visualConcept,
+                      photoIdentity,
+                    }));
+                  const identityBoard = await buildFighterIdentityJudgeBoard({
+                    ...(photoReference ? { sourcePhoto: photoReference } : {}),
+                    keyArt,
+                    bossArt,
+                    candidates: identityCandidates,
+                  });
+                  const firstIdentityBySlot = Object.fromEntries(
+                    pendingRoster.map(({ slot }) => [
+                      slot,
+                      identityDescriptors.find((candidate) => candidate.slot === slot)!,
+                    ]),
+                  ) as Partial<Record<FighterRosterSlot, FighterIdentityCandidateDescriptor>>;
+                  const mockIdentityDecision = {
+                    candidateReviews: identityDescriptors.map(({ id, slot }) => ({
+                      id,
+                      slot,
+                      scores: { identity: 5, concept: 5, costume: 5, silhouette: 5, technical: 5 },
+                      fatalIssues: [],
+                      summary: 'Mock identity-safe roster foundation.',
+                    })),
+                    selections: pendingRoster.map(({ slot }) => ({
+                      slot,
+                      accepted: true,
+                      candidateId: firstIdentityBySlot[slot]!.id,
+                      confidence: 1,
+                      rationale: 'Mock selection.',
+                      retryGuidance: '',
+                    })),
+                    castReview: {
+                      distinctiveness: 5,
+                      styleConsistency: 5,
+                      fatalIssues: [],
+                      summary: 'Mock coherent and distinct cast.',
+                    },
+                  };
+                  let rawIdentityDecision: unknown = mockIdentityDecision;
+                  if (!mockImages) {
+                    const prompt = buildFighterIdentityJudgePrompt(
+                      identityDescriptors,
+                      fighterSpec.artDirection,
+                    );
+                    rawIdentityDecision = await callLlm(
+                      'design',
+                      {
+                        ...prompt,
+                        jsonSchema: buildFighterIdentityJudgeSchema(identityDescriptors),
+                        maxTokens: 5200,
+                        timeoutMs: 120_000,
+                      },
+                      {
+                        stage: 'building-assets',
+                        label: 'Spark selected the fighter identity foundations',
+                        image: identityBoard,
+                        reasoningEffort: 'low',
+                      },
+                    );
+                  }
+                  const identityDecision = normalizeFighterIdentityJudgeDecision(
+                    rawIdentityDecision,
+                    identityDescriptors,
+                  );
+                  const selectedIds = bestFighterIdentityCandidateIds(identityDecision);
+                  for (const { slot } of pendingRoster)
+                    if (
+                      !identityCandidates.some(
+                        (candidate) =>
+                          candidate.slot === slot && candidate.id === selectedIds[slot],
+                      )
+                    )
+                      throw new Error(`Spark did not select a ${slot} identity`);
+                  return selectedIds;
+                },
+              );
               const selectedFoundations = Object.fromEntries(
                 pendingRoster.map(({ slot }) => {
                   const selected = identityCandidates.find(
@@ -7383,7 +7691,7 @@ export class GenerationRunner {
                   };
 
                   const sheetSeed = await buildFighterPoseSheetSeed(anchor);
-                  const generatePoseSheet = async (
+                  const generatePoseSheetUncached = async (
                     group: FighterPoseSheetGroup,
                   ): Promise<PoseCandidate[]> => {
                     const id = `${entry.slot}-sheet-${group.id}`;
@@ -7457,6 +7765,20 @@ export class GenerationRunner {
                     return valid;
                   };
 
+                  const generatePoseSheet = (group: FighterPoseSheetGroup) =>
+                    fighterArtifacts.getOrCompute(
+                      imagePromptHash(
+                        JSON.stringify([
+                          'sheet-v1',
+                          job.attempt,
+                          FIGHTER_POSE_SHEET_PROMPT_VERSION,
+                          pipelineHashes.get(entry.slot),
+                          group.id,
+                        ]),
+                        sheetSeed,
+                      ),
+                      () => generatePoseSheetUncached(group),
+                    );
                   const candidates = (
                     await settleAll(
                       FIGHTER_POSE_SHEET_GROUPS.map((group) => generatePoseSheet(group)),
@@ -7632,7 +7954,7 @@ export class GenerationRunner {
                     FIGHTER_ROSTER_ASSET_ROLES[entry.slot],
                     atlas,
                     FIGHTER_ROSTER_PIPELINE_PROMPT_VERSION,
-                    pipelineSha,
+                    pipelineHashes.get(entry.slot)!,
                   );
                   return [entry.slot, atlas] as const;
                 }),
@@ -7774,6 +8096,7 @@ export class GenerationRunner {
                     imagePromptHash(
                       JSON.stringify([
                         'platformer-candidate-v1',
+                        job.attempt,
                         GENERATED_PLATFORMER_POSE_PROMPT_VERSION,
                         args[0],
                         args[1],
@@ -8265,6 +8588,8 @@ export class GenerationRunner {
                   ]),
                 ) as Record<GeneratedPlatformerPose, Buffer>;
                 await generatePlatformerActions({
+                  cache: new ArtifactCache(join(this.files.checkpointsDir, jobId, 'actions')),
+                  attempt: job.attempt,
                   spec,
                   base,
                   source: photoReference ?? (await keyArtTask),

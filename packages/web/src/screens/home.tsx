@@ -609,14 +609,18 @@ function DetailPanel(props: {
         <div class="home-synopsis">
           {spec ? (
             <p>{spec.story.intro.join(' ')}</p>
-          ) : (
+          ) : item.status !== 'failed' ? (
             <p style="color:var(--text-dim)">
               <Icon name="sparkle" class={pending ? 'spin' : ''} />{' '}
               {pending ? 'Story and details are still taking shape…' : 'Loading…'}
             </p>
-          )}
+          ) : null}
           {item.status === 'failed' && item.failure && (
-            <p style="color:var(--danger)">{item.failure.message}</p>
+            <p style="color:var(--danger)">
+              {item.failure.code === 'image-content-policy'
+                ? 'The image provider declined an image request under its content policy. It did not give a specific reason.'
+                : item.failure.message}
+            </p>
           )}
           {!item.golden && props.detail && (
             <p style="color:var(--text-dim);font-size:13px">
@@ -626,9 +630,13 @@ function DetailPanel(props: {
                 : ''}
             </p>
           )}
-          {props.publishFailed ? (
+          {item.status === 'failed' ? (
             <p class="home-publish-error">
-              <Icon name="warning" /> Publish failed — press the cloud to retry.
+              <Icon name="warning" /> Generation failed — select Retry to try again.
+            </p>
+          ) : props.publishFailed && props.actions.some((a) => a.key === 'publish') ? (
+            <p class="home-publish-error">
+              <Icon name="warning" /> Cloud publishing failed — select the cloud button to retry.
             </p>
           ) : null}
           <div class="home-board-title">LEADERBOARD</div>

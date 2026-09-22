@@ -6,7 +6,7 @@ import { GENERATION, LIKENESS_OVAL, MAX_PHOTO_DIM, type ArchetypeId } from '@spa
 import { api, type SettingsPayload } from '../api';
 import { FooterLegend, Modal } from '../components';
 import { Icon, Btn } from '../icons';
-import { getUserMediaForDevice } from '../media';
+import { cameraErrorMessage, getUserMediaForDevice } from '../media';
 import { shellInput } from '../shell-input';
 import { buildCreationPrompt } from '../creation-brief';
 import { pickSurpriseArchetype } from '../surprise';
@@ -225,13 +225,8 @@ export function WizardScreen(props: {
         if (videoRef.current) videoRef.current.srcObject = stream;
       })
       .catch((error: Error) => {
-        setCameraError(
-          error.name === 'NotAllowedError'
-            ? 'Camera access was denied.'
-            : error.message === 'getUserMedia timed out'
-              ? 'Camera timed out. Allow camera access on the device, then retry.'
-              : 'No camera found.',
-        );
+        if (canceled) return;
+        setCameraError(cameraErrorMessage(error));
         setPhotoMode('error');
         setCursor(0);
       });
@@ -239,7 +234,7 @@ export function WizardScreen(props: {
       canceled = true;
       stopCamera();
     };
-  }, [step, photoMode]);
+  }, [step, photoMode, props.settings?.devices?.cameraId]);
 
   useEffect(() => {
     void api

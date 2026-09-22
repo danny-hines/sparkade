@@ -5,6 +5,7 @@ import { compilePlatformerEncounterRoute, platformerStyleExample } from '@sparka
 import {
   PLATFORMER_ENCOUNTERS,
   PLATFORMER_ENCOUNTER_IDS,
+  ENCOUNTER_ROUTE_SCHEMA,
   encounterPreference,
   encounterModifiers,
   mechanicalFingerprint,
@@ -49,6 +50,47 @@ function route(
 }
 
 describe('compiled platformer encounters', () => {
+  it.each([
+    {
+      pattern: 'bounce-run',
+      enemy: 'flyer',
+      modifier: 'none',
+      reason: 'enemy "flyer"; choose none, walker, chaser',
+    },
+    {
+      pattern: 'patrol-duel',
+      enemy: 'shooter',
+      modifier: 'none',
+      reason: 'enemy "shooter"; choose none, walker, chaser',
+    },
+    {
+      pattern: 'wall-ascent',
+      enemy: 'walker',
+      modifier: 'spring',
+      reason: 'modifier "spring"; choose none',
+    },
+  ] as const)(
+    'rejects $pattern + $enemy + $modifier before generation and explains the repair',
+    ({ pattern, enemy, modifier, reason }) => {
+      const plan = route(pattern, 1, 'right');
+      plan.sections[0]!.enemy = enemy;
+      plan.sections[0]!.modifier = modifier;
+      expect(
+        validateAgainst('encounter-compatibility', ENCOUNTER_ROUTE_SCHEMA, plan).length,
+      ).toBeGreaterThan(0);
+      expect(() => compilePlatformerEncounterRoute(plan)).toThrow(reason);
+    },
+  );
+
+  it('rejects a tower pattern in a horizontal route in the generation schema', () => {
+    const plan = route('high-low', 1, 'right');
+    plan.sections[0]!.pattern = 'wall-ascent';
+    expect(
+      validateAgainst('encounter-compatibility', ENCOUNTER_ROUTE_SCHEMA, plan).length,
+    ).toBeGreaterThan(0);
+    expect(() => compilePlatformerEncounterRoute(plan)).toThrow('requires orientation "tower"');
+  });
+
   it.each(
     PLATFORMER_ENCOUNTER_IDS.flatMap((pattern) =>
       encounterModifiers(pattern)
@@ -69,6 +111,7 @@ describe('compiled platformer encounters', () => {
     ({ pattern, modifier, variant, direction }) => {
       const plan = route(pattern, variant, direction);
       plan.sections[0]!.modifier = modifier;
+      expect(validateAgainst('encounter-compatibility', ENCOUNTER_ROUTE_SCHEMA, plan)).toEqual([]);
       const level = {
         name: 'Modified',
         musicSong: 'theme',
@@ -144,6 +187,7 @@ describe('compiled platformer encounters', () => {
     '$pattern variant $variant $direction has a connected route and stable provenance',
     ({ pattern, variant, direction }) => {
       const r = route(pattern, variant, direction);
+      expect(validateAgainst('encounter-compatibility', ENCOUNTER_ROUTE_SCHEMA, r)).toEqual([]);
       const level = {
         name: 'Encounter test',
         musicSong: 'theme',

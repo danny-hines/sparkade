@@ -89,6 +89,9 @@ describe('Adventure player pose sheets', () => {
     const { data, info } = await sharp(seed).raw().toBuffer({ resolveWithObject: true });
     for (let index = 0; index < 6; index++) {
       const rect = fighterPoseSheetCellRect(index);
+      // Contain-resize padding must stay green, not create black panel bars.
+      const padding = ((rect.top + 43) * info.width + rect.left + 30) * info.channels;
+      expect([...data.subarray(padding, padding + 3)]).toEqual([0, 255, 0]);
       let nonGreen = 0;
       for (let y = rect.top; y < rect.top + rect.height; y++) {
         for (let x = rect.left; x < rect.left + rect.width; x++) {
@@ -100,6 +103,8 @@ describe('Adventure player pose sheets', () => {
       }
       expect(nonGreen).toBeGreaterThan(1000);
     }
+    const cells = await splitGeneratedAdventurePlayerSheet(seed, ADVENTURE_PLAYER_SHEET_GROUPS[0]);
+    expect(cells.map((cell) => cell.error)).toEqual(Array(6).fill(undefined));
   });
 
   it('segments one generated sheet into six native foot-anchored poses', async () => {

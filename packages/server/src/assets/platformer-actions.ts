@@ -24,7 +24,7 @@ import {
   normalizePlatformerJumpJudgeDecision,
 } from './platformer-jump-judge';
 
-export const PLATFORMER_ACTION_PROMPT_VERSION = 'platformer-actions-v4';
+export const PLATFORMER_ACTION_PROMPT_VERSION = 'platformer-actions-v6';
 export const PLATFORMER_ACTION_MAX_CANDIDATES = 4;
 
 interface ActionRepair {
@@ -44,7 +44,9 @@ export async function buildPlatformerActionReference(
   pose: PlatformerActionPose,
   approved: Buffer,
   repair: boolean,
+  referenceMode: 'pose' | 'identity' = 'pose',
 ): Promise<Buffer> {
+  if (platformerActionReference(pose) === 'wallSlide') referenceMode = 'pose';
   if (!repair || !pose.includes('Up')) return prepareGeneratedPlatformerReference(approved);
   const character = await sharp(approved)
     .resize(704, 800, { fit: 'contain', kernel: 'nearest', background: '#00ff00' })
@@ -52,7 +54,7 @@ export async function buildPlatformerActionReference(
     .toBuffer();
   const guide = Buffer.from(`<svg width="1024" height="1024" xmlns="http://www.w3.org/2000/svg">
     <rect width="1024" height="1024" fill="#eeeeee"/>
-    <text x="28" y="52" font-size="28" font-family="sans-serif">APPROVED CHARACTER / KEEP STRIDE</text>
+    <text x="28" y="52" font-size="28" font-family="sans-serif">APPROVED CHARACTER / ${referenceMode === 'pose' ? 'KEEP STRIDE' : 'IDENTITY ONLY'}</text>
     <text x="720" y="120" font-size="22" font-family="sans-serif">ARM AIM ONLY</text>
     <path d="M765 650 L890 650 L890 410" fill="none" stroke="#333333" stroke-width="26" stroke-linejoin="round"/>
     <path d="M850 405 Q890 445 930 405" fill="none" stroke="#333333" stroke-width="16"/>
@@ -70,14 +72,22 @@ export async function buildPlatformerActionReference(
 export function buildPlatformerActionPrompt(
   pose: PlatformerActionPose,
   options: PlatformerPosePromptOptions = {},
+  referenceMode: 'pose' | 'identity' = 'pose',
 ): string {
   const base = buildPlatformerPosePrompt('sideIdle', options).replace('112x128', '160x128');
+  const description =
+    referenceMode === 'identity'
+      ? PLATFORMER_ACTION_DESCRIPTIONS[pose].replace('; preserve the reference running legs', '')
+      : PLATFORMER_ACTION_DESCRIPTIONS[pose];
   return (
     base.replace(
       /Pose: .*?\. Show the complete silhouette/,
-      `Pose: ${PLATFORMER_ACTION_DESCRIPTIONS[pose]}. Show the complete silhouette`,
+      `Pose: ${description}. Show the complete silhouette`,
     ) +
     ` Action frame ID: ${pose}. The reference is an approved frame of this character. Preserve its exact head, costume, body scale and proportions while changing ONLY the limbs and orientation needed for this action. Hands remain empty; the runtime draws the bolt or energy arc. Keep all limbs compact enough to fit the same canvas. Do not add effects or scenery.` +
+    (referenceMode === 'identity' && platformerActionReference(pose) !== 'wallSlide'
+      ? ' The standing reference establishes IDENTITY AND COSTUME ONLY. Replace its neutral limb posture with the requested action: running needs a wide separated stride, and jumping needs bent knees with both feet airborne. Never preserve standing legs for a running or airborne action.'
+      : '') +
     (platformerActionReference(pose) === 'wallSlide'
       ? ' The attached reference is the APPROVED WALL-SLIDE frame. Keep the exact bent legs, both feet pressing toward the RIGHT wall, body position and one braced hand from that frame. Change only the head turn and FREE ARM needed to aim. Remain suspended on that imaginary wall, never stand or crouch on a floor.'
       : '')
@@ -86,7 +96,11 @@ export function buildPlatformerActionPrompt(
 
 export interface PlatformerActionGenerationOptions {
   spec: PlatformerSpec;
-  base: Record<PlatformerBasePose, Buffer>;
+  base: Pick<Record<PlatformerBasePose, Buffer>, 'idle' | 'sideIdle'> &
+    Partial<Record<PlatformerBasePose, Buffer>>;
+  /** Identity mode starts actions alongside movement generation. All named-pose
+   * reviews remain required; wall attacks still use the approved wall slide. */
+  referenceMode?: 'pose' | 'identity';
   source: Buffer;
   sourceKind: 'photo' | 'key-art';
   wardrobe: PlatformerPosePromptOptions;
@@ -126,18 +140,30 @@ export async function generatePlatformerActions(
   };
   const referenceFor = (pose: PlatformerActionPose) => {
     const ref = platformerActionReference(pose);
-    return ref === 'wallSlide' ? accepted.wallSlide : o.base[ref];
+    return ref === 'wallSlide'
+      ? accepted.wallSlide
+      : o.referenceMode === 'identity'
+        ? o.base.sideIdle
+        : o.base[ref];
   };
   // Wall combat edits the accepted slide so it cannot lose its contact posture.
   const groups = [
     required.filter((p) => platformerActionReference(p) !== 'wallSlide'),
     required.filter((p) => platformerActionReference(p) === 'wallSlide'),
   ];
-  for (const group of groups) {
-    if (group.some((pose) => !referenceFor(pose))) continue;
+  let resolveWallSlide!: () => void;
+  let rejectWallSlide!: (reason: unknown) => void;
+  const wallSlide = new Promise<void>((resolve, reject) => {
+    resolveWallSlide = resolve;
+    rejectWallSlide = reject;
+  });
+  void wallSlide.catch(() => {});
+  const processGroup = async (group: PlatformerActionPose[]) => {
+    if (group.some((pose) => !referenceFor(pose))) return;
     for (const pose of group) {
       const hash = imagePromptHash(
-        PLATFORMER_ACTION_PROMPT_VERSION + buildPlatformerActionPrompt(pose, o.wardrobe),
+        PLATFORMER_ACTION_PROMPT_VERSION +
+          buildPlatformerActionPrompt(pose, o.wardrobe, o.referenceMode),
         Buffer.concat([o.source, o.base.idle, referenceFor(pose)!]),
       );
       hashes.set(pose, hash);
@@ -150,7 +176,10 @@ export async function generatePlatformerActions(
         PLATFORMER_ACTION_PROMPT_VERSION,
         hash,
       );
-      if (cached) accepted[pose] = cached;
+      if (cached) {
+        accepted[pose] = cached;
+        if (pose === 'wallSlide') resolveWallSlide();
+      }
     }
     const batchesKey = `review-batches:${o.attempt}:${imagePromptHash(JSON.stringify(group.map((pose) => hashes.get(pose))))}`;
     const plannedBatches = o.cache.read<ReviewCandidate[][]>(batchesKey) ?? [];
@@ -169,14 +198,20 @@ export async function generatePlatformerActions(
           const repair = repairs.get(pose)!;
           const reference = await o.cache.getOrCompute(
             `reference:${hashes.get(pose)}:${repair.candidates > 0}`,
-            () => buildPlatformerActionReference(pose, referenceFor(pose)!, repair.candidates > 0),
+            () =>
+              buildPlatformerActionReference(
+                pose,
+                referenceFor(pose)!,
+                repair.candidates > 0,
+                o.referenceMode,
+              ),
           );
           const prompt =
-            buildPlatformerActionPrompt(pose, o.wardrobe) +
+            buildPlatformerActionPrompt(pose, o.wardrobe, o.referenceMode) +
             ` Candidate ${repair.candidates + 1} of ${PLATFORMER_ACTION_MAX_CANDIDATES}.` +
             (repair.guidance ? ` Retry correction: ${repair.guidance}` : '') +
             (repair.candidates > 0 && pose.includes('Up')
-              ? ' The reference LEFT panel is the approved character: preserve its identity, costume and leg pose. The RIGHT panel is an arm geometry guide only: use a bent elbow and visibly upward-facing empty palm. Never copy its colors, diagram, arrow or labels. Output one full character on green.'
+              ? ` The reference LEFT panel is the approved character: preserve its identity and costume${o.referenceMode === 'identity' && platformerActionReference(pose) !== 'wallSlide' ? ', then use the requested action leg posture' : ' and leg pose'}. The RIGHT panel is an arm geometry guide only: use a bent elbow and visibly upward-facing empty palm. Never copy its colors, diagram, arrow or labels. Output one full character on green.`
               : '');
           const candidate = await o.cache.getOrCompute(
             `candidate:${o.attempt}:${imagePromptHash(prompt, reference)}`,
@@ -295,6 +330,7 @@ export async function generatePlatformerActions(
                 hashes.get(candidate.id)!,
               );
               accepted[candidate.id] = candidate.processed;
+              if (candidate.id === 'wallSlide') resolveWallSlide();
             } else {
               reject(
                 candidate.id,
@@ -311,7 +347,18 @@ export async function generatePlatformerActions(
       );
       if (failed) throw failed.reason;
     }
-  }
+  };
+  const independent = processGroup(groups[0]!);
+  // Start wall attacks as soon as their own reference is accepted. Drain both
+  // branches on suspension/failure so sibling progress reaches the checkpoint.
+  void independent.then(
+    () => resolveWallSlide(),
+    (error) => rejectWallSlide(error),
+  );
+  await settleAll([
+    independent,
+    groups[1]!.length ? wallSlide.then(() => processGroup(groups[1]!)) : Promise.resolve(),
+  ]);
   const missing = required.filter((pose) => !accepted[pose]);
   if (missing.length)
     throw new Error(

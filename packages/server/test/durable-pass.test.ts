@@ -43,10 +43,12 @@ describe('durable generation passes', () => {
             const ids = descriptors.map(({ id }) => id);
             if (!ids.includes('upWalk-R1') || !ids.includes('upWalk-R2')) {
               decision.setReview.accepted = false;
-              decision.retryPoses = [{
-                pose: 'upWalk',
-                guidance: `Improve the up-facing walk in this reviewed pool: ${ids.join(', ')}`,
-              }];
+              decision.retryPoses = [
+                {
+                  pose: 'upWalk',
+                  guidance: `Improve the up-facing walk in this reviewed pool: ${ids.join(', ')}`,
+                },
+              ];
             }
             return decision;
           },
@@ -65,7 +67,10 @@ describe('durable generation passes', () => {
         );
         runner.createJob(
           {
-            promptText: 'A moon garden space mission',
+            promptText:
+              archetype === 'platformer'
+                ? 'A run-and-gun moon garden space mission with blaster combat'
+                : 'A moon garden space mission',
             sourceKind: 'voice',
             requestedArchetype: archetype,
             idempotencyKey: 'durable-test',
@@ -79,6 +84,9 @@ describe('durable generation passes', () => {
       const responses: Record<string, ProviderResult> = {};
       let passes = 0,
         calls = 0;
+      let heldMovement: string | undefined;
+      let sawActionsBeforeMovement = false;
+      const actionRequests: string[] = [];
       let deferredMusic: string | undefined;
       let sawArtWhileMusicPending = false;
       let deferredBackdrop: string | undefined;
@@ -103,6 +111,15 @@ describe('durable generation passes', () => {
         expect(output.state.job?.status).not.toBe('failed');
         if (output.state.job?.status === 'done') break;
         expect(output.pending.length).toBeGreaterThan(0);
+        if (archetype === 'platformer') {
+          heldMovement ??= output.pending.find(
+            (r) => r.kind === 'image' && r.request.role === 'platformer-A1',
+          )?.id;
+          if (heldMovement && !responses[heldMovement])
+            sawActionsBeforeMovement ||= output.pending.some(
+              (r) => r.kind === 'image' && r.request.role.startsWith('platformer-action-'),
+            );
+        }
         if (archetype === 'adventure' && !heldAdventureRepair) {
           heldAdventureRepair = output.pending.find(
             (r) => r.kind === 'image' && r.request.role === 'adventure-player-upWalk-R2',
@@ -174,6 +191,13 @@ describe('durable generation passes', () => {
           sawHeroWhileBackdropPending = true;
         for (const request of output.pending) {
           expect(responses[request.id]).toBeUndefined();
+          if (request.id === heldMovement && !sawActionsBeforeMovement) continue;
+          if (
+            archetype === 'platformer' &&
+            request.kind === 'image' &&
+            request.request.role.startsWith('platformer-action-')
+          )
+            actionRequests.push(request.request.role);
           if (request.id === heldAdventureRepair && passes === adventureRepairPass) continue;
           if (request.id === heldFighterSheet && !partialRosterReady) continue;
           if (request.id === heldDependency && !independentBranchAdvanced) continue;
@@ -288,6 +312,10 @@ describe('durable generation passes', () => {
       if (archetype === 'hshooter' || archetype === 'shooter')
         expect(parallelEnemyRepairs).toBe(true);
       if (archetype === 'platformer') {
+        expect(heldMovement).toBeTruthy();
+        expect(sawActionsBeforeMovement).toBe(true);
+        expect(actionRequests).toHaveLength(8);
+        expect(new Set(actionRequests).size).toBe(8);
         expect(sawArtWhileMusicPending).toBe(true);
         expect(sawHeroWhileBackdropPending).toBe(true);
         expect(propRequests).toEqual(['platformer-prop-board', 'platformer-prop-health']);
@@ -306,6 +334,66 @@ describe('durable generation passes', () => {
     },
     120_000,
   );
+  it('starts a photo-based platformer identity while key art is still pending', async () => {
+    vi.stubEnv('SPARKADE_PROVIDER', 'mock');
+    vi.stubEnv('SPARKADE_MOCK_FAST', '1');
+    const config = defaultConfig();
+    const dir = mkdtempSync(join(tmpdir(), 'sparkade-photo-critical-path-'));
+    const db = new JobState();
+    let checkpoint: PassCheckpoint;
+    try {
+      const runner = new GenerationRunner(
+        db,
+        new GameFiles(dir),
+        { get: () => config },
+        new SseHub(),
+      );
+      const photo = await sharp({
+        create: { width: 64, height: 64, channels: 3, background: '#abcdef' },
+      })
+        .png()
+        .toBuffer();
+      runner.createJob(
+        {
+          promptText: 'A moon garden platformer',
+          sourceKind: 'typed',
+          requestedArchetype: 'platformer',
+          idempotencyKey: 'photo-critical-path',
+          photo,
+        },
+        { defer: true },
+      );
+      checkpoint = { state: db.state, files: collectFiles(dir) };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const responses: Record<string, ProviderResult> = {};
+    let heldKeyArt: string | undefined;
+    let identityBeforeKeyArt = false;
+    for (let pass = 0; pass < 12 && !identityBeforeKeyArt; pass++) {
+      const output = await advancePipeline(checkpoint, async (id) => responses[id], config);
+      checkpoint = output;
+      expect(output.state.job?.status).not.toBe('failed');
+      heldKeyArt ??= output.pending.find(
+        (r) => r.kind === 'image' && r.request.role === 'keyArt',
+      )?.id;
+      identityBeforeKeyArt =
+        !!heldKeyArt &&
+        output.pending.some((r) => r.kind === 'image' && r.request.role === 'platformer-I1');
+      if (identityBeforeKeyArt) break;
+      for (const request of output.pending) {
+        if (request.id !== heldKeyArt)
+          responses[request.id] = await executeProviderTask(
+            request,
+            config,
+            output.state.job!.gameId,
+          );
+      }
+    }
+    expect(heldKeyArt).toBeTruthy();
+    expect(responses[heldKeyArt!]).toBeUndefined();
+    expect(identityBeforeKeyArt).toBe(true);
+  }, 30_000);
   it('rejects paths escaping a restored checkpoint', () => {
     expect(() => restoreFiles('/tmp/sparkade-test', { '../escape': 'eA==' })).toThrow(
       'Invalid checkpoint path',

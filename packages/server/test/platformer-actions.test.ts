@@ -10,6 +10,7 @@ import {
 } from '@sparkade/shared';
 import {
   buildPlatformerActionPrompt,
+  buildPlatformerActionReference,
   generatePlatformerActions,
   type PlatformerActionGenerationOptions,
 } from '../src/assets/platformer-actions';
@@ -74,6 +75,79 @@ function setup() {
 }
 
 describe('mechanic-specific image pipeline', () => {
+  it('generates and resumes actions from identity before movement poses exist', async () => {
+    const { options, dir } = setup();
+    options.base = { idle: base.idle, sideIdle: base.sideIdle };
+    options.referenceMode = 'identity';
+    const calls: string[] = [];
+    options.generate = async (pose, prompt, reference) => {
+      calls.push(pose);
+      const source =
+        platformerActionReference(pose) === 'wallSlide'
+          ? readFileSync(join(dir, 'platformer-player-wall-slide.png'))
+          : base.sideIdle;
+      expect(reference.equals(await prepareGeneratedPlatformerReference(source))).toBe(true);
+      if (platformerActionReference(pose) !== 'wallSlide') {
+        expect(prompt).toContain('IDENTITY AND COSTUME ONLY');
+        expect(prompt).not.toContain('preserve the reference running legs');
+      }
+      return mockGeneratedImage(prompt);
+    };
+    expect(Object.keys(await generatePlatformerActions(options))).toHaveLength(11);
+    expect(calls).toHaveLength(11);
+    calls.length = 0;
+    options.workspace = new GameAssetWorkspace(dir, 'mock-image');
+    options.cache = new ArtifactCache(join(dir, 'private'));
+    expect(Object.keys(await generatePlatformerActions(options))).toHaveLength(11);
+    expect(calls).toEqual([]);
+  });
+  it('finishes wall attacks while an unrelated action repair suspends, and reuses them on resume', async () => {
+    const { options, calls, dir } = setup();
+    const generate = options.generate;
+    let heldRepair = true;
+    let shootUpCalls = 0;
+    options.generate = async (pose, prompt, reference) => {
+      if (pose === 'shootUp' && ++shootUpCalls > 1 && heldRepair) throw new PipelineSuspended();
+      return generate(pose, prompt, reference);
+    };
+    options.judge = async (_prompt, _schema, _board, mock) => {
+      const result = structuredClone(mock) as {
+        candidateReviews: { id: string; fatalIssues: string[] }[];
+      };
+      if (heldRepair)
+        for (const review of result.candidateReviews)
+          if (review.id === 'shootUp') review.fatalIssues = ['Palm must aim upward'];
+      return result;
+    };
+    await expect(generatePlatformerActions(options)).rejects.toBeInstanceOf(PipelineSuspended);
+    expect(calls).toContain('wallShoot');
+    expect(calls).toContain('wallShootUp');
+    expect(readGameAssetManifest(dir)?.assets.map((a) => a.role)).toEqual(
+      expect.arrayContaining(['platformerWallShoot', 'platformerWallShootUp']),
+    );
+    calls.length = 0;
+    heldRepair = false;
+    options.workspace = new GameAssetWorkspace(dir, 'mock-image');
+    options.cache = new ArtifactCache(join(dir, 'private'));
+    expect(Object.keys(await generatePlatformerActions(options))).toHaveLength(11);
+    expect(calls).toEqual(['shootUp']);
+  });
+
+  it('keeps wall-slide posture in upward repair references even when other actions use identity-only mode', async () => {
+    const poseReference = await buildPlatformerActionReference(
+      'wallShootUp',
+      base.sideIdle,
+      true,
+      'pose',
+    );
+    const identityReference = await buildPlatformerActionReference(
+      'wallShootUp',
+      base.sideIdle,
+      true,
+      'identity',
+    );
+    expect(identityReference.equals(poseReference)).toBe(true);
+  });
   it('submits independent review batches before waiting for either', async () => {
     const { options } = setup();
     const pending: Array<() => void> = [];

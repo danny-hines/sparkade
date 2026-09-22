@@ -84,6 +84,20 @@ function artDirectionBrief(spec: GameSpec): string {
   return '';
 }
 
+/** Visible racers establish their character before the gameplay pose exists. */
+function racingCharacterBrief(spec: GameSpec): string {
+  if (spec.archetype !== 'racing' || !spec.identity) return '';
+  const subject = racingArtSubject(spec.identity);
+  if (subject.rider === 'none') return '';
+  return [
+    `Establish the one canonical player character for this racing game: ${clean(spec.identity.playerCraftConcept)}.`,
+    'Use the canonical hero outfit in the visual brief, including its exact garments, colors, trim, patterns and footwear; the traversal concept describes activity, not a separate wardrobe. Make the complete character and outfit readable, with unobstructed head and torso, so this artwork can guide the gameplay sprite.',
+    subject.rider === 'onFoot'
+      ? 'Show one on-foot runner; no vehicle, wheels, rider equipment or exhaust.'
+      : `Show the player ${subject.rider} on their conveyance, with the body and conveyance integrated naturally.`,
+  ].join(' ');
+}
+
 function visualBrief(
   spec: GameSpec,
   heroConcept?: string,
@@ -193,7 +207,7 @@ export function buildKeyArtPrompt(
         : 'Transform the exact adult person in the reference photo into the PLAYER HERO of this game. The reference is immutable identity truth from the neck up: preserve their recognizable apparent adult age, face and head shape, jaw, cheek structure, eye size and spacing, nose, mouth, skin tone, hairline, hair texture and style, facial hair, glasses, headwear, and visible head accessories; never replace them with a generic or younger character. The source photo clothing below the neck is NOT identity: replace it with the canonical game-world outfit in the visual brief.'
       : 'Create a distinctive original PLAYER HERO suited to this game premise.',
     visualBrief(spec, heroConcept, playerCraft),
-    playerCraft ? jetskiCraftBrief(spec, playerCraft, hasPlayerPhoto) : '',
+    playerCraft ? jetskiCraftBrief(spec, playerCraft, hasPlayerPhoto) : racingCharacterBrief(spec),
     spec.archetype === 'adventure'
       ? spec.combatKit.primary.unarmed
         ? 'Show the hero in a clearly readable unarmed ready stance with both hands visible and no invented weapon.'
@@ -232,7 +246,7 @@ export function buildKeyArtPolicyFallbackPrompt(
     wardrobeBrief(canonicalHeroConcept),
     adventureCombatKitBrief(spec),
     artDirectionBrief(spec),
-    playerCraft ? keyArtFallbackCraftBrief(spec, playerCraft, hasPlayerPhoto) : '',
+    playerCraft ? keyArtFallbackCraftBrief(spec, playerCraft, hasPlayerPhoto) : racingCharacterBrief(spec),
     `Create polished landscape key art for a colorful ${spec.archetype} game world using this limited palette: ${spec.palette.join(', ')}.`,
     'Use a calm, adventurous composition with the player character as the central focal point. Keep every complete face, head, hairstyle, and headwear inside the middle 60% of the image height; reserve the outer 20% at both the top and bottom for expendable scenery only.',
     'Premium 16-bit console illustration with crisp pixel clusters, clear silhouettes, and rich environmental detail.',

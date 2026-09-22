@@ -6,7 +6,7 @@ import { BICYCLE_TRAVERSAL, SKATEBOARD_TRAVERSAL, type RacingSpec } from '@spark
 import { prepareImageReference } from '../src/assets/game-art';
 import { buildRacingIdentityReference } from '../src/assets/racing-craft';
 import { buildHShooterIdentityReference } from '../src/assets/hshooter-craft';
-import { buildRacingPackPlan } from '../src/assets/racing-pack';
+import { buildRacingPackPlan, racingRosterSlots } from '../src/assets/racing-pack';
 import { buildRacingPhotoReviewReference } from '../src/assets/racing-photo-identity';
 
 it.each(['onFoot', 'standing', 'seated', 'none', 'legacy-jetski', 'legacy-hover'] as const)(
@@ -40,12 +40,29 @@ it.each(['onFoot', 'standing', 'seated', 'none', 'legacy-jetski', 'legacy-hover'
     const withPhoto = buildRacingPackPlan(spec, true);
     const visible = rider !== 'none' && rider !== 'legacy-hover';
     expect(withPhoto.playerStrip.prompt.includes('PLAYER PHOTO IDENTITY')).toBe(visible);
-    expect(withPhoto.playerStrip.promptVersion.endsWith('-photo-v1')).toBe(visible);
+    expect(withPhoto.playerStrip.promptVersion.endsWith('-photo-v2')).toBe(visible);
     expect(withPhoto.rivalStrips).toEqual(withoutPhoto.rivalStrips);
     expect(withPhoto.panoramas).toEqual(withoutPhoto.panoramas);
     if (!visible) expect(withPhoto).toEqual(withoutPhoto);
   },
 );
+
+it('carries the full canonical wardrobe into gameplay and review even when the traversal omits it', () => {
+  const spec: RacingSpec = JSON.parse(readFileSync(join(__dirname, '../../generation/golden/golden-racing.json'), 'utf8'));
+  spec.meta.heroConcept = 'Coral-pink singlet with white trim, navy shorts, white socks and mint racing shoes plus a gold wristband';
+  spec.identity!.traversal = { label: 'Foot sprint', handling: 'flow', surface: 'ground', rider: 'onFoot', propulsion: 'human', motion: 'stride' };
+  // Long traversal text used to omit, or crowd out, the actual costume.
+  spec.identity!.playerCraftConcept = 'Runner mid-stride, no vehicle. '.repeat(12);
+  const prompt = buildRacingPackPlan(spec, true).playerStrip.prompt;
+  const review = racingRosterSlots(spec)[0]!.vehicleConcept;
+  for (const value of [prompt, review]) {
+    expect(value).toContain(spec.meta.heroConcept);
+    expect(value).toContain('wardrobe overrides conflicting clothing');
+  }
+  expect(prompt).toContain('RIGHT PANEL');
+  expect(prompt).toContain('Copy their exact garment types');
+  expect(buildRacingPackPlan(spec).playerStrip.prompt).toContain('reference image is');
+});
 
 it('preserves headwear at the top of a portrait-oriented photo through generation and review boards', async () => {
   // A cap-colored band on the top edge would disappear with the old cover crops.

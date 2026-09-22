@@ -106,7 +106,7 @@ describe.sequential('mock racing pack pipeline', () => {
     const original = GameAssetWorkspace.prototype.store;
     let fail = true;
     const spy = vi.spyOn(GameAssetWorkspace.prototype, 'store').mockImplementation(async function(this: GameAssetWorkspace, role, image, version, hash) {
-      if (fail && role === 'racingCraftRival2' && version === 'racing-locomotion-v4-approved') throw new Error('synthetic late motion persistence failure');
+      if (fail && role === 'racingCraftRival2' && version === 'racing-locomotion-v5-approved') throw new Error('synthetic late motion persistence failure');
       return original.call(this, role, image, version, hash);
     });
     try {
@@ -147,7 +147,7 @@ describe.sequential('mock racing pack pipeline', () => {
     for (const role of RACING_PACK_REQUIRED_ROLES) {
       const asset = generatedAssetForRole(dir, role)!;
       expect(asset).not.toBeNull();
-      if (role.startsWith('racingCraft')) expect(asset).toMatchObject({width:192,height:192,promptVersion:'racing-locomotion-v4-approved'});
+      if (role.startsWith('racingCraft')) expect(asset).toMatchObject({width:192,height:192,promptVersion:'racing-locomotion-v5-approved'});
     }
   }, 90_000);
 
@@ -189,7 +189,7 @@ describe.sequential('mock racing pack pipeline', () => {
       for (const role of RACING_PACK_REQUIRED_ROLES)
         expect(generatedAssetForRole(dir, role)).not.toBeNull();
       expect(generatedAssetForRole(dir, 'racingCraftPlayer')!.promptVersion).toBe(
-        'racing-traversal-strip-v4-photo-v1-approved-v1',
+        'racing-traversal-strip-v4-wardrobe-v1-photo-v2-approved-v1',
       );
       if (surface === 'water')
         expect(generatedAssetForRole(dir, 'racingMaterialAtlas')!.promptVersion).toBe(
@@ -228,7 +228,7 @@ describe.sequential('mock racing pack pipeline', () => {
     for (const role of RACING_PACK_REQUIRED_ROLES)
       expect(generatedAssetForRole(assetsDir, role)).not.toBeNull();
     const player = generatedAssetForRole(assetsDir, 'racingCraftPlayer');
-    expect(player!.promptVersion).toBe('racing-jetski-strip-v2-photo-v1-approved-v1');
+    expect(player!.promptVersion).toBe('racing-jetski-strip-v2-wardrobe-v1-photo-v2-approved-v1');
   }, 90_000);
 
   it('publishes the complete ten-file pack with manifest, metadata, and private reference', async () => {

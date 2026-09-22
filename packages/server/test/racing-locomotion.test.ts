@@ -8,11 +8,41 @@ import {
   RacingLocomotionImageError,
   buildRacingLocomotionReference,
   assertRacingMotionSilhouette,
+  buildRacingMotionReviewBoard,
+  buildRacingStrideFramePrompt,
 } from '../src/assets/racing-locomotion';
 import { mockRacingCraftStripSource, mockRacingLocomotionSource } from '../src/assets/racing-mock';
 import { processGeneratedRacingCraftStrip } from '../src/assets/racing-craft';
 import { BICYCLE_TRAVERSAL } from '@sparkade/shared';
 describe('generated motion atlas', () => {
+  it('uses isolated generated poses only after a rejected sheet and reviews the complete replacement', async () => {
+    const base = (await processGeneratedRacingCraftStrip(await mockRacingCraftStripSource())).png;
+    const source = await mockRacingLocomotionSource();
+    const meta = await sharp(source).metadata();
+    const width = meta.width! / 3, height = meta.height! / 2;
+    const frames = await Promise.all(Array.from({ length: 6 }, (_, i) => sharp(source).extract({ left: i % 3 * width, top: Math.floor(i / 3) * height, width, height }).png().toBuffer()));
+    const generate = vi.fn().mockResolvedValue(source);
+    const generateFrames = vi.fn().mockResolvedValue(frames);
+    const review = vi.fn().mockResolvedValueOnce({ accepted: false, reason: 'Frozen poses' }).mockResolvedValueOnce({ accepted: true });
+    const atlas = await generateReviewedRacingLocomotion({ base, prompt: 'stride', motion: 'stride', generate, generateFrames, review });
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(generateFrames).toHaveBeenCalledExactlyOnceWith('Frozen poses');
+    expect(review).toHaveBeenCalledTimes(2);
+    expect(await sharp(atlas).metadata()).toMatchObject({ width: 192, height: 192 });
+    const prompts = Array.from({ length: 6 }, (_, i) => buildRacingStrideFramePrompt('Pink singlet, white cap', 'Pixel art', i));
+    expect(new Set(prompts).size).toBe(6);
+    for (const prompt of prompts) expect(prompt).toContain('exactly ONE isolated full-body runner pose');
+  });
+
+  it('shows alpha as a checkerboard while leaving an opaque black matte visibly black', async () => {
+    const atlas = await sharp({ create: { width: 192, height: 192, channels: 4, background: '#00000000' } })
+      .composite([{ input: Buffer.from('<svg width="64" height="64"><rect width="64" height="64" fill="black"/></svg>'), left: 64, top: 64 }]).png().toBuffer();
+    const { data, info } = await sharp(await buildRacingMotionReviewBoard(atlas)).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const color = (x: number, y: number) => [...data.subarray((y * info.width + x) * 3, (y * info.width + x) * 3 + 3)];
+    expect(color(0, 0)).not.toEqual(color(32, 0));
+    expect(color(300, 300)).toEqual([0, 0, 0]);
+  });
+
   it('preserves the approved identity row and adds six real frames', async () => {
     const base = (await processGeneratedRacingCraftStrip(await mockRacingCraftStripSource())).png;
     const frames = await processRacingLocomotion(await mockRacingLocomotionSource());

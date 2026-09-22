@@ -238,7 +238,8 @@ export function buildRacingFoundationJudgePrompt(
         : '',
       RACING_CAMERA_REVIEW,
       'Required: true rear camera (directly behind at a low chase-camera height, subject pointing away), the SAME subject as its concept, readable rear silhouette, no green panels, no text, no cropping. Every image must show exactly one complete rear subject.',
-      'Banking is never assessed and never requested: accept or reject on rear-camera truth only. A rear view with no lean is correct; do not demand bank angles.',
+      'Banking is never assessed and never requested: judge rear-camera truth, character identity, wardrobe and technical quality. A rear view with no lean is correct; do not demand bank angles.',
+      'If a CANONICAL PLAYER WARDROBE is supplied, mismatched garment type, color, trim or pattern is fatal even when the photo likeness and camera are correct. The authored outfit overrides source-photo clothing below the neck; never approve a generic shirt in place of the specified singlet.',
       'A fatal issue is a wrong camera direction (face-on, front, or side view), a sideways conveyance deck, a missing or doubled subject, a conveyance on an on-foot runner (or vice versa), malformed anatomy (missing or extra limbs, detached parts), motor exhaust on a human-powered subject, cropped/multiple subjects, duplicated subjects across targets or references, or broken transparency.',
       'accepted should be true only when every target has no fatal issue and is production quality. Even when accepted is false, retryGuidance must describe the single most important correction for the rejected targets, and each rejected target needs its own fix in guidance.',
     ]

@@ -76,7 +76,8 @@ describe('racing foundation prompt', () => {
     motionSpec.identity!.traversal = { ...ONFOOT, label: 'Test Stride' };
     const motionPlan = buildRacingPackPlan(motionSpec);
     for (const entry of [motionPlan.playerStrip, ...motionPlan.rivalStrips]) {
-      expect(entry.promptVersion).toBe('racing-foundation-v2');
+      expect(entry.promptVersion).toBe(entry.role === 'racingCraftPlayer'
+        ? 'racing-foundation-v2-wardrobe-v1-identity-v1' : 'racing-foundation-v2');
       expect(entry.prompt).toContain('RACING FOUNDATION:');
       expect(entry.size).toBe('1024x1024');
     }

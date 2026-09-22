@@ -6,9 +6,9 @@ import { GeneratedAssetStorageError, imagePromptHash } from './manifest';
 import { splitRacingStripCells, validateRacingCraftStrip } from './racing-craft';
 import { racingConveyanceAxisLine } from './racing-traversal-art';
 
-// v4 adds low rear camera elevation to generation and semantic review.
+// v5 adds isolated stride recovery and explicit checkerboard review.
 // Existing published games stay unchanged; generation approvals refresh.
-export const RACING_LOCOMOTION_VERSION = 'racing-locomotion-v4';
+export const RACING_LOCOMOTION_VERSION = 'racing-locomotion-v5';
 const MOTION_BRIEFS: Record<Exclude<RacingMotion, 'static'>, string> = {
   pedal:
     'one complete alternating pedal rotation, with knees and feet moving through six evenly spaced crank positions while hands stay on the controls',
@@ -18,6 +18,54 @@ const MOTION_BRIEFS: Record<Exclude<RacingMotion, 'static'>, string> = {
   pulse:
     'one complete subtle organic propulsion cycle, with the same flexible parts extending, contracting and returning; keep the rigid body identity unchanged',
 };
+
+const STRIDE_PHASES = [
+  'LEFT CONTACT: left leg reaches forward along the travel direction with the left foot touching down; right knee bends with the right heel lifted behind. Right arm swings forward, left arm back.',
+  'LEFT SUPPORT: left foot is planted directly under the hips and carries weight; right knee comes forward close to the centerline with right foot lifted. Arms pass close to the torso.',
+  'LEFT PUSH-OFF / FLIGHT: left leg extends behind after pushing off, left heel lifts toward the viewer; right knee drives forward and upward. Both feet momentarily clear the ground. Right arm swings back, left arm forward.',
+  'RIGHT CONTACT: right leg reaches forward along the travel direction with the right foot touching down; left knee bends with the left heel lifted behind. Left arm swings forward, right arm back.',
+  'RIGHT SUPPORT: right foot is planted directly under the hips and carries weight; left knee comes forward close to the centerline with left foot lifted. Arms pass close to the torso.',
+  'RIGHT PUSH-OFF / FLIGHT: right leg extends behind after pushing off, right heel lifts toward the viewer; left knee drives forward and upward. Both feet momentarily clear the ground. Left arm swings back, right arm forward.',
+] as const;
+
+/** A failed player stride sheet gets six independent pose edits in parallel,
+ * instead of another grid that can freeze or confuse the phase ordering. */
+export function buildRacingStrideFramePrompt(concept: string, art: string, frame: number): string {
+  const phase = STRIDE_PHASES[frame];
+  if (!phase) throw new Error('Stride frame must be in 0..5');
+  return [
+    `RACING STRIDE FRAME ${frame + 1}: paint exactly ONE isolated full-body runner pose, not a sheet or sequence.`,
+    `The reference is the exact rear-facing character. Subject: ${concept}. Art direction: ${art}.`,
+    `Animate this one phase: ${phase}`,
+    'The reference fixes appearance, not limb pose. Keep the same head, cap/headwear, hair, skin, clothes, garment colors, shoes, body proportions and pixel technique. Articulate the arms and legs into the requested phase; do not copy the reference frozen pose.',
+    RACING_REAR_CAMERA,
+    'Run straight away from the camera. Legs move forward and backward in the direction of travel, close to the body centerline: no sideways kicks, splits, jumping-jack poses, turns, or exaggerated wide stance. Only the back of the head and torso is visible.',
+    'One complete adult runner, two arms and two legs, no vehicle. Keep the same camera distance and body size, with clear margins around head, hands and feet. Preserve a level torso with only a small natural vertical bob.',
+    'All empty space and enclosed gaps must be perfectly flat #00ff00. No scene, shadow, panels, labels, text, props, ground or extra figures. Use the art direction only for character rendering, never for scenery.',
+  ].join(' ');
+}
+
+export async function processRacingMotionFrame(raw: Buffer): Promise<Buffer> {
+  const pose = await processGeneratedFighterPose(raw, {
+    width: 64, height: 64, padding: 6, bottomPadding: 6,
+    removeGreenSpill: true, isolatePrimarySubject: true, colors: 40,
+    minSubjectFraction: 0.015, maxSubjectFraction: 0.85, minSubjectSpanFraction: 0.1,
+  });
+  await assertRacingMotionSilhouette(pose.png);
+  return pose.png;
+}
+
+/** An opaque checker makes transparent negative space explicit to the judge;
+ * PNG alpha alone can appear as a black painted panel to vision providers. */
+export async function buildRacingMotionReviewBoard(atlas: Buffer): Promise<Buffer> {
+  const checks = Array.from({ length: 24 * 24 }, (_, i) => {
+    const x = i % 24, y = Math.floor(i / 24);
+    return `<rect x="${x * 8}" y="${y * 8}" width="8" height="8" fill="${(x + y) % 2 ? '#e7e7ed' : '#b8bac8'}"/>`;
+  }).join('');
+  const board = await sharp(Buffer.from(`<svg width="192" height="192">${checks}</svg>`))
+    .composite([{ input: atlas, top: 0, left: 0 }]).png().toBuffer();
+  return sharp(board).resize(768, 768, { kernel: 'nearest' }).png().toBuffer();
+}
 
 export function buildRacingLocomotionPrompt(
   traversal: RacingTraversal,
@@ -162,6 +210,7 @@ export async function generateReviewedRacingLocomotion(options: {
   prompt: string;
   motion: RacingMotion;
   generate: (prompt: string, correction: boolean) => Promise<Buffer>;
+  generateFrames?: (reason: string) => Promise<Buffer[]>;
   review: (atlas: Buffer) => Promise<unknown>;
 }): Promise<Buffer> {
   let reason = '';
@@ -178,10 +227,17 @@ export async function generateReviewedRacingLocomotion(options: {
     ].filter(Boolean).join(' ');
     // Deliberately outside the quality catch: refusals and transport errors
     // must never turn into a rephrased image request.
-    const raw = await options.generate(prompt, attempt > 0);
+    const raw = attempt > 0 && options.generateFrames
+      ? await options.generateFrames(reason)
+      : await options.generate(prompt, attempt > 0);
     let atlas: Buffer;
     try {
-      atlas = await composeRacingLocomotion(options.base, await processRacingLocomotion(raw));
+      const frames = Array.isArray(raw)
+        ? await Promise.all(raw.map(processRacingMotionFrame))
+        : await processRacingLocomotion(raw);
+      if (new Set(frames.map((frame) => frame.toString('base64'))).size !== RACING_MOTION_FRAMES)
+        throw new Error('Locomotion needs six distinct temporal frames');
+      atlas = await composeRacingLocomotion(options.base, frames);
     } catch (error) {
       reason = error instanceof Error ? error.message : 'Malformed six-frame motion sheet';
       continue;
@@ -202,7 +258,7 @@ export const racingLocomotionJudgeSchema = {
 };
 
 export function racingLocomotionJudgePrompt(motion: RacingMotion): string {
-  return `Review this racing motion atlas. ${RACING_REAR_CAMERA} Independently reject overhead or unclear camera elevation in the reference and every temporal frame, even if their direction points away and all six frames match. Row 1 contains the approved identity reference: legacy rear/left/right cells or neutral placeholder cells repeating the approved rear. Rows 2 and 3 are six temporal ${motion} frames, read left to right. Accept ONLY if all six preserve the exact reference subject, outfit/conveyance, rear orientation, scale, pixel art and support baseline, and form readable coherent ${motion} locomotion with meaningful limb/flexible-part changes and a plausible loop. No missing/extra limbs, identity drift, frozen duplicate poses, green screen residue, cropping or viewpoint changes. Every cell must have transparent negative space around the actual subject silhouette: reject any opaque black/green/colored panel or painted scenery behind it, even with transparent outer padding. Independently verify the reference orientation itself: reject when any conveyance deck or board lies sideways across the road (screen-left to screen-right) instead of nose-tail aligned with travel into the screen (rear closest, nose farthest, foreshortened rear perspective); six frames faithfully copying a wrong reference still fail, since matching the reference never excuses a sideways deck. Return JSON accepted:boolean and reason:string. A visually attractive but mechanically wrong cycle must fail.`;
+  return `Review this racing motion atlas. ${RACING_REAR_CAMERA} Independently reject overhead or unclear camera elevation in the reference and every temporal frame, even if their direction points away and all six frames match. Row 1 contains the approved identity reference: legacy rear/left/right cells or neutral placeholder cells repeating the approved rear. Rows 2 and 3 are six temporal ${motion} frames, read left to right. Accept ONLY if all six preserve the exact reference subject, outfit/conveyance, rear orientation, scale, pixel art and support baseline, and form readable coherent ${motion} locomotion with meaningful limb/flexible-part changes and a plausible loop. No missing/extra limbs, identity drift, frozen duplicate poses, green screen residue, cropping or viewpoint changes. The gray checkerboard is the review background showing transparent negative space; it is not painted artwork or an opaque matte. Every cell must show this checkerboard around the actual subject silhouette: reject any opaque black/green/colored panel or painted scenery behind it, even with transparent outer padding. Independently verify the reference orientation itself: reject when any conveyance deck or board lies sideways across the road (screen-left to screen-right) instead of nose-tail aligned with travel into the screen (rear closest, nose farthest, foreshortened rear perspective); six frames faithfully copying a wrong reference still fail, since matching the reference never excuses a sideways deck. Return JSON accepted:boolean and reason:string. A visually attractive but mechanically wrong cycle must fail.`;
 }
 
 export const RACING_BASE_ROLES = [
@@ -276,6 +332,7 @@ export async function generateOptionalRacingMotion(options: {
   motion: RacingMotion;
   terminal: RacingMotionTerminalOutcome | null;
   generate: (prompt: string, correction: boolean) => Promise<Buffer>;
+  generateFrames?: (reason: string) => Promise<Buffer[]>;
   review: (atlas: Buffer) => Promise<unknown>;
   checkActive: () => void;
   isCancelled: () => boolean;
@@ -292,6 +349,7 @@ export async function generateOptionalRacingMotion(options: {
       prompt: options.prompt,
       motion: options.motion,
       generate: options.generate,
+      generateFrames: options.generateFrames,
       review: options.review,
     });
     return { kind: 'animated', atlas };

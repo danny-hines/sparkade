@@ -91,3 +91,33 @@ test('native USB reports drive menus and disconnect releases a held direction', 
   await report([]);
   expect(errors).toEqual([]);
 });
+
+test('a twelve-button Zero Delay report opens remapping from Press Start', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.route('**/api/settings', async (route) => {
+    const response = await route.fetch();
+    const settings = await response.json();
+    settings.input.gamepad = { b9: 'START' };
+    await route.fulfill({ response, json: settings });
+  });
+  await page.goto('/?kiosk=adaptive&touch=0');
+  await expect(page.locator('.press-start')).toBeVisible();
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new CustomEvent('sparkade:usb-gamepad', {
+        detail: { buttons: Array.from({ length: 12 }, (_, i) => i === 11), axes: [0, 0] },
+      }),
+    );
+  });
+  await expect(page.getByText('Keep holding to remap controls')).toBeVisible({ timeout: 4000 });
+  await expect(page.getByRole('heading', { name: 'CONTROL SETUP' })).toBeVisible({ timeout: 5000 });
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new CustomEvent('sparkade:usb-gamepad', {
+        detail: { buttons: Array(12).fill(false), axes: [0, 0] },
+      }),
+    );
+  });
+  await expect(page.getByText('Press any button or key to begin')).toBeVisible();
+  expect(errors).toEqual([]);
+});

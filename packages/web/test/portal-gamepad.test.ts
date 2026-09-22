@@ -34,3 +34,21 @@ it('announces native controller attachment and releases input on blur, malformed
   send(state);
   expect(input.hasGamepad()).toBe(false);
 });
+
+it('accepts all twelve encoder buttons and rejects unrecognized report sizes', () => {
+  const target = new EventTarget();
+  const input = new InputBroker();
+  const cleanup = installPortalGamepad(input, target);
+  const send = (detail: unknown) =>
+    target.dispatchEvent(new CustomEvent('sparkade:usb-gamepad', { detail }));
+  send({ buttons: Array.from({ length: 12 }, (_, i) => i === 11), axes: [-1, 0] });
+  expect(input.hasGamepad()).toBe(true);
+  expect(input.activeRaw()).toEqual(['b11', 'a0-']);
+  send({ buttons: Array(12).fill(false), axes: [0, 0] });
+  expect(input.activeRaw()).toEqual([]);
+  for (const count of [0, 9, 11, 13, 100]) {
+    send({ buttons: Array(count).fill(true), axes: [0, 0] });
+    expect(input.hasGamepad()).toBe(false);
+  }
+  cleanup();
+});

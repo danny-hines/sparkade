@@ -105,7 +105,7 @@ public final class MainActivity extends Activity {
         createWebView();
         loadServer();
         usbGamepad = new UsbGamepad(this, report -> {
-            usbState = KiwitataReport.decode(report);
+            usbState = report == null ? "null" : report;
             sendUsbState();
         });
     }

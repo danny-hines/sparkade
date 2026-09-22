@@ -1,4 +1,17 @@
-import { providerRequestPolicy } from './request-policy';
+import { providerRequestPolicy, type ProviderRequestSettlement } from './request-policy';
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+// Resolved inside a server request/workflow step. Never put raw keys in configs,
+// provider instances (which are shared), durable inputs, or process.env.
+const credentials = new AsyncLocalStorage<{ metaApiKey: string | null }>();
+export function withMetaApiKey<T>(key: string | null, work: () => Promise<T>): Promise<T> {
+  return credentials.run({ metaApiKey: key }, work);
+}
+
+function redactCredential(value: string): string {
+  const key = credentials.getStore()?.metaApiKey;
+  return key ? value.split(key).join('[redacted]') : value;
+}
 // Shared provider plumbing: typed HTTP errors + a fetch helper with timeout.
 // Transient-retry policy lives in the pipeline (uniform for all providers).
 
@@ -49,13 +62,17 @@ export async function httpJson<T>(url: string, opts: HttpJsonOpts): Promise<T> {
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
   const onOuterAbort = () => controller.abort();
   opts.signal?.addEventListener('abort', onOuterAbort);
+  let settle: ProviderRequestSettlement | undefined;
+  let dispatched = false;
   try {
     if (opts.signal?.aborted) throw new Error('aborted');
     const policy = providerRequestPolicy.getStore();
-    const settle = policy ? await policy(url, opts.body) : undefined;
+    settle = policy ? await policy(url, opts.body, { timeoutMs: opts.timeoutMs }) : undefined;
     if (opts.signal?.aborted) throw new Error('aborted');
+    if (controller.signal.aborted) throw new ProviderHttpError('request timed out', 408, null, '');
     let res: Response;
     try {
+      dispatched = true;
       res = await fetch(url, {
         method: opts.method ?? 'POST',
         headers: opts.headers,
@@ -68,10 +85,12 @@ export async function httpJson<T>(url: string, opts: HttpJsonOpts): Promise<T> {
       if (controller.signal.aborted) {
         throw new ProviderHttpError('request timed out', 408, null, '');
       }
-      throw new ProviderNetworkError(`network error calling ${new URL(url).host}: ${msg}`);
+      throw new ProviderNetworkError(
+        `network error calling ${new URL(url).host}: ${redactCredential(msg)}`,
+      );
     }
     if (!res.ok) {
-      const body = await res.text().catch(() => '');
+      const body = redactCredential(await res.text().catch(() => ''));
       if (res.status === 401 || res.status === 403) {
         throw new ProviderAuthError(`provider rejected the API key (HTTP ${res.status})`);
       }
@@ -90,6 +109,8 @@ export async function httpJson<T>(url: string, opts: HttpJsonOpts): Promise<T> {
   } finally {
     clearTimeout(timer);
     opts.signal?.removeEventListener('abort', onOuterAbort);
+    if (!dispatched) await settle?.cancel?.();
+    else await settle?.finish?.();
   }
 }
 
@@ -102,4 +123,11 @@ export function apiKeyFor(envName: string | undefined, providerName: string): st
     );
   }
   return key;
+}
+
+/** Only Meta adapters may consult this context; other providers keep their own keys. */
+export function metaApiKeyFor(envName: string, providerName: string): string {
+  const key = credentials.getStore()?.metaApiKey;
+  if (key === '') throw new ProviderAuthError('The kiosk Meta credential is unavailable.');
+  return key ?? apiKeyFor(envName, providerName);
 }

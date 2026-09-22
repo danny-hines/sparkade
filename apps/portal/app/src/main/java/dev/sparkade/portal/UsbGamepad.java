@@ -17,14 +17,14 @@ import android.os.Build;
 import android.util.Log;
 import android.view.InputDevice;
 import java.nio.ByteBuffer;
-import java.util.Arrays;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeoutException;
 
-/** Scoped fallback for the tested Kiwitata, when the OS provides no HID driver. */
+/** Descriptor-verified fallback for tested controllers when Android has no HID driver. */
 final class UsbGamepad {
-    interface Listener { void onReport(byte[] report); }
+    interface Listener { void onReport(String state); }
     private static final String TAG = "SparkadeUsb";
     private static final String PERMISSION = "dev.sparkade.portal.USB_PERMISSION";
     private final Activity activity;
@@ -71,7 +71,7 @@ final class UsbGamepad {
     }
 
     private static boolean supported(UsbDevice device) {
-        return device.getVendorId() == 0x0079 && device.getProductId() == 0x0011;
+        return UsbControllerProfile.find(device.getVendorId(), device.getProductId()) != null;
     }
 
     private static boolean handledByAndroid(UsbDevice device) {
@@ -129,10 +129,14 @@ final class UsbGamepad {
 
     private final class Session implements Runnable {
         final UsbDevice device;
+        final UsbControllerProfile profile;
         volatile boolean alive = true;
-        Session(UsbDevice device) { this.device = device; }
+        Session(UsbDevice device) {
+            this.device = device;
+            this.profile = UsbControllerProfile.find(device.getVendorId(), device.getProductId());
+        }
 
-        private void publish(byte[] report) {
+        private void publish(String report) {
             activity.runOnUiThread(() -> {
                 if (session == this && resumed && !destroyed) listener.onReport(report);
             });
@@ -164,16 +168,16 @@ final class UsbGamepad {
                     throw new IllegalStateException("Cannot open USB controller interface");
                 byte[] descriptor = new byte[1024];
                 int size = connection.controlTransfer(0x81, 0x06, 0x2200, hid.getId(), descriptor, descriptor.length, 1000);
-                if (!KiwitataReport.supports(descriptor, size))
+                if (profile == null || !profile.supports(descriptor, size))
                     throw new IllegalStateException("Unsupported controller report format");
-                if (BuildConfig.DEBUG) Log.d(TAG, "Kiwitata descriptor verified; reading USB input");
+                if (BuildConfig.DEBUG) Log.d(TAG, profile.label + " descriptor verified; reading USB input");
                 request = new UsbRequest();
                 if (!request.initialize(connection, endpoint)) throw new IllegalStateException("Cannot initialize HID reader");
                 ByteBuffer buffer = ByteBuffer.allocateDirect(endpoint.getMaxPacketSize());
                 boolean queued = false;
-                byte[] previous = null;
+                String previous = null;
                 int logged = 0;
-                activity.runOnUiThread(() -> { if (session == this) status = "Kiwitata USB controller connected"; });
+                activity.runOnUiThread(() -> { if (session == this) status = profile.label + " USB controller connected"; });
                 while (alive) {
                     if (!queued) {
                         buffer.clear();
@@ -187,10 +191,12 @@ final class UsbGamepad {
                     byte[] report = new byte[buffer.position()];
                     buffer.flip();
                     buffer.get(report);
-                    if (!Arrays.equals(previous, report)) {
+                    // Ignore noise in unused axes/vendor bits before crossing the WebView bridge.
+                    String state = profile.decode(report);
+                    if (!Objects.equals(previous, state)) {
                         if (BuildConfig.DEBUG && logged++ < 32) Log.d(TAG, "HID report: " + hex(report, report.length));
-                        previous = report;
-                        publish(report);
+                        previous = state;
+                        publish(state);
                     }
                 }
             } catch (RuntimeException error) {

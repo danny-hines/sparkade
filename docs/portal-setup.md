@@ -12,7 +12,7 @@ Open **Terminal** on the Mac and paste:
 
 ```sh
 curl -fL --proto '=https' --proto-redir '=https' \
-  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.4/install-portal.sh \
+  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.7/install-portal.sh \
   -o /tmp/install-sparkade-portal.sh && bash /tmp/install-sparkade-portal.sh
 ```
 
@@ -92,8 +92,10 @@ settings** button, complete access, return to setup, and tap **Retry connection*
 
 Disconnect the Mac, then attach the controller. Allow Sparkade's USB access prompt
 if shown and follow the mapping screen. A previously mapped controller retains its
-mapping. The tested Kiwitata controller is supported; a Zero Delay encoder still
-needs qualification for its exact board/report format.
+mapping. Kiwitata `0079:0011` and the tested DragonRise Zero Delay encoder
+`0079:0006` are supported. Other Zero Delay boards can use different USB identities
+or report formats and need their own qualification. When replacing a controller,
+hold one button for five seconds at Press Start or a menu to open control mapping.
 
 Before putting the kiosk out for use:
 
@@ -168,6 +170,16 @@ Recovery also restores the saved high-contrast text and app-verifier settings.
 It keeps Android's saved Wi-Fi networks.
 
 ## Updating
+
+The Portal app includes its own copy of the Sparkade interface, game engine, and
+built-in games. Website deployments and pushes to `main` do not replace that copy.
+These changes reach Portals through a new signed APK approved on their update
+channel. Version **0.4.5** includes **Spark Token Rally**, the replacement built-in
+racer, along with kiosk display titles and the library's high-score dialogs.
+Version **0.4.6** adds the DragonRise Zero Delay encoder's joystick and twelve
+button inputs, including buttons that the previous ten-button USB bridge rejected.
+Version **0.4.7** also makes racing follow the Portal's **Show touch controls**
+setting, keeping the screen clear when using arcade controls.
 
 **Dedicated kiosk option:** setup asks whether to enable on-device app updates.
 This disables Meta's additional OS-wide app-install verifier, which otherwise

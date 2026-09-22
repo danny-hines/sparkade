@@ -7,6 +7,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const installer = resolve('scripts/install-portal.sh');
+const appVersion = readFileSync('apps/portal/app/build.gradle', 'utf8').match(
+  /versionName '([^']+)'/,
+)?.[1];
+assert.ok(appVersion, 'The fixture must report the version built into the APK.');
 const fakeAdb = `#!/usr/bin/env node
 const fs = require('node:fs');
 const cfg = JSON.parse(process.env.SPARKADE_TEST_CONFIG);
@@ -32,9 +36,9 @@ else if (cmd.includes('set-home-activity')) fs.writeFileSync(cfg.home, args.at(-
 else if (args[0] === 'install') {
   if (cfg.installFail) { out('INSTALL_FAILED_UPDATE_INCOMPATIBLE'); process.exit(1); }
   out('Success');
-} else if (cmd === 'shell dumpsys package dev.sparkade.kiosk') out('versionName=0.4.4\\nflags=[ HAS_CODE ' + (cfg.debug ? 'DEBUGGABLE' : '') + ' ]');
+} else if (cmd === 'shell dumpsys package dev.sparkade.kiosk') out('versionName=${appVersion}\\nflags=[ HAS_CODE ' + (cfg.debug ? 'DEBUGGABLE' : '') + ' ]');
 else if (cmd === 'shell pm list packages -e ai.wondry.portal') { if (cfg.wondry) out('package:ai.wondry.portal'); }
-else if (cmd.includes('SETUP_STATUS')) out('Broadcast completed: result=-1, data="SPARKADE_SETUP_V1;state=' + (cfg.state || 'registered') + ';code=ABCD-2345;version=0.4.2;origin=https://sparkade.dev;"');
+else if (cmd.includes('SETUP_STATUS')) out('Broadcast completed: result=-1, data="SPARKADE_SETUP_V1;state=' + (cfg.state || 'registered') + ';code=ABCD-2345;version=${appVersion};origin=https://sparkade.dev;"');
 else out('OK');
 `;
 

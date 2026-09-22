@@ -1,4 +1,6 @@
 import { withProviderRequestPolicy } from '@sparkade/server/providers/request-policy';
+import { withJobMetaCredential } from '../kiosk-meta-credentials';
+import { MetaBudgetError, MetaCapacityError } from '../kiosk-meta-spend';
 import { reviewWebsiteInput } from '../website-content-review';
 import { ArcadeError } from '../arcade';
 import { websiteSpendPolicy } from '../website-spend';
@@ -42,7 +44,8 @@ export async function claimGeneration(id: string, attempt: number) {
     WHERE id=${id} AND attempt=${attempt} AND (run_id IS NULL OR run_id=${runId}) RETURNING id`;
   return rows.length > 0 && (await reviewWebsiteInput(row));
 }
-claimGeneration.maxRetries = 24;
+// A weekly billing pause can span several days, including content checks.
+claimGeneration.maxRetries = 8640;
 
 interface PassResult {
   done: boolean;
@@ -194,9 +197,18 @@ export async function runProviderRequest(id: string, attempt: number, requestId:
             executeProviderTask(task, row.state.config ?? defaultConfig(), row.state.job!.gameId);
           result = row.owner.startsWith('website:')
             ? await withProviderRequestPolicy(websiteSpendPolicy(row), execute)
-            : await execute();
+            : await withJobMetaCredential(row, execute);
         }
       } catch (error) {
+        if (error instanceof MetaBudgetError || error instanceof MetaCapacityError) {
+          // Waiting for a key's allowance must not consume the four paid-attempt limit.
+          await sql`UPDATE generation_requests SET provider_attempts=GREATEST(0,provider_attempts-1)
+            WHERE job_id=${id} AND request_id=${storageId}`;
+          await sql`UPDATE generation_jobs SET status='waiting-network',
+            state=jsonb_set(jsonb_set(state,'{job,status}','"waiting-network"'::jsonb),'{job,detail}',${JSON.stringify(error.message)}::jsonb),updated_at=now()
+            WHERE id=${id} AND attempt=${attempt} AND status IN ('queued','running','waiting-network')`;
+          throw new RetryableError(error.message, { retryAfter: error instanceof MetaCapacityError ? '10s' : '5m' });
+        }
         if (
           !(error instanceof ArcadeError) &&
           !(error instanceof ProviderAuthError) &&
@@ -216,6 +228,9 @@ export async function runProviderRequest(id: string, attempt: number, requestId:
       }
     }
     const url = await writePrivate(`${prefix(id)}responses/${attempt}/${requestId}.json`, result);
+    await sql`UPDATE generation_jobs SET status='running',
+      state=jsonb_set(jsonb_set(state,'{job,status}','"running"'::jsonb),'{job,detail}','"Generating your game…"'::jsonb),updated_at=now()
+      WHERE id=${id} AND attempt=${attempt} AND status='waiting-network'`;
     const event = providerUsageEvent(task, result, row.state, attempt);
     await sql.transaction([
       sql`UPDATE generation_requests SET result_url=${url} WHERE job_id=${id} AND request_id=${storageId}`,
@@ -291,7 +306,7 @@ export async function publishGeneration(id: string, attempt: number) {
   ]);
 }
 
-publishGeneration.maxRetries = 24;
+publishGeneration.maxRetries = 8640;
 
 export async function failGeneration(id: string, attempt: number, message: string) {
   'use step';

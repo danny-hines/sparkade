@@ -180,6 +180,61 @@
 .admin-invite-form {
   grid-template-columns: minmax(180px, 1.4fr) repeat(3, minmax(0, 1fr)) auto;
 }
+.admin-credential-form {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  margin-bottom: 18px;
+}
+.admin-credentials > p {
+  color: var(--ink-soft);
+  line-height: 1.6;
+}
+.admin-credentials .admin-kiosk-card {
+  overflow-wrap: anywhere;
+}
+.admin-meta-spend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-block: 24px 16px;
+}
+.admin-meta-spend > div {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(5, 7, 16, 0.4);
+}
+.admin-meta-spend dt,
+.admin-meta-spend small,
+.admin-meta-help {
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.admin-meta-spend dd {
+  margin: 6px 0 0;
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.admin-meta-spend small {
+  display: block;
+}
+.admin-meta-limits {
+  margin-block: 18px;
+}
+.admin-credentials summary {
+  cursor: pointer;
+}
+.admin-meta-alert {
+  color: var(--orange);
+  line-height: 1.6;
+}
+.admin-shared-billing {
+  grid-column: 1 / -1;
+}
+.admin-shared-billing .admin-meta-spend {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
 .admin-activity {
   display: grid;
   gap: 12px;
@@ -213,11 +268,15 @@
   .admin-tools {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .admin-invite-form {
+  .admin-invite-form,
+  .admin-credential-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (max-width: 680px) {
+  .admin-shared-billing .admin-meta-spend {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .admin-nav {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -233,7 +292,8 @@
     display: none;
   }
   .admin-tools,
-  .admin-invite-form {
+  .admin-invite-form,
+  .admin-credential-form {
     grid-template-columns: 1fr;
   }
   .admin-game-actions {

@@ -103,6 +103,11 @@ atomically to the stable procedural stage if it cannot be normalized.
 To hit the real models, copy `.env.example` to `.env`, set `META_API_KEY`, and use `npm run dev`.
 The same key is used for Muse Spark 1.2 Contributor, Muse Voice Transcribe 1.0, and Muse Image 1.0.
 
+## Releasing changes
+
+For changes that ship to users, follow the [release guide](docs/releases.md) to
+identify the required website deployment, Pi update, and Portal APK release.
+
 ## Other kiosk hardware: Meta Portal
 
 The standalone [Portal kiosk](apps/portal/README.md) packages the shared shell and
@@ -184,6 +189,23 @@ website project. Neon stores jobs and usage; a separate private Blob store holds
 and checkpoints. Completed games download once and play locally, including offline.
 See the [cloud rollout guide](docs/roadmaps/cloud-generation.md) for configuration and recovery.
 Enable `SPARKADE_GENERATION_MODE=cloud` on a registered cabinet after deploying the site.
+
+### Per-kiosk Meta billing
+
+Admins can save named Meta API credentials in **Admin → Kiosks → Meta API credentials**, then
+assign a credential to one or more kiosks. Unassigned kiosks use the existing shared key.
+Overrides cover cloud text, image, and voice requests; an unavailable override blocks requests
+without falling back to shared billing. Existing jobs keep their credential assignment through
+retries. Replacing a saved key updates all kiosks and unfinished jobs using that credential.
+The console shows daily, weekly, monthly, and tracked lifetime spend for each credential and the
+shared key, with separate reservations for uncertain charges. Optional daily/weekly budgets and
+request concurrency limits apply across all uses of the key. Daily budgets reset at midnight
+Pacific; weekly budgets reset Monday at midnight Pacific. Reporting starts when tracking is deployed.
+
+The site needs `SPARKADE_GENERATION_BACKEND=vercel` and a server-only
+`SPARKADE_KIOSK_META_SECRET` (32 random bytes encoded as 64 hex characters). Keep this encryption
+secret stable across deployments and separate between production and preview. See
+[kiosk billing setup and behavior](docs/kiosk-billing.md) before adding credentials.
 
 ## Architecture
 

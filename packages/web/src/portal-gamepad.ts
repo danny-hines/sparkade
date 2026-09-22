@@ -35,7 +35,7 @@ function validState(value: unknown): value is ExternalGamepadState {
   const state = value as Partial<ExternalGamepadState>;
   return (
     Array.isArray(state.buttons) &&
-    state.buttons.length === 10 &&
+    (state.buttons.length === 10 || state.buttons.length === 12) &&
     state.buttons.every((button) => typeof button === 'boolean') &&
     Array.isArray(state.axes) &&
     state.axes.length === 2 &&

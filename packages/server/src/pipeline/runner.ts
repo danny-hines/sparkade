@@ -22,6 +22,12 @@ import { alignRacingCast, racingIdentityProblems } from './racing-identity';
 import { PipelineSuspended, type DurablePipelineCalls, type PipelineStore } from './durable';
 import { settleAll } from './parallel';
 import { ArtifactCache } from './artifact-cache';
+import {
+  RACING_BANK_FALLBACK_VERSION,
+  RacingBankFallbackStore,
+  racingBankFallbackKey,
+  type RacingBankFallback,
+} from '../assets/racing-bank-fallback';
 import { compactArtReview } from '../assets/compact-art-review';
 import { loadGolden } from '@sparkade/generation';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -4131,7 +4137,19 @@ export class GenerationRunner {
             if (!racingSpec) throw new Error('racing pack needs an identity-bearing racing spec');
             const plan = buildRacingPackPlan(racingSpec, !!racingPlayerPhoto);
             const slots = racingRosterSlots(racingSpec);
-            const generateStrip = (entry: RacingPackEntry): Promise<Buffer> => {
+            const bankFallbackStore = new RacingBankFallbackStore(
+              join(this.files.checkpointsDir, jobId, 'racing-bank-fallbacks'),
+            );
+            const bankFallbacks = new Map<string, RacingBankFallback>();
+            const bankKey = (entry: RacingPackEntry) => racingBankFallbackKey(entry, imageModel);
+            const generateStrip = async (entry: RacingPackEntry): Promise<Buffer> => {
+              if (!useFoundation) {
+                const fallback = await bankFallbackStore.load(bankKey(entry));
+                if (fallback) {
+                  bankFallbacks.set(entry.role, fallback);
+                  if (fallback.neutral) return assembleRacingFoundationStrip(fallback.neutral);
+                }
+              }
               const approved = assetWorkspace.load(
                 entry.role,
                 `${entry.promptVersion}-approved-v1`,
@@ -4143,7 +4161,24 @@ export class GenerationRunner {
                 `${entry.promptVersion}-approved-v1`,
                 imagePromptHash(entry.prompt),
               );
-              if (approved || savedBase) return Promise.resolve((approved ?? savedBase)!);
+              if (approved || savedBase) return (approved ?? savedBase)!;
+              if (bankFallbacks.has(entry.role)) {
+                const base =
+                  assetWorkspace.load(entry.role, entry.promptVersion, imagePromptHash(entry.prompt)) ??
+                  assetWorkspace.load(
+                    entry.role,
+                    entry.promptVersion,
+                    imagePromptHash(`${entry.prompt} RETRY CORRECTION: obey every composition, format, and no-text constraint exactly.`),
+                  );
+                if (!base) {
+                  throw new PipelineError(
+                    'image-invalid',
+                    `${entry.label}: saved neutral source is unavailable after a banking refusal`,
+                    'building-assets',
+                  );
+                }
+                return base;
+              }
               return cachedGeneratedAsset({
                 role: entry.role,
                 promptVersion: entry.promptVersion,
@@ -4249,6 +4284,7 @@ export class GenerationRunner {
               const approvedIds = new Set(['player']);
               for (const [index, entry] of plan.rivalStrips.entries()) {
                 if (
+                  bankFallbacks.get(entry.role)?.neutral ||
                   assetWorkspace.load(
                     entry.role,
                     `${entry.promptVersion}-approved-v1`,
@@ -4263,6 +4299,22 @@ export class GenerationRunner {
                   approvedIds.add(slots[index + 1]!.id);
                 }
               }
+              // Called only after the roster gate accepts the entire strip or
+              // explicitly classifies its neutral as valid (banking-only defect).
+              const keepApprovedNeutral = async (index: number): Promise<void> => {
+                const entry = plan.rivalStrips[index - 1]!;
+                const neutral = await extractRacingNeutralCell(buffers[index]!);
+                const fallback = await bankFallbackStore.approveNeutral(bankKey(entry), neutral);
+                bankFallbacks.set(entry.role, fallback);
+                // Review boards still use the strip-shaped identity scaffold.
+                // Only the explicit 64px neutral is published, never fake banks.
+                buffers[index] = await assembleRacingFoundationStrip(neutral);
+                approvedIds.add(slots[index]!.id);
+                emit(
+                  'building-assets',
+                  `${slots[index]!.name} keeps the approved rear; steering lean runs in-game`,
+                );
+              };
               const reviewPending = (label: string) =>
                 reviewPendingRacingStrips({
                   slots,
@@ -4292,6 +4344,10 @@ export class GenerationRunner {
                   approve: async (id, png) => {
                     const index = slots.findIndex((slot) => slot.id === id);
                     const entry = plan.rivalStrips[index - 1]!;
+                    if (bankFallbacks.has(entry.role)) {
+                      await keepApprovedNeutral(index);
+                      return;
+                    }
                     await assetWorkspace.store(
                       entry.role,
                       png,
@@ -4313,9 +4369,9 @@ export class GenerationRunner {
               // and are never redone; every round re-runs the same full
               // pending-vs-approved reference gate. Guidance is always the
               // judge's own slot wording — never a new invented theme.
-              // Provider policy refusals propagate out of the correction calls
-              // below (racingAssetFailure rethrows); the loop never catches
-              // them into another attempt.
+              // Only a refused rival banking edit can retain its already-valid
+              // neutral. Required identity/art failures still propagate; a
+              // refusal never triggers another image generation or repair.
               const rivalRepairStates = new Map<string, RacingRivalRepairState>();
               for (
                 let round = 0;
@@ -4367,6 +4423,13 @@ export class GenerationRunner {
                       decision.retryGuidance ||
                       'Correct this rejected vehicle to match its concept, rear camera and distinct silhouette.';
                     if (action === 'repaint') {
+                      if (bankFallbacks.has(entry.role)) {
+                        throw new PipelineError(
+                          'image-invalid',
+                          `${slot.name}'s saved neutral did not pass identity review; cannot use the banking fallback`,
+                          'building-assets',
+                        );
+                      }
                       // One full-strip regeneration with the slot-specific
                       // distinctness guidance, cached under the correction
                       // hash by cachedGeneratedAsset.
@@ -4395,6 +4458,11 @@ export class GenerationRunner {
                       return;
                     }
                     if (action === 'bank') {
+                      if (bankFallbacks.has(entry.role)) {
+                        await keepApprovedNeutral(k);
+                        swapsOnly = false;
+                        return;
+                      }
                       // Targeted banking correction: preserve the accepted
                       // neutral cell, regenerate only the two banks as
                       // single-object edits of the enlarged rear cell. The
@@ -4423,17 +4491,39 @@ export class GenerationRunner {
                           discipline: racingPackDiscipline(racingSpec),
                           traversal: rivalIdentity.traversal,
                           rolePrefix: `racing-craft-${slot.id}`,
-                          generate: (prompt, pose, posedReference) =>
-                            callImage({
-                              role: `racing-craft-${slot.id}-bank-${pose}`,
-                              label: `${slot.name} bank ${pose === 'bankLeft' ? 'left' : 'right'} correction`,
-                              prompt,
-                              reference: posedReference ?? bankReference,
-                              size: '1024x1024',
-                            }),
+                          generate: async (prompt, pose, posedReference) => {
+                            try {
+                              return await callImage({
+                                role: `racing-craft-${slot.id}-bank-${pose}`,
+                                label: `${slot.name} bank ${pose === 'bankLeft' ? 'left' : 'right'} correction`,
+                                prompt,
+                                reference: posedReference ?? bankReference,
+                                size: '1024x1024',
+                              });
+                            } catch (error) {
+                              throwIfSuspended(error);
+                              if (abort.signal.aborted) throw error;
+                              if (error instanceof PipelineError && error.code === 'image-content-policy') {
+                                await bankFallbackStore.recordRefusal(bankKey(entry), error.message);
+                              }
+                              throw error;
+                            }
+                          },
                           checkActive: throwIfSuspended,
                           validationFailure,
-                        }).catch(racingAssetFailure);
+                        }).catch(async (error) => {
+                          throwIfSuspended(error);
+                          if (abort.signal.aborted) throw error;
+                          if (error instanceof PipelineError && error.code === 'image-content-policy') {
+                            await keepApprovedNeutral(k);
+                            return null;
+                          }
+                          return racingAssetFailure(error);
+                        });
+                        if (!corrected) {
+                          swapsOnly = false;
+                          return;
+                        }
                         await assetWorkspace.store(
                           entry.role,
                           corrected,
@@ -4478,11 +4568,12 @@ export class GenerationRunner {
               // Store the reviewed selection under its immutable design key;
               // arbitrary correction text must not force another repaint on retry.
               for (const [index, entry] of plan.rivalStrips.entries()) {
+                const fallback = bankFallbacks.get(entry.role);
                 await assetWorkspace.store(
                   entry.role,
-                  buffers[index + 1]!,
-                  `${entry.promptVersion}-approved-v1`,
-                  imagePromptHash(entry.prompt),
+                  fallback?.neutral ?? buffers[index + 1]!,
+                  fallback?.neutral ? RACING_BANK_FALLBACK_VERSION : `${entry.promptVersion}-approved-v1`,
+                  fallback?.neutral ? bankKey(entry) : imagePromptHash(entry.prompt),
                 );
               }
               const motion = racingIdentity.traversal?.motion;
@@ -4673,6 +4764,16 @@ export class GenerationRunner {
               mode: 'generated',
               attempted: true,
               ...(motionStatuses.length ? { motion: motionStatuses } : {}),
+              ...(bankFallbacks.size
+                ? {
+                    banking: plan.rivalStrips.flatMap((entry, index) => {
+                      const fallback = bankFallbacks.get(entry.role);
+                      return fallback?.neutral
+                        ? [{ racer: slots[index + 1]!.id, status: 'neutral' as const, reason: fallback.reason }]
+                        : [];
+                    }),
+                  }
+                : {}),
             };
             emit('building-assets', 'Finished the generated racing world and roster');
           })

@@ -937,6 +937,9 @@ export interface GameMetaFile {
      * retained terminal outcome from an earlier attempt).
      */
     motion?: RacingMotionRacerStatus[];
+    /** Rival banking corrections declined by the provider. Each retains its
+     * approved 64px neutral and uses continuous runtime steering lean. */
+    banking?: { racer: string; status: 'neutral'; reason: string }[];
   };
   /** QA/readiness signal for the one-call ladder/boss Fighter arena sheet. */
   fighterArenaArt?: {

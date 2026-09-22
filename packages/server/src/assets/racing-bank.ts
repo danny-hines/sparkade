@@ -440,6 +440,15 @@ export async function correctRacingBankPoses(
     PromiseSettledResult<NormalizedRacingBankPose>,
     PromiseSettledResult<NormalizedRacingBankPose>,
   ];
+  // A rival may retain its neutral after a policy refusal. Never let that
+  // optional outcome hide a sibling authentication, storage, cancellation,
+  // or other failure that still needs to stop the job.
+  for (const outcome of outcomes) {
+    if (
+      outcome.status === 'rejected' &&
+      (outcome.reason as { code?: unknown } | null)?.code !== 'image-content-policy'
+    ) throw outcome.reason;
+  }
   if (left.status === 'rejected') throw left.reason;
   if (right.status === 'rejected') throw right.reason;
   // Scale coherence between the two new banks in raw source coordinates

@@ -4,9 +4,9 @@
 // These tests pin the per-round plan: the CURRENT category picks at most
 // one repaint, one two-image bank correction, then at most one swap after
 // a bank correction; approved rivals are never redone; exhausted budgets
-// spend no calls. (Provider policy refusal propagates out of the runner's
-// correction calls untouched — the round loop has no catch that could turn
-// a refusal into another attempt.)
+// spend no calls. A refused rival bank correction now retains the accepted
+// neutral; it never becomes another image attempt (pipeline coverage lives
+// in racing-bank-fallback-pipeline.test.ts).
 import { describe, expect, it } from 'vitest';
 import type { RacingSlotCorrectionKind } from '../src/assets/racing-pack';
 import {

@@ -25,9 +25,9 @@ export const GENERATED_ADVENTURE_OBJECT_WIDTH = 96;
 export const GENERATED_ADVENTURE_OBJECT_HEIGHT = 112;
 export const GENERATED_ADVENTURE_OBJECT_ATLAS_WIDTH =
   GENERATED_ADVENTURE_OBJECT_WIDTH * GENERATED_ADVENTURE_OBJECTS.length;
-export const ADVENTURE_OBJECT_BOARD_PROMPT_VERSION = 'adventure-object-board-v2';
-export const ADVENTURE_OBJECT_JUDGE_PROMPT_VERSION = 'adventure-object-judge-v2';
-export const ADVENTURE_OBJECT_PIPELINE_PROMPT_VERSION = 'adventure-object-pipeline-v2';
+export const ADVENTURE_OBJECT_BOARD_PROMPT_VERSION = 'adventure-object-board-v3';
+export const ADVENTURE_OBJECT_JUDGE_PROMPT_VERSION = 'adventure-object-judge-v3';
+export const ADVENTURE_OBJECT_PIPELINE_PROMPT_VERSION = 'adventure-object-pipeline-v3';
 
 export interface AdventureObjectPromptOptions {
   gameTitle: string;
@@ -73,6 +73,8 @@ export interface AdventureObjectCandidateReview {
     gameplayReadability: number;
     technical: number;
   };
+  /** True only for an uncropped, grounded full-body NPC with visible legs and feet. */
+  npcComplete: boolean | null;
   issues: string[];
   summary: string;
 }
@@ -115,7 +117,7 @@ function roleConcept(
     case 'item':
       return `SECONDARY ITEM PICKUP: ${options.itemName}; ${options.itemConcept}. Show the complete usable item alone in a calm collectible presentation, never in a hand and never activated.`;
     case 'npc':
-      return `NPC: ${options.npcConcept}. One complete friendly adult world inhabitant in a neutral grounded front/down-facing top-down three-quarter idle, clearly non-hostile and distinct from the player and enemies.`;
+      return `NPC: ${options.npcConcept}. One complete friendly adult world inhabitant standing in a neutral grounded front/down-facing top-down three-quarter idle, clearly non-hostile and distinct from the player and enemies. FULL-BODY GAMEPLAY ACTOR, from the top of the headwear through the torso, hips, two complete legs and both visible feet planted on one baseline. Use adult body proportions with a small head, never a head-and-shoulders portrait, bust, waist-up crop, oversized head, floating torso, seated pose or character emerging from the floor. Leave green clearance below both feet.`;
     case 'secondaryEffect':
       return `ACTIVE SECONDARY: ${effectConcept(options)}.`;
     case 'block':
@@ -173,7 +175,7 @@ export function buildAdventureObjectBoardPrompt(options: AdventureObjectPromptOp
   ].join(' ');
 }
 
-async function processAdventureObject(
+export async function processAdventureObject(
   image: Buffer,
   role: GeneratedAdventureObject,
 ): Promise<ProcessedFighterPose> {
@@ -269,6 +271,9 @@ export function buildAdventureObjectJudgeSchema(
   candidates: readonly Pick<AdventureObjectCandidate, 'id' | 'role'>[],
 ): Record<string, unknown> {
   const ids = candidates.map(({ id }) => id);
+  const roles = GENERATED_ADVENTURE_OBJECTS.filter((role) =>
+    candidates.some((candidate) => candidate.role === role),
+  );
   const score = { type: 'integer', minimum: 0, maximum: 5 };
   return {
     title: 'Adventure themed gameplay-object selection',
@@ -283,7 +288,7 @@ export function buildAdventureObjectJudgeSchema(
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['id', 'role', 'scores', 'issues', 'summary'],
+          required: ['id', 'role', 'scores', 'npcComplete', 'issues', 'summary'],
           properties: {
             id: { type: 'string', enum: ids },
             role: { type: 'string', enum: GENERATED_ADVENTURE_OBJECTS },
@@ -305,6 +310,7 @@ export function buildAdventureObjectJudgeSchema(
                 technical: score,
               },
             },
+            npcComplete: { type: ['boolean', 'null'] },
             issues: { type: 'array', items: { type: 'string' }, maxItems: 8 },
             summary: { type: 'string' },
           },
@@ -312,15 +318,15 @@ export function buildAdventureObjectJudgeSchema(
       },
       selections: {
         type: 'array',
-        minItems: GENERATED_ADVENTURE_OBJECTS.length,
-        maxItems: GENERATED_ADVENTURE_OBJECTS.length,
+        minItems: roles.length,
+        maxItems: roles.length,
         items: {
           type: 'object',
           additionalProperties: false,
           required: ['role', 'candidateId', 'confidence', 'rationale'],
           properties: {
-            role: { type: 'string', enum: GENERATED_ADVENTURE_OBJECTS },
-            candidateId: { type: 'string', enum: ids },
+            role: { type: 'string', enum: roles },
+            candidateId: { type: 'string', enum: ['', ...ids] },
             confidence: { type: 'number', minimum: 0, maximum: 1 },
             rationale: { type: 'string' },
           },
@@ -335,16 +341,20 @@ export function buildAdventureObjectJudgePrompt(
   candidates: readonly Pick<AdventureObjectCandidate, 'id' | 'role'>[],
   options: AdventureObjectPromptOptions,
 ): { system: string; user: string } {
+  const roles = GENERATED_ADVENTURE_OBJECTS.filter((role) =>
+    candidates.some((candidate) => candidate.role === role),
+  );
   return {
     system: [
-      'You are the art director selecting seven small but important gameplay visuals for a premium top-down retro Adventure game.',
+      'You are the art director selecting the supplied gameplay visuals for a premium top-down retro Adventure game.',
       'The top of the attached review board is immutable world-style key art. Labeled processed candidates below appear over varied room floors to test real gameplay contrast.',
       'Score exact authored-concept match, world-style cohesion, complete readable silhouette, immediate gameplay-role readability, and crisp residue-free technical execution.',
       'The key must read as a portable gate-opening object; item as the collectible secondary equipment; NPC as one friendly grounded world inhabitant; active secondary as the correct in-flight or placed gameplay object; block as one full-scale movable obstacle; raised and pressed switches as the exact same broad floor plate in two mechanical height states. Penalize candidates that resemble enemies, floor decoration, the player, the boss, or another role.',
       'The block and switches must share the actors’ overhead three-quarter camera and fill their gameplay footprint without a baked floor square, pedestal, plinth, or tiny object inside a larger tile. The two selected switch states must use the same candidate suffix and preserve identical construction, materials, palette, outline, orientation, and scale. Only mechanical depression may differ; lighting, glow, and color-state swaps are invalid.',
-      'Choose exactly one locally valid candidate per role. Optimize the set for coherent materials and rendering density while keeping every role unmistakably distinct. Select the best available candidate for every role even when none is perfect. Return only the requested JSON.',
+      'NPC STRUCTURE GATE: set npcComplete=true only when you can visibly identify a complete head, torso, hips, two full legs and both feet in a neutral grounded standing pose from the top-down three-quarter gameplay camera. A portrait, bust, waist-up crop, floating torso, seated character, missing feet, or character cut off at the waist is npcComplete=false regardless of its art quality. For other roles use null. Compare NPC proportions, head size, camera and rendering density with the HERO reference when supplied; the NPC must be a distinct person, not a duplicate hero. Reject a portrait even if its face and style look excellent.',
+      'Choose exactly one locally valid candidate per role. Optimize the set for coherent materials and rendering density while keeping every role unmistakably distinct. For NPCs, select only a candidate with npcComplete=true, silhouette and gameplayReadability >=4, worldStyle and technical >=3, and no issues. If none qualifies, return an empty NPC candidateId so only the NPC can be repainted. For the other roles select the best available candidate even when none is perfect. Return only the requested JSON.',
     ].join(' '),
-    user: `Select key, item, npc, secondaryEffect, block, switchRaised, and switchPressed from ${candidates.map(({ id }) => id).join(', ')}. Contracts: ${GENERATED_ADVENTURE_OBJECTS.map((role) => roleConcept(role, options)).join(' ')}`,
+    user: `Select ${roles.join(', ')} from ${candidates.map(({ id }) => id).join(', ')}. Contracts: ${roles.map((role) => roleConcept(role, options)).join(' ')}`,
   };
 }
 
@@ -371,11 +381,23 @@ export function bestAdventureObjectCandidateId(
 ): string | null {
   let best: { id: string; score: number } | null = null;
   for (const review of decision.candidateReviews) {
-    if (review.role !== role) continue;
+    if (review.role !== role || (role === 'npc' && !adventureNpcReady(review))) continue;
     const score = adventureObjectReviewScore(review);
     if (!best || score > best.score) best = { id: review.id, score };
   }
   return best?.id ?? null;
+}
+
+export function adventureNpcReady(review: AdventureObjectCandidateReview): boolean {
+  return (
+    review.role === 'npc' &&
+    review.npcComplete === true &&
+    review.issues.length === 0 &&
+    review.scores.silhouette >= 4 &&
+    review.scores.gameplayReadability >= 4 &&
+    review.scores.worldStyle >= 3 &&
+    review.scores.technical >= 3
+  );
 }
 
 function adventureObjectReviewScore(review: AdventureObjectCandidateReview): number {
@@ -412,6 +434,7 @@ export function normalizeAdventureObjectJudgeDecision(
         gameplayReadability: numericScore(scores.gameplayReadability),
         technical: numericScore(scores.technical),
       },
+      npcComplete: candidate.role === 'npc' ? review.npcComplete === true : null,
       issues: Array.isArray(review.issues)
         ? review.issues
             .map((issue) => text(issue, 240))
@@ -432,6 +455,7 @@ export function normalizeAdventureObjectJudgeDecision(
           gameplayReadability: 0,
           technical: 0,
         },
+        npcComplete: candidate.role === 'npc' ? false : null,
         issues: ['Judge omitted this candidate'],
         summary: 'No review was returned.',
       },
@@ -453,13 +477,19 @@ export function normalizeAdventureObjectJudgeDecision(
     const selection = requested.get(role);
     const requestedId = text(selection?.candidateId, 64);
     const validRequested = candidates.some(
-      (candidate) => candidate.role === role && candidate.id === requestedId,
+      (candidate) =>
+        candidate.role === role &&
+        candidate.id === requestedId &&
+        (role !== 'npc' ||
+          adventureNpcReady(candidateReviews.find((review) => review.id === requestedId)!)),
     );
     return {
       role,
       candidateId:
         (validRequested ? requestedId : bestAdventureObjectCandidateId(role, provisional)) ??
-        candidates.find((candidate) => candidate.role === role)?.id ??
+        (role === 'npc'
+          ? undefined
+          : candidates.find((candidate) => candidate.role === role)?.id) ??
         '',
       confidence:
         typeof selection?.confidence === 'number' && Number.isFinite(selection.confidence)
@@ -530,6 +560,7 @@ function previewFloor(width: number, height: number, index: number): Buffer {
 
 export async function buildAdventureObjectJudgeBoard(options: {
   keyArt: Buffer;
+  hero?: Buffer;
   candidates: readonly AdventureObjectCandidate[];
 }): Promise<Buffer> {
   const width = 1320;
@@ -540,7 +571,10 @@ export async function buildAdventureObjectJudgeBoard(options: {
   const groupWidth = 560;
   const groupHeight = 245;
   const startY = 455;
-  const rows = Math.ceil(GENERATED_ADVENTURE_OBJECTS.length / 2);
+  const roles = GENERATED_ADVENTURE_OBJECTS.filter((role) =>
+    options.candidates.some((candidate) => candidate.role === role),
+  );
+  const rows = Math.ceil(roles.length / 2);
   const height = startY + groupHeight * rows + 20;
   const keyArt = await sharp(options.keyArt)
     .resize(keyArtWidth, keyArtHeight, { fit: 'contain', background: '#0f1528' })
@@ -569,7 +603,20 @@ export async function buildAdventureObjectJudgeBoard(options: {
       top: 4,
     },
   ];
-  GENERATED_ADVENTURE_OBJECTS.forEach((role, roleIndex) => {
+  if (options.hero) {
+    composites.push(
+      { input: labelSvg(260, 38, 'HERO · STYLE / SCALE'), left: 20, top: 65 },
+      {
+        input: await sharp(options.hero)
+          .resize(224, 256, { fit: 'contain', kernel: sharp.kernel.nearest })
+          .png()
+          .toBuffer(),
+        left: 38,
+        top: 115,
+      },
+    );
+  }
+  roles.forEach((role, roleIndex) => {
     const row = Math.floor(roleIndex / 2);
     const column = roleIndex % 2;
     const groupLeft = 70 + column * 620;

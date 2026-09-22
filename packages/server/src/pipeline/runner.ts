@@ -265,6 +265,7 @@ import {
   validateGeneratedAdventureEnemyAtlas,
   type GeneratedAdventureEnemy,
 } from '../assets/adventure-enemy';
+import { ensureAdventureNpc } from '../assets/adventure-npc';
 import {
   ADVENTURE_OBJECT_ATLAS_ROLE,
   ADVENTURE_OBJECT_BOARD_PROMPT_VERSION,
@@ -5361,7 +5362,8 @@ export class GenerationRunner {
                   validationFailure(`adventure-object-board-${id}`),
                 );
                 const missingRoles = GENERATED_ADVENTURE_OBJECTS.filter(
-                  (role) => !split.candidates.some((candidate) => candidate.role === role),
+                  (role) =>
+                    role !== 'npc' && !split.candidates.some((candidate) => candidate.role === role),
                 );
                 if (missingRoles.length) {
                   await assetWorkspace.discardPrivate('adventureObjectBoard');
@@ -5372,9 +5374,12 @@ export class GenerationRunner {
                   );
                 }
 
+                const hero = await adventureIdentityTask;
+                if (!hero) throw new Error('NPC review requires the selected Adventure hero');
                 const descriptors = split.candidates.map(({ id, role }) => ({ id, role }));
                 const reviewBoard = await buildAdventureObjectJudgeBoard({
                   keyArt,
+                  hero,
                   candidates: split.candidates,
                 });
                 const mockDecision = {
@@ -5388,12 +5393,14 @@ export class GenerationRunner {
                       gameplayReadability: 5,
                       technical: 5,
                     },
+                    npcComplete: role === 'npc' ? true : null,
                     issues: [],
                     summary: 'Mock themed Adventure gameplay object.',
                   })),
                   selections: GENERATED_ADVENTURE_OBJECTS.map((role) => ({
                     role,
-                    candidateId: descriptors.find((candidate) => candidate.role === role)!.id,
+                    candidateId:
+                      descriptors.find((candidate) => candidate.role === role)?.id ?? '',
                     confidence: 1,
                     rationale: 'Mock selection.',
                   })),
@@ -5418,8 +5425,42 @@ export class GenerationRunner {
                   );
                 }
                 const decision = normalizeAdventureObjectJudgeDecision(rawDecision, descriptors);
+                const npc = await ensureAdventureNpc({
+                  candidates: split.candidates,
+                  decision,
+                  keyArt,
+                  hero,
+                  promptOptions,
+                  cache: new ArtifactCache(join(this.files.checkpointsDir, jobId, 'adventure-npc')),
+                  attempt: job.attempt,
+                  generate: (id, prompt, reference) => {
+                    emit(
+                      'building-assets',
+                      'Repainting the NPC as a complete standing world character…',
+                    );
+                    return callImage({
+                      role: `adventure-${id}`,
+                      label: 'Adventure NPC full-body repair',
+                      prompt,
+                      reference,
+                      size: '1024x1024',
+                    });
+                  },
+                  review: (prompt, jsonSchema, image) =>
+                    callLlm(
+                      'design',
+                      { ...prompt, jsonSchema, maxTokens: 1500, timeoutMs: 120_000 },
+                      {
+                        stage: 'building-assets',
+                        label: 'Checking NPC body, camera and world style',
+                        image,
+                        reasoningEffort: 'low',
+                      },
+                    ),
+                });
                 const selected = Object.fromEntries(
                   GENERATED_ADVENTURE_OBJECTS.map((role) => {
+                    if (role === 'npc') return [role, npc];
                     const requested = decision.selections.find(
                       (selection) => selection.role === role,
                     )?.candidateId;

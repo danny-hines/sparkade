@@ -93,7 +93,7 @@ export function buildRacingFoundationPrompt(options: RacingFoundationPromptOptio
     `Rear identity: ${concept}. Same silhouette, materials, outfit, markings, and livery as the roster concept.`,
     'The roster concept above describes identity only: use its silhouette, outfit, markings, and color wording. Any run-cycle, animation-frame, stride-sequence, or motion wording in the concept does NOT add poses, frames, or subjects and never turns the camera.',
     rider === 'onFoot'
-      ? 'On-foot rear identity: freeze ONE mid-stride phase with opposite arm-and-leg positions. Rear anatomy only: the back of the head, back, clothes, arms, legs, and heels are visible. No face, eyes, chest, or front of the torso. Facial likeness belongs to the separate portrait art; this image identifies the runner by outfit and rear silhouette only.'
+      ? 'On-foot rear identity: freeze ONE mid-stride phase with opposite arm-and-leg positions. Rear anatomy only: the back of the head, back, clothes, arms, legs, and heels are visible. No face, eyes, chest, or front of the torso. Preserve rear-visible identity, including headwear and hair, without turning the head to show facial likeness.'
       : '',
     `Rear camera only: ${rider === 'onFoot' ? 'runner back, rear head, and stride silhouette are visible; never a face-on view' : rider === 'none' ? 'tail, stern, and rear markings are visible; no front, cockpit front, or face-on view' : 'rider back, conveyance stern and rear, and tail markings are visible; no front, cockpit front, or face-on view'}. Never render the subject standing detached, floating beside, facing the camera, or pasted into a second view.`,
     RACING_REAR_CAMERA,
@@ -238,7 +238,8 @@ export function buildRacingFoundationJudgePrompt(
         : '',
       RACING_CAMERA_REVIEW,
       'Required: true rear camera (directly behind at a low chase-camera height, subject pointing away), the SAME subject as its concept, readable rear silhouette, no green panels, no text, no cropping. Every image must show exactly one complete rear subject.',
-      'Banking is never assessed and never requested: accept or reject on rear-camera truth only. A rear view with no lean is correct; do not demand bank angles.',
+      'Banking is never assessed and never requested: judge rear-camera truth, character identity, wardrobe and technical quality. A rear view with no lean is correct; do not demand bank angles.',
+      'If a CANONICAL PLAYER WARDROBE is supplied, mismatched garment type, color, trim or pattern is fatal even when the photo likeness and camera are correct. The authored outfit overrides source-photo clothing below the neck; never approve a generic shirt in place of the specified singlet.',
       'A fatal issue is a wrong camera direction (face-on, front, or side view), a sideways conveyance deck, a missing or doubled subject, a conveyance on an on-foot runner (or vice versa), malformed anatomy (missing or extra limbs, detached parts), motor exhaust on a human-powered subject, cropped/multiple subjects, duplicated subjects across targets or references, or broken transparency.',
       'accepted should be true only when every target has no fatal issue and is production quality. Even when accepted is false, retryGuidance must describe the single most important correction for the rejected targets, and each rejected target needs its own fix in guidance.',
     ]

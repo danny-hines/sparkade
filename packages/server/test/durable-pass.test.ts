@@ -14,7 +14,10 @@ import {
   restoreFiles,
   type PassCheckpoint,
   type ProviderResult,
+  type ProviderTask,
 } from '../src/pipeline/durable-pass';
+import { buildCharacterArtReference } from '../src/assets/character-reference';
+import { normalizeKeyArt, prepareImageReference } from '../src/assets/game-art';
 import { executeProviderTask, providerUsageEvent } from '../src/pipeline/durable-provider';
 import { validateBundle } from '../src/cloud/generation-client';
 import type { CloudGameBundle } from '@sparkade/shared';
@@ -334,7 +337,7 @@ describe('durable generation passes', () => {
     },
     120_000,
   );
-  it('starts a photo-based platformer identity while key art is still pending', async () => {
+  it('resumes photo-based platformer identity with the canonical art reference after key art completes', async () => {
     vi.stubEnv('SPARKADE_PROVIDER', 'mock');
     vi.stubEnv('SPARKADE_MOCK_FAST', '1');
     const config = defaultConfig();
@@ -368,21 +371,20 @@ describe('durable generation passes', () => {
       rmSync(dir, { recursive: true, force: true });
     }
     const responses: Record<string, ProviderResult> = {};
-    let heldKeyArt: string | undefined;
-    let identityBeforeKeyArt = false;
-    for (let pass = 0; pass < 12 && !identityBeforeKeyArt; pass++) {
+    let heldKeyArt: Extract<ProviderTask, { kind: 'image' }> | undefined;
+    for (let pass = 0; pass < 12 && !heldKeyArt; pass++) {
       const output = await advancePipeline(checkpoint, async (id) => responses[id], config);
       checkpoint = output;
       expect(output.state.job?.status).not.toBe('failed');
-      heldKeyArt ??= output.pending.find(
-        (r) => r.kind === 'image' && r.request.role === 'keyArt',
-      )?.id;
-      identityBeforeKeyArt =
-        !!heldKeyArt &&
-        output.pending.some((r) => r.kind === 'image' && r.request.role === 'platformer-I1');
-      if (identityBeforeKeyArt) break;
+      heldKeyArt = output.pending.find(
+        (r): r is Extract<ProviderTask, { kind: 'image' }> =>
+          r.kind === 'image' && r.request.role === 'keyArt',
+      );
+      expect(
+        output.pending.some((r) => r.kind === 'image' && r.request.role === 'platformer-I1'),
+      ).toBe(false);
       for (const request of output.pending) {
-        if (request.id !== heldKeyArt)
+        if (request.id !== heldKeyArt?.id)
           responses[request.id] = await executeProviderTask(
             request,
             config,
@@ -391,8 +393,30 @@ describe('durable generation passes', () => {
       }
     }
     expect(heldKeyArt).toBeTruthy();
-    expect(responses[heldKeyArt!]).toBeUndefined();
-    expect(identityBeforeKeyArt).toBe(true);
+    // Another fresh-filesystem pass still waits for the canonical artwork.
+    const waiting = await advancePipeline(checkpoint, async (id) => responses[id], config);
+    expect(
+      waiting.pending.some((r) => r.kind === 'image' && r.request.role === 'platformer-I1'),
+    ).toBe(false);
+    const keyArt = await executeProviderTask(heldKeyArt!, config, waiting.state.job!.gameId);
+    expect(keyArt.kind).toBe('image');
+    if (keyArt.kind !== 'image') throw new Error('Expected generated key art');
+    responses[heldKeyArt!.id] = keyArt;
+    const resumed = await advancePipeline(waiting, async (id) => responses[id], config);
+    const identity = resumed.pending.find(
+      (r): r is Extract<ProviderTask, { kind: 'image' }> =>
+        r.kind === 'image' && r.request.role === 'platformer-I1',
+    );
+    expect(identity).toBeTruthy();
+    const photo = Buffer.from(
+      waiting.files[`staging/${waiting.state.job!.id}/photo.jpg`]!,
+      'base64',
+    );
+    const expectedReference = await buildCharacterArtReference(
+      await normalizeKeyArt(Buffer.from(keyArt.image, 'base64')),
+      await prepareImageReference(photo),
+    );
+    expect(Buffer.from(identity!.request.reference!, 'base64')).toEqual(expectedReference);
   }, 30_000);
   it('rejects paths escaping a restored checkpoint', () => {
     expect(() => restoreFiles('/tmp/sparkade-test', { '../escape': 'eA==' })).toThrow(

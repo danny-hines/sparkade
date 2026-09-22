@@ -118,7 +118,7 @@ export async function buildHShooterIdentityReference(
   ];
   if (primary) {
     const primaryPanel = await sharp(primary)
-      .resize(1024, 576, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 })
+      .resize(1024, 576, { fit: 'contain', background, kernel: sharp.kernel.lanczos3 })
       .png()
       .toBuffer();
     composites.unshift({ input: primaryPanel, left: 0, top: 0 });

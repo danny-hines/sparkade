@@ -190,7 +190,7 @@ function buildTraversalRacingCraftStripPrompt(
     RACING_REAR_CAMERA,
     racingRearCameraLine(rider),
     rider === 'onFoot'
-      ? 'Rear anatomy only: the back of the head, back, clothes, arms, legs, and heels are visible. No face, eyes, chest, or front of the torso in any cell. Facial likeness belongs to the separate portrait art; this strip identifies the runner by outfit and rear silhouette only.'
+      ? 'Rear anatomy only: the back of the head, back, clothes, arms, legs, and heels are visible. No face, eyes, chest, or front of the torso in any cell. Preserve rear-visible identity, including headwear and hair, without turning the head to show facial likeness.'
       : '',
     racingConveyanceAxisLine(rider),
     water ? 'Water cup: the subject touches the water with a small waterline contact patch.' : '',
@@ -734,7 +734,7 @@ export async function buildRacingIdentityReference(
   const composites: OverlayOptions[] = [{ input: craftPanel, left: 72, top: primary ? 624 : 212 }];
   if (primary) {
     const primaryPanel = await sharp(primary)
-      .resize(1024, 576, { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 })
+      .resize(1024, 576, { fit: 'contain', background, kernel: sharp.kernel.lanczos3 })
       .png()
       .toBuffer();
     composites.unshift({ input: primaryPanel, left: 0, top: 0 });

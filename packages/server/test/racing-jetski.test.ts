@@ -367,7 +367,8 @@ describe('jetski cup end-to-end slice', () => {
     expect(RACING_JETSKI_JUDGE_PROMPT_VERSION).not.toBe(RACING_JUDGE_PROMPT_VERSION);
     expect(RACING_JETSKI_PANORAMA_PROMPT_VERSION).not.toBe('racing-jetski-panorama-v1');
     const plan = buildRacingPackPlan(jetskiSpec());
-    expect(plan.playerStrip.promptVersion).toBe(RACING_JETSKI_STRIP_PROMPT_VERSION);
+    expect(plan.playerStrip.promptVersion).toBe(`${RACING_JETSKI_STRIP_PROMPT_VERSION}-wardrobe-v1-identity-v1`);
+    expect(plan.rivalStrips.every(entry => entry.promptVersion === RACING_JETSKI_STRIP_PROMPT_VERSION)).toBe(true);
     expect(plan.playerStrip.prompt).toMatch(/seated/i);
     expect(plan.panoramas[0]!.promptVersion).toBe(RACING_JETSKI_PANORAMA_PROMPT_VERSION);
     const hoverSpec = structuredClone(golden);

@@ -1,7 +1,12 @@
+import {
+  characterReferenceInstruction,
+  characterReferenceLabel,
+  type CharacterReferenceKind,
+} from './character-reference';
 import sharp from 'sharp';
 import { platformerReviewSprite } from './platformer-review';
 
-export const PLATFORMER_JUMP_JUDGE_PROMPT_VERSION = 'platformer-jump-judge-v1';
+export const PLATFORMER_JUMP_JUDGE_PROMPT_VERSION = 'platformer-jump-judge-v2';
 
 export interface PlatformerJumpCandidateDescriptor {
   id: string;
@@ -106,12 +111,9 @@ export function buildPlatformerJumpJudgeSchema(
 
 export function buildPlatformerJumpJudgePrompt(
   candidates: readonly PlatformerJumpCandidateDescriptor[],
-  options: { heroConcept?: string; sourceKind: 'photo' | 'key-art' },
+  options: { heroConcept?: string; sourceKind: CharacterReferenceKind },
 ): { system: string; user: string } {
-  const sourceRule =
-    options.sourceKind === 'photo'
-      ? 'SOURCE PHOTO is immutable identity truth from the neck up; its clothing below the neck is not wardrobe truth.'
-      : 'SOURCE KEY ART provides the original character identity when no photo exists.';
+  const sourceRule = characterReferenceInstruction(options.sourceKind);
   return {
     system: [
       'You are the exacting character-continuity and animation QA judge for a premium SNES-style platform game.',
@@ -194,7 +196,7 @@ export function normalizePlatformerJumpJudgeDecision(
 
 export async function buildPlatformerJumpJudgeBoard(input: {
   source: Buffer;
-  sourceKind: 'photo' | 'key-art';
+  sourceKind: CharacterReferenceKind;
   idle: Buffer;
   sideAnchor: Buffer;
   candidates: readonly PlatformerJumpJudgeBoardAsset[];
@@ -232,7 +234,7 @@ export async function buildPlatformerJumpJudgeBoard(input: {
     left: 40,
     top: 20,
   });
-  panel(40, 90, 300, 370, input.sourceKind === 'photo' ? 'SOURCE PHOTO' : 'SOURCE KEY ART');
+  panel(40, 90, 300, 370, characterReferenceLabel(input.sourceKind));
   layers.push({
     input: await sharp(input.source)
       .resize(270, 310, { fit: 'contain', background: '#151a31' })

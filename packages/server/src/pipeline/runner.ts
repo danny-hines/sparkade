@@ -1,5 +1,17 @@
-import sharp from 'sharp';
-import { RACING_BASE_ROLES, RACING_MOTION_ROLES, RACING_LOCOMOTION_VERSION, buildRacingLocomotionPrompt, buildRacingLocomotionReference, generateOptionalRacingMotion, parseRacingMotionTerminalOutcome, racingMotionTerminalKey, racingLocomotionJudgePrompt, racingLocomotionJudgeSchema } from '../assets/racing-locomotion';
+import {
+  RACING_BASE_ROLES,
+  RACING_MOTION_ROLES,
+  RACING_LOCOMOTION_VERSION,
+  buildRacingLocomotionPrompt,
+  buildRacingLocomotionReference,
+  buildRacingStrideFramePrompt,
+  buildRacingMotionReviewBoard,
+  generateOptionalRacingMotion,
+  parseRacingMotionTerminalOutcome,
+  racingMotionTerminalKey,
+  racingLocomotionJudgePrompt,
+  racingLocomotionJudgeSchema,
+} from '../assets/racing-locomotion';
 // The durable generation job runner (one job at a time — this is a 1 GB device).
 // Jobs are persisted BEFORE work starts; all output goes to staging/<jobId>/
 // and is atomically renamed into games/<gameId>/ only after every gate passes.
@@ -56,6 +68,10 @@ import {
   generatePortrait,
   type LikenessImageEdit,
 } from '../likeness/portrait-gen';
+import {
+  buildCharacterArtReference,
+  type CharacterReferenceKind,
+} from '../assets/character-reference';
 import {
   ProviderAuthError,
   ProviderHttpError,
@@ -341,6 +357,11 @@ import {
   processGeneratedRacingCraftStrip,
   processGeneratedRacingCraftStripReference,
 } from '../assets/racing-craft';
+import { racingArtSubject } from '../assets/racing-traversal-art';
+import {
+  buildRacingPhotoReviewReference,
+  racingPlayerIdentityReview,
+} from '../assets/racing-photo-identity';
 import {
   buildRacingBankEditReference,
   correctRacingBankPoses,
@@ -361,6 +382,7 @@ import {
   RACING_PACK_REQUIRED_ROLES,
   reviewPendingRacingStrips,
   buildRacingPackPlan,
+  racingPlayerArtConcept,
   buildRacingRosterJudgeBoard,
   buildRacingRosterJudgePrompt,
   buildRacingRosterJudgeSchema,
@@ -2829,11 +2851,29 @@ export class GenerationRunner {
             return { gameplay: selected.gameplay, presentationReference: selected.presentation };
           })()
         : Promise.resolve(null);
-      // Racing player strip is generated BEFORE key art so the vehicle-first
-      // presentation reference can ground key/story art. Required for
-      // identity-bearing cups: failures throw (no silent artless success).
+      // Visible racers establish one costumed character in key art first.
+      // Vehicle-only cups still establish the craft before presentation art.
       const racingSpec = spec.archetype === 'racing' ? spec : null;
       const racingIdentity = racingSpec?.identity;
+      const visibleRacingPlayer = !!racingIdentity && racingArtSubject(racingIdentity).rider !== 'none';
+      const racingPlayerPhoto = visibleRacingPlayer ? photoReference : undefined;
+      const paintKeyArt = (reference: Buffer | undefined, craftBrief?: { visualConcept: string }) =>
+        cachedGeneratedAsset({
+          role: 'keyArt',
+          promptVersion: KEY_ART_PROMPT_VERSION,
+          prompt: buildKeyArtPrompt(spec, !!photo, canonicalHeroConcept, craftBrief),
+          policyFallbackPrompt: buildKeyArtPolicyFallbackPrompt(spec, !!photo, canonicalHeroConcept, craftBrief),
+          label: 'Key art',
+          ...(reference ? { reference } : {}),
+          size: KEY_ART_ASPECT_HINT,
+          normalize: normalizeKeyArt,
+        });
+      const racingCharacterArtTask = visibleRacingPlayer
+        ? paintKeyArt(photoReference)
+        : Promise.resolve(null);
+      const racingPlayerReferenceTask = racingCharacterArtTask.then((keyArt) => keyArt
+        ? buildCharacterArtReference(keyArt, racingPlayerPhoto)
+        : undefined);
       const racingAssetFailure = (error: unknown): never => {
         throwIfSuspended(error);
         if (error instanceof PipelineError || error instanceof GeneratedAssetStorageError)
@@ -2846,7 +2886,8 @@ export class GenerationRunner {
       };
       const generatePlayerStrip = async (retryGuidance = ''): Promise<PlayerCraftAssets> => {
         if (!racingSpec) throw new Error('racing pack needs an identity-bearing racing spec');
-        const entry = buildRacingPackPlan(racingSpec).playerStrip;
+        const entry = buildRacingPackPlan(racingSpec, !!racingPlayerPhoto).playerStrip;
+        const reference = await racingPlayerReferenceTask;
         const result = await cachedGeneratedAsset({
           role: entry.role,
           promptVersion: entry.promptVersion,
@@ -2855,6 +2896,7 @@ export class GenerationRunner {
             : entry.prompt,
           label: entry.label,
           ...(entry.size ? { size: entry.size } : {}),
+          ...(reference ? { reference } : {}),
           normalize: (raw) => processGeneratedRacingCraftStrip(raw).then((strip) => strip.png),
           privateCompanion: {
             role: 'racingCraftReference',
@@ -2863,32 +2905,37 @@ export class GenerationRunner {
         });
         return { gameplay: result.image, presentationReference: result.companion };
       };
-      // Player-only semantic review BEFORE the reference freezes: key and
-      // story art render from this strip's presentation reference, so a
-      // later correction could never propagate downstream. One bounded
-      // repaint, then fail clearly.
+      // Review the gameplay character before animation and story references
+      // freeze. Visible racers must match the established character artwork,
+      // not only the camera or photo. One bounded repaint, then fail clearly.
       const reviewRacingStrips = async (
         buffers: Buffer[],
         reviewSlots: readonly RacingRosterSlotDescriptor[],
         label: string,
         references: readonly { slot: RacingRosterSlotDescriptor; png: Buffer }[] = [],
       ): Promise<ReturnType<typeof normalizeRacingRosterJudgeDecision>> => {
-        const board = await buildRacingRosterJudgeBoard([
+        let board = await buildRacingRosterJudgeBoard([
           ...buffers.map((png, k) => ({ id: reviewSlots[k]!.id, png })),
           ...references.map(({ slot, png }) => ({ id: slot.id, png, referenceOnly: true })),
         ]);
         if (mockImages) {
           return { accepted: true, rejectedIds: [], retryGuidance: '', correctionKinds: {}, slotGuidance: {} };
         }
+        const reviewIdentity = visibleRacingPlayer && reviewSlots.some((slot) => slot.id === 'player');
+        const prompt = buildRacingRosterJudgePrompt(
+          reviewSlots,
+          references.map(({ slot }) => slot),
+          racingSpec ? racingPackDiscipline(racingSpec) : 'hover',
+          racingSpec?.identity?.traversal,
+        );
+        if (reviewIdentity) {
+          board = await buildRacingPhotoReviewReference((await racingPlayerReferenceTask)!, board);
+          prompt.user += ` ${racingPlayerIdentityReview(!!racingPlayerPhoto)}`;
+        }
         const rawDecision = await callLlm(
           'design',
           {
-            ...buildRacingRosterJudgePrompt(
-              reviewSlots,
-              references.map(({ slot }) => slot),
-              racingSpec ? racingPackDiscipline(racingSpec) : 'hover',
-              racingSpec?.identity?.traversal,
-            ),
+            ...prompt,
             jsonSchema: buildRacingRosterJudgeSchema(reviewSlots),
             maxTokens: 1600,
             timeoutMs: 120_000,
@@ -2910,16 +2957,18 @@ export class GenerationRunner {
       const useFoundation = !!foundationMotion && foundationMotion !== 'static';
       const generatePlayerFoundation = async (retryGuidance = ''): Promise<PlayerCraftAssets> => {
         if (!racingSpec) throw new Error('racing pack needs an identity-bearing racing spec');
-        const entry = buildRacingPackPlan(racingSpec).playerStrip;
+        const entry = buildRacingPackPlan(racingSpec, !!racingPlayerPhoto).playerStrip;
         const prompt = retryGuidance
           ? `${entry.prompt} ART DIRECTOR CORRECTION: ${retryGuidance.slice(0, 320)}.`
           : entry.prompt;
+        const reference = await racingPlayerReferenceTask;
         const result = await cachedGeneratedAsset({
           role: entry.role,
           promptVersion: entry.promptVersion,
           prompt,
           label: entry.label,
           ...(entry.size ? { size: entry.size } : {}),
+          ...(reference ? { reference } : {}),
           normalize: async (raw) =>
             assembleRacingFoundationStrip((await processGeneratedRacingFoundation(raw)).png),
           privateCompanion: {
@@ -2943,21 +2992,27 @@ export class GenerationRunner {
           name: slot.name,
           concept: slot.vehicleConcept,
         });
-        const board = await buildRacingRosterJudgeBoard([
+        let board = await buildRacingRosterJudgeBoard([
           ...await settleAll(strips.map(async (png, k) => ({ id: reviewSlots[k]!.id, png: await extractRacingNeutralCell(png) }))),
           ...await settleAll(references.map(async ({ slot, png }) => ({ id: slot.id, png: await extractRacingNeutralCell(png), referenceOnly: true }))),
         ]);
         if (mockImages) {
           return { accepted: true, rejectedIds: [], retryGuidance: '', slotGuidance: {} };
         }
+        const reviewIdentity = visibleRacingPlayer && reviewSlots.some((slot) => slot.id === 'player');
+        const prompt = buildRacingFoundationJudgePrompt(
+          reviewSlots.map(toFoundationSlot),
+          references.map(({ slot }) => toFoundationSlot(slot)),
+          racingSpec?.identity?.traversal,
+        );
+        if (reviewIdentity) {
+          board = await buildRacingPhotoReviewReference((await racingPlayerReferenceTask)!, board);
+          prompt.user += ` ${racingPlayerIdentityReview(!!racingPlayerPhoto)}`;
+        }
         const rawDecision = await callLlm(
           'design',
           {
-            ...buildRacingFoundationJudgePrompt(
-              reviewSlots.map(toFoundationSlot),
-              references.map(({ slot }) => toFoundationSlot(slot)),
-              racingSpec?.identity?.traversal,
-            ),
+            ...prompt,
             jsonSchema: buildRacingFoundationJudgeSchema(reviewSlots.map(toFoundationSlot)),
             maxTokens: 1600,
             timeoutMs: 120_000,
@@ -2978,9 +3033,9 @@ export class GenerationRunner {
             // A correction prompt changes the candidate hash; without this
             // selection checkpoint, retrying unrelated scenery repaints the
             // player and invalidates every dependent story image.
-            const entry = buildRacingPackPlan(racingSpec).playerStrip;
+            const entry = buildRacingPackPlan(racingSpec, !!racingPlayerPhoto).playerStrip;
             const acceptedVersion = `${entry.promptVersion}-approved-v1`;
-            const acceptedHash = imagePromptHash(entry.prompt);
+            const acceptedHash = imagePromptHash(entry.prompt, await racingPlayerReferenceTask);
             const acceptedImage = assetWorkspace.load(entry.role, acceptedVersion, acceptedHash) ?? assetWorkspace.loadPrivate(RACING_BASE_ROLES[0], acceptedVersion, acceptedHash);
             const acceptedReference = assetWorkspace.loadPrivate(
               'racingCraftReference',
@@ -3100,7 +3155,9 @@ export class GenerationRunner {
             return strip;
           })()
         : Promise.resolve(null);
-      const keyArtTask = settleAll([playerCraftTask, racingPlayerStripTask]).then(
+      const keyArtTask: Promise<Buffer> = visibleRacingPlayer
+        ? racingCharacterArtTask.then((keyArt) => keyArt!)
+        : settleAll([playerCraftTask, racingPlayerStripTask]).then(
         async ([craftAssets, racingCraft]) => {
           const craftBrief = craftAssets
             ? playerCraftIdentity
@@ -3118,24 +3175,19 @@ export class GenerationRunner {
                   racingCraft.presentationReference,
                 )
               : photoReference;
-          const keyArtPrompt = buildKeyArtPrompt(spec, !!photo, canonicalHeroConcept, craftBrief);
-          return cachedGeneratedAsset({
-            role: 'keyArt',
-            promptVersion: KEY_ART_PROMPT_VERSION,
-            prompt: keyArtPrompt,
-            policyFallbackPrompt: buildKeyArtPolicyFallbackPrompt(
-              spec,
-              !!photo,
-              canonicalHeroConcept,
-              craftBrief,
-            ),
-            label: 'Key art',
-            ...(reference ? { reference } : {}),
-            size: KEY_ART_ASPECT_HINT,
-            normalize: normalizeKeyArt,
-          });
+          return paintKeyArt(reference, craftBrief);
         },
       );
+
+      // One visual identity feeds gameplay foundations and both portrait expressions.
+      // Racing establishes this before its gameplay work; other genres share keyArtTask.
+      const characterArtReferenceTask: Promise<Buffer> = visibleRacingPlayer
+        ? racingPlayerReferenceTask.then((reference) => reference!)
+        : keyArtTask.then((keyArt) => buildCharacterArtReference(keyArt, photoReference));
+      const characterReferenceKind: CharacterReferenceKind = photoReference
+        ? 'character-art'
+        : 'key-art';
+      void characterArtReferenceTask.catch(() => {});
 
       let resolveAdventurePortraitReference!: (reference: Buffer) => void;
       let rejectAdventurePortraitReference!: (error: unknown) => void;
@@ -3143,6 +3195,16 @@ export class GenerationRunner {
         resolveAdventurePortraitReference = resolve;
         rejectAdventurePortraitReference = reject;
       });
+      const portraitReferenceLayout = spec.archetype === 'adventure'
+        ? 'adventure-hero-board' as const
+        : 'game-hero-board' as const;
+      // Share one likeness/style board between expressions. This reuses key art
+      // already required by the scenes; it introduces no new model call.
+      const portraitReferenceTask = photo
+        ? spec.archetype === 'adventure'
+          ? adventurePortraitReferenceTask
+          : characterArtReferenceTask
+        : Promise.resolve(null);
       const identityKey = JSON.stringify({
         portraitVersion: GENERATED_PORTRAIT_PROMPT_VERSION,
         defeatPortraitVersion: GENERATED_DEFEAT_PORTRAIT_PROMPT_VERSION,
@@ -3151,10 +3213,9 @@ export class GenerationRunner {
       });
       const portraitTask: Promise<Buffer | null> = photo
         ? (async () => {
-            const reference =
-              spec.archetype === 'adventure' ? await adventurePortraitReferenceTask : photo;
+            const reference = (await portraitReferenceTask)!;
             const portraitSha = imagePromptHash(
-              `${GENERATED_PORTRAIT_PROMPT_VERSION}:${identityKey}:${spec.archetype === 'adventure' ? 'adventure-hero-board' : 'photo'}`,
+              `${GENERATED_PORTRAIT_PROMPT_VERSION}:${identityKey}:${portraitReferenceLayout}`,
               reference,
             );
             let portrait = assetWorkspace.load(
@@ -3174,8 +3235,7 @@ export class GenerationRunner {
                       size: '1024x1024',
                       user: gameId,
                       heroConcept: canonicalHeroConcept,
-                      referenceLayout:
-                        spec.archetype === 'adventure' ? 'adventure-hero-board' : 'photo',
+                      referenceLayout: portraitReferenceLayout,
                     },
                   );
                 } catch (error) {
@@ -3206,8 +3266,7 @@ export class GenerationRunner {
 
       const portraitDefeatTask: Promise<Buffer | null> = photo
         ? (async () => {
-            const reference =
-              spec.archetype === 'adventure' ? await adventurePortraitReferenceTask : photo;
+            const reference = (await portraitReferenceTask)!;
             const defeatContext = [
               `${spec.meta.title} is a ${spec.archetype} game.`,
               spec.story.defeat.join(' '),
@@ -3234,8 +3293,7 @@ export class GenerationRunner {
                       size: '1024x1024',
                       user: gameId,
                       heroConcept: canonicalHeroConcept,
-                      referenceLayout:
-                        spec.archetype === 'adventure' ? 'adventure-hero-board' : 'photo',
+                      referenceLayout: portraitReferenceLayout,
                     },
                   );
                 } catch (error) {
@@ -4070,7 +4128,7 @@ export class GenerationRunner {
               );
             }
             if (!racingSpec) throw new Error('racing pack needs an identity-bearing racing spec');
-            const plan = buildRacingPackPlan(racingSpec);
+            const plan = buildRacingPackPlan(racingSpec, !!racingPlayerPhoto);
             const slots = racingRosterSlots(racingSpec);
             const generateStrip = (entry: RacingPackEntry): Promise<Buffer> => {
               const approved = assetWorkspace.load(
@@ -4447,20 +4505,19 @@ export class GenerationRunner {
                     RACING_BASE_ROLES[i]!,
                     buffers[i]!,
                     `${entry.promptVersion}-approved-v1`,
-                    imagePromptHash(entry.prompt),
+                    imagePromptHash(entry.prompt, i === 0 ? await racingPlayerReferenceTask : undefined),
                   );
                 }
-                // Motion is an optional per-racer enhancement: approved cycles
-                // publish as 192x192 atlases, while a quality rejection or an
-                // optional provider failure keeps the explicit approved 64x64
-                // neutral with an honest per-racer status. Required-art,
+                // Motion publishes as a 192x192 atlas. The on-foot player
+                // requires a valid stride; other racers can retain the approved
+                // neutral with a recorded optional-motion outcome. Required-art,
                 // suspension, cancellation, storage, and programming errors
-                // still fail the job.
+                // always fail the job.
                 const outcomes = await settleAll(
                   entries.map(async (entry, i): Promise<RacingMotionRacerStatus> => {
                     const concept =
                       i === 0
-                        ? racingIdentity.playerCraftConcept
+                        ? racingPlayerArtConcept(racingSpec)
                         : racingIdentity.rivalCrafts[i - 1]!.vehicleConcept;
                     const prompt = buildRacingLocomotionPrompt(
                       racingIdentity.traversal!,
@@ -4486,9 +4543,9 @@ export class GenerationRunner {
                     );
                     if (!terminal)
                       emit('building-assets', `Animating ${slots[i]!.name}: ${motion} cycle…`);
-                    const reference = await buildRacingBankEditReference(
-                      await extractRacingNeutralCell(buffers[i]!),
-                    );
+                    const reference = i === 0
+                      ? playerStrip.presentationReference
+                      : await buildRacingBankEditReference(await extractRacingNeutralCell(buffers[i]!));
                     const result = await generateOptionalRacingMotion({
                       base: buffers[i]!,
                       prompt,
@@ -4517,6 +4574,28 @@ export class GenerationRunner {
                         );
                         return candidate;
                       },
+                      ...(i === 0 && motion === 'stride' && racingIdentity.traversal?.rider === 'onFoot'
+                        ? { generateFrames: async () => {
+                            emit('building-assets', 'Recovering the player run cycle with six individual poses…');
+                            // Cache each completed edit during durable resumes. A rejected
+                            // set can be repainted on an explicit new job attempt.
+                            return settleAll(Array.from({ length: 6 }, (_, frame) => {
+                              const framePrompt = buildRacingStrideFramePrompt(concept, racingIdentity.artDirection, frame);
+                              const frameKey = `racing-stride:${job.attempt}:${imagePromptHash(framePrompt, reference)}`;
+                              return assetArtifacts.getOrCompute(frameKey, async () => {
+                                const result = await callImage({
+                                  role: `racing-motion-${i}-frame-${frame}`,
+                                  optional: true,
+                                  label: `${slots[i]!.name} run pose ${frame + 1}/6`,
+                                  prompt: framePrompt,
+                                  reference,
+                                  size: '1024x1024',
+                                });
+                                return result;
+                              });
+                            }));
+                          } }
+                        : {}),
                       review: async (candidate) =>
                         mockImages
                           ? { accepted: true }
@@ -4532,10 +4611,7 @@ export class GenerationRunner {
                               {
                                 stage: 'building-assets',
                                 label: `Spark reviews ${slots[i]!.name} locomotion`,
-                                image: await sharp(candidate)
-                                  .resize(768, 768, { kernel: 'nearest' })
-                                  .png()
-                                  .toBuffer(),
+                                image: await buildRacingMotionReviewBoard(candidate),
                                 reasoningEffort: 'low',
                                 optional: true,
                               },
@@ -4553,6 +4629,15 @@ export class GenerationRunner {
                       await assetWorkspace.store(entry.role, result.atlas, version, hash);
                       return { racer: slots[i]!.id, status: 'animated' };
                     } else {
+                      if (i === 0 && motion === 'stride' && racingIdentity.traversal?.rider === 'onFoot') {
+                        // Running is the player's core motion, not decoration. Never
+                        // publish a frozen runner as a successfully animated game.
+                        throw new PipelineError(
+                          result.outcome === 'refused' ? 'image-content-policy' : 'image-invalid',
+                          `Player run cycle did not pass; retry can recover it. ${result.reason}`,
+                          'building-assets',
+                        );
+                      }
                       // Terminal for this base+prompt: an unrelated later retry
                       // restores the recorded outcome instead of rerolling it.
                       if (!terminal)
@@ -7330,15 +7415,15 @@ export class GenerationRunner {
                 slot: FighterRosterSlot;
                 character: FighterCharacter;
                 source: Buffer | Promise<Buffer>;
-                sourceKind: 'photo' | 'key-art' | 'boss-art';
+                sourceKind: 'photo' | 'key-art' | 'boss-art' | 'character-art';
                 photoIdentity: boolean;
               }
               const roster: RosterEntry[] = [
                 {
                   slot: 'player',
                   character: player,
-                  source: photoReference ?? keyArt,
-                  sourceKind: photoReference ? 'photo' : 'key-art',
+                  source: characterArtReferenceTask,
+                  sourceKind: 'character-art',
                   photoIdentity: !!photoReference,
                 },
                 ...fighterSpec.levels.map((level, index): RosterEntry => ({
@@ -7516,6 +7601,7 @@ export class GenerationRunner {
                           artDirection,
                           colors: colorsFor(entry.character),
                           source: entry.sourceKind,
+                          hasPhoto: entry.photoIdentity,
                           ...(entry.photoIdentity && identity ? { identity } : {}),
                         }),
                         reference: source,
@@ -7979,7 +8065,7 @@ export class GenerationRunner {
         rejectPlatformerIdentity = reject;
       });
       void platformerIdentityTask.catch(() => {});
-      const platformerPlayerSource = photoReference ? Promise.resolve(photoReference) : keyArtTask;
+      const platformerPlayerSource = characterArtReferenceTask;
       const platformerPlayerTask =
         spec.archetype === 'platformer'
           ? platformerPlayerSource.then(async (playerReference): Promise<void> => {
@@ -8001,7 +8087,7 @@ export class GenerationRunner {
                   },
                   heroConcept: canonicalHeroConcept,
                   colors,
-                  sourceKind: photoReference ? 'photo' : 'key-art',
+                  sourceKind: characterReferenceKind,
                 });
                 const pipelineSha = imagePromptHash(pipelineFingerprint, playerReference);
                 const identityFrameCache = new ArtifactCache(
@@ -8182,6 +8268,7 @@ export class GenerationRunner {
                           'idle',
                           `Player identity candidate ${id}`,
                           buildPlatformerIdleCandidatePrompt(id, {
+                            sourceKind: characterReferenceKind,
                             heroConcept: canonicalHeroConcept,
                             colors,
                             ...(retryGuidance ? { retryGuidance } : {}),
@@ -8202,6 +8289,7 @@ export class GenerationRunner {
                   );
                   const board = await buildPlatformerIdleJudgeBoard({
                     source: playerReference,
+                    sourceKind: characterReferenceKind,
                     candidates: idleCandidates.map(({ id, reference: raw, png: processed }) => ({
                       id,
                       raw,
@@ -8210,7 +8298,7 @@ export class GenerationRunner {
                   });
                   const judgePrompt = buildPlatformerIdleJudgePrompt(descriptors, {
                     heroConcept: canonicalHeroConcept,
-                    sourceKind: photoReference ? 'photo' : 'key-art',
+                    sourceKind: characterReferenceKind,
                   });
                   const mockDecision = {
                     sourceReview: { eyewear: 'absent', summary: 'Mock source identity.' },
@@ -8335,7 +8423,7 @@ export class GenerationRunner {
                     ),
                   ),
                 ]);
-                const sourceKind = photoReference ? ('photo' as const) : ('key-art' as const);
+                const sourceKind = characterReferenceKind;
                 const selectJump = async () => {
                   const jumpCandidates = jumpResults.filter(
                     (candidate): candidate is Candidate => candidate !== null,
@@ -8474,6 +8562,7 @@ export class GenerationRunner {
                   }
                   const pairBoard = await buildPlatformerPoseJudgeBoard({
                     source: playerReference,
+                    sourceKind: characterReferenceKind,
                     idle: idle.png,
                     sideAnchor: sideAnchor.png,
                     candidates: runCandidates.map(({ id, kind, png: processed }) => ({
@@ -8482,7 +8571,10 @@ export class GenerationRunner {
                       processed,
                     })),
                   });
-                  const pairPrompt = buildPlatformerPoseJudgePrompt(descriptors);
+                  const pairPrompt = buildPlatformerPoseJudgePrompt(
+                    descriptors,
+                    characterReferenceKind,
+                  );
                   const firstA = descriptors.find(({ kind }) => kind === 'phase-a')!.id;
                   const firstB = descriptors.find(({ kind }) => kind === 'phase-b')!.id;
                   const mockPairDecision = {
@@ -8606,8 +8698,8 @@ export class GenerationRunner {
                   spec,
                   base,
                   referenceMode: 'identity',
-                  source: photoReference ?? (await keyArtTask),
-                  sourceKind: photoReference ? 'photo' : 'key-art',
+                  source: await characterArtReferenceTask,
+                  sourceKind: characterReferenceKind,
                   wardrobe: {
                     heroConcept: canonicalHeroConcept,
                     colors: spec.palette

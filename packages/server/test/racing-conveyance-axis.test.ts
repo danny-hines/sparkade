@@ -134,7 +134,7 @@ describe('racing conveyance-axis contract', () => {
     expect(RACING_TRAVERSAL_STRIP_PROMPT_VERSION).toBe('racing-traversal-strip-v4');
     expect(RACING_TRAVERSAL_BANK_PROMPT_VERSION).toBe('racing-traversal-bank-v4');
     expect(RACING_TRAVERSAL_JUDGE_PROMPT_VERSION).toBe('racing-traversal-judge-v3');
-    expect(RACING_LOCOMOTION_VERSION).toBe('racing-locomotion-v4');
+    expect(RACING_LOCOMOTION_VERSION).toBe('racing-locomotion-v5');
     expect(RACING_CRAFT_STRIP_PROMPT_VERSION).toBe('racing-craft-strip-v4');
     expect(RACING_JETSKI_STRIP_PROMPT_VERSION).toBe('racing-jetski-strip-v2');
     expect(RACING_BANK_PROMPT_VERSION).toBe('racing-craft-bank-v2');
@@ -189,7 +189,8 @@ describe('racing conveyance-axis contract', () => {
     expect(prompt).toMatch(/back of the head/);
     expect(prompt).toMatch(/heels/);
     expect(prompt).toMatch(/No face, eyes, chest/);
-    expect(prompt).toMatch(/separate portrait art/);
+    expect(prompt).toContain('Preserve rear-visible identity, including headwear and hair');
+    expect(prompt).not.toContain('separate portrait art');
   });
 
   it('keeps on-foot steering sentences out of conveyance strips', () => {

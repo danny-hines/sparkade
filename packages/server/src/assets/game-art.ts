@@ -29,6 +29,7 @@ import {
   mockRacingScenerySheetSource,
 } from './racing-mock';
 import { resolveTraversal, type RacingTraversal } from '@sparkade/shared';
+import { racingArtSubject } from './racing-traversal-art';
 
 export const KEY_ART_PROMPT_VERSION = 'key-art-v6';
 export const STORY_ART_PROMPT_VERSION = 'story-scenes-v4';
@@ -73,6 +74,30 @@ function adventureCombatKitBrief(spec: GameSpec): string {
   ].join(' ');
 }
 
+function artDirectionBrief(spec: GameSpec): string {
+  if (spec.archetype === 'fighter') {
+    return `Immutable Fighter art direction: ${fighterArtDirectionPrompt(spec.artDirection)}`;
+  }
+  if (spec.archetype === 'racing' && spec.identity) {
+    return `Immutable Racing art direction for every character and environment: ${clean(spec.identity.artDirection)}.`;
+  }
+  return '';
+}
+
+/** Visible racers establish their character before the gameplay pose exists. */
+function racingCharacterBrief(spec: GameSpec): string {
+  if (spec.archetype !== 'racing' || !spec.identity) return '';
+  const subject = racingArtSubject(spec.identity);
+  if (subject.rider === 'none') return '';
+  return [
+    `Establish the one canonical player character for this racing game: ${clean(spec.identity.playerCraftConcept)}.`,
+    'Use the canonical hero outfit in the visual brief, including its exact garments, colors, trim, patterns and footwear; the traversal concept describes activity, not a separate wardrobe. Make the complete character and outfit readable, with unobstructed head and torso, so this artwork can guide the gameplay sprite.',
+    subject.rider === 'onFoot'
+      ? 'Show one on-foot runner; no vehicle, wheels, rider equipment or exhaust.'
+      : `Show the player ${subject.rider} on their conveyance, with the body and conveyance integrated naturally.`,
+  ].join(' ');
+}
+
 function visualBrief(
   spec: GameSpec,
   heroConcept?: string,
@@ -89,11 +114,11 @@ function visualBrief(
     fighterPlayer
       ? `Player fighter design: ${clean(fighterPlayer.name)}; ${clean(fighterPlayer.visualConcept)}; ${clean(fighterPlayer.build)} build; outfit: ${clean(fighterPlayer.outfit ?? 'classic arcade gear')}.`
       : wardrobeBrief(canonicalHeroConcept),
-    spec.archetype === 'fighter'
-      ? `Immutable Fighter art direction for every character and environment: ${fighterArtDirectionPrompt(spec.artDirection)}`
-      : '',
+    artDirectionBrief(spec),
     playerCraft
-      ? `Canonical player craft identity, wholly separate from the pilot's likeness: ${clean(playerCraft.visualConcept)}.`
+      ? spec.archetype === 'racing' && racingArtSubject(spec.identity).rider !== 'none'
+        ? `Canonical player runner or rider design: ${clean(playerCraft.visualConcept)}. This is the same person as the player likeness reference; preserve their headwear, hair, and other head accessories along with the authored outfit.`
+        : `Canonical player craft identity, wholly separate from the pilot's likeness: ${clean(playerCraft.visualConcept)}.`
       : '',
     adventureCombatKitBrief(spec),
     `Use this exact limited color direction: ${spec.palette.join(', ')}.`,
@@ -182,7 +207,7 @@ export function buildKeyArtPrompt(
         : 'Transform the exact adult person in the reference photo into the PLAYER HERO of this game. The reference is immutable identity truth from the neck up: preserve their recognizable apparent adult age, face and head shape, jaw, cheek structure, eye size and spacing, nose, mouth, skin tone, hairline, hair texture and style, facial hair, glasses, headwear, and visible head accessories; never replace them with a generic or younger character. The source photo clothing below the neck is NOT identity: replace it with the canonical game-world outfit in the visual brief.'
       : 'Create a distinctive original PLAYER HERO suited to this game premise.',
     visualBrief(spec, heroConcept, playerCraft),
-    playerCraft ? jetskiCraftBrief(spec, playerCraft, hasPlayerPhoto) : '',
+    playerCraft ? jetskiCraftBrief(spec, playerCraft, hasPlayerPhoto) : racingCharacterBrief(spec),
     spec.archetype === 'adventure'
       ? spec.combatKit.primary.unarmed
         ? 'Show the hero in a clearly readable unarmed ready stance with both hands visible and no invented weapon.'
@@ -220,10 +245,8 @@ export function buildKeyArtPolicyFallbackPrompt(
       : 'Create one friendly original player character.',
     wardrobeBrief(canonicalHeroConcept),
     adventureCombatKitBrief(spec),
-    spec.archetype === 'fighter'
-      ? `Immutable Fighter art direction: ${fighterArtDirectionPrompt(spec.artDirection)}`
-      : '',
-    playerCraft ? keyArtFallbackCraftBrief(spec, playerCraft, hasPlayerPhoto) : '',
+    artDirectionBrief(spec),
+    playerCraft ? keyArtFallbackCraftBrief(spec, playerCraft, hasPlayerPhoto) : racingCharacterBrief(spec),
     `Create polished landscape key art for a colorful ${spec.archetype} game world using this limited palette: ${spec.palette.join(', ')}.`,
     'Use a calm, adventurous composition with the player character as the central focal point. Keep every complete face, head, hairstyle, and headwear inside the middle 60% of the image height; reserve the outer 20% at both the top and bottom for expendable scenery only.',
     'Premium 16-bit console illustration with crisp pixel clusters, clear silhouettes, and rich environmental detail.',
@@ -253,12 +276,10 @@ export function buildStoryArtPrompt(
       : playerCraft
         ? 'The TOP PANEL of the reference board is the immutable key-art visual bible and the BOTTOM PANEL is a presentation-scale identity reference for the player craft. Create a new landscape story illustration from the same game; do not copy the panel layout or isolated craft presentation.'
         : 'Using the reference key art as the immutable visual bible, create a new landscape story illustration from the same game.',
-    `Preserve the exact same adult player hero identity—including apparent age, facial geometry, eye size and spacing, nose, mouth, jaw, hairline, and hairstyle—plus costume, villain design, palette, pixel-art technique, and world. ${beat}.`,
+    `Preserve the exact same adult player hero identity—including apparent age, facial geometry, eye size and spacing, nose, mouth, jaw, skin tone, hairline, hairstyle, facial hair, glasses, headwear, and other head accessories—plus costume, villain design, palette, pixel-art technique, and world. Never remove a cap or invent hair hidden by it, including in rear views. ${beat}.`,
     wardrobeBrief(canonicalHeroConcept),
     adventureCombatKitBrief(spec),
-    spec.archetype === 'fighter'
-      ? `Immutable Fighter art direction: ${fighterArtDirectionPrompt(spec.artDirection)}`
-      : '',
+    artDirectionBrief(spec),
     playerCraft ? storyArtCraftBrief(spec, playerCraft) : '',
     spec.archetype === 'adventure'
       ? role === 'intro'
@@ -361,12 +382,10 @@ export function buildStoryArtPolicyFallbackPrompt(
       : playerCraft
         ? 'Use the TOP PANEL as the key-art visual guide and the BOTTOM PANEL as a separate presentation-scale player-craft identity guide. Create a new family-friendly landscape story illustration from the same game without copying the panel layout or isolated craft presentation.'
         : 'Using the reference key art as the visual guide, create a new family-friendly landscape story illustration from the same game.',
-    `Preserve the same adult player character identity, costume, palette, pixel-art technique, and world. ${scene}`,
+    `Preserve the same adult player character identity, apparent age, head shape, skin tone, hair, facial hair, glasses, headwear, other head accessories, costume, palette, pixel-art technique, and world. Never remove a cap or invent hair hidden by it, including in rear views. ${scene}`,
     wardrobeBrief(canonicalHeroConcept),
     adventureCombatKitBrief(spec),
-    spec.archetype === 'fighter'
-      ? `Immutable Fighter art direction: ${fighterArtDirectionPrompt(spec.artDirection)}`
-      : '',
+    artDirectionBrief(spec),
     playerCraft ? storyArtFallbackCraftBrief(spec, playerCraft) : '',
     spec.archetype === 'adventure'
       ? role === 'intro'
@@ -406,7 +425,7 @@ function storyArtFallbackCraftBrief(spec: GameSpec, playerCraft: PlayerCraftArtB
 
 /** Normalize arbitrary camera uploads before sending them to an edit endpoint. */
 export async function prepareImageReference(image: Buffer): Promise<Buffer> {
-  return sharp(image).rotate().resize(1024, 1024, { fit: 'cover' }).png().toBuffer();
+  return sharp(image).rotate().resize(1024, 1024, { fit: 'contain', background: '#10131f' }).png().toBuffer();
 }
 
 export async function normalizeKeyArt(image: Buffer): Promise<Buffer> {

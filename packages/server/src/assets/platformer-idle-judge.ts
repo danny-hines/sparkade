@@ -1,8 +1,13 @@
+import {
+  characterReferenceInstruction,
+  characterReferenceLabel,
+  type CharacterReferenceKind,
+} from './character-reference';
 import sharp from 'sharp';
 import { platformerReviewSprite } from './platformer-review';
 import { buildPlatformerPosePrompt, type PlatformerPosePromptOptions } from './platformer-pose';
 
-export const PLATFORMER_IDLE_JUDGE_PROMPT_VERSION = 'platformer-idle-judge-v2';
+export const PLATFORMER_IDLE_JUDGE_PROMPT_VERSION = 'platformer-idle-judge-v3';
 
 export type PlatformerEyewearState = 'present' | 'absent' | 'uncertain';
 
@@ -80,7 +85,7 @@ export function buildPlatformerIdleCandidatePrompt(
   return [
     buildPlatformerPosePrompt('idle', options),
     `Generate an independent identity-foundation variation labeled ${candidateId} for evaluation. Do not render this label in the image.`,
-    'The face must remain recognizably the same adult. Treat eye sockets, eyebrows, eyelashes, smile lines, and wrinkles as distinct facial features—not glasses. Add eyewear only when it is visibly present in the attached source photo, and preserve its exact general shape when present.',
+    'The face must remain recognizably the same adult. Treat eye sockets, eyebrows, eyelashes, smile lines, and wrinkles as distinct facial features—not glasses. Add eyewear only when it is visibly present in the identity reference (the LEFT photo when a character art board is supplied), and preserve its exact general shape when present.',
     retryGuidance
       ? `RETRY CORRECTION FROM THE ART DIRECTOR: ${retryGuidance} Apply only this visual correction while preserving the source identity.`
       : '',
@@ -168,16 +173,17 @@ export function buildPlatformerIdleJudgeSchema(
 export function buildPlatformerIdleJudgePrompt(
   candidates: readonly PlatformerIdleCandidateDescriptor[],
   options: Pick<PlatformerPosePromptOptions, 'heroConcept'> & {
-    sourceKind?: 'photo' | 'key-art';
+    sourceKind?: CharacterReferenceKind;
   } = {},
 ): { system: string; user: string } {
   const ids = candidates.map(({ id }) => id).join(', ');
   const heroConcept = options.heroConcept?.replace(/\s+/g, ' ').trim().slice(0, 500);
-  const sourceName = options.sourceKind === 'key-art' ? 'SOURCE KEY ART' : 'SOURCE PHOTO';
+  const sourceName = characterReferenceLabel(options.sourceKind ?? 'photo');
   return {
     system: [
       'You are the exacting identity art director for a premium SNES-style platform game.',
       `Inspect the attached front-idle identity-foundation review board. The ${sourceName} is the canonical identity truth. Judge every candidate independently from that source and its costume against the canonical game-world wardrobe supplied in the user message. Do not let one generated candidate redefine the person or outfit for another.`,
+      characterReferenceInstruction(options.sourceKind ?? 'photo'),
       'The large RAW view is the high-resolution image that will seed every downstream edit. Inspect it closely for facial contamination that a tiny runtime sprite may hide. The small PROCESSED view shows the actual 112x128 high-density silhouette and scale.',
       'First classify whether the source visibly has eyewear. Then classify every candidate. Dark pixels, wrinkles, eyebrows, eyelashes, eye sockets, or shading that resemble invented glasses are an eyewear mismatch and a fatal identity artifact when the source has no glasses. Missing or materially changed source eyewear is equally fatal.',
       'Identity includes apparent adult age, face and head shape, skin tone, hairline, hair texture and style, facial hair, eyewear, headwear, and visible head accessories. Costume is a separate score: it must faithfully realize the supplied canonical wardrobe from the neck down, including its garments, colors, materials, silhouette, footwear, and body-worn details. Do not penalize a candidate for replacing the source photo clothing.',
@@ -310,6 +316,7 @@ export function normalizePlatformerIdleJudgeDecision(
 
 export async function buildPlatformerIdleJudgeBoard(input: {
   source: Buffer;
+  sourceKind?: CharacterReferenceKind;
   candidates: readonly PlatformerIdleJudgeBoardCandidate[];
 }): Promise<Buffer> {
   const width = 1760;
@@ -332,7 +339,7 @@ export async function buildPlatformerIdleJudgeBoard(input: {
     left: 40,
     top: 20,
   });
-  panel(40, 90, 470, 430, 'SOURCE PHOTO · IDENTITY TRUTH');
+  panel(40, 90, 470, 430, characterReferenceLabel(input.sourceKind ?? 'photo'));
   layers.push({
     input: await sharp(input.source)
       .resize(420, 360, { fit: 'contain', background: '#151a31' })

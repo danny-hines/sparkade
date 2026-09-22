@@ -7,6 +7,7 @@ import {
 // stage, plus the compact roster judge. No I/O here; the runner drives
 // cachedGeneratedAsset/callImage and the validators from the M2 builders.
 import sharp from 'sharp';
+import { racingPlayerIdentityPrompt } from './racing-photo-identity';
 import {
   RACING_CRAFT_ROLES,
   RACING_PANORAMA_ROLES,
@@ -115,7 +116,7 @@ function colorsOf(spec: RacingSpec): string {
  * `generateRacingJetskiMaterialsPack`), never a grid the model must honor.
  * Legacy specs (no identity) never reach this function.
  */
-export function buildRacingPackPlan(spec: RacingSpec): RacingPackPlan {
+export function buildRacingPackPlan(spec: RacingSpec, hasPlayerPhoto = false): RacingPackPlan {
   const identity = spec.identity!;
   const colors = colorsOf(spec);
   const subject = racingArtSubject(identity);
@@ -187,13 +188,25 @@ export function buildRacingPackPlan(spec: RacingSpec): RacingPackPlan {
     label,
     size: useFoundation ? '1024x1024' : '1536x1024',
   });
+  const playerStrip = stripEntry(
+    craftRole(0),
+    identity.pilotName,
+    identity.playerCraftConcept,
+    'Player vehicle strip',
+  );
+  const wardrobe = racingPlayerWardrobe(spec);
+  if (wardrobe) {
+    // Append outside stripEntry's bounded vehicle-concept field: the complete
+    // authored outfit must not disappear when a traversal description is long.
+    playerStrip.prompt += ` ${wardrobe}`;
+    playerStrip.promptVersion += '-wardrobe-v1';
+  }
+  if (subject.rider !== 'none') {
+    playerStrip.prompt += ` ${racingPlayerIdentityPrompt(hasPlayerPhoto)}`;
+    playerStrip.promptVersion += hasPlayerPhoto ? '-photo-v2' : '-identity-v1';
+  }
   return {
-    playerStrip: stripEntry(
-      craftRole(0),
-      identity.pilotName,
-      identity.playerCraftConcept,
-      'Player vehicle strip',
-    ),
+    playerStrip,
     rivalStrips: identity.rivalCrafts.map((rival, k) =>
       stripEntry(craftRole(k + 1), rival.name, rival.vehicleConcept, `Rival ${rival.name} strip`),
     ),
@@ -293,11 +306,25 @@ export interface RacingRosterSlotDescriptor {
   vehicleConcept: string;
 }
 
+/** Shared with presentation art via meta.heroConcept. A traversal description
+ * describes movement/conveyance; it must never invent a second player outfit. */
+export function racingPlayerWardrobe(spec: RacingSpec): string {
+  if (racingArtSubject(spec.identity).rider === 'none') return '';
+  const outfit = spec.meta.heroConcept?.replace(/\s+/g, ' ').trim();
+  return outfit
+    ? `CANONICAL PLAYER WARDROBE: ${outfit} This is the exact game-world outfit used in portraits and story scenes. Preserve its garment types, colors, trim, patterns, footwear and accessories. This wardrobe overrides conflicting clothing in the traversal concept or source photo below the neck; keep photo headwear and neck-up likeness.`
+    : '';
+}
+
+export function racingPlayerArtConcept(spec: RacingSpec): string {
+  return [spec.identity!.playerCraftConcept, racingPlayerWardrobe(spec)].filter(Boolean).join(' ');
+}
+
 /** Roster slots in pack order for the semantic review. */
 export function racingRosterSlots(spec: RacingSpec): RacingRosterSlotDescriptor[] {
   const identity = spec.identity!;
   return [
-    { id: 'player', name: identity.pilotName, vehicleConcept: identity.playerCraftConcept },
+    { id: 'player', name: identity.pilotName, vehicleConcept: racingPlayerArtConcept(spec) },
     ...identity.rivalCrafts.map((rival, k) => ({
       id: `rival${k + 1}`,
       name: rival.name,
@@ -335,6 +362,8 @@ export function buildRacingRosterJudgePrompt(
     user: [
       `Review the ${slots.length} TARGET ${subject} in order: ${slots.map((s) => `${s.id} (${s.name})`).join(', ')}.`,
       ...slots.map((s) => `${s.id} concept: ${s.vehicleConcept}.`),
+      'A CANONICAL PLAYER WARDROBE must match garment types, colors, trim and patterns. A different shirt or outfit is fatal and needs correction "vehicle", never "banking".',
+
       references.length
         ? `Frozen REFERENCE rows (already approved, never judge, never list in slotReviews or rejectedIds): ${references.map((s) => `${s.id} (${s.name})`).join(', ')}. Compare every target against the references for distinctness — a target duplicating a reference vehicle is fatal.`
         : '',
@@ -404,6 +433,8 @@ function buildTraversalRacingRosterJudgePrompt(
     user: [
       `Review the ${slots.length} TARGET ${subject} in order: ${slots.map((s) => `${s.id} (${s.name})`).join(', ')}.`,
       ...slots.map((s) => `${s.id} concept: ${s.vehicleConcept}.`),
+      'A CANONICAL PLAYER WARDROBE must match garment types, colors, trim and patterns. A different shirt or outfit is fatal and needs correction "vehicle", never "banking".',
+
       references.length
         ? `Frozen REFERENCE rows (already approved, never judge, never list in slotReviews or rejectedIds): ${references.map((s) => `${s.id} (${s.name})`).join(', ')}. Compare every target against the references for distinctness — a target duplicating a reference vehicle is fatal.`
         : '',

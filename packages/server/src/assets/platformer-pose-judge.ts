@@ -1,11 +1,16 @@
+import {
+  characterReferenceInstruction,
+  characterReferenceLabel,
+  type CharacterReferenceKind,
+} from './character-reference';
 import sharp from 'sharp';
 import { platformerReviewSprite } from './platformer-review';
 import type { ProviderUsage } from '@sparkade/shared';
 import { buildPlatformerPosePrompt, type PlatformerPosePromptOptions } from './platformer-pose';
 
 export const PLATFORMER_POSE_LAB_PROMPT_VERSION = 'platformer-pose-lab-v3';
-export const PLATFORMER_POSE_JUDGE_PROMPT_VERSION = 'platformer-pose-judge-v5';
-export const PLATFORMER_PLAYER_PIPELINE_PROMPT_VERSION = 'platformer-player-pipeline-v2';
+export const PLATFORMER_POSE_JUDGE_PROMPT_VERSION = 'platformer-pose-judge-v6';
+export const PLATFORMER_PLAYER_PIPELINE_PROMPT_VERSION = 'platformer-player-pipeline-v3';
 
 export type PlatformerPoseCandidateKind = 'phase-a' | 'phase-b';
 
@@ -307,13 +312,15 @@ export function buildPlatformerPoseJudgeSchema(
 
 export function buildPlatformerPoseJudgePrompt(
   candidates: readonly PlatformerPoseCandidateDescriptor[],
+  sourceKind: CharacterReferenceKind = 'photo',
 ): { system: string; user: string } {
   const list = candidates.map(({ id, kind }) => `${id}=${kind}`).join(', ');
   return {
     system: [
       'You are the exacting art director and animation QA judge for a premium SNES-style platform game.',
       'Inspect the attached labeled review board. Judge only what is visibly present. Do not excuse a failure because the art is attractive.',
-      'The SOURCE PHOTO is immutable identity truth from the neck up. Its clothing below the neck is not identity. FRONT IDLE establishes the canonical game-world costume and body presentation; SIDE ANCHOR carries both into profile. The A and B labels describe generation intent only; they are not evidence that a particular anatomical limb actually occupies the requested depth layer.',
+      characterReferenceInstruction(sourceKind),
+      'FRONT IDLE establishes the canonical game-world costume and body presentation; SIDE ANCHOR carries both into profile. The A and B labels describe generation intent only; they are not evidence that a particular anatomical limb actually occupies the requested depth layer.',
       'Identity means the same recognizable person from the neck up: apparent age, head and face shape, skin tone, hairline, hair texture/style, facial hair, eyewear, headwear, and visible head accessories. Costume is judged separately against FRONT IDLE. Becoming bald, childlike, generically younger, differently proportioned, or gaining/losing a head accessory is a fatal identity failure.',
       'First review each candidate only for identity, costume, readable running pose, facing, grounding, and technical integrity. Do not reject an individual candidate by trying to name its camera-side or far-side leading limb in isolation.',
       'Then evaluate every labeled A+B comparison cell on the board. Compare the visible pixels around the hips, crotch, knees, shoes, shoulders, elbows, and hands. Ask whether the foreground/background limb contours exchange roles strongly enough that alternating the two images reads as a stride rather than one character wiggling in place. You do not need to assign anatomical near/far labels to either isolated image.',
@@ -324,7 +331,7 @@ export function buildPlatformerPoseJudgePrompt(
     ].join(' '),
     user: [
       `Candidate labels: ${list}.`,
-      'First evaluate the shared SIDE ANCHOR against SOURCE PHOTO and FRONT IDLE. Then review each candidate for standalone quality. Next score every possible A+B pair shown on the board, with one pairReviews entry per labeled comparison cell. Finally choose the strongest visibly alternating pair, or reject the batch. Give concise, concrete retry guidance when anything falls short.',
+      'First evaluate the shared SIDE ANCHOR against the source identity reference and FRONT IDLE. Then review each candidate for standalone quality. Next score every possible A+B pair shown on the board, with one pairReviews entry per labeled comparison cell. Finally choose the strongest visibly alternating pair, or reject the batch. Give concise, concrete retry guidance when anything falls short.',
     ].join(' '),
   };
 }
@@ -499,6 +506,7 @@ export function normalizePlatformerPoseJudgeDecision(
  * inspect identity anchors and every possible A+B pairing in a single call. */
 export async function buildPlatformerPoseJudgeBoard(input: {
   source: Buffer;
+  sourceKind?: CharacterReferenceKind;
   idle: Buffer;
   sideAnchor: Buffer;
   candidates: readonly PlatformerPoseJudgeBoardAsset[];
@@ -523,7 +531,7 @@ export async function buildPlatformerPoseJudgeBoard(input: {
     top: 20,
   });
 
-  panel(40, 90, 300, 380, 'SOURCE PHOTO');
+  panel(40, 90, 300, 380, characterReferenceLabel(input.sourceKind ?? 'photo'));
   layers.push({
     input: await sharp(input.source)
       .resize(270, 320, { fit: 'contain', background: '#151a31' })

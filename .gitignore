@@ -37,5 +37,6 @@ apps/site/app/.well-known/workflow/
 
 packages/server/dist-worker/
 
-# local planning documents
+# local planning documents and reports
 /docs/roadmaps/
+/docs/reports/

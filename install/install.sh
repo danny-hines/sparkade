@@ -136,8 +136,8 @@ sudo -u "$RUN_USER" env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --no-audit --n
 log "Building"
 sudo -u "$RUN_USER" npm run build
 
-# --- 6. env file (0600) + provider / API key ---------------------------------------
-log "Provider & API key"
+# --- 6. env file (0600) + generation mode / API keys ---------------------------------
+log "Generation mode"
 $SUDO mkdir -p /etc/sparkade
 [ -f /etc/sparkade/env ] || $SUDO touch /etc/sparkade/env
 $SUDO chmod 0600 /etc/sparkade/env
@@ -147,34 +147,53 @@ env_set() { # env_set VAR VALUE — idempotent upsert into /etc/sparkade/env (06
   $SUDO sed -i "/^$1=/d" /etc/sparkade/env 2>/dev/null || true
   printf '%s=%s\n' "$1" "$2" | $SUDO tee -a /etc/sparkade/env >/dev/null
 }
+env_get() { $SUDO sed -n "s/^$1=//p" /etc/sparkade/env | tail -n 1; }
 
-# The provider is applied to config.json AFTER the server first boots (step 9b),
+# Cloud generation is the default: a registered cabinet generates through Sparkade
+# cloud and keeps no model API key. Local generation is the advanced path and needs
+# its own keys. A re-run keeps the mode already in the env file; a cabinet from before
+# this setting existed (no mode, local key present) stays local.
+CURRENT_MODE="$(env_get SPARKADE_GENERATION_MODE)"
+if [ -z "$CURRENT_MODE" ] && [ -n "$(env_get META_API_KEY)" ]; then CURRENT_MODE=local; fi
+
+# A local provider is applied to config.json AFTER the server first boots (step 9b),
 # since the config doesn't exist yet. "meta"/"skip" ⇒ no repointing needed.
-APPLY_PROVIDER=meta APPLY_MODEL="" APPLY_BASEURL=""
+APPLY_PROVIDER=skip APPLY_MODEL="" APPLY_BASEURL=""
 
-if have_tty; then
+if [ -n "$CURRENT_MODE" ]; then
+  [ "$CURRENT_MODE" = local ] || [ "$CURRENT_MODE" = cloud ] || CURRENT_MODE=cloud
+  env_set SPARKADE_GENERATION_MODE "$CURRENT_MODE"
+  echo "Keeping generation mode '$CURRENT_MODE' (change SPARKADE_GENERATION_MODE in /etc/sparkade/env)."
+elif have_tty; then
   cat > /dev/tty <<'MENU'
 
-Which AI service should generate games?
-  1) Meta Model API      (recommended — text, voice, and generated game art)
-  2) Anthropic (Claude)  (text; generated art and voice still use Meta)
-  3) OpenAI-compatible   (text; generated art and voice still use Meta)
-  4) Skip for now        (demo mode: the 5 preinstalled games; add a key later)
+How should this cabinet generate games?
+  1) Sparkade cloud              (recommended — no API key on this cabinet;
+                                  register it in Settings → Registration)
+  2) Local: Meta Model API       (advanced — text, voice, and art with your key)
+  3) Local: Anthropic (Claude)   (advanced — art and voice still need a Meta key)
+  4) Local: OpenAI-compatible    (advanced — art and voice still need a Meta key)
 MENU
   ask "Choice [1]: " CHOICE 1
   case "$CHOICE" in
-    2) APPLY_PROVIDER=anthropic ;;
-    3) APPLY_PROVIDER=compat ;;
-    4) APPLY_PROVIDER=skip ;;
-    *) APPLY_PROVIDER=meta ;;
+    2) APPLY_PROVIDER=meta ;;
+    3) APPLY_PROVIDER=anthropic ;;
+    4) APPLY_PROVIDER=compat ;;
+    *) APPLY_PROVIDER=skip ;;
   esac
 
   case "$APPLY_PROVIDER" in
+    skip)
+      env_set SPARKADE_GENERATION_MODE cloud
+      echo "Cloud generation. After reboot, pair the cabinet in Settings → Registration." > /dev/tty
+      ;;
     meta)
-      ask "Meta Model API key (blank to skip — demo still works): " K
+      env_set SPARKADE_GENERATION_MODE local
+      ask "Meta Model API key (blank to add later — preinstalled games still work): " K
       [ -n "$K" ] && { env_set META_API_KEY "$K"; echo "key saved." > /dev/tty; }
       ;;
     anthropic)
+      env_set SPARKADE_GENERATION_MODE local
       ask "Anthropic API key: " K
       [ -n "$K" ] && env_set ANTHROPIC_API_KEY "$K"
       ask "Model [claude-haiku-4-5-20251001]: " APPLY_MODEL claude-haiku-4-5-20251001
@@ -182,6 +201,7 @@ MENU
       [ -n "$MK" ] && env_set META_API_KEY "$MK"
       ;;
     compat)
+      env_set SPARKADE_GENERATION_MODE local
       ask "Base URL (e.g. http://192.168.1.50:8000/v1): " APPLY_BASEURL
       ask "API key (blank if the server needs none): " K
       [ -n "$K" ] && env_set COMPAT_API_KEY "$K"
@@ -189,13 +209,12 @@ MENU
       ask "Meta Model API key for REQUIRED Muse Image art + voice (blank = demo games only): " MK
       [ -n "$MK" ] && env_set META_API_KEY "$MK"
       ;;
-    skip)
-      echo "Demo mode. Add a key later:  sparkade config set-key META_API_KEY <key>" > /dev/tty
-      ;;
   esac
 else
-  log "Non-interactive install — no terminal to prompt on"
-  echo "Configure after boot:"
+  log "Non-interactive install — defaulting to cloud generation"
+  env_set SPARKADE_GENERATION_MODE cloud
+  echo "Pair the cabinet in Settings → Registration after boot. For local generation instead:"
+  echo "  set SPARKADE_GENERATION_MODE=local in /etc/sparkade/env, then"
   echo "  sparkade config set-key META_API_KEY <key>"
   echo "  sparkade config set-provider meta|anthropic|compat [model] [baseUrl]"
 fi
@@ -282,7 +301,7 @@ cat <<EOF
   service   systemctl status sparkade   ·   sparkade status
   logs      sparkade logs -f
   doctor    sparkade doctor
-  api key   sparkade config set-key META_API_KEY <key>
+  register  Settings → Registration (pairs the cabinet for cloud generation)
   recover   sparkade restart · sparkade update
 
   Reboot to enter kiosk mode (attract screen on the 7" display).

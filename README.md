@@ -128,18 +128,21 @@ Flash **Raspberry Pi OS Lite (Bookworm, 64-bit)**, boot, then:
 curl -fsSL https://raw.githubusercontent.com/danny-hines/sparkade/main/install/install.sh | bash
 ```
 
-The installer is idempotent. It **prompts you to pick a text AI provider (Meta / Anthropic /
-OpenAI-compatible / skip-for-demo) and enter its API key plus the Meta key required by Muse Image**
-(the prompt works even through
-`curl | bash`), installs X/openbox/chromium/Node 24, temporarily raises swap to 1024 MB for the
+The installer is idempotent. It **asks how the cabinet generates games** (the prompt works even
+through `curl | bash`). The default, **Sparkade cloud**, writes `SPARKADE_GENERATION_MODE=cloud`
+and needs no API key on the cabinet: after reboot, pair it in **Settings → Registration** (below).
+The advanced **local** choices (Meta / Anthropic / OpenAI-compatible) write
+`SPARKADE_GENERATION_MODE=local` and prompt for that provider's key plus the Meta key required by
+Muse Image. Re-running the installer keeps the mode already in `/etc/sparkade/env`; a
+non-interactive install defaults to cloud. It also installs X/openbox/chromium/Node 24, temporarily raises swap to 1024 MB for the
 build, clones to `/opt/sparkade`, builds, installs the `sparkade` systemd service and CLI, wires
-the chosen provider into `config.json`, configures console-autologin → `startx` → openbox →
+a chosen local provider into `config.json`, configures console-autologin → `startx` → openbox →
 Chromium kiosk (with a relaunch loop that waits for the server, so a crash or slow boot never
 strands the cabinet), and scopes a sudoers rule to the exact `nmcli` invocations the WiFi settings
 screen uses. Set `SPARKADE_REPO=owner/repo` to install a fork; `--force` allows other Debian ARM
-boxes. Muse Image and Muse Voice Transcribe always run through Meta, so a non-Meta text provider
-still needs `META_API_KEY` for generated art and voice. Without it, the six preinstalled
-games and mock demo remain playable, but new real-model games cannot publish.
+boxes. For local generation, Muse Image and Muse Voice Transcribe always run through Meta, so a
+non-Meta text provider still needs `META_API_KEY` for generated art and voice. Without it, the six
+preinstalled games and mock demo remain playable, but new real-model games cannot publish.
 
 After reboot the cabinet boots straight to the attract screen. Useful commands:
 
@@ -147,8 +150,8 @@ After reboot the cabinet boots straight to the attract screen. Useful commands:
 sparkade status | logs -f | doctor | restart
 sparkade debug                                      # secure SSH tunnel instructions for Chromium DevTools
 sparkade lan on | off | status                      # temporarily expose the web kiosk to the local network
-sparkade config set-key META_API_KEY <key>            # stored in /etc/sparkade/env (0600)
-sparkade config set-provider anthropic [model]        # repoint generation (meta|anthropic|compat)
+sparkade config set-key META_API_KEY <key>            # local generation only; /etc/sparkade/env (0600)
+sparkade config set-provider anthropic [model]        # local generation only (meta|anthropic|compat)
 sparkade provider test                                # one tiny paid call per provider
 sparkade update                               # pull latest → install (only if deps changed) → build → restart
 sparkade backup [file] / backup restore <file>
@@ -182,13 +185,15 @@ assets; and Clerk for `/admin` authentication. `SPARKADE_ADMIN_EMAILS` is a comm
 allowlist applied after sign-in. Keep `DATABASE_URL`, `BLOB_READ_WRITE_TOKEN`, `CLERK_SECRET_KEY`, and
 the admin allowlist server-only; only `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` belongs in browser code.
 
-## Cloud generation (opt-in)
+## Cloud generation
 
 The cabinet can offload transcription and generation to Vercel Workflows in the existing
 website project. Neon stores jobs and usage; a separate private Blob store holds source media
 and checkpoints. Completed games download once and play locally, including offline.
 See the [cloud rollout guide](docs/roadmaps/cloud-generation.md) for configuration and recovery.
-Enable `SPARKADE_GENERATION_MODE=cloud` on a registered cabinet after deploying the site.
+New Pi installs default to `SPARKADE_GENERATION_MODE=cloud`; older cabinets can add that line to
+`/etc/sparkade/env` and run `sudo systemctl restart sparkade`. Generation starts once the cabinet
+is registered.
 
 ### Per-kiosk Meta billing
 

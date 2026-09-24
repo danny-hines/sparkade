@@ -556,6 +556,10 @@ function cmdDoctor(): void {
       () => {
         if (!existsSync(ENV_FILE)) return `MISSING (${ENV_FILE} does not exist)`;
         const env = readFileSync(ENV_FILE, 'utf8');
+        // Cloud cabinets generate through Sparkade cloud and keep no model key.
+        if (/^SPARKADE_GENERATION_MODE=cloud\s*$/m.test(env)) {
+          return 'not needed (cloud generation — register in Settings → Registration)';
+        }
         const m = /^META_API_KEY=(.+)$/m.exec(env);
         return m
           ? `OK (${maskKey(m[1]!)})`

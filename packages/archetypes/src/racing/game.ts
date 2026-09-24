@@ -1,5 +1,6 @@
 import { panoramaLandmarkX } from './art';
 import { locomotionFrame } from './locomotion';
+import { CanvasRowRaster, type RowTarget } from './row-raster';
 // Racing game shell: GameInstance wrapper around the pure simulation with a
 // behind-vehicle pseudo-3D road projection (bounded Canvas2D segment strips),
 // rival craft sprites, HUD, and minimap. Only engine.renderer is used, so the
@@ -1108,6 +1109,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
    * stays inside the quadrant (sh=1); dest is exactly (y, y+1].
    */
   function drawSurfaceRow(
+    rc: RowTarget,
     img: CanvasImageSource,
     quad: { sx: number; sy: number; size: number },
     atlasRow: number,
@@ -1140,9 +1142,31 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       ddw *= 1 - cut;
     }
     if (!(ddw > 0.01) || !(ssw > 0)) return;
-    ctx.globalAlpha = alpha;
-    ctx.drawImage(img, ssx, sy, ssw, 1, ddx, y, ddw, 1);
-    ctx.globalAlpha = 1;
+    rc.globalAlpha = alpha;
+    rc.drawImage(img, ssx, sy, ssw, 1, ddx, y, ddw, 1);
+    rc.globalAlpha = 1;
+  }
+  /**
+   * Software row compositor (created on first use; null outside a DOM, or
+   * after a frame used a call it cannot reproduce). Row loops paint through
+   * it so ~3000 per-row canvas calls reach the GPU as one blit. It samples
+   * at logical width (scale 1): half the pixel work of display width, which
+   * a Pi 3 needs, at the cost of slightly softer far-row texture and edges.
+   */
+  let rowRaster: CanvasRowRaster | null | undefined;
+  function paintRows(atlas: CanvasImageSource | null, paint: (rc: RowTarget) => void): void {
+    if (rowRaster === undefined) rowRaster = CanvasRowRaster.create(W, H, 1);
+    const raster = rowRaster;
+    if (raster !== null && (atlas === null || raster.canSample(atlas))) {
+      raster.clear();
+      paint(raster);
+      if (!raster.unsupported) {
+        raster.flushTo(ctx);
+        return;
+      }
+      rowRaster = null; // repaint this frame (and later ones) on the canvas
+    }
+    paint(ctx);
   }
   /** Reusable row geometry and ground-span array. */
   const groundSpans: GroundSpan[] = [];
@@ -1992,167 +2016,169 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       // nothing). Unclaimed rows keep the background: sky above the
       // horizon, the ground base below it.
       const yStart = elevActive ? Math.max(0, elevFrame.minRow) : yTop;
-      for (let y = yStart; y < H; y++) {
-        let z: number;
-        let sRow: number;
-        let wrapped: number;
-        let row: { cx: number; half: number; ppu: number } | null;
-        if (!elevActive) {
-          const zRaw = perspectiveZ(y + 0.5, HORIZON, RACING_CAM_H, RACING_FOCAL);
-          z = Math.max(RACING_Z_NEAR, Math.min(zFarMax, zRaw));
-          sRow = camS + z;
-          wrapped = circuit.track.wrap(sRow);
-          row = sampleStripRow(strips, z, RACING_Z_NEAR, RACING_Z_SPAN, surfaceRow);
-          if (row === null) continue;
-        } else {
-          if (elevFrame.rowHit[y] === 0) continue;
-          z = elevFrame.rowZ[y]!;
-          sRow = elevFrame.rowS[y]!;
-          wrapped = circuit.track.wrap(sRow);
-          surfaceRow.cx = elevFrame.rowCx[y]!;
-          surfaceRow.half = elevFrame.rowHalf[y]!;
-          surfaceRow.ppu = elevFrame.rowPpu[y]!;
-          row = surfaceRow;
-        }
-        const depthF = Math.max(0, Math.min(1, 1 - (z - RACING_Z_NEAR) / RACING_Z_SPAN));
-        const dim = depthShade(z, RACING_Z_NEAR, RACING_Z_SPAN);
-        const half = row.half;
-        const cx = row.cx;
-        // Ground base (smooth, opaque) plus world-anchored ground texture: U
-        // follows world lateral distance, so the ground scrolls with travel
-        // and bends with the road instead of sitting screen-fixed.
-        ctx.fillStyle = shade(gA, 0.4 + 0.6 * depthF);
-        ctx.fillRect(0, y, W, 1);
-        if (tileWorldEff > 0) {
-          const atlasRow = rowAtlasRow(wrapped, tileWorldEff, gq.size);
-          const spans = groundSourceSpans(
-            0,
-            W,
-            cx,
-            row.ppu,
-            tileWorldEff,
-            gq.sx,
-            gq.size,
-            groundSpans,
-          );
-          ctx.globalAlpha = 0.5 * dim;
-          for (let gi = 0; gi < spans.length; gi++) {
-            const sp = spans[gi]!;
-            ctx.drawImage(mats, sp.sx, gq.sy + atlasRow, sp.sw, 1, sp.dx, y, sp.dw, 1);
+      paintRows(mats, (rc) => {
+        for (let y = yStart; y < H; y++) {
+          let z: number;
+          let sRow: number;
+          let wrapped: number;
+          let row: { cx: number; half: number; ppu: number } | null;
+          if (!elevActive) {
+            const zRaw = perspectiveZ(y + 0.5, HORIZON, RACING_CAM_H, RACING_FOCAL);
+            z = Math.max(RACING_Z_NEAR, Math.min(zFarMax, zRaw));
+            sRow = camS + z;
+            wrapped = circuit.track.wrap(sRow);
+            row = sampleStripRow(strips, z, RACING_Z_NEAR, RACING_Z_SPAN, surfaceRow);
+            if (row === null) continue;
+          } else {
+            if (elevFrame.rowHit[y] === 0) continue;
+            z = elevFrame.rowZ[y]!;
+            sRow = elevFrame.rowS[y]!;
+            wrapped = circuit.track.wrap(sRow);
+            surfaceRow.cx = elevFrame.rowCx[y]!;
+            surfaceRow.half = elevFrame.rowHalf[y]!;
+            surfaceRow.ppu = elevFrame.rowPpu[y]!;
+            row = surfaceRow;
           }
-          ctx.globalAlpha = 1;
-        }
-        // Rumble ring between ground and curb (smooth authored contrast).
-        const rumL0 = cx - half * 1.18;
-        const rumL1 = cx - half * curbW;
-        const rumR0 = cx + half * curbW;
-        const rumR1 = cx + half * 1.18;
-        if (!water && (rumL1 - rumL0 >= 1 || rumR1 - rumR0 >= 1)) {
-          ctx.fillStyle = shade(cA, 0.5 + 0.5 * depthF);
-          if (rumL1 - rumL0 >= 1) ctx.fillRect(rumL0, y, rumL1 - rumL0, 1);
-          if (rumR1 - rumR0 >= 1) ctx.fillRect(rumR0, y, rumR1 - rumR0, 1);
-        }
-        // Curb base plus texture per side, U anchored across each side's own
-        // span (never an enclosing bbox).
-        const curbHalf = (half * (curbW - 1)) / 2;
-        if (!water && curbHalf >= 0.5 && tileWorldEff > 0) {
-          ctx.fillStyle = shade(cA, dim);
-          const curbRow = rowAtlasRow(wrapped, tileWorldEff, cq.size);
-          for (const side of [-1, 1]) {
-            const ccx = cx + (side * half * (1 + curbW)) / 2;
-            ctx.fillRect(ccx - curbHalf, y, curbHalf * 2, 1);
-            drawSurfaceRow(
+          const depthF = Math.max(0, Math.min(1, 1 - (z - RACING_Z_NEAR) / RACING_Z_SPAN));
+          const dim = depthShade(z, RACING_Z_NEAR, RACING_Z_SPAN);
+          const half = row.half;
+          const cx = row.cx;
+          // Ground base (smooth, opaque) plus world-anchored ground texture: U
+          // follows world lateral distance, so the ground scrolls with travel
+          // and bends with the road instead of sitting screen-fixed.
+          rc.fillStyle = shade(gA, 0.4 + 0.6 * depthF);
+          rc.fillRect(0, y, W, 1);
+          if (tileWorldEff > 0) {
+            const atlasRow = rowAtlasRow(wrapped, tileWorldEff, gq.size);
+            const spans = groundSourceSpans(
+              0,
+              W,
+              cx,
+              row.ppu,
+              tileWorldEff,
+              gq.sx,
+              gq.size,
+              groundSpans,
+            );
+            rc.globalAlpha = 0.5 * dim;
+            for (let gi = 0; gi < spans.length; gi++) {
+              const sp = spans[gi]!;
+              rc.drawImage(mats, sp.sx, gq.sy + atlasRow, sp.sw, 1, sp.dx, y, sp.dw, 1);
+            }
+            rc.globalAlpha = 1;
+          }
+          // Rumble ring between ground and curb (smooth authored contrast).
+          const rumL0 = cx - half * 1.18;
+          const rumL1 = cx - half * curbW;
+          const rumR0 = cx + half * curbW;
+          const rumR1 = cx + half * 1.18;
+          if (!water && (rumL1 - rumL0 >= 1 || rumR1 - rumR0 >= 1)) {
+            rc.fillStyle = shade(cA, 0.5 + 0.5 * depthF);
+            if (rumL1 - rumL0 >= 1) rc.fillRect(rumL0, y, rumL1 - rumL0, 1);
+            if (rumR1 - rumR0 >= 1) rc.fillRect(rumR0, y, rumR1 - rumR0, 1);
+          }
+          // Curb base plus texture per side, U anchored across each side's own
+          // span (never an enclosing bbox).
+          const curbHalf = (half * (curbW - 1)) / 2;
+          if (!water && curbHalf >= 0.5 && tileWorldEff > 0) {
+            rc.fillStyle = shade(cA, dim);
+            const curbRow = rowAtlasRow(wrapped, tileWorldEff, cq.size);
+            for (const side of [-1, 1]) {
+              const ccx = cx + (side * half * (1 + curbW)) / 2;
+              rc.fillRect(ccx - curbHalf, y, curbHalf * 2, 1);
+              drawSurfaceRow(rc,
+                mats,
+                cq,
+                curbRow,
+                cq.sx,
+                cq.size,
+                ccx - curbHalf,
+                y,
+                curbHalf * 2,
+                0.5 * dim,
+              );
+            }
+          }
+          // Asphalt base plus texture, U anchored across this row's own span.
+          rc.fillStyle = shade(rA, dim);
+          rc.fillRect(cx - half, y, half * 2, 1);
+          if (tileWorldEff > 0) {
+            drawSurfaceRow(rc,
               mats,
-              cq,
-              curbRow,
-              cq.sx,
-              cq.size,
-              ccx - curbHalf,
+              rq,
+              rowAtlasRow(wrapped, tileWorldEff, rq.size),
+              rq.sx,
+              rq.size,
+              cx - half,
               y,
-              curbHalf * 2,
-              0.5 * dim,
+              half * 2,
+              0.55 * dim,
             );
           }
-        }
-        // Asphalt base plus texture, U anchored across this row's own span.
-        ctx.fillStyle = shade(rA, dim);
-        ctx.fillRect(cx - half, y, half * 2, 1);
-        if (tileWorldEff > 0) {
-          drawSurfaceRow(
-            mats,
-            rq,
-            rowAtlasRow(wrapped, tileWorldEff, rq.size),
-            rq.sx,
-            rq.size,
-            cx - half,
-            y,
-            half * 2,
-            0.55 * dim,
-          );
-        }
-        // Boost pad overlay, evaluated per row from the world position.
-        const onPad = padAtCircuit(circuit, wrapped);
-        if (onPad && tileWorldEff > 0) {
-          drawSurfaceRow(
-            mats,
-            bq,
-            rowAtlasRow(wrapped, tileWorldEff, bq.size),
-            bq.sx,
-            bq.size,
-            cx - half * PAD_LANE_FRAC,
-            y,
-            half * PAD_LANE_FRAC * 2,
-            0.5 * dim + 0.35,
-          );
-        }
-        // Asphalt furniture (edge lines, glow rails, center dashes) is
-        // skipped on the water course: the generated road quadrant reads as
-        // open water and buoys mark the route instead. Textured surfaces
-        // keep their world-anchored mapping either way.
-        if (!water) {
-          // Crisp edge lines over every texture: authored edge hex on the pack
-          // path, safety white otherwise. Always paints after surfaces.
-          ctx.fillStyle = palette
-            ? withAlpha(palette.edge, 0.85 * dim)
-            : `rgba(240,240,235,${0.85 * dim})`;
-          const edgeW = Math.max(1, half * 0.03);
-          ctx.fillRect(cx - half - edgeW / 2, y, edgeW, 1);
-          ctx.fillRect(cx + half - edgeW / 2, y, edgeW, 1);
-          const glowW = half * 0.04;
-          if (glowW >= 1) {
-            ctx.globalAlpha = 0.35 * dim;
-            ctx.fillStyle = theme.accent;
-            ctx.fillRect(cx - half - glowW / 2, y, glowW, 1);
-            ctx.fillRect(cx + half - glowW / 2, y, glowW, 1);
-            ctx.globalAlpha = 1;
+          // Boost pad overlay, evaluated per row from the world position.
+          const onPad = padAtCircuit(circuit, wrapped);
+          if (onPad && tileWorldEff > 0) {
+            drawSurfaceRow(rc,
+              mats,
+              bq,
+              rowAtlasRow(wrapped, tileWorldEff, bq.size),
+              bq.sx,
+              bq.size,
+              cx - half * PAD_LANE_FRAC,
+              y,
+              half * PAD_LANE_FRAC * 2,
+              0.5 * dim + 0.35,
+            );
           }
-          // Center dashes: world-anchored phase from the row's own distance, so
-          // dash boundaries never snap when they pass a segment edge.
-          if (Math.floor(sRow / SEG_LEN) % 4 < 2) {
-            ctx.fillStyle = `rgba(240,240,220,${0.7 * dim})`;
-            const dashW = half * 0.035 + 0.5;
-            ctx.fillRect(cx - dashW, y, dashW * 2, 1);
+          // Asphalt furniture (edge lines, glow rails, center dashes) is
+          // skipped on the water course: the generated road quadrant reads as
+          // open water and buoys mark the route instead. Textured surfaces
+          // keep their world-anchored mapping either way.
+          if (!water) {
+            // Crisp edge lines over every texture: authored edge hex on the pack
+            // path, safety white otherwise. Always paints after surfaces.
+            rc.fillStyle = palette
+              ? withAlpha(palette.edge, 0.85 * dim)
+              : `rgba(240,240,235,${0.85 * dim})`;
+            const edgeW = Math.max(1, half * 0.03);
+            rc.fillRect(cx - half - edgeW / 2, y, edgeW, 1);
+            rc.fillRect(cx + half - edgeW / 2, y, edgeW, 1);
+            const glowW = half * 0.04;
+            if (glowW >= 1) {
+              rc.globalAlpha = 0.35 * dim;
+              rc.fillStyle = theme.accent;
+              rc.fillRect(cx - half - glowW / 2, y, glowW, 1);
+              rc.fillRect(cx + half - glowW / 2, y, glowW, 1);
+              rc.globalAlpha = 1;
+            }
+            // Center dashes: world-anchored phase from the row's own distance, so
+            // dash boundaries never snap when they pass a segment edge.
+            if (Math.floor(sRow / SEG_LEN) % 4 < 2) {
+              rc.fillStyle = `rgba(240,240,220,${0.7 * dim})`;
+              const dashW = half * 0.035 + 0.5;
+              rc.fillRect(cx - dashW, y, dashW * 2, 1);
+            }
           }
-        }
-        if (onPad) {
-          ctx.fillStyle = `rgba(255,255,255,${0.6 * dim})`;
-          ctx.fillRect(cx - half * 0.14, y, half * 0.28, 1);
-          if (Math.floor(sRow / SEG_LEN) % 4 === 0) {
-            ctx.fillStyle = `rgba(255,255,255,${0.85 * dim})`;
-            ctx.fillRect(cx - half * PAD_LANE_FRAC * 0.55, y, half * PAD_LANE_FRAC * 1.1, 1);
+          if (onPad) {
+            rc.fillStyle = `rgba(255,255,255,${0.6 * dim})`;
+            rc.fillRect(cx - half * 0.14, y, half * 0.28, 1);
+            if (Math.floor(sRow / SEG_LEN) % 4 === 0) {
+              rc.fillStyle = `rgba(255,255,255,${0.85 * dim})`;
+              rc.fillRect(cx - half * PAD_LANE_FRAC * 0.55, y, half * PAD_LANE_FRAC * 1.1, 1);
+            }
+          }
+          // Start/finish checker: world-anchored band just past the seam.
+          if (wrapped < SEG_LEN) {
+            rc.fillStyle = `rgba(255,255,255,${0.85 * dim})`;
+            rc.fillRect(cx - half, y, half * 2, 1);
+            rc.fillStyle = `rgba(0,0,0,${0.85 * dim})`;
+            for (let k = -4; k < 4; k++) {
+              const f = k / 4;
+              rc.fillRect(cx + half * f - half * 0.12, y, half * 0.24, 1);
+            }
           }
         }
-        // Start/finish checker: world-anchored band just past the seam.
-        if (wrapped < SEG_LEN) {
-          ctx.fillStyle = `rgba(255,255,255,${0.85 * dim})`;
-          ctx.fillRect(cx - half, y, half * 2, 1);
-          ctx.fillStyle = `rgba(0,0,0,${0.85 * dim})`;
-          for (let k = -4; k < 4; k++) {
-            const f = k / 4;
-            ctx.fillRect(cx + half * f - half * 0.12, y, half * 0.24, 1);
-          }
-        }
-      }
+      });
       // Checkpoint gate banners project through the same strip buffer from
       // their world-anchored gate positions — never snapped to a segment.
       const packLen = circuit.track.length;
@@ -2193,60 +2219,62 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       const rq = materialTileRect('road'), gq = materialTileRect('ground');
       const bq = materialTileRect('boost');
       const yStart = elevActive ? elevFrame.minRow : Math.max(0, Math.ceil(strips[SEGMENTS]!.y - 0.5));
-      for (let y = yStart; y < H; y++) {
-        const z = elevActive ? elevFrame.rowZ[y]! : perspectiveZ(y + 0.5, HORIZON, RACING_CAM_H, RACING_FOCAL);
-        if (elevActive && !elevFrame.rowHit[y]) continue;
-        const w = circuit.track.wrap(camS + z);
-        const sec = forkCrossSection(fork, w, ROAD_HALF, forkRow);
-        if (sec.blend <= 0) continue;
-        if (elevActive) {
-          surfaceRow.cx = elevFrame.rowCx[y]!;
-          surfaceRow.half = elevFrame.rowHalf[y]!;
-          surfaceRow.ppu = elevFrame.rowPpu[y]!;
+      paintRows(art?.materials ?? null, (rc) => {
+        for (let y = yStart; y < H; y++) {
+          const z = elevActive ? elevFrame.rowZ[y]! : perspectiveZ(y + 0.5, HORIZON, RACING_CAM_H, RACING_FOCAL);
+          if (elevActive && !elevFrame.rowHit[y]) continue;
+          const w = circuit.track.wrap(camS + z);
+          const sec = forkCrossSection(fork, w, ROAD_HALF, forkRow);
+          if (sec.blend <= 0) continue;
+          if (elevActive) {
+            surfaceRow.cx = elevFrame.rowCx[y]!;
+            surfaceRow.half = elevFrame.rowHalf[y]!;
+            surfaceRow.ppu = elevFrame.rowPpu[y]!;
+          }
+          const row = elevActive ? surfaceRow : sampleStripRow(strips, z, RACING_Z_NEAR, RACING_Z_SPAN, surfaceRow);
+          if (row === null) continue;
+          const dim = depthShade(z, RACING_Z_NEAR, RACING_Z_SPAN);
+          const x0 = row.cx + Math.min(sec.roadLo - 0.8, -ROAD_HALF * 1.2) * row.ppu;
+          const x1 = row.cx + Math.max(sec.roadHi + 0.8, ROAD_HALF * 1.2) * row.ppu;
+          rc.fillStyle = shade(water && art === null ? shoA : gA, dim);
+          rc.fillRect(x0, y, x1 - x0, 1);
+          if (art !== null) {
+            const spans = groundSourceSpans(x0, x1, row.cx, row.ppu, tileWorldEff, gq.sx, gq.size, groundSpans);
+            rc.globalAlpha = 0.5 * dim;
+            const ar = rowAtlasRow(w, tileWorldEff, gq.size);
+            for (const sp of spans) rc.drawImage(art.materials, sp.sx, gq.sy + ar, sp.sw, 1, sp.dx, y, sp.dw, 1);
+            rc.globalAlpha = 1;
+          }
+          for (let side = 0; side < 2; side++) {
+            const lo = side === 0 ? sec.leftLo : sec.rightLo;
+            const hi = side === 0 ? sec.leftHi : sec.rightHi;
+            const left = row.cx + lo * row.ppu, width = (hi - lo) * row.ppu;
+            rc.fillStyle = water ? 'rgba(220,249,255,0.7)' : shade(cA, dim);
+            const curb = Math.max(0.5, CURB_WIDTH * row.ppu);
+            rc.fillRect(left - curb, y, width + curb * 2, 1);
+            rc.fillStyle = shade(water && art === null ? wtrA : rA, dim);
+            rc.fillRect(left, y, width, 1);
+            if (art !== null) drawSurfaceRow(rc, art.materials, rq, rowAtlasRow(w, tileWorldEff, rq.size), rq.sx, rq.size, left, y, width, 0.55 * dim);
+            rc.fillStyle = palette ? withAlpha(palette.edge, 0.8 * dim) : `rgba(240,240,235,${0.8 * dim})`;
+            rc.fillRect(left, y, Math.max(0.5, row.ppu * 0.08), 1);
+            rc.fillRect(left + width - Math.max(0.5, row.ppu * 0.08), y, Math.max(0.5, row.ppu * 0.08), 1);
+          }
+          // Relocated pad has its own lateral lane; clip the drawing at the
+          // branch edges, matching the drivable reward route.
+          for (const pad of circuit.pads) {
+            if (w < pad.start || w > pad.start + pad.length) continue;
+            const px = pad.x ?? 0;
+            forkPadLane(sec, px, PAD_HALF_X, forkPadSpan);
+            const { lo, hi } = forkPadSpan;
+            const dx = row.cx + lo * row.ppu, dw = (hi - lo) * row.ppu;
+            rc.fillStyle = palette ? withAlpha(palette.pad, .75 * dim) : withAlpha(theme.accent, .75 * dim);
+            rc.fillRect(dx, y, dw, 1);
+            if (art !== null) drawSurfaceRow(rc, art.materials, bq, rowAtlasRow(w, tileWorldEff, bq.size), bq.sx, bq.size, dx, y, dw, .85 * dim);
+            rc.fillStyle = `rgba(255,255,255,${.8 * dim})`;
+            if (Math.floor(w / 8) % 2 === 0) rc.fillRect(dx, y, dw, 1);
+          }
         }
-        const row = elevActive ? surfaceRow : sampleStripRow(strips, z, RACING_Z_NEAR, RACING_Z_SPAN, surfaceRow);
-        if (row === null) continue;
-        const dim = depthShade(z, RACING_Z_NEAR, RACING_Z_SPAN);
-        const x0 = row.cx + Math.min(sec.roadLo - 0.8, -ROAD_HALF * 1.2) * row.ppu;
-        const x1 = row.cx + Math.max(sec.roadHi + 0.8, ROAD_HALF * 1.2) * row.ppu;
-        ctx.fillStyle = shade(water && art === null ? shoA : gA, dim);
-        ctx.fillRect(x0, y, x1 - x0, 1);
-        if (art !== null) {
-          const spans = groundSourceSpans(x0, x1, row.cx, row.ppu, tileWorldEff, gq.sx, gq.size, groundSpans);
-          ctx.globalAlpha = 0.5 * dim;
-          const ar = rowAtlasRow(w, tileWorldEff, gq.size);
-          for (const sp of spans) ctx.drawImage(art.materials, sp.sx, gq.sy + ar, sp.sw, 1, sp.dx, y, sp.dw, 1);
-          ctx.globalAlpha = 1;
-        }
-        for (let side = 0; side < 2; side++) {
-          const lo = side === 0 ? sec.leftLo : sec.rightLo;
-          const hi = side === 0 ? sec.leftHi : sec.rightHi;
-          const left = row.cx + lo * row.ppu, width = (hi - lo) * row.ppu;
-          ctx.fillStyle = water ? 'rgba(220,249,255,0.7)' : shade(cA, dim);
-          const curb = Math.max(0.5, CURB_WIDTH * row.ppu);
-          ctx.fillRect(left - curb, y, width + curb * 2, 1);
-          ctx.fillStyle = shade(water && art === null ? wtrA : rA, dim);
-          ctx.fillRect(left, y, width, 1);
-          if (art !== null) drawSurfaceRow(art.materials, rq, rowAtlasRow(w, tileWorldEff, rq.size), rq.sx, rq.size, left, y, width, 0.55 * dim);
-          ctx.fillStyle = palette ? withAlpha(palette.edge, 0.8 * dim) : `rgba(240,240,235,${0.8 * dim})`;
-          ctx.fillRect(left, y, Math.max(0.5, row.ppu * 0.08), 1);
-          ctx.fillRect(left + width - Math.max(0.5, row.ppu * 0.08), y, Math.max(0.5, row.ppu * 0.08), 1);
-        }
-        // Relocated pad has its own lateral lane; clip the drawing at the
-        // branch edges, matching the drivable reward route.
-        for (const pad of circuit.pads) {
-          if (w < pad.start || w > pad.start + pad.length) continue;
-          const px = pad.x ?? 0;
-          forkPadLane(sec, px, PAD_HALF_X, forkPadSpan);
-          const { lo, hi } = forkPadSpan;
-          const dx = row.cx + lo * row.ppu, dw = (hi - lo) * row.ppu;
-          ctx.fillStyle = palette ? withAlpha(palette.pad, .75 * dim) : withAlpha(theme.accent, .75 * dim);
-          ctx.fillRect(dx, y, dw, 1);
-          if (art !== null) drawSurfaceRow(art.materials, bq, rowAtlasRow(w, tileWorldEff, bq.size), bq.sx, bq.size, dx, y, dw, .85 * dim);
-          ctx.fillStyle = `rgba(255,255,255,${.8 * dim})`;
-          if (Math.floor(w / 8) % 2 === 0) ctx.fillRect(dx, y, dw, 1);
-        }
-      }
+      });
       const rel = (fork.start - 35 - camW + circuit.track.length) % circuit.track.length;
       const sign = projAt(rel);
       if (sign !== null && sign.half > 4) {

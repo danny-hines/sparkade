@@ -172,7 +172,7 @@ test('keyboard-only: create via guided details → honest progress → ready →
   await tap(page, 'KeyX');
 
   // Step 2: choose a game type, then return to the compact details form.
-  await expect(page.getByText('TELL SPARK WHAT MATTERS')).toBeVisible();
+  await expect(page.getByText('TELL MUSE WHAT MATTERS')).toBeVisible();
   await tap(page, 'ArrowDown'); // Type
   await tap(page, 'KeyX');
   await expect(page.locator('.archetype-card').first()).toBeVisible();

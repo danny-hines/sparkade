@@ -97,9 +97,9 @@ export function buildDesignPrompt(opts: {
   const creationBrief = opts.creationBrief
     ? [
         'APPROVED CREATION BRIEF (authoritative):',
-        `HERO NAME: ${opts.creationBrief.heroName ?? '(Spark decides)'}`,
-        `GAME TYPE: ${opts.creationBrief.archetype ?? '(Spark decides)'}`,
-        `ADDITIONAL DETAILS: ${opts.creationBrief.details ?? '(Spark decides)'}`,
+        `HERO NAME: ${opts.creationBrief.heroName ?? '(Muse decides)'}`,
+        `GAME TYPE: ${opts.creationBrief.archetype ?? '(Muse decides)'}`,
+        `ADDITIONAL DETAILS: ${opts.creationBrief.details ?? '(Muse decides)'}`,
         ...(opts.creationBrief.heroName
           ? ['Preserve the supplied hero name exactly in story text.']
           : ['Invent a fitting hero name.']),

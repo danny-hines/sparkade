@@ -52,7 +52,7 @@ describe('createGame requested archetype', () => {
     expect(capture.submitted().get('details')).toBe('Defend the last arcade from alien champions');
   });
 
-  it('sends guided fields even when Spark will choose the archetype', async () => {
+  it('sends guided fields even when Muse will choose the archetype', async () => {
     const capture = captureCreateRequest();
     await api.createGame({
       promptText: 'Nova explores a strange crystal ocean',

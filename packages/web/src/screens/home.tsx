@@ -464,7 +464,7 @@ export function HomeScreen(props: {
             <Cta
               icon="sparkle"
               title="Dream up a new game"
-              sub="Take a photo or skip it, then choose the details you care about. Leave anything blank and Spark will decide."
+              sub="Take a photo or skip it, then choose the details you care about. Leave anything blank and Muse will decide."
               hint="Start"
             />
           ) : selectedGame ? (

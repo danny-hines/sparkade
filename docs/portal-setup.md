@@ -12,7 +12,7 @@ Open **Terminal** on the Mac and paste:
 
 ```sh
 curl -fL --proto '=https' --proto-redir '=https' \
-  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.10/install-portal.sh \
+  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.11/install-portal.sh \
   -o /tmp/install-sparkade-portal.sh && bash /tmp/install-sparkade-portal.sh
 ```
 
@@ -191,6 +191,10 @@ installation and hardware acceptance remain operator steps.
 Version **0.4.10** uses **Muse is building** on the generation progress screen
 and the library's in-progress game cards. It includes the photo-flow and racing-art
 changes from 0.4.9 and is also distributed through the pilot channel.
+Version **0.4.11** uses **Muse** throughout New Game instructions, blank-field
+choices, and voice-error messages. New progress narration uses Muse as well;
+cloud-backed narration and website copy are delivered through the website/cloud
+deployment. The pilot APK includes all previous photo-flow and racing-art changes.
 
 **Dedicated kiosk option:** setup asks whether to enable on-device app updates.
 This disables Meta's additional OS-wide app-install verifier, which otherwise

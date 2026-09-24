@@ -35,7 +35,7 @@ export default async function CreationAdmin({
         <h1>Creation control room</h1>
         <p>
           Manage games and keep provider spending within your limits. New games are checked
-          automatically by Spark; you can still take them down here.
+          automatically by Muse; you can still take them down here.
         </p>
       </section>
       {notice && (

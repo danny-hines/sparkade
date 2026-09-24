@@ -63,16 +63,17 @@ describe('generation activity presentation', () => {
     ).toEqual(items[1]);
   });
 
-  it('turns actual fighter pipeline events into useful, bounded milestones', () => {
+  it.each(['Muse', 'Spark'])('presents current and legacy %s milestones', (brand) => {
     const items = projectGenerationEvents(
       [
         event(1, 'MARK identity 1'),
         event(2, 'MARK identity 2'),
         event(3, 'MARK ground and aerial attacks sheet'),
         event(4, "MARK's attacks sheet yielded 5/6 poses (300 bleed pixels reclaimed)"),
-        event(5, 'Repainting 1 weak MARK poses with Spark guidance…'),
-        event(6, "Spark reviewed MARK's complete pose set"),
+        event(5, `Repainting 1 weak MARK poses with ${brand} guidance…`),
+        event(6, `${brand} reviewed MARK's complete pose set`),
         event(7, 'Levels done (1/3)', { stage: 'writing-spec' }),
+        event(8, `${brand} selected the player craft`),
       ],
       'game',
       1,
@@ -82,8 +83,9 @@ describe('generation activity presentation', () => {
       'Animating MARK’s attacks',
       'Prepared 5 of 6 attack poses for MARK',
       'Refining MARK’s animation',
-      "Spark reviewed MARK's complete pose set",
+      `${brand} reviewed MARK's complete pose set`,
       'Levels drafted · 1 of 3 game design parts ready',
+      `${brand} selected the player craft`,
     ]);
     expect(JSON.stringify(items)).not.toContain('bleed pixels');
   });

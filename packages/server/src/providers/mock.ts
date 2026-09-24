@@ -51,7 +51,8 @@ export function mockBriefHeroName(user: string): string | null {
   const hit = /HERO NAME:\s*([^\n]+)/i.exec(user);
   if (!hit) return null;
   const name = hit[1]!.trim();
-  if (!name || /\(Spark decides\)/i.test(name)) return null;
+  // Older saved briefs retain the previous creator name.
+  if (!name || /\((?:Muse|Spark) decides\)/i.test(name)) return null;
   return name.slice(0, 48);
 }
 

@@ -9,7 +9,7 @@ import {
   buildLevelsPrompt,
   buildMusicPrompt,
 } from '../src/pipeline/prompts';
-import { MockProvider } from '../src/providers/mock';
+import { MockProvider, mockBriefHeroName } from '../src/providers/mock';
 import { validateAgainst } from '../src/pipeline/validate';
 import { resolveCupRaces } from '../../archetypes/src/racing/game';
 import { aiInputFor, createRaceFor, stepRace } from '../../archetypes/src/racing/simulation';
@@ -46,6 +46,13 @@ async function runStage(prompt: {
 }
 
 describe('mock racing cup stages', () => {
+  it('accepts both creator placeholders without treating them as hero names', () => {
+    expect(mockBriefHeroName('HERO NAME: (Muse decides)')).toBeNull();
+    expect(mockBriefHeroName('HERO NAME: (Spark decides)')).toBeNull();
+    expect(mockBriefHeroName('HERO NAME: Spark')).toBe('Spark');
+    expect(mockBriefHeroName('HERO NAME: Muse')).toBe('Muse');
+  });
+
   it('routes a kart premise to a racing design with a driver cast', async () => {
     const prompt = buildDesignPrompt({
       promptText: 'a hover kart grand prix across crystal dunes',

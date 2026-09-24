@@ -2180,7 +2180,7 @@ export class GenerationRunner {
         }
       };
       pushPartial({});
-      feed('decision', `Spark chose “${design.title}”`, 'designing', {
+      feed('decision', `Muse chose “${design.title}”`, 'designing', {
         title: design.title,
         tagline: design.tagline,
         archetype: design.archetype,
@@ -2951,7 +2951,7 @@ export class GenerationRunner {
                   },
                   {
                     stage: 'building-assets',
-                    label: 'Spark selected the player craft',
+                    label: 'Muse selected the player craft',
                     image: board,
                     reasoningEffort: 'low',
                   },
@@ -2964,8 +2964,8 @@ export class GenerationRunner {
             emit(
               'building-assets',
               decision.selection.accepted
-                ? `Spark selected player craft ${selectedId}`
-                : `Spark selected ${selectedId} as the best available player craft`,
+                ? `Muse selected player craft ${selectedId}`
+                : `Muse selected ${selectedId} as the best available player craft`,
             );
             await assetWorkspace.storePrivate(
               privateRole,
@@ -3191,7 +3191,7 @@ export class GenerationRunner {
                   let verdict = await reviewRacingFoundation(
                     [foundation.gameplay],
                     playerSlots,
-                    'Spark reviews the player foundation',
+                    'Muse reviews the player foundation',
                   );
                   if (!verdict.accepted) {
                     const guidance =
@@ -3203,7 +3203,7 @@ export class GenerationRunner {
                     verdict = await reviewRacingFoundation(
                       [foundation.gameplay],
                       playerSlots,
-                      'Spark re-reviews the player foundation',
+                      'Muse re-reviews the player foundation',
                     );
                   }
                   if (!verdict.accepted) {
@@ -3227,10 +3227,10 @@ export class GenerationRunner {
                   [gameplay],
                   playerSlots,
                   phase === 'initial'
-                    ? 'Spark reviews the player vehicle'
+                    ? 'Muse reviews the player vehicle'
                     : phase === 'verify'
-                      ? 'Spark verifies the player bank order'
-                      : 'Spark re-reviews the player vehicle',
+                      ? 'Muse verifies the player bank order'
+                      : 'Muse re-reviews the player vehicle',
                 ).then((reviewed) => ({
                   accepted: reviewed.accepted,
                   kind: reviewed.correctionKinds['player'] ?? 'vehicle',
@@ -3660,7 +3660,7 @@ export class GenerationRunner {
                     'building-assets',
                     round === 1
                       ? 'Painting three Adventure player identity foundations…'
-                      : 'Repainting the Adventure player identity with Spark guidance…',
+                      : 'Repainting the Adventure player identity with Muse guidance…',
                   );
                   const offset = (round - 1) * 3;
                   const candidates = (
@@ -3741,7 +3741,7 @@ export class GenerationRunner {
                         },
                         {
                           stage: 'building-assets',
-                          label: 'Spark selected the Adventure player identity',
+                          label: 'Muse selected the Adventure player identity',
                           image: board,
                           reasoningEffort: 'low',
                         },
@@ -4036,7 +4036,7 @@ export class GenerationRunner {
                         },
                         {
                           stage: 'building-assets',
-                          label: 'Spark reviewed the complete Adventure player set',
+                          label: 'Muse reviewed the complete Adventure player set',
                           image: board,
                           reasoningEffort: 'low',
                         },
@@ -4050,7 +4050,7 @@ export class GenerationRunner {
                   if (retryPoses.length > 0) {
                     emit(
                       'building-assets',
-                      `Repainting ${retryPoses.length} weak Adventure poses with Spark guidance…`,
+                      `Repainting ${retryPoses.length} weak Adventure poses with Muse guidance…`,
                     );
                     const selectedIds = bestAdventurePlayerCandidateIds(setDecision);
                     const alternatives = (
@@ -4086,7 +4086,7 @@ export class GenerationRunner {
                 if (!setDecision.setReview.accepted) {
                   emit(
                     'building-assets',
-                    'Spark selected the best locally valid Adventure pose combination below the ideal quality bar',
+                    'Muse selected the best locally valid Adventure pose combination below the ideal quality bar',
                   );
                 }
                 let selectedIds = await bestScaleConsistentAdventurePlayerCandidateIds(
@@ -4138,7 +4138,7 @@ export class GenerationRunner {
                     const selected = poseCandidates.find(
                       (candidate) => candidate.pose === pose && candidate.id === selectedIds[pose],
                     );
-                    if (!selected) throw new Error(`Spark did not select Adventure ${pose}`);
+                    if (!selected) throw new Error(`Muse did not select Adventure ${pose}`);
                     return [pose, selected.png];
                   }),
                 ) as Record<GeneratedAdventurePlayerPose, Buffer>;
@@ -4483,7 +4483,7 @@ export class GenerationRunner {
                     approvedIds.add(id);
                   },
                 });
-              let decision = await reviewPending('Spark reviews the vehicle roster');
+              let decision = await reviewPending('Muse reviews the vehicle roster');
               // Bounded category-aware rival repair. The CURRENT rejected ids
               // and categories are re-read every round: per rival at most one
               // full repaint (vehicle verdict — bad neutral identity, the
@@ -4680,8 +4680,8 @@ export class GenerationRunner {
                 // candidates are targets; all unchanged slots are references.
                 decision = await reviewPending(
                   swapsOnly
-                    ? 'Spark verifies the rival bank order'
-                    : 'Spark re-reviews the corrected vehicles',
+                    ? 'Muse verifies the rival bank order'
+                    : 'Muse re-reviews the corrected vehicles',
                 );
               }
               if (!decision.accepted) {
@@ -4828,7 +4828,7 @@ export class GenerationRunner {
                               },
                               {
                                 stage: 'building-assets',
-                                label: `Spark reviews ${slots[i]!.name} locomotion`,
+                                label: `Muse reviews ${slots[i]!.name} locomotion`,
                                 image: await buildRacingMotionReviewBoard(candidate),
                                 reasoningEffort: 'low',
                                 optional: true,
@@ -5497,7 +5497,7 @@ export class GenerationRunner {
                     },
                     {
                       stage: 'building-assets',
-                      label: 'Spark selected the Adventure enemy cast',
+                      label: 'Muse selected the Adventure enemy cast',
                       image: reviewBoard,
                       reasoningEffort: 'low',
                     },
@@ -5515,7 +5515,7 @@ export class GenerationRunner {
                       (entry) => entry.role === role && entry.id === id,
                     );
                     if (!candidate) {
-                      throw new Error(`Spark did not select a valid ${role} candidate`);
+                      throw new Error(`Muse did not select a valid ${role} candidate`);
                     }
                     return [role, candidate.png];
                   }),
@@ -5746,7 +5746,7 @@ export class GenerationRunner {
                     },
                     {
                       stage: 'building-assets',
-                      label: 'Spark selected the themed Adventure gameplay objects',
+                      label: 'Muse selected the themed Adventure gameplay objects',
                       image: reviewBoard,
                       reasoningEffort: 'low',
                     },
@@ -5798,7 +5798,7 @@ export class GenerationRunner {
                       (entry) => entry.role === role && entry.id === id,
                     );
                     if (!candidate) {
-                      throw new Error(`Spark did not select a valid ${role} candidate`);
+                      throw new Error(`Muse did not select a valid ${role} candidate`);
                     }
                     return [role, candidate.png];
                   }),
@@ -5984,7 +5984,7 @@ export class GenerationRunner {
                       },
                       {
                         stage: 'building-assets',
-                        label: 'Spark selected the Adventure finale boss',
+                        label: 'Muse selected the Adventure finale boss',
                         image: reviewBoard,
                         reasoningEffort: 'low',
                       },
@@ -6010,7 +6010,7 @@ export class GenerationRunner {
                 adventureBossArtStatus = { mode: 'generated', attempted: true };
                 emit(
                   'building-assets',
-                  `Spark selected ${selected.id} as the Adventure finale boss`,
+                  `Muse selected ${selected.id} as the Adventure finale boss`,
                 );
               } catch (error) {
                 throwIfSuspended(error);
@@ -6201,7 +6201,7 @@ export class GenerationRunner {
                       },
                       {
                         stage: 'building-assets',
-                        label: 'Spark selected the signature H-scroll boss',
+                        label: 'Muse selected the signature H-scroll boss',
                         image: board,
                         reasoningEffort: 'low',
                       },
@@ -6225,7 +6225,7 @@ export class GenerationRunner {
                   pipelineSha,
                 );
                 hshooterBossArtStatus = { mode: 'generated', attempted: true };
-                emit('building-assets', `Spark selected ${selected.id} as the H-scroll boss`);
+                emit('building-assets', `Muse selected ${selected.id} as the H-scroll boss`);
               } catch (error) {
                 throwIfSuspended(error);
                 if (
@@ -6470,7 +6470,7 @@ export class GenerationRunner {
                       },
                       {
                         stage: 'building-assets',
-                        label: 'Spark selected the H-scroll enemy cast',
+                        label: 'Muse selected the H-scroll enemy cast',
                         image: reviewBoard,
                         reasoningEffort: 'low',
                       },
@@ -6487,7 +6487,7 @@ export class GenerationRunner {
                       (entry) => entry.role === role && entry.id === id,
                     );
                     if (!candidate)
-                      throw new Error(`Spark did not select a valid ${role} candidate`);
+                      throw new Error(`Muse did not select a valid ${role} candidate`);
                     return [role, candidate.png];
                   }),
                 ) as Record<GeneratedHShooterEnemy, Buffer>;
@@ -6681,7 +6681,7 @@ export class GenerationRunner {
                       },
                       {
                         stage: 'building-assets',
-                        label: 'Spark selected the signature vertical-shooter boss',
+                        label: 'Muse selected the signature vertical-shooter boss',
                         image: board,
                         reasoningEffort: 'low',
                       },
@@ -6697,7 +6697,7 @@ export class GenerationRunner {
                   pipelineSha,
                 );
                 shooterBossArtStatus = { mode: 'generated', attempted: true };
-                emit('building-assets', `Spark selected ${selected.id} as the vertical boss`);
+                emit('building-assets', `Muse selected ${selected.id} as the vertical boss`);
               } catch (error) {
                 throwIfSuspended(error);
                 if (
@@ -6936,7 +6936,7 @@ export class GenerationRunner {
                       },
                       {
                         stage: 'building-assets',
-                        label: 'Spark selected the vertical-shooter enemy cast',
+                        label: 'Muse selected the vertical-shooter enemy cast',
                         image: reviewBoard,
                         reasoningEffort: 'low',
                       },
@@ -6952,7 +6952,7 @@ export class GenerationRunner {
                     const candidate = candidates.find(
                       (entry) => entry.role === role && entry.id === id,
                     );
-                    if (!candidate) throw new Error(`Spark did not select a valid ${role}`);
+                    if (!candidate) throw new Error(`Muse did not select a valid ${role}`);
                     return [role, candidate.png];
                   }),
                 ) as Record<GeneratedShooterEnemy, Buffer>;
@@ -7135,7 +7135,7 @@ export class GenerationRunner {
                       },
                       {
                         stage: 'building-assets',
-                        label: 'Spark selected the signature boss',
+                        label: 'Muse selected the signature boss',
                         image: board,
                         reasoningEffort: 'low',
                       },
@@ -7159,7 +7159,7 @@ export class GenerationRunner {
                   pipelineSha,
                 );
                 platformerBossArtStatus = { mode: 'generated', attempted: true };
-                emit('building-assets', `Spark selected ${selected.id} as the signature boss`);
+                emit('building-assets', `Muse selected ${selected.id} as the signature boss`);
               } catch (error) {
                 throwIfSuspended(error);
                 if (
@@ -7377,7 +7377,7 @@ export class GenerationRunner {
                               confidence: mockImages ? 1 : 0,
                               rationale: mockImages
                                 ? 'Mock selection.'
-                                : 'Spark review was unavailable; retained a locally valid candidate.',
+                                : 'Muse review was unavailable; retained a locally valid candidate.',
                             },
                           ]
                         : [];
@@ -7396,7 +7396,7 @@ export class GenerationRunner {
                         },
                         {
                           stage: 'building-assets',
-                          label: 'Spark selected the platformer enemy cast',
+                          label: 'Muse selected the platformer enemy cast',
                           image: board,
                           reasoningEffort: 'low',
                         },
@@ -7440,7 +7440,7 @@ export class GenerationRunner {
                     attempted: true,
                     generatedRoles,
                   };
-                  emit('building-assets', 'Spark selected the complete platformer enemy cast');
+                  emit('building-assets', 'Muse selected the complete platformer enemy cast');
                   return;
                 }
 
@@ -8084,7 +8084,7 @@ export class GenerationRunner {
                       },
                       {
                         stage: 'building-assets',
-                        label: 'Spark selected the fighter identity foundations',
+                        label: 'Muse selected the fighter identity foundations',
                         image: identityBoard,
                         reasoningEffort: 'low',
                       },
@@ -8102,7 +8102,7 @@ export class GenerationRunner {
                           candidate.slot === slot && candidate.id === selectedIds[slot],
                       )
                     )
-                      throw new Error(`Spark did not select a ${slot} identity`);
+                      throw new Error(`Muse did not select a ${slot} identity`);
                   return selectedIds;
                 },
               );
@@ -8112,13 +8112,13 @@ export class GenerationRunner {
                     (candidate) =>
                       candidate.slot === slot && candidate.id === selectedIdentityIds[slot],
                   );
-                  if (!selected) throw new Error(`Spark did not select a ${slot} identity`);
+                  if (!selected) throw new Error(`Muse did not select a ${slot} identity`);
                   return [slot, selected];
                 }),
               ) as Partial<Record<FighterRosterSlot, IdentityCandidate>>;
               emit(
                 'building-assets',
-                `Spark selected ${pendingRoster.length} fighter identit${pendingRoster.length === 1 ? 'y' : 'ies'}`,
+                `Muse selected ${pendingRoster.length} fighter identit${pendingRoster.length === 1 ? 'y' : 'ies'}`,
               );
 
               const actionPoses = actionPosesFromSheets();
@@ -8351,7 +8351,7 @@ export class GenerationRunner {
                         },
                         {
                           stage: 'building-assets',
-                          label: `Spark reviewed ${entry.character.name}'s complete pose set`,
+                          label: `Muse reviewed ${entry.character.name}'s complete pose set`,
                           image: board,
                           reasoningEffort: 'low',
                         },
@@ -8366,7 +8366,7 @@ export class GenerationRunner {
                     if (retryPoses.length > 0) {
                       emit(
                         'building-assets',
-                        `Repainting ${retryPoses.length} weak ${entry.character.name} poses with Spark guidance…`,
+                        `Repainting ${retryPoses.length} weak ${entry.character.name} poses with Muse guidance…`,
                       );
                       const alternatives = (
                         await settleAll(
@@ -8383,7 +8383,7 @@ export class GenerationRunner {
                   if (!decision.setReview.accepted) {
                     emit(
                       'building-assets',
-                      `Spark still rejected ${entry.character.name}'s pose set after the bounded retry; using its highest-scoring locally valid combination`,
+                      `Muse still rejected ${entry.character.name}'s pose set after the bounded retry; using its highest-scoring locally valid combination`,
                     );
                   }
                   const selectedIds = bestFighterPoseCandidateIds(decision, actionPoses);
@@ -8396,7 +8396,7 @@ export class GenerationRunner {
                       (candidate) => candidate.pose === pose && candidate.id === selectedIds[pose],
                     );
                     if (!selected)
-                      throw new Error(`Spark did not select ${entry.character.name} ${pose}`);
+                      throw new Error(`Muse did not select ${entry.character.name} ${pose}`);
                     selectedPoses[pose] = selected.processed;
                   }
                   if (
@@ -8625,7 +8625,7 @@ export class GenerationRunner {
                     'building-assets',
                     round === 1
                       ? 'Painting three player identity foundations…'
-                      : 'Repainting the player identity foundations with Spark guidance…',
+                      : 'Repainting the player identity foundations with Muse guidance…',
                   );
                   const offset = (round - 1) * 3;
                   const idleCandidates = (
@@ -8701,7 +8701,7 @@ export class GenerationRunner {
                       buildPlatformerIdleJudgeSchema(descriptors),
                       board,
                       2600,
-                      'Spark selected the player identity foundation',
+                      'Muse selected the player identity foundation',
                       mockDecision,
                     ),
                     descriptors,
@@ -8713,8 +8713,8 @@ export class GenerationRunner {
                   emit(
                     'building-assets',
                     decision.selection.accepted
-                      ? `Spark selected ${selectedId} as the player identity foundation`
-                      : `Spark selected ${selectedId} as the best available player identity foundation`,
+                      ? `Muse selected ${selectedId} as the player identity foundation`
+                      : `Muse selected ${selectedId} as the best available player identity foundation`,
                   );
                 }
                 if (!idle) {
@@ -8832,7 +8832,7 @@ export class GenerationRunner {
                         buildPlatformerJumpJudgeSchema(jumpDescriptors),
                         board,
                         2400,
-                        'Spark selected the player jump pose',
+                        'Muse selected the player jump pose',
                         mockDecision,
                       ),
                       jumpDescriptors,
@@ -8852,7 +8852,7 @@ export class GenerationRunner {
                     jumpRetried = true;
                     emit(
                       'building-assets',
-                      'Repainting three jump poses with Spark wardrobe guidance…',
+                      'Repainting three jump poses with Muse wardrobe guidance…',
                     );
                     const retryResults = await settleAll(
                       [4, 5, 6].map((index) =>
@@ -8888,8 +8888,8 @@ export class GenerationRunner {
                     emit(
                       'building-assets',
                       jumpDecision?.selection.accepted
-                        ? `Spark selected ${selectedJump.id} for the player jump pose`
-                        : `Spark selected ${selectedJump.id} as the best available player jump pose`,
+                        ? `Muse selected ${selectedJump.id} for the player jump pose`
+                        : `Muse selected ${selectedJump.id} as the best available player jump pose`,
                     );
                   } else {
                     emit(
@@ -8991,7 +8991,7 @@ export class GenerationRunner {
                       buildPlatformerPoseJudgeSchema(descriptors),
                       pairBoard,
                       4000,
-                      'Spark selected the player run animation',
+                      'Muse selected the player run animation',
                       mockPairDecision,
                     ),
                     descriptors,
@@ -8999,14 +8999,14 @@ export class GenerationRunner {
                   const selectedPair = pairDecision.selection.accepted
                     ? pairDecision.selection
                     : bestPlatformerPosePair(pairDecision);
-                  if (!selectedPair) throw new Error('Spark did not return any run-pair reviews');
+                  if (!selectedPair) throw new Error('Muse did not return any run-pair reviews');
                   const walk1 = runCandidates.find(({ id }) => id === selectedPair.phaseAId)!;
                   const walk2 = runCandidates.find(({ id }) => id === selectedPair.phaseBId)!;
                   emit(
                     'building-assets',
                     pairDecision.selection.accepted
-                      ? `Spark selected ${walk1.id} + ${walk2.id} for the player run animation`
-                      : `Spark selected ${walk1.id} + ${walk2.id} as the best available run animation`,
+                      ? `Muse selected ${walk1.id} + ${walk2.id} for the player run animation`
+                      : `Muse selected ${walk1.id} + ${walk2.id} as the best available run animation`,
                   );
 
                   return { walk1, walk2 };

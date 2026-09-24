@@ -145,7 +145,7 @@ describe('requested archetype API', () => {
     });
   });
 
-  it('builds a partial guided brief while leaving engine selection to Spark', async () => {
+  it('builds a partial guided brief while leaving engine selection to Muse', async () => {
     const { app, calls } = await apiHarness();
     const response = await app.inject({
       method: 'POST',
@@ -283,7 +283,7 @@ describe('guided creation design prompt', () => {
     expect(prompt.user).toContain('Preserve the supplied hero name exactly');
   });
 
-  it('leaves omitted guided fields as explicit Spark decisions', () => {
+  it('leaves omitted guided fields as explicit Muse decisions', () => {
     const prompt = buildDesignPrompt({
       promptText: 'Nova explores a strange crystal ocean',
       hasPhoto: false,
@@ -293,8 +293,8 @@ describe('guided creation design prompt', () => {
     });
 
     expect(prompt.user).toContain('HERO NAME: Nova');
-    expect(prompt.user).toContain('GAME TYPE: (Spark decides)');
-    expect(prompt.user).toContain('ADDITIONAL DETAILS: (Spark decides)');
+    expect(prompt.user).toContain('GAME TYPE: (Muse decides)');
+    expect(prompt.user).toContain('ADDITIONAL DETAILS: (Muse decides)');
     expect(prompt.user).toContain('Choose the archetype that best fits');
     expect(prompt.user).toContain('Invent an original story');
   });

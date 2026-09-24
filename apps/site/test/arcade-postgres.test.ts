@@ -656,7 +656,7 @@ describe.skipIf(!enabled)('arcade domain against real PostgreSQL', () => {
     await expect(create('user-a', key)).rejects.toThrow('different game');
     expect(await balance()).toBe(20);
   });
-  it('lets Spark choose when the name is blank and preserves legacy unnamed submission fingerprints', async () => {
+  it('lets Muse choose when the name is blank and preserves legacy unnamed submission fingerprints', async () => {
     await account();
     const key = randomUUID();
     const { id, jobId } = await create('user-a', key, '   ');
@@ -678,7 +678,7 @@ describe.skipIf(!enabled)('arcade domain against real PostgreSQL', () => {
     expect(await context.sql`SELECT id FROM credit_ledger`).toEqual([]);
   });
   it.each([false, true])(
-    'lets Spark invent a blank idea, with personalization: %s',
+    'lets Muse invent a blank idea, with personalization: %s',
     async (personalized) => {
       await account();
       const key = randomUUID();
@@ -696,7 +696,7 @@ describe.skipIf(!enabled)('arcade domain against real PostgreSQL', () => {
       expect(job.hasPhoto).toBe(personalized);
       expect(job.promptText).toContain('Make it a racing game.');
       expect(job.promptText).toContain(
-        'Spark decides the story, enemies, setting, and visual style.',
+        'Muse decides the story, enemies, setting, and visual style.',
       );
       expect(submission.prompt).toBe(job.promptText);
       expect(context.blobs.get(row.checkpoint)).toMatchObject({
@@ -709,7 +709,7 @@ describe.skipIf(!enabled)('arcade domain against real PostgreSQL', () => {
         antiCollision: [],
         creationBrief: job.creationBrief,
       });
-      expect(prompt.user).toContain('ADDITIONAL DETAILS: (Spark decides)');
+      expect(prompt.user).toContain('ADDITIONAL DETAILS: (Muse decides)');
       expect(prompt.user).toContain('Invent an original story, enemies, setting, and aesthetic.');
       expect(await createWebsiteGame('user-a', '', 'racing', key, name, photo)).toBe(id);
       await expect(

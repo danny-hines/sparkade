@@ -86,8 +86,9 @@ function activityMessage(message: string): string | undefined {
     return `Illustrating ${message}`;
   const part = message.match(/^(Levels|Entities|Music) done \((\d+)\/3\)$/i);
   if (part) return `${part[1]} drafted · ${part[2]} of 3 game design parts ready`;
+  // Keep activity from older kiosks and stored jobs visible during rollout.
   if (
-    /^(Painting|Finished|Spark selected|Spark reviewed|Composing|Animating|Creating|Designing|Checking|Building|Generated)\b/.test(
+    /^(Painting|Finished|(?:Muse|Spark) (?:selected|reviewed)|Composing|Animating|Creating|Designing|Checking|Building|Generated)\b/.test(
       message,
     )
   )

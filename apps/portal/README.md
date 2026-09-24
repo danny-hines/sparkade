@@ -502,10 +502,10 @@ native update screen for test devices. Channels point to immutable versioned APK
 publishing an APK alone does not promote it. Maintainers validate a published release:
 
 ```sh
-npm run portal:promote -- --release portal-v0.4.10 --channel pilot
-npm run portal:promote -- --release portal-v0.4.10 --channel pilot --publish
+npm run portal:promote -- --release portal-v0.4.11 --channel pilot
+npm run portal:promote -- --release portal-v0.4.11 --channel pilot --publish
 # After hardware acceptance, approve the identical binary for ordinary kiosks:
-npm run portal:promote -- --release portal-v0.4.10 --channel stable --publish
+npm run portal:promote -- --release portal-v0.4.11 --channel stable --publish
 # Withdraw approval without uninstalling or altering devices:
 npm run portal:promote -- --channel stable --disable --publish
 ```
@@ -529,6 +529,12 @@ require this APK. Website/cloud deployment is not required for these UI changes.
 Release v0.4.10 changes the progress heading and the library's in-progress game
 card to **Muse is building**. The same Pi/Portal rollout applies; website/cloud
 deployment is not required.
+Release v0.4.11 extends Muse branding to New Game instructions, placeholders,
+accessibility labels, and voice errors. The shared generation pipeline also uses
+Muse in new progress narration. Pi kiosks need a source update, Portal kiosks need
+the new APK, and cloud narration/website creation copy require a website deployment.
+The website progress filter accepts both Muse and older Spark milestones during
+rollout; existing stored messages and model identifiers remain valid.
 
 The app only downloads from pinned GitHub release hosts, bounds download size/time,
 checks SHA-256 and the installed app's signing certificate, and rejects debug builds,

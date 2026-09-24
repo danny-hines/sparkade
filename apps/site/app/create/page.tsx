@@ -16,7 +16,7 @@ export default async function CreatePage() {
         <span className="arc-kicker">Your imagination. Playable.</span>
         <h1>What will you make?</h1>
         <p>
-          Share an idea or let Spark surprise you. We’ll build the world, the art, and the game.
+          Share an idea or let Muse surprise you. We’ll build the world, the art, and the game.
         </p>
       </section>
       <div className="arc-create-layout">
@@ -58,7 +58,7 @@ export default async function CreatePage() {
           <h2>From idea to arcade</h2>
           <ol className="arc-steps">
             <li>
-              Choose your game type and add any personal touches. Spark checks your idea and photo
+              Choose your game type and add any personal touches. Muse checks your idea and photo
               automatically.
             </li>
             <li>We generate your game. Follow along in your library.</li>

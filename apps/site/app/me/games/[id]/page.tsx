@@ -115,7 +115,7 @@ export default async function MyGame({
           <>
             <p>
               {game.input_review === 'pending'
-                ? 'Spark is checking your idea and photo. Generation begins automatically when they pass.'
+                ? 'Muse is checking your idea and photo. Generation begins automatically when they pass.'
                 : game.job_status === 'review'
                   ? 'Your game is generated. We’re checking its content before it can be played and shared.'
                   : `Current stage: ${String(game.stage).replaceAll('-', ' ')}`}

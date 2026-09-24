@@ -93,7 +93,7 @@ test('racing creation survives a failed first Create without double-creating', a
   await page.getByText('Use photo', { exact: true }).click();
 
   // Step 2: typed hero name + cycling brief.
-  await expect(page.getByText('TELL SPARK WHAT MATTERS')).toBeVisible();
+  await expect(page.getByText('TELL MUSE WHAT MATTERS')).toBeVisible();
   await page.fill('#wizard-hero-name', HERO_NAME);
   await page.fill('#wizard-details', CYCLING_BRIEF);
 
@@ -120,7 +120,7 @@ test('racing creation survives a failed first Create without double-creating', a
   await tap(page, 'KeyZ'); // B → back to the photo step
   await expect(page.getByText('Use photo', { exact: true })).toBeVisible();
   await page.getByText('Use photo', { exact: true }).click();
-  await expect(page.getByText('TELL SPARK WHAT MATTERS')).toBeVisible();
+  await expect(page.getByText('TELL MUSE WHAT MATTERS')).toBeVisible();
   await expect(page.locator('#wizard-hero-name')).toHaveValue(HERO_NAME);
   await expect(page.locator('#wizard-details')).toHaveValue(CYCLING_BRIEF);
   await expect(page.locator('.game-details-stage')).toContainText('Racing');

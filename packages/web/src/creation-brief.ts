@@ -9,10 +9,10 @@ export interface CreationPromptInput {
  * missing form data. Structured fields are submitted alongside this text. */
 export function buildCreationPrompt(input: CreationPromptInput): string {
   return [
-    input.heroName ? `${input.heroName} is the main character.` : 'Spark decides the hero name.',
+    input.heroName ? `${input.heroName} is the main character.` : 'Muse decides the hero name.',
     input.archetypeLabel
       ? `Make it a ${input.archetypeLabel} game.`
-      : 'Spark decides the game type.',
-    input.details || 'Spark decides the story, enemies, setting, and visual style.',
+      : 'Muse decides the game type.',
+    input.details || 'Muse decides the story, enemies, setting, and visual style.',
   ].join(' ');
 }

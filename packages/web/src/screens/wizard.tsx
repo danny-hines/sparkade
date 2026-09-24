@@ -1,5 +1,5 @@
 // Two-step New Game flow: capture an optional photo, then edit a compact game
-// brief. Unset fields deliberately remain Spark decisions.
+// brief. Unset fields deliberately remain Muse decisions.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { GENERATION, LIKENESS_OVAL, MAX_PHOTO_DIM, type ArchetypeId } from '@sparkade/shared';
@@ -440,8 +440,8 @@ export function WizardScreen(props: {
             if (!accepted) {
               setSttError(
                 target === 'name'
-                  ? "Spark didn't catch a name. Try speaking it again."
-                  : "Spark didn't catch any details. Try speaking again.",
+                  ? "Muse didn't catch a name. Try speaking it again."
+                  : "Muse didn't catch any details. Try speaking again.",
               );
               goToDetails(target === 'name' ? 0 : 2);
               shellInput.blip('error');
@@ -488,8 +488,8 @@ export function WizardScreen(props: {
     } catch {
       setSttError(
         target === 'name'
-          ? 'Microphone unavailable — Spark can name the hero.'
-          : 'Microphone unavailable — Spark can invent the details.',
+          ? 'Microphone unavailable — Muse can name the hero.'
+          : 'Microphone unavailable — Muse can invent the details.',
       );
       goToDetails(target === 'name' ? 0 : 2);
       shellInput.blip('error');
@@ -734,7 +734,7 @@ export function WizardScreen(props: {
     : sttError
       ? sttError
       : ([
-          'Type or speak the hero name, or leave it to Spark.',
+          'Type or speak the hero name, or leave it to Muse.',
           'Choose how the game plays, or use Random for a varied surprise.',
           'Type or speak the story, enemies, or visual style you want.',
           online
@@ -857,7 +857,7 @@ export function WizardScreen(props: {
 
         {step === 'details' && entryMode === 'choice' && (
           <div class="game-details-stage">
-            <div class="wizard-kicker">TELL SPARK WHAT MATTERS</div>
+            <div class="wizard-kicker">TELL MUSE WHAT MATTERS</div>
             <div class="game-details-grid">
               <div
                 class={`focusable game-detail-row ${cursor === 0 ? 'focused' : ''}`}
@@ -878,8 +878,8 @@ export function WizardScreen(props: {
                     maxLength={48}
                     autoComplete="off"
                     spellcheck={false}
-                    placeholder="Spark decides"
-                    aria-label="Hero Name — type a name, speak one, or leave it to Spark"
+                    placeholder="Muse decides"
+                    aria-label="Hero Name — type a name, speak one, or leave it to Muse"
                     value={heroName}
                     onInput={(event) => {
                       setHeroName(event.currentTarget.value.slice(0, 48));
@@ -929,8 +929,8 @@ export function WizardScreen(props: {
                     maxLength={1200}
                     autoComplete="off"
                     spellcheck={false}
-                    placeholder="Spark decides"
-                    aria-label="Game details — type a description, speak one, or leave it to Spark"
+                    placeholder="Muse decides"
+                    aria-label="Game details — type a description, speak one, or leave it to Muse"
                     value={details}
                     onInput={(event) => {
                       setDetails(event.currentTarget.value.slice(0, 1200));
@@ -1072,7 +1072,7 @@ export function WizardScreen(props: {
                     ? [
                         ['A', cursor === 3 ? 'Create' : 'Edit'],
                         ...(hasFocusedValue
-                          ? ([['X', cursor === 1 ? 'Random' : 'Spark decides']] as [
+                          ? ([['X', cursor === 1 ? 'Random' : 'Muse decides']] as [
                               string,
                               string,
                             ][])

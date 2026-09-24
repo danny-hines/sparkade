@@ -90,13 +90,13 @@ export function CreateForm({
           maxLength={48}
           autoComplete="off"
           spellCheck={false}
-          placeholder="Spark decides"
+          placeholder="Muse decides"
           aria-describedby="hero-name-help"
           value={heroName}
           onChange={(event) => setHeroName(event.target.value)}
         />
         <p id="hero-name-help" className="arc-fine-print">
-          Leave blank to let Spark choose a name.
+          Leave blank to let Muse choose a name.
         </p>
         <label className="arc-label" htmlFor="prompt">
           What’s your game about? (optional)
@@ -109,11 +109,11 @@ export function CreateForm({
           rows={6}
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
-          placeholder="Spark decides — or add your own idea…"
+          placeholder="Muse decides — or add your own idea…"
           aria-describedby="game-idea-help"
         />
         <p id="game-idea-help" className="arc-fine-print">
-          Leave blank to let Spark invent the story, enemies, setting, and visual style. If you add
+          Leave blank to let Muse invent the story, enemies, setting, and visual style. If you add
           details, keep them appropriate for a public arcade: no personal information, hate, or
           explicit content.
         </p>

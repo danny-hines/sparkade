@@ -11,11 +11,6 @@ import { shellInput } from '../shell-input';
 import { buildCreationPrompt } from '../creation-brief';
 import { pickSurpriseArchetype } from '../surprise';
 import { normalizeTranscribedHeroName } from '../transcription';
-import {
-  decodePhotoFileToJpeg,
-  PhotoUploadError,
-  validatePhotoFileMeta,
-} from '../photo-upload';
 import type { Screen } from '../app';
 
 type PhotoMode = 'choice' | 'camera' | 'preview' | 'error';
@@ -121,7 +116,6 @@ export function WizardScreen(props: {
   const [online, setOnline] = useState(navigator.onLine);
   const [isPi, setIsPi] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [uploading, setUploading] = useState(false);
   // Last Create Game failure, shown in the details help slot until the next
   // attempt or an input edit. Inputs, photo, chosen type, and the
   // idempotency key are all preserved so a retry is safe.
@@ -131,14 +125,9 @@ export function WizardScreen(props: {
   const videoRef = useRef<HTMLVideoElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const carouselRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const detailsInputRef = useRef<HTMLTextAreaElement>(null);
-  const mountedRef = useRef(true);
-  const uploadingRef = useRef(false);
   const photoUrlRef = useRef<string | null>(null);
-  /** Bumped to invalidate a pending async photo decode (cancel/unmount/navigate). */
-  const uploadSeqRef = useRef(0);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -149,7 +138,6 @@ export function WizardScreen(props: {
   const chosenArchetype = requestedArchetype ? choiceFor(requestedArchetype) : null;
   const carouselChoice = ARCHETYPES[cursor] ?? ARCHETYPES[0]!;
   photoUrlRef.current = photoUrl;
-  uploadingRef.current = uploading;
 
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -176,8 +164,6 @@ export function WizardScreen(props: {
 
   useEffect(
     () => () => {
-      mountedRef.current = false;
-      uploadSeqRef.current += 1;
       stopCamera();
       recordingCanceledRef.current = true;
       stopMic();
@@ -274,66 +260,16 @@ export function WizardScreen(props: {
   };
 
   const goToDetails = (nextCursor = 0) => {
-    uploadSeqRef.current += 1;
-    setUploading(false);
     setStep('details');
     setEntryMode('choice');
     setCursor(nextCursor);
   };
 
   const goToPhoto = () => {
-    uploadSeqRef.current += 1;
-    setUploading(false);
     setStep('photo');
     setEntryMode('choice');
     setPhotoMode(photoUrl ? 'preview' : 'choice');
     setCursor(photoUrl ? 1 : 0);
-  };
-
-  const openFilePicker = () => {
-    if (uploadingRef.current) return;
-    fileInputRef.current?.click();
-  };
-
-  const handlePhotoFile = (file: File | null | undefined) => {
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    if (!file || uploadingRef.current) return; // picker canceled or a decode is in flight
-    const metaError = validatePhotoFileMeta(file);
-    if (metaError) {
-      setCameraError(metaError);
-      setPhotoMode('error');
-      setCursor(1);
-      shellInput.blip('error');
-      return;
-    }
-    const seq = (uploadSeqRef.current += 1);
-    const cancelled = () => seq !== uploadSeqRef.current || !mountedRef.current;
-    setUploading(true);
-    setCameraError('');
-    void decodePhotoFileToJpeg(file, { isCancelled: cancelled })
-      .then((blob) => {
-        if (cancelled() || !mountedRef.current) return;
-        shellInput.pokeActivity();
-        setPhotoBlob(blob);
-        setPhotoUrl((old) => {
-          if (old) URL.revokeObjectURL(old);
-          return URL.createObjectURL(blob);
-        });
-        setUploading(false);
-        stopCamera();
-        setPhotoMode('preview');
-        setCursor(1);
-        shellInput.blip('success');
-      })
-      .catch((error: unknown) => {
-        if (cancelled() || !mountedRef.current) return;
-        if (error instanceof PhotoUploadError && error.cancelled) return;
-        setUploading(false);
-        setCameraError(error instanceof Error ? error.message : 'Could not read that image.');
-        setPhotoMode('error');
-        setCursor(1);
-        shellInput.blip('error');
-      });
   };
 
   const speakField = (target: RecordTarget) => (event: Event) => {
@@ -362,13 +298,7 @@ export function WizardScreen(props: {
     shellInput.blip('select');
     setPhotoMode('camera');
   };
-  const chooseUploadPhoto = () => {
-    setCursor(1);
-    shellInput.blip('select');
-    openFilePicker();
-  };
   const skipPhoto = () => {
-    setCursor(2);
     shellInput.blip('select');
     clearPhoto();
     goToDetails();
@@ -643,11 +573,10 @@ export function WizardScreen(props: {
 
         if (mode.step === 'photo') {
           if (mode.photoMode === 'choice') {
-            if (nav(3)) return;
+            if (nav(2)) return;
             if (button === 'A') {
               shellInput.blip('select');
               if (mode.cursor === 0) setPhotoMode('camera');
-              else if (mode.cursor === 1) openFilePicker();
               else {
                 clearPhoto();
                 goToDetails();
@@ -678,11 +607,10 @@ export function WizardScreen(props: {
               setCursor(0);
             }
           } else if (mode.photoMode === 'error') {
-            if (nav(3, true)) return;
+            if (nav(2, true)) return;
             if (button === 'A') {
               shellInput.blip('select');
               if (mode.cursor === 0) setPhotoMode('camera');
-              else if (mode.cursor === 1) openFilePicker();
               else {
                 clearPhoto();
                 goToDetails();
@@ -847,16 +775,6 @@ export function WizardScreen(props: {
               </div>
               <div
                 class={`focusable menu-item ${cursor === 1 ? 'focused' : ''}`}
-                onClick={chooseUploadPhoto}
-                {...keyboardAction(chooseUploadPhoto)}
-              >
-                <span class="icon">
-                  <Icon name="folder" />
-                </span>{' '}
-                Upload photo
-              </div>
-              <div
-                class={`focusable menu-item ${cursor === 2 ? 'focused' : ''}`}
                 onClick={skipPhoto}
                 {...keyboardAction(skipPhoto)}
               >
@@ -866,15 +784,6 @@ export function WizardScreen(props: {
                 Skip
               </div>
             </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              class="photo-upload-input"
-              aria-label="Upload a photo file"
-              onChange={(event) => handlePhotoFile(event.currentTarget.files?.[0])}
-            />
-            {uploading ? <div class="wizard-uploading">Reading photo…</div> : null}
           </div>
         )}
 
@@ -937,29 +846,12 @@ export function WizardScreen(props: {
               <div
                 class={`focusable ${cursor === 1 ? 'focused' : ''}`}
                 style="padding:12px 28px"
-                onClick={chooseUploadPhoto}
-                {...keyboardAction(chooseUploadPhoto)}
-              >
-                Upload photo
-              </div>
-              <div
-                class={`focusable ${cursor === 2 ? 'focused' : ''}`}
-                style="padding:12px 28px"
                 onClick={skipPhoto}
                 {...keyboardAction(skipPhoto)}
               >
                 Continue without photo
               </div>
             </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              class="photo-upload-input"
-              aria-label="Upload a photo file"
-              onChange={(event) => handlePhotoFile(event.currentTarget.files?.[0])}
-            />
-            {uploading ? <div class="wizard-uploading">Reading photo…</div> : null}
           </div>
         )}
 

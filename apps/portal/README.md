@@ -502,10 +502,10 @@ native update screen for test devices. Channels point to immutable versioned APK
 publishing an APK alone does not promote it. Maintainers validate a published release:
 
 ```sh
-npm run portal:promote -- --release portal-v0.4.8 --channel pilot
-npm run portal:promote -- --release portal-v0.4.8 --channel pilot --publish
+npm run portal:promote -- --release portal-v0.4.9 --channel pilot
+npm run portal:promote -- --release portal-v0.4.9 --channel pilot --publish
 # After hardware acceptance, approve the identical binary for ordinary kiosks:
-npm run portal:promote -- --release portal-v0.4.8 --channel stable --publish
+npm run portal:promote -- --release portal-v0.4.9 --channel stable --publish
 # Withdraw approval without uninstalling or altering devices:
 npm run portal:promote -- --channel stable --disable --publish
 ```
@@ -521,6 +521,11 @@ specific camera errors, corrected generation retry instructions, and shared
 platformer validation. It also includes the controller and racing touch changes
 from v0.4.6/v0.4.7. Cloud generation improvements have their own website deployment;
 an APK update does not replace existing games' generated artwork.
+Release v0.4.9 removes file upload from the New Game photo and camera-error
+screens, updates controller navigation to the remaining two choices, and replaces
+the racing type's old gameplay screenshot with illustrated pixel art. Pi kiosks
+receive these shared shell changes through their source updater; Portal kiosks
+require this APK. Website/cloud deployment is not required for these UI changes.
 
 The app only downloads from pinned GitHub release hosts, bounds download size/time,
 checks SHA-256 and the installed app's signing certificate, and rejects debug builds,

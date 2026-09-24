@@ -7,6 +7,12 @@ import { expect, test } from '@playwright/test';
 import type { GameDetail } from '../../packages/web/src/api';
 import { tap, toMenu, trackErrors } from './helpers';
 
+test.use({
+  launchOptions: {
+    args: ['--mute-audio', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+  },
+});
+
 const HERO_NAME = 'Axel Rider';
 const CYCLING_BRIEF =
   'High-speed cycling race through neon streets: rival riders, daring overtakes, and a photo finish.';
@@ -36,7 +42,7 @@ test('racing creation survives a failed first Create without double-creating', a
   test.setTimeout(300_000);
   const errors = trackErrors(page);
 
-  // Desktop wizard surface (typed name/details + file uploader). The real API
+  // Desktop wizard surface (typed name/details + camera capture). The real API
   // underneath is untouched — only the Pi flag is masked for this page.
   await page.route('**/api/system/info', async (route) => {
     const res = await route.fetch();
@@ -75,29 +81,14 @@ test('racing creation survives a failed first Create without double-creating', a
   await tap(page, 'KeyX');
   await expect(page.locator('.screen-title', { hasText: 'NEW GAME' })).toBeVisible();
 
-  // Step 1: upload a fixture photo encoded locally in-memory (no external image).
-  const pngBase64 = await page.evaluate(() => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 256;
-    const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = '#203050';
-    ctx.fillRect(0, 0, 256, 256);
-    ctx.fillStyle = '#e8b98a';
-    ctx.beginPath();
-    ctx.ellipse(128, 120, 70, 90, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#16202e';
-    ctx.fillRect(40, 200, 176, 24);
-    const url: string = canvas.toDataURL('image/png');
-    return url.split(',')[1] ?? '';
-  });
-  expect(pngBase64.length).toBeGreaterThan(100);
-  await page.setInputFiles('.photo-upload-input', {
-    name: 'rider.png',
-    mimeType: 'image/png',
-    buffer: Buffer.from(pngBase64, 'base64'),
-  });
+  // Step 1: capture through the kiosk camera using Chromium's fake video device.
+  await expect(page.locator('.menu-list [role="button"]')).toHaveText(['Take photo', 'Skip']);
+  await expect(page.locator('input[type="file"]')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Take photo', exact: true }).click();
+  await expect
+    .poll(() => page.locator('.camera-stage video').evaluate((video: HTMLVideoElement) => video.videoWidth))
+    .toBeGreaterThan(0);
+  await tap(page, 'KeyX');
   await expect(page.getByText('Use photo', { exact: true })).toBeVisible({ timeout: 20_000 });
   await page.getByText('Use photo', { exact: true }).click();
 
@@ -185,7 +176,7 @@ test('racing creation survives a failed first Create without double-creating', a
   await expect(page.getByText('GAME READY!')).toBeVisible({ timeout: 180_000 });
 
   // Ready-pack provenance: the spec carries this draft's exact guided-creation
-  // brief (name, Racing, cycling details) and records the uploaded photo; the
+  // brief (name, Racing, cycling details) and records the captured photo; the
   // durable job row agrees. Exact pixel geometry is verified by
   // pipeline/renderer unit tests, not here.
   const detail = (await (await request.get(`/api/games/${created.gameId}`)).json()) as GameDetail;

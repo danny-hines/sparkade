@@ -960,21 +960,6 @@ h2.pixel {
 }
 
 /* Creator pointer/keyboard affordances (compact wizard layout unchanged) */
-.photo-upload-input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  opacity: 0;
-  overflow: hidden;
-}
-
-.wizard-uploading {
-  margin-top: 10px;
-  color: var(--text-dim);
-  font-size: 16px;
-}
-
 .menu-list .menu-item,
 .game-detail-row,
 .game-details-create,

@@ -7,6 +7,7 @@ import {
 // packages/generation and fills their placeholders (schemas verbatim from
 // @sparkade/shared, golden few-shot excerpts, anti-collision block).
 import {
+  GENERATION,
   SHOOTER_STYLE_CATALOG,
   shooterStylePreference,
   PRESENTATION_CATALOG,
@@ -66,7 +67,7 @@ export function buildDesignPrompt(opts: {
   promptText: string;
   hasPhoto: boolean;
   describeInStory: boolean;
-  antiCollision: { title: string; tagline: string; key?: string }[];
+  antiCollision: { title: string; tagline: string; boss?: string; key?: string }[];
   recentMoods?: string[];
   recentMechanics?: MechanicalFingerprint[];
   creationBrief?: CreationBrief;
@@ -74,7 +75,10 @@ export function buildDesignPrompt(opts: {
 }): BuiltPrompt {
   const anti = opts.antiCollision.length
     ? opts.antiCollision
-        .map((g) => `- "${g.title}" — ${g.tagline}${g.key ? ` (music: ${g.key})` : ''}`)
+        .map(
+          (g) =>
+            `- "${g.title}" — ${g.tagline}${g.boss ? ` (boss: ${g.boss})` : ''}${g.key ? ` (music: ${g.key})` : ''}`,
+        )
         .join('\n')
     : '- (none yet — this is the first generated game)';
   const likenessNotes = opts.hasPhoto
@@ -116,7 +120,7 @@ export function buildDesignPrompt(opts: {
     `GAMES ALREADY ON THIS CABINET (be clearly different):\n${anti}`,
     ...(opts.recentMechanics?.length
       ? [
-          `RECENT GAME MECHANICS (newest first; prioritize different decisions, objectives and topology over cosmetic differences):\n${JSON.stringify(opts.recentMechanics)}`,
+          `RECENT GAME MECHANICS (newest first; prioritize different decisions, objectives and topology over cosmetic differences):\n${JSON.stringify(opts.recentMechanics.slice(0, GENERATION.antiCollisionGames))}`,
           `PLATFORMER STYLE PREFERENCE (least recently used first): ${platformerStylePreference(opts.recentMechanics).join(', ')}. This is a preference only: explicit requested mechanics take precedence.`,
         ]
       : []),
@@ -529,6 +533,9 @@ export interface RecentUse {
   heroes: string[];
   bosses: string[];
   backdrops: string[];
+  weather?: string[];
+  /** Ordered boss phase patterns chosen against recent same-archetype bosses. */
+  bossPlan?: readonly string[];
 }
 
 export function buildEntitiesPrompt(
@@ -578,6 +585,7 @@ export function buildEntitiesPrompt(
     recentUse?.heroes.length ? `hero bodies: ${uniq(recentUse.heroes).join(', ')}` : '',
     recentUse?.bosses.length ? `bosses: ${uniq(recentUse.bosses).join(', ')}` : '',
     recentUse?.backdrops.length ? `backdrops: ${uniq(recentUse.backdrops).join(', ')}` : '',
+    recentUse?.weather?.length ? `weather: ${uniq(recentUse.weather).join(', ')}` : '',
   ].filter(Boolean);
   const recentNote = recentBits.length
     ? `\n\nRECENTLY USED ON THIS CABINET (prefer different bodies/scenes when the premise allows — back-to-back games should not share a cast): ${recentBits.join('; ')}.`
@@ -594,6 +602,9 @@ export function buildEntitiesPrompt(
       ...(archetype === 'adventure' ? [adventureStyleBrief(design)] : []),
       ...(archetype === 'fighter' ? [fighterStyleBrief(design)] : []),
       `Photo for likeness: ${hasPhoto ? 'yes' : 'no'}.${likenessBodyNote}${recentNote}`,
+      recentUse?.bossPlan?.length
+        ? `BOSS PHASE PLAN (chosen so this cabinet's recent bosses do not repeat): boss.phases must use exactly these patterns in this order: ${recentUse.bossPlan.join(' → ')}. Escalate speed across the phases. If the player's request explicitly describes the boss's attacks, honor that instead.`
+        : '',
       racingLevelsBlock,
       ...(archetype === 'platformer'
         ? [

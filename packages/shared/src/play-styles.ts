@@ -1,5 +1,7 @@
 import { shooterEncounters, shooterPlayStyle } from './shooter-styles';
 import { adventurePlayStyle } from './adventure-styles';
+import { bossSequence } from './boss-recipes';
+import { GENERATION } from './constants';
 import type { GameSpec, LintError, PlatformerSpec } from './types';
 
 export const PLATFORMER_PLAY_STYLES = [
@@ -168,11 +170,35 @@ export interface MechanicalFingerprint {
   topology: string;
   progression: string;
   encounters: string[];
+  /** Ordered boss phases, e.g. `fan>spiral>walls`; absent for bossless archetypes and old records. */
+  boss?: string;
+}
+
+/**
+ * Newest-first history for recency guidance: every game in the broad recent
+ * window, plus older games until each archetype has `perArchetype` entries.
+ * The broad window stays a prefix of the result.
+ */
+export function selectGenerationHistory<T>(
+  newestFirst: readonly T[],
+  archetypeOf: (entry: T) => string,
+  broad: number = GENERATION.antiCollisionGames,
+  perArchetype: number = GENERATION.archetypeHistoryGames,
+): T[] {
+  const counts = new Map<string, number>();
+  return newestFirst.filter((entry, i) => {
+    const archetype = archetypeOf(entry);
+    const count = counts.get(archetype) ?? 0;
+    if (i >= broad && count >= perArchetype) return false;
+    counts.set(archetype, count + 1);
+    return true;
+  });
 }
 
 /** Derived from the final spec, including old saves, never from an unfulfilled design promise. */
 export function mechanicalFingerprint(spec: GameSpec): MechanicalFingerprint {
-  const base = { version: 1 as const, archetype: spec.archetype };
+  const boss = bossSequence(spec);
+  const base = { version: 1 as const, archetype: spec.archetype, ...(boss ? { boss } : {}) };
   switch (spec.archetype) {
     case 'platformer': {
       const style = platformerPlayStyle(spec);

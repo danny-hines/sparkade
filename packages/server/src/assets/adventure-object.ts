@@ -28,6 +28,14 @@ export const GENERATED_ADVENTURE_OBJECT_ATLAS_WIDTH =
 export const ADVENTURE_OBJECT_BOARD_PROMPT_VERSION = 'adventure-object-board-v3';
 export const ADVENTURE_OBJECT_JUDGE_PROMPT_VERSION = 'adventure-object-judge-v3';
 export const ADVENTURE_OBJECT_PIPELINE_PROMPT_VERSION = 'adventure-object-pipeline-v3';
+export const ADVENTURE_OBJECT_REPLACEMENT_PROMPT_VERSION = 'adventure-object-replacement-v1';
+export const ADVENTURE_OBJECT_REPLACEMENTS_PER_ROLE = 2;
+/**
+ * Roles that can be repainted alone. The NPC has its own repair path, and the
+ * two pressure-plate states must stay one matched pair from the same board.
+ */
+export const REPLACEABLE_ADVENTURE_OBJECTS = ['key', 'item', 'secondaryEffect', 'block'] as const;
+export type ReplaceableAdventureObject = (typeof REPLACEABLE_ADVENTURE_OBJECTS)[number];
 
 export interface AdventureObjectPromptOptions {
   gameTitle: string;
@@ -172,6 +180,27 @@ export function buildAdventureObjectBoardPrompt(options: AdventureObjectPromptOp
     `Polished high-density modern retro pixel art authored to become ${GENERATED_ADVENTURE_OBJECT_WIDTH}x${GENERATED_ADVENTURE_OBJECT_HEIGHT} transparent gameplay sources: crisp deliberate square pixel clusters, hard edges, controlled limited flat colors, rich readable detail, and no huge chunky blocks. No antialiasing, blur, gradients, smooth vector art, photorealism, or 3D rendering.`,
     'Every populated cell contains exactly ONE complete isolated subject with generous clearance. Nothing may cross a cell boundary or be cropped. No second subject, player, enemy, boss, floor, scenery, baked shadow, glow, particles, UI, text, letters, numbers, logo, watermark, or detached decorative prop.',
     'The entire board background must be perfectly flat solid #00ff00, including every gap inside and around each subject and the unused cell. Do not use #00ff00 or a near-neon imitation in any subject.',
+  ].join(' ');
+}
+
+/** One isolated object on a full canvas, for a role with no valid board cell. */
+export function buildAdventureObjectReplacementPrompt(
+  options: AdventureObjectPromptOptions & {
+    role: ReplaceableAdventureObject;
+    variant: number;
+    correction: string;
+  },
+): string {
+  return [
+    'ADVENTURE GAMEPLAY OBJECT REPLACEMENT: create exactly ONE complete isolated top-down Adventure gameplay object sprite.',
+    roleConcept(options.role, options),
+    `It belongs to ${clean(options.gameTitle, 100)} — ${clean(options.tagline, 180)}. Use the attached key art only as world-style, material, palette-logic, and pixel-technique direction. Never copy its player, boss, enemies, composition, scenery, or text.`,
+    `CORRECTION FROM LOCAL VALIDATION: ${clean(options.correction, 420)}.`,
+    `Variant ${options.variant + 1}: keep the same authored identity while offering its own readable silhouette.`,
+    'Complete and uncropped, centered with generous green clearance on every side, in the same top-down three-quarter camera as the actors.',
+    `Limited color direction: ${clean(options.colors)}. Polished high-density modern retro pixel art authored for a ${GENERATED_ADVENTURE_OBJECT_WIDTH}x${GENERATED_ADVENTURE_OBJECT_HEIGHT} gameplay source: crisp square pixel clusters, hard edges, limited flat colors, strong darkest contour, no antialiasing, blur, gradients, photorealism, or 3D rendering.`,
+    'No second subject, player, enemy, boss, floor, scenery, baked shadow, glow, particles, UI, text, logo, or detached prop.',
+    'The entire background must be perfectly flat solid #00ff00, including every gap inside and around the subject. Do not use #00ff00 in the subject.',
   ].join(' ');
 }
 

@@ -262,16 +262,21 @@ import {
   ADVENTURE_ENEMY_BOARD_PROMPT_VERSION,
   ADVENTURE_ENEMY_JUDGE_PROMPT_VERSION,
   ADVENTURE_ENEMY_PIPELINE_PROMPT_VERSION,
+  ADVENTURE_ENEMY_REPLACEMENT_PROMPT_VERSION,
+  ADVENTURE_ENEMY_REPLACEMENTS_PER_ROLE,
   GENERATED_ADVENTURE_ENEMIES,
   bestAdventureEnemyCandidateId,
   buildAdventureEnemyBoardPrompt,
   buildAdventureEnemyJudgeBoard,
   buildAdventureEnemyJudgePrompt,
   buildAdventureEnemyJudgeSchema,
+  buildAdventureEnemyReplacementPrompt,
   buildGeneratedAdventureEnemyAtlas,
   normalizeAdventureEnemyJudgeDecision,
+  processAdventureEnemyCandidate,
   splitGeneratedAdventureEnemyBoard,
   validateGeneratedAdventureEnemyAtlas,
+  type AdventureEnemyCandidate,
   type GeneratedAdventureEnemy,
 } from '../assets/adventure-enemy';
 import { ensureAdventureNpc } from '../assets/adventure-npc';
@@ -280,18 +285,25 @@ import {
   ADVENTURE_OBJECT_BOARD_PROMPT_VERSION,
   ADVENTURE_OBJECT_JUDGE_PROMPT_VERSION,
   ADVENTURE_OBJECT_PIPELINE_PROMPT_VERSION,
+  ADVENTURE_OBJECT_REPLACEMENT_PROMPT_VERSION,
+  ADVENTURE_OBJECT_REPLACEMENTS_PER_ROLE,
   GENERATED_ADVENTURE_OBJECTS,
+  REPLACEABLE_ADVENTURE_OBJECTS,
   bestAdventureObjectCandidateId,
   buildAdventureObjectBoardPrompt,
   buildAdventureObjectJudgeBoard,
   buildAdventureObjectJudgePrompt,
   buildAdventureObjectJudgeSchema,
+  buildAdventureObjectReplacementPrompt,
   buildGeneratedAdventureObjectAtlas,
   normalizeAdventureObjectJudgeDecision,
+  processAdventureObject,
   splitGeneratedAdventureObjectBoard,
   validateGeneratedAdventureObjectAtlas,
+  type AdventureObjectCandidate,
   type AdventureObjectPromptOptions,
   type GeneratedAdventureObject,
+  type ReplaceableAdventureObject,
 } from '../assets/adventure-object';
 import {
   ADVENTURE_PLAYER_PIPELINE_PROMPT_VERSION,
@@ -739,6 +751,36 @@ const SHOOTER_ENEMY_REPLACEMENT_ASSET_ROLES = {
   turret: 'shooterEnemyReplacementTurret',
   kamikaze: 'shooterEnemyReplacementKamikaze',
 } as const satisfies Record<GeneratedShooterEnemy, PrivateGeneratedAssetRole>;
+
+const ADVENTURE_ENEMY_REPLACEMENT_ASSET_ROLES = {
+  walker: ['adventureEnemyReplacementWalker1', 'adventureEnemyReplacementWalker2'],
+  flyer: ['adventureEnemyReplacementFlyer1', 'adventureEnemyReplacementFlyer2'],
+  shooter: ['adventureEnemyReplacementShooter1', 'adventureEnemyReplacementShooter2'],
+  chaser: ['adventureEnemyReplacementChaser1', 'adventureEnemyReplacementChaser2'],
+  bruiser: ['adventureEnemyReplacementBruiser1', 'adventureEnemyReplacementBruiser2'],
+} as const satisfies Record<GeneratedAdventureEnemy, readonly PrivateGeneratedAssetRole[]>;
+
+const ADVENTURE_OBJECT_REPLACEMENT_ASSET_ROLES = {
+  key: ['adventureObjectReplacementKey1', 'adventureObjectReplacementKey2'],
+  item: ['adventureObjectReplacementItem1', 'adventureObjectReplacementItem2'],
+  secondaryEffect: [
+    'adventureObjectReplacementSecondaryEffect1',
+    'adventureObjectReplacementSecondaryEffect2',
+  ],
+  block: ['adventureObjectReplacementBlock1', 'adventureObjectReplacementBlock2'],
+} as const satisfies Record<ReplaceableAdventureObject, readonly PrivateGeneratedAssetRole[]>;
+
+/** Board cell rejections as repair diagnostics, so incidents keep the reasons. */
+function boardRejectionDiagnostics(
+  kind: string,
+  failures: readonly { id: string; reason: string }[],
+): LintError[] {
+  return failures.map(({ id, reason }) => ({
+    code: 'GENERATED_ART_CELL_REJECTED',
+    path: `/assets/${kind}/${id}`,
+    message: reason.slice(0, 300),
+  }));
+}
 
 /** The player's structured engine choice is authoritative; the design model still gets
  * the instruction, but cannot silently relabel the job by returning another id. */
@@ -2668,6 +2710,72 @@ export class GenerationRunner {
           'building-assets',
         );
       }
+
+      /**
+       * Repaint board roles whose every cell failed local validation: a few
+       * independent full-canvas candidates per role, all in parallel, each
+       * corrected with the board's rejection reasons. Raw images persist so a
+       * resume never pays twice; a rejected replacement is discarded so an
+       * explicit retry repaints it. Provider errors propagate unchanged.
+       */
+      const replaceMissingBoardRoles = async <Role extends string, Candidate>(opts: {
+        kind: string;
+        label: string;
+        missing: readonly Role[];
+        failures: readonly { role: Role; reason: string }[];
+        perRole: number;
+        promptVersion: string;
+        reference: Buffer;
+        privateRole: (role: Role, variant: number) => PrivateGeneratedAssetRole;
+        prompt: (role: Role, variant: number, correction: string) => string;
+        process: (raw: Buffer, role: Role, id: string) => Promise<Candidate>;
+      }): Promise<{ candidates: Candidate[]; failures: { id: string; role: Role; reason: string }[] }> => {
+        const attempts = await settleAll(
+          opts.missing.flatMap((role) => {
+            const correction =
+              [
+                ...new Set(
+                  opts.failures.filter((failure) => failure.role === role).map((f) => f.reason),
+                ),
+              ].join('; ') || 'Return one complete isolated subject with clean green separation';
+            return Array.from({ length: opts.perRole }, async (_, variant): Promise<
+              | { ok: true; candidate: Candidate }
+              | { ok: false; failure: { id: string; role: Role; reason: string } }
+            > => {
+              const id = `${role}-r${variant + 1}`;
+              const privateRole = opts.privateRole(role, variant);
+              const prompt = opts.prompt(role, variant, correction);
+              const sha = imagePromptHash(prompt, opts.reference);
+              let raw = assetWorkspace.loadPrivate(privateRole, opts.promptVersion, sha);
+              if (!raw) {
+                raw = await callImage({
+                  role: `${opts.kind}-replacement-${role}-${variant + 1}`,
+                  label: `${opts.label} ${role} replacement ${variant + 1}`,
+                  prompt,
+                  reference: opts.reference,
+                  size: '1024x1024',
+                });
+                await assetWorkspace.storePrivate(privateRole, raw, opts.promptVersion, sha);
+              }
+              try {
+                return { ok: true, candidate: await opts.process(raw, role, id) };
+              } catch (error) {
+                throwIfSuspended(error);
+                validationFailure(`${opts.kind}-replacement-${role}-${variant + 1}`);
+                await assetWorkspace.discardPrivate(privateRole);
+                return {
+                  ok: false,
+                  failure: { id, role, reason: error instanceof Error ? error.message : String(error) },
+                };
+              }
+            });
+          }),
+        );
+        return {
+          candidates: attempts.flatMap((a) => (a.ok ? [a.candidate] : [])),
+          failures: attempts.flatMap((a) => (a.ok ? [] : [a.failure])),
+        };
+      };
 
       const photoReference = photo ? await prepareImageReference(photo) : undefined;
       const canonicalHeroConcept = spec.meta.heroConcept ?? design.heroConcept;
@@ -5287,22 +5395,73 @@ export class GenerationRunner {
                 split.failures.forEach(({ id }) =>
                   validationFailure(`adventure-enemy-board-${id}`),
                 );
+                const candidates: AdventureEnemyCandidate[] = [...split.candidates];
                 const missingRoles = GENERATED_ADVENTURE_ENEMIES.filter(
-                  (role) => !split.candidates.some((candidate) => candidate.role === role),
+                  (role) => !candidates.some((candidate) => candidate.role === role),
                 );
+                const repairStarted = Date.now();
+                let replacementFailures: { id: string; reason: string }[] = [];
                 if (missingRoles.length) {
+                  emit(
+                    'building-assets',
+                    `Repainting ${missingRoles.join(', ')} as ${ADVENTURE_ENEMY_REPLACEMENTS_PER_ROLE} isolated candidates each…`,
+                  );
+                  const replaced = await replaceMissingBoardRoles({
+                    kind: 'adventure-enemy',
+                    label: 'Adventure enemy',
+                    missing: missingRoles,
+                    failures: split.failures,
+                    perRole: ADVENTURE_ENEMY_REPLACEMENTS_PER_ROLE,
+                    promptVersion: ADVENTURE_ENEMY_REPLACEMENT_PROMPT_VERSION,
+                    reference: keyArt,
+                    privateRole: (role, variant) =>
+                      ADVENTURE_ENEMY_REPLACEMENT_ASSET_ROLES[role][variant]!,
+                    prompt: (role, variant, correction) =>
+                      buildAdventureEnemyReplacementPrompt({
+                        gameTitle: spec.meta.title,
+                        tagline: spec.meta.tagline,
+                        concepts,
+                        colors,
+                        role,
+                        variant,
+                        correction,
+                      }),
+                    process: async (raw, role, id): Promise<AdventureEnemyCandidate> => {
+                      const processed = await processAdventureEnemyCandidate(raw, role);
+                      return { id, role, png: processed.png, metrics: processed.metrics };
+                    },
+                  });
+                  candidates.push(...replaced.candidates);
+                  replacementFailures = replaced.failures;
+                }
+                const unresolved = GENERATED_ADVENTURE_ENEMIES.filter(
+                  (role) => !candidates.some((candidate) => candidate.role === role),
+                );
+                if (split.failures.length || missingRoles.length) {
+                  recordEarlyRepairEvent(
+                    'entities',
+                    missingRoles.length
+                      ? 'adventure-enemy-role-replacement'
+                      : 'adventure-enemy-cell-rejects',
+                    boardRejectionDiagnostics('adventure-enemy', split.failures),
+                    boardRejectionDiagnostics('adventure-enemy', replacementFailures),
+                    repairStarted,
+                    unresolved.length ? 'failed' : missingRoles.length ? 'fixed' : 'noted',
+                  );
+                }
+                if (unresolved.length) {
                   await assetWorkspace.discardPrivate('adventureEnemyBoard');
                   throw new PipelineError(
                     'image-invalid',
-                    `Adventure enemy board had no usable candidate for ${missingRoles.join(', ')}`,
+                    `Adventure enemy cast has no valid ${unresolved.join(', ')} after ${ADVENTURE_ENEMY_REPLACEMENTS_PER_ROLE} isolated replacements`,
                     'building-assets',
                   );
                 }
 
-                const descriptors = split.candidates.map(({ id, role }) => ({ id, role }));
+                const descriptors = candidates.map(({ id, role }) => ({ id, role }));
                 const reviewBoard = await buildAdventureEnemyJudgeBoard({
                   keyArt,
-                  candidates: split.candidates,
+                  candidates,
                 });
                 const mockDecision = {
                   candidateReviews: descriptors.map(({ id, role }) => ({
@@ -5352,7 +5511,7 @@ export class GenerationRunner {
                     )?.candidateId;
                     const id =
                       requested ?? bestAdventureEnemyCandidateId(role, decision) ?? undefined;
-                    const candidate = split.candidates.find(
+                    const candidate = candidates.find(
                       (entry) => entry.role === role && entry.id === id,
                     );
                     if (!candidate) {
@@ -5480,26 +5639,76 @@ export class GenerationRunner {
                 split.failures.forEach(({ id }) =>
                   validationFailure(`adventure-object-board-${id}`),
                 );
-                const missingRoles = GENERATED_ADVENTURE_OBJECTS.filter(
-                  (role) =>
-                    role !== 'npc' && !split.candidates.some((candidate) => candidate.role === role),
-                );
-                if (missingRoles.length) {
+                const candidates: AdventureObjectCandidate[] = [...split.candidates];
+                const isMissing = (role: GeneratedAdventureObject) =>
+                  role !== 'npc' && !candidates.some((candidate) => candidate.role === role);
+                const replaceable = REPLACEABLE_ADVENTURE_OBJECTS.filter(isMissing);
+                const repairStarted = Date.now();
+                let replacementFailures: { id: string; reason: string }[] = [];
+                if (replaceable.length) {
+                  emit(
+                    'building-assets',
+                    `Repainting ${replaceable.join(', ')} as ${ADVENTURE_OBJECT_REPLACEMENTS_PER_ROLE} isolated candidates each…`,
+                  );
+                  const replaced = await replaceMissingBoardRoles({
+                    kind: 'adventure-object',
+                    label: 'Adventure object',
+                    missing: replaceable,
+                    failures: split.failures.filter(
+                      (failure): failure is typeof failure & { role: ReplaceableAdventureObject } =>
+                        (REPLACEABLE_ADVENTURE_OBJECTS as readonly string[]).includes(failure.role),
+                    ),
+                    perRole: ADVENTURE_OBJECT_REPLACEMENTS_PER_ROLE,
+                    promptVersion: ADVENTURE_OBJECT_REPLACEMENT_PROMPT_VERSION,
+                    reference: keyArt,
+                    privateRole: (role, variant) =>
+                      ADVENTURE_OBJECT_REPLACEMENT_ASSET_ROLES[role][variant]!,
+                    prompt: (role, variant, correction) =>
+                      buildAdventureObjectReplacementPrompt({
+                        ...promptOptions,
+                        role,
+                        variant,
+                        correction,
+                      }),
+                    process: async (raw, role, id): Promise<AdventureObjectCandidate> => {
+                      const processed = await processAdventureObject(raw, role);
+                      return { id, role, png: processed.png, metrics: processed.metrics };
+                    },
+                  });
+                  candidates.push(...replaced.candidates);
+                  replacementFailures = replaced.failures;
+                }
+                // Pressure-plate states stay a matched pair from one board, so a
+                // missing state still fails rather than pairing mismatched art.
+                const unresolved = GENERATED_ADVENTURE_OBJECTS.filter(isMissing);
+                if (split.failures.length || replaceable.length) {
+                  recordEarlyRepairEvent(
+                    'entities',
+                    replaceable.length
+                      ? 'adventure-object-role-replacement'
+                      : 'adventure-object-cell-rejects',
+                    boardRejectionDiagnostics('adventure-object', split.failures),
+                    boardRejectionDiagnostics('adventure-object', replacementFailures),
+                    repairStarted,
+                    unresolved.length ? 'failed' : replaceable.length ? 'fixed' : 'noted',
+                  );
+                }
+                if (unresolved.length) {
                   await assetWorkspace.discardPrivate('adventureObjectBoard');
                   throw new PipelineError(
                     'image-invalid',
-                    `Adventure gameplay-object board had no usable candidate for ${missingRoles.join(', ')}`,
+                    `Adventure gameplay objects have no valid ${unresolved.join(', ')}`,
                     'building-assets',
                   );
                 }
 
                 const hero = await adventureIdentityTask;
                 if (!hero) throw new Error('NPC review requires the selected Adventure hero');
-                const descriptors = split.candidates.map(({ id, role }) => ({ id, role }));
+                const descriptors = candidates.map(({ id, role }) => ({ id, role }));
                 const reviewBoard = await buildAdventureObjectJudgeBoard({
                   keyArt,
                   hero,
-                  candidates: split.candidates,
+                  candidates,
                 });
                 const mockDecision = {
                   candidateReviews: descriptors.map(({ id, role }) => ({
@@ -5545,7 +5754,7 @@ export class GenerationRunner {
                 }
                 const decision = normalizeAdventureObjectJudgeDecision(rawDecision, descriptors);
                 const npc = await ensureAdventureNpc({
-                  candidates: split.candidates,
+                  candidates,
                   decision,
                   keyArt,
                   hero,
@@ -5585,7 +5794,7 @@ export class GenerationRunner {
                     )?.candidateId;
                     const id =
                       requested ?? bestAdventureObjectCandidateId(role, decision) ?? undefined;
-                    const candidate = split.candidates.find(
+                    const candidate = candidates.find(
                       (entry) => entry.role === role && entry.id === id,
                     );
                     if (!candidate) {

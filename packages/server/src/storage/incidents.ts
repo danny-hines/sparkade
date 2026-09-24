@@ -118,6 +118,8 @@ const SUBSTANTIVE_REPAIR_ACTIONS = new Set([
   'fallback',
   'hshooter-backdrop-art-fallback',
   'adventure-boss-art-fallback',
+  'adventure-enemy-role-replacement',
+  'adventure-object-role-replacement',
   'model-repair',
   'platformer-boss-art-fallback',
   'platformer-backdrop-art-fallback',

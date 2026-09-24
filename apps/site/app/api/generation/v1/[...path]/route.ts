@@ -5,7 +5,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { verifyGenerationToken, type GenerationPrincipal } from '@sparkade/generation/service-auth';
-import { ARCHETYPE_IDS, type ArchetypeId, type CloudGameBundle } from '@sparkade/shared';
+import {
+  ARCHETYPE_IDS,
+  GENERATION,
+  selectGenerationHistory,
+  type ArchetypeId,
+  type CloudGameBundle,
+} from '@sparkade/shared';
 import { GenerationRunner } from '@sparkade/server/pipeline/runner';
 import { JobState } from '@sparkade/server/pipeline/job-state';
 import { collectFiles, type PassCheckpoint } from '@sparkade/server/pipeline/durable-pass';
@@ -270,13 +276,17 @@ async function createJob(request: NextRequest, principal: GenerationPrincipal): 
     rmSync(dir, { recursive: true, force: true });
   }
   const id = db.state.job!.id;
-  const previous = await sql`SELECT state,bundle FROM generation_jobs WHERE scope=${scope()}
-    AND owner=${principal.owner} AND status='done' AND bundle IS NOT NULL ORDER BY seq DESC LIMIT 10`;
-  const history: NonNullable<PassCheckpoint['history']> = [];
-  for (const item of previous) {
-    const saved = await readPrivate<{ bundle: CloudGameBundle }>(String(item.bundle));
-    history.push({ game: item.state.game, spec: saved.bundle.spec });
-  }
+  const recent =
+    await sql`SELECT state->'game' AS game,bundle FROM generation_jobs WHERE scope=${scope()}
+    AND owner=${principal.owner} AND status='done' AND bundle IS NOT NULL ORDER BY seq DESC LIMIT ${GENERATION.historyScanGames}`;
+  // Broad recent games plus deeper same-archetype history; only these bundles are read.
+  const previous = selectGenerationHistory(recent, (item) => String(item.game?.archetype));
+  const history: NonNullable<PassCheckpoint['history']> = await Promise.all(
+    previous.map(async (item) => {
+      const saved = await readPrivate<{ bundle: CloudGameBundle }>(String(item.bundle));
+      return { game: item.game, spec: saved.bundle.spec };
+    }),
+  );
   const checkpoint = await writePrivate(`${prefix(id)}checkpoints/initial.json`, {
     state: db.state,
     files,

@@ -180,8 +180,7 @@ export function goldenExcerpt(archetype: ArchetypeId, stage: SpecStage | 'design
         return JSON.stringify(
           {
             levels: g.levels,
-            NOTE:
-              'the real cup is exactly these 3 circuits: one of each template, same 4 rival names in the same slots every race',
+            NOTE: 'the real cup is exactly these 3 circuits: one of each template, same 4 rival names in the same slots every race',
           },
           null,
           1,
@@ -204,6 +203,11 @@ export function goldenExcerpt(archetype: ArchetypeId, stage: SpecStage | 'design
         {
           sprites: { custom: Object.fromEntries(custom), assign: g.sprites.assign },
           boss: g.boss,
+          ...(archetype === 'shooter' || archetype === 'hshooter' || archetype === 'adventure'
+            ? {
+                NOTE: 'boss.phases shows the format only; take the pattern order from the BOSS PHASE PLAN in the request',
+              }
+            : {}),
           ...(g.sfx ? { sfx: Object.fromEntries(Object.entries(g.sfx).slice(0, 2)) } : {}),
         },
         null,

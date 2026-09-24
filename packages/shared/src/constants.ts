@@ -359,6 +359,10 @@ export const GENERATION = {
   maxRecordingSeconds: 45,
   /** Anti-collision block includes the last N local games. */
   antiCollisionGames: 10,
+  /** Recency preferences also look back this many games of each archetype. */
+  archetypeHistoryGames: 5,
+  /** How far back to scan for that same-archetype history. */
+  historyScanGames: 40,
   /** How many generation jobs run at once. Generation is network-bound (waiting
    *  on the model), so a few in parallel overlap those waits; kept small to stay
    *  gentle on the cabinet + the API. Override with SPARKADE_GEN_CONCURRENCY. */

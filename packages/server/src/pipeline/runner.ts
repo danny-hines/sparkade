@@ -35,7 +35,10 @@ import { join } from 'node:path';
 import { nanoid } from 'nanoid';
 import { archetypes } from '@sparkade/archetypes';
 import {
+  bossRecipePlan,
+  isBossRecipeArchetype,
   mechanicalFingerprint,
+  selectGenerationHistory,
   platformerMechanics,
   platformerStyleDiagnostics,
   platformerPlayStyle,
@@ -1895,28 +1898,41 @@ export class GenerationRunner {
       const describeInStory = config.likeness.describeInStory;
 
       // ---- Design pass ---------------------------------------------------
-      const recentGames = (this.historyForJob?.(jobId) ?? this.db.listGames())
-        .filter((g) => g.status === 'ready' && g.id !== gameId)
-        .slice(0, GENERATION.antiCollisionGames);
-      const existingGames = recentGames.map((g) => ({ title: g.title, tagline: g.tagline }));
+      // The broad window drives premise, cast and palette variety; mechanical
+      // preferences also see deeper same-archetype history (a prefix-preserving
+      // superset), so a busy cabinet still remembers its last few shooters.
+      const historyGames = selectGenerationHistory(
+        (this.historyForJob?.(jobId) ?? this.db.listGames())
+          .filter((g) => g.status === 'ready' && g.id !== gameId)
+          .slice(0, GENERATION.historyScanGames),
+        (g) => g.archetype,
+      );
+      const recentGames = historyGames.slice(0, GENERATION.antiCollisionGames);
+      const existingGames: { title: string; tagline: string; boss?: string }[] = recentGames.map(
+        (g) => ({ title: g.title, tagline: g.tagline }),
+      );
 
       // Body-level anti-collision for the entities stage: premise variety comes
       // from titles/taglines above; cast + palette variety needs the actual picks.
-      const recentUse = {
-        heroes: [] as string[],
-        bosses: [] as string[],
-        backdrops: [] as string[],
+      const recentUse: RecentUse = {
+        heroes: [],
+        bosses: [],
+        backdrops: [],
+        weather: [],
       };
       const recentMoods: string[] = [];
       const recentMechanics: MechanicalFingerprint[] = [];
-      for (const g of recentGames) {
+      for (const [i, g] of historyGames.entries()) {
         const s = this.files.readSpec(g.id);
         if (!s) continue;
         recentMechanics.push(mechanicalFingerprint(s));
+        if (i >= recentGames.length) continue;
+        if (s.boss?.name) existingGames[i]!.boss = s.boss.name;
         const assign = (s.sprites?.assign ?? {}) as Record<string, string>;
         if (assign['hero']?.startsWith('lib:')) recentUse.heroes.push(assign['hero']);
         if (assign['boss']?.startsWith('lib:')) recentUse.bosses.push(assign['boss']);
         if (s.backdrop) recentUse.backdrops.push(s.backdrop);
+        if (s.weather && s.weather !== 'none') recentUse.weather!.push(s.weather);
         if (Array.isArray(s.palette) && s.palette.length === 16)
           recentMoods.push(nearestMood(s.palette).name);
       }
@@ -2085,6 +2101,8 @@ export class GenerationRunner {
       }
 
       const archetype = design.archetype;
+      if (isBossRecipeArchetype(archetype))
+        recentUse.bossPlan = bossRecipePlan(archetype, recentMechanics, job.seed);
       this.db.upsertGame({
         id: gameId,
         title: design.title,

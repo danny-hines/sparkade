@@ -85,6 +85,28 @@ export const DEFAULT_KEYBOARD_MAP: Record<string, LogicalButton> = {
   ShiftRight: 'SELECT',
 };
 
+/** A button name as prompts print it: a logical button, or the whole d-pad. */
+export type PromptButton = LogicalButton | 'D-PAD';
+
+/** On-screen names for prompt buttons; missing entries show the logical name. */
+export type ButtonLabels = Partial<Record<PromptButton, string>>;
+
+const KEY_CODE_LABELS: Record<string, string> = { Enter: 'ENTER', ShiftRight: 'SHIFT' };
+
+/**
+ * Keyboard key names for the face/shoulder/system buttons, derived from
+ * DEFAULT_KEYBOARD_MAP so prompts can't drift from the real bindings. Single
+ * arrows keep "UP"/"LEFT", which already read correctly on a keyboard.
+ */
+export const KEYBOARD_BUTTON_LABELS: ButtonLabels = {
+  ...Object.fromEntries(
+    Object.entries(DEFAULT_KEYBOARD_MAP)
+      .filter(([code]) => !code.startsWith('Arrow'))
+      .map(([code, button]) => [button, KEY_CODE_LABELS[code] ?? code.replace(/^Key/, '')]),
+  ),
+  'D-PAD': 'ARROWS',
+};
+
 /**
  * Default gamepad map (button index → logical button) assuming the W3C "standard"
  * layout. Zero Delay encoders rarely report a standard mapping — the first-boot
@@ -319,7 +341,14 @@ export const JINGLE_DUCK = 0.3;
 // Archetypes
 // ---------------------------------------------------------------------------
 
-export const ARCHETYPE_IDS = ['platformer', 'shooter', 'adventure', 'hshooter', 'fighter', 'racing'] as const;
+export const ARCHETYPE_IDS = [
+  'platformer',
+  'shooter',
+  'adventure',
+  'hshooter',
+  'fighter',
+  'racing',
+] as const;
 export type ArchetypeId = (typeof ARCHETYPE_IDS)[number];
 
 /** Minimum estimated interactive play time (seconds) — the five-minute rule. */

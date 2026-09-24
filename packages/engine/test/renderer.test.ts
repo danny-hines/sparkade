@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  Camera,
-  drawTileLayer,
-  type Renderer,
-  worldTransform,
-  worldZoomRect,
-} from '../src/renderer';
+import { KEYBOARD_BUTTON_LABELS, type ButtonLabels } from '@sparkade/shared';
+import { Camera, drawTileLayer, Renderer, worldTransform, worldZoomRect } from '../src/renderer';
 
 describe('worldZoomRect', () => {
   it('uses the requested integer crop inside the rendered world', () => {
@@ -72,5 +67,28 @@ describe('drawTileLayer', () => {
     drawTileLayer(renderer, { x: 0, y: 0 }, 1, 1, 16, () => source);
 
     expect(calls).toEqual([[source, 0, 0, 16, 16]]);
+  });
+});
+
+describe('button labels', () => {
+  // Skip the constructor (it needs a canvas); these methods only read buttonLabels.
+  const labelled = (buttonLabels: ButtonLabels) =>
+    Object.assign(Object.create(Renderer.prototype) as Renderer, { buttonLabels });
+
+  it('keeps gamepad names when no labels are set', () => {
+    const r = labelled({});
+    expect(r.relabel('(A) SELECT  (B) RESUME')).toBe('(A) SELECT  (B) RESUME');
+    expect(r.button('START')).toBe('START');
+  });
+
+  it('rewrites prompt tokens to keyboard keys without touching other parentheses', () => {
+    const r = labelled(KEYBOARD_BUTTON_LABELS);
+    expect(r.relabel('(A) Select  (B) Resume')).toBe('(X) Select  (Z) Resume');
+    expect(r.relabel('(X) RESET PUZZLE (HALF METER) (START)')).toBe(
+      '(A) RESET PUZZLE (HALF METER) (ENTER)',
+    );
+    expect(r.relabel('(D-PAD) MOVE')).toBe('(ARROWS) MOVE');
+    expect(r.button('SELECT')).toBe('SHIFT');
+    expect(r.button('UP')).toBe('UP');
   });
 });

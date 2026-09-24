@@ -22,6 +22,7 @@ import {
   racingCraftStripKind,
   resolveTraversal,
   type LogicalButton,
+  type PromptButton,
   type RacingCraftPose,
   type RacingCraftShape,
   type RacingDiscipline,
@@ -503,10 +504,12 @@ export function offroadLabel(discipline: string | undefined): string {
 }
 
 /** Title-screen control line per discipline (carve, not airbrake, on water). */
-export function helpControlsLine(discipline: string | undefined): string {
-  return discipline === 'jetski'
-    ? 'D-PAD STEER - B THROTTLE - Y BRAKE - A BOOST (HALF METER) - L/R CARVE'
-    : 'D-PAD STEER - B ACCEL - Y BRAKE - A BOOST (HALF METER) - L/R DRIFT';
+export function helpControlsLine(
+  discipline: string | undefined,
+  button: (button: PromptButton) => string = (b) => b,
+): string {
+  const [throttle, slide] = discipline === 'jetski' ? ['THROTTLE', 'CARVE'] : ['ACCEL', 'DRIFT'];
+  return `${button('D-PAD')} STEER - ${button('B')} ${throttle} - ${button('Y')} BRAKE - ${button('A')} BOOST (HALF METER) - ${button('L')}/${button('R')} ${slide}`;
 }
 
 /**
@@ -816,6 +819,7 @@ export function gameIdentity(spec?: RacingSpec): string {
 
 export function createRacingGame(engine: EngineContext, spec?: RacingSpec): GameInstance {
   const ctx = engine.renderer.ctx;
+  const button = (b: PromptButton): string => engine.renderer.button(b);
   // Sound is an optional engine capability: the DEV harness only provides a
   // renderer, while GameHost supplies a full SfxSynth. Every call below is
   // guarded, so the cup runs silent-but-correct without one. Canonical
@@ -3046,9 +3050,9 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
           .join(' / ')}`,
         ...(isFinale ? [bossLine] : []),
         circuit.traversal === undefined
-          ? helpControlsLine(circuit.discipline)
-          : helpControlsLineFor(travPresentation, circuit.traversal.handling),
-        'PRESS A OR B TO RACE',
+          ? helpControlsLine(circuit.discipline, button)
+          : helpControlsLineFor(travPresentation, circuit.traversal.handling, button),
+        `PRESS ${button('A')} OR ${button('B')} TO RACE`,
       ];
       for (const [li, line] of lines.entries()) {
         ctx.fillText(line, W / 2 - line.length * 3, 145 + li * 14);
@@ -3104,7 +3108,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       ctx.fillText(line, W / 2 - line.length * 3, 112 + ri * 14);
     }
     ctx.fillStyle = '#ffffff';
-    const sub = lastRace ? 'PRESS A FOR CUP RESULT' : 'PRESS A FOR NEXT RACE';
+    const sub = `PRESS ${button('A')} FOR ${lastRace ? 'CUP RESULT' : 'NEXT RACE'}`;
     ctx.fillText(sub, W / 2 - sub.length * 3, 112 + rows.length * 14 + 8);
     ctx.textBaseline = 'top';
   }
@@ -3128,7 +3132,7 @@ export function createRacingGame(engine: EngineContext, spec?: RacingSpec): Game
       ctx.fillText(line, W / 2 - line.length * 3, 114 + ri * 14);
     }
     ctx.fillStyle = '#ffffff';
-    const sub = confirmed ? '' : 'PRESS A TO CONFIRM';
+    const sub = confirmed ? '' : `PRESS ${button('A')} TO CONFIRM`;
     if (sub) ctx.fillText(sub, W / 2 - sub.length * 3, 114 + order.length * 14 + 8);
     ctx.textBaseline = 'top';
   }

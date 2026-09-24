@@ -8,6 +8,7 @@
 // presentation (motor flames, 2.4 KM/H scale, ACCEL/DRIFT wording), so
 // legacy cups render byte-identically to before.
 import type {
+  PromptButton,
   RacingDiscipline,
   RacingHandling,
   RacingRider,
@@ -220,13 +221,14 @@ export function slideWordFor(
 export function helpControlsLineFor(
   presentation: RacePresentation,
   handling?: RacingHandling | null,
+  button: (button: PromptButton) => string = (b) => b,
 ): string {
-  if (presentation === LEGACY_PRESENTATION && (handling === undefined || handling === null)) {
-    return 'D-PAD STEER - B ACCEL - Y BRAKE - A BOOST (HALF METER) - L/R DRIFT';
-  }
-  const throttle = presentation.propulsion === 'motor' ? 'ACCEL' : accelWordFor(presentation);
-  const slide = slideWordFor(presentation, handling);
-  return `D-PAD STEER - B ${throttle} - Y BRAKE - A BOOST (HALF METER) - L/R ${slide}`;
+  const legacy =
+    presentation === LEGACY_PRESENTATION && (handling === undefined || handling === null);
+  const throttle =
+    legacy || presentation.propulsion === 'motor' ? 'ACCEL' : accelWordFor(presentation);
+  const slide = legacy ? 'DRIFT' : slideWordFor(presentation, handling);
+  return `${button('D-PAD')} STEER - ${button('B')} ${throttle} - ${button('Y')} BRAKE - ${button('A')} BOOST (HALF METER) - ${button('L')}/${button('R')} ${slide}`;
 }
 
 /**

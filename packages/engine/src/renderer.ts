@@ -6,6 +6,8 @@ import {
   DISPLAY_SCALE,
   INTERNAL_HEIGHT,
   INTERNAL_WIDTH,
+  type ButtonLabels,
+  type PromptButton,
   type PresentationFamily,
 } from '@sparkade/shared';
 import { drawText, textWidth, wrapText, type TextOpts } from './font';
@@ -94,6 +96,8 @@ export class Camera {
   }
 }
 
+const BUTTON_TOKEN = /\((A|B|X|Y|L|R|START|SELECT|D-PAD)\)/g;
+
 export class Renderer {
   readonly canvas: HTMLCanvasElement;
   readonly ctx: CanvasRenderingContext2D;
@@ -107,6 +111,9 @@ export class Renderer {
   presentationFamily?: PresentationFamily;
   /** Per-game VFX intensity (screen-shake) multiplier; 1 = default feel. */
   juice = 1;
+  /** Player-facing button names (e.g. keyboard keys on the web). Empty = gamepad
+   *  names. `text()` rewrites "(A)"-style prompt tokens through this map. */
+  buttonLabels: ButtonLabels = {};
 
   constructor(visibleCanvas: HTMLCanvasElement) {
     this.visible = visibleCanvas;
@@ -236,8 +243,19 @@ export class Renderer {
     this.rect(x + w - thickness, y, thickness, h, color);
   }
 
+  /** The name the player should see for a logical button. */
+  button(button: PromptButton): string {
+    return this.buttonLabels[button] ?? button;
+  }
+
   text(text: string, x: number, y: number, color?: string, opts?: TextOpts): void {
-    drawText(this.ctx, text, Math.round(x), Math.round(y), color, opts);
+    drawText(this.ctx, this.relabel(text), Math.round(x), Math.round(y), color, opts);
+  }
+
+  /** Rewrites "(A)"-style prompt tokens to the current button names. */
+  relabel(text: string): string {
+    if (!text.includes('(')) return text;
+    return text.replace(BUTTON_TOKEN, (_, b: PromptButton) => `(${this.button(b)})`);
   }
 
   textWidth = textWidth;

@@ -32,6 +32,7 @@ function recorder(family: PresentationFamily) {
     ctx: { save() {}, restore() {}, globalAlpha: 1 },
     textWidth,
     wrapText,
+    button: (button: string) => button,
     clear() {},
     dim() {},
     frame() {},

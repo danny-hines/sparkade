@@ -93,7 +93,7 @@ export function familyControls(
     r.text(`(${c.button})`, 48, y, r.theme.heading);
     r.text(shortLabel(c.label, 43), 118, y, r.theme.text);
   });
-  r.text('START PAUSE / HOLD TO EXIT', 42, 242, r.theme.dim);
+  r.text(`${r.button('START')} PAUSE / HOLD TO EXIT`, 42, 242, r.theme.dim);
   r.text(footer, 42, 254, r.theme.heading);
 }
 

@@ -55,7 +55,7 @@ function mockCtx(played: string[], cards?: MockCards): EngineContext {
     },
   );
   return {
-    renderer: { ctx },
+    renderer: { ctx, button: (b: string) => b },
     music: { playSong: (name: string) => played.push(name), stopSong: () => undefined },
     ...(cards
       ? {

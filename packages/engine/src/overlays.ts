@@ -152,7 +152,7 @@ export class PauseOverlay {
         r.text(c.label, x + 100, cy, r.theme.text);
         cy += 14;
       }
-      r.text('START Pause', x + 20, cy, r.theme.dim);
+      r.text(`${r.button('START')} Pause`, x + 20, cy, r.theme.dim);
       r.text('(B) Back', x + w - 80, y + h - 16, r.theme.dim);
       return;
     }
@@ -224,7 +224,7 @@ export class HowToPlayCard {
       r.text(c.label, x + 80, y, r.theme.text);
       y += 16;
     }
-    r.text('START Pause', x + 80, y + 4, r.theme.dim);
+    r.text(`${r.button('START')} Pause`, x + 80, y + 4, r.theme.dim);
     if (Math.floor(this.t * 2) % 2 === 0)
       r.text(
         this.waitForConfirm ? '(A) Begin' : '(A) Skip',

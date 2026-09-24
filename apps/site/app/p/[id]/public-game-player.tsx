@@ -3,13 +3,20 @@ import { usePlayTracking } from './use-play-tracking';
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { GameHost, InputBroker } from '@sparkade/engine';
-import { GENERATED_GAME_ASSET_FILES, type GameSpec } from '@sparkade/shared';
+import {
+  GENERATED_GAME_ASSET_FILES,
+  KEYBOARD_BUTTON_LABELS,
+  type ButtonLabels,
+  type GameSpec,
+  type LogicalButton,
+} from '@sparkade/shared';
 import type {
   RuntimeGameAssetAvailability,
   RuntimeGameAssetFilename,
 } from '@sparkade/web/likeness-assets';
 import { dpadKeysAtPoint, type DpadKey } from './dpad-direction';
 import { fetchHighScores, submitHighScore } from '@/lib/score-client';
+import { useInputMode, type InputMode } from './use-input-mode';
 
 type PlayerState = 'idle' | 'playing' | 'exited' | 'error';
 
@@ -18,15 +25,25 @@ const TOUCH_CONTROLS = {
   down: { code: 'ArrowDown', label: '▼', action: 'Move down' },
   left: { code: 'ArrowLeft', label: '◀', action: 'Move left' },
   right: { code: 'ArrowRight', label: '▶', action: 'Move right' },
-  a: { code: 'KeyX', label: 'A', action: 'A button' },
-  b: { code: 'KeyZ', label: 'B', action: 'B button' },
-  x: { code: 'KeyA', label: 'X', action: 'X button' },
-  y: { code: 'KeyS', label: 'Y', action: 'Y button' },
-  l: { code: 'KeyQ', label: 'L', action: 'Left shoulder button' },
-  r: { code: 'KeyW', label: 'R', action: 'Right shoulder button' },
-  start: { code: 'Enter', label: 'Start', action: 'Start button' },
-  select: { code: 'ShiftRight', label: 'Select', action: 'Select button' },
-} as const;
+  a: { code: 'KeyX', label: 'A', button: 'A', action: 'A button' },
+  b: { code: 'KeyZ', label: 'B', button: 'B', action: 'B button' },
+  x: { code: 'KeyA', label: 'X', button: 'X', action: 'X button' },
+  y: { code: 'KeyS', label: 'Y', button: 'Y', action: 'Y button' },
+  l: { code: 'KeyQ', label: 'L', button: 'L', action: 'Left shoulder button' },
+  r: { code: 'KeyW', label: 'R', button: 'R', action: 'Right shoulder button' },
+  start: { code: 'Enter', label: 'Start', button: 'START', action: 'Start button' },
+  select: { code: 'ShiftRight', label: 'Select', button: 'SELECT', action: 'Select button' },
+} as const satisfies Record<
+  string,
+  { code: string; label: string; button?: LogicalButton; action: string }
+>;
+
+/** Keyboard players see the key each button is bound to; touch and gamepad keep A/B/X/Y. */
+function buttonLabelsFor(mode: InputMode): ButtonLabels {
+  return mode === 'keyboard' ? KEYBOARD_BUTTON_LABELS : {};
+}
+
+type ButtonControl = 'a' | 'b' | 'x' | 'y' | 'l' | 'r' | 'start' | 'select';
 
 function dispatchKey(type: 'keydown' | 'keyup', code: string): void {
   window.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
@@ -34,11 +51,14 @@ function dispatchKey(type: 'keydown' | 'keyup', code: string): void {
 
 function TouchButton({
   control,
+  mode,
   className = '',
 }: {
-  control: (typeof TOUCH_CONTROLS)[keyof typeof TOUCH_CONTROLS];
+  control: (typeof TOUCH_CONTROLS)[ButtonControl];
+  mode: InputMode;
   className?: string;
 }) {
+  const label = buttonLabelsFor(mode)[control.button] ?? control.label;
   const release = (event: ReactPointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     dispatchKey('keyup', control.code);
@@ -48,7 +68,7 @@ function TouchButton({
     <button
       type="button"
       className={`public-control ${className}`}
-      aria-label={control.action}
+      aria-label={mode === 'keyboard' ? `${control.action} (${label} key)` : control.action}
       onContextMenu={(event) => event.preventDefault()}
       onPointerDown={(event) => {
         event.preventDefault();
@@ -58,7 +78,7 @@ function TouchButton({
       onPointerUp={release}
       onPointerCancel={release}
     >
-      {control.label}
+      {label}
     </button>
   );
 }
@@ -196,6 +216,14 @@ export function PublicGamePlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showInstallHint, setShowInstallHint] = useState(false);
   const [scoreError, setScoreError] = useState('');
+  const inputMode = useInputMode();
+  const hostRef = useRef<GameHost | null>(null);
+  const buttonLabelsRef = useRef<ButtonLabels>({});
+  buttonLabelsRef.current = buttonLabelsFor(inputMode);
+
+  useEffect(() => {
+    hostRef.current?.setButtonLabels(buttonLabelsFor(inputMode));
+  }, [inputMode]);
 
   useEffect(() => {
     scoresRef.current = [];
@@ -260,6 +288,7 @@ export function PublicGamePlayer({
           input,
           likeness,
           volumes: { musicVol: 0.7, sfxVol: 0.8, uiVol: 0.4 },
+          buttonLabels: buttonLabelsRef.current,
           callbacks: {
             onQuit: () => setState('exited'),
             onVolumesChanged: () => {},
@@ -287,6 +316,7 @@ export function PublicGamePlayer({
             },
           },
         });
+        hostRef.current = host;
         host.start();
         setLoading(false);
       } catch (cause) {
@@ -299,6 +329,7 @@ export function PublicGamePlayer({
 
     return () => {
       disposed = true;
+      hostRef.current = null;
       host?.dispose();
       input?.detach(window);
     };
@@ -327,14 +358,62 @@ export function PublicGamePlayer({
     enterFullscreen();
   };
 
+  const control = (key: ButtonControl, className: string) => (
+    <TouchButton control={TOUCH_CONTROLS[key]} mode={inputMode} className={className} />
+  );
+  const faceButtons = (
+    <div className="public-actions">
+      {control('x', 'public-control-x')}
+      {control('y', 'public-control-y')}
+      {control('a', 'public-control-a')}
+      {control('b', 'public-control-b')}
+    </div>
+  );
+  // Touch mirrors a handheld: d-pad on the left thumb, face buttons on the right.
+  const touchDirectionRail = (
+    <div className="public-control-rail" aria-label="Directional controls">
+      {control('l', 'public-control-shoulder')}
+      <TouchDpad />
+      {control('select', 'public-control-system')}
+    </div>
+  );
+  const touchActionRail = (
+    <div className="public-control-rail" aria-label="Action controls">
+      {control('r', 'public-control-shoulder')}
+      {faceButtons}
+      {control('start', 'public-control-system')}
+    </div>
+  );
+  // Keyboard mirrors the hands on the keys: letters on the left, arrows/Enter/Shift on the right.
+  const keyboardActionRail = (
+    <div className="public-control-rail" aria-label="Action keys">
+      <div className="public-key-row">
+        {control('l', 'public-control-shoulder')}
+        {control('r', 'public-control-shoulder')}
+      </div>
+      {faceButtons}
+    </div>
+  );
+  const keyboardDirectionRail = (
+    <div className="public-control-rail" aria-label="Arrow keys">
+      <TouchDpad />
+      <div className="public-key-row">
+        {control('select', 'public-control-system')}
+        {control('start', 'public-control-system')}
+      </div>
+    </div>
+  );
+  const keyboard = inputMode === 'keyboard';
+
   return (
-    <section ref={playerRef} className="public-player" aria-label={`Play ${spec.meta.title}`}>
+    <section
+      ref={playerRef}
+      className="public-player"
+      data-input={inputMode}
+      aria-label={`Play ${spec.meta.title}`}
+    >
       <div className="public-player-stage">
-        <div className="public-control-rail" aria-label="Directional controls">
-          <TouchButton control={TOUCH_CONTROLS.l} className="public-control-shoulder" />
-          <TouchDpad />
-          <TouchButton control={TOUCH_CONTROLS.select} className="public-control-system" />
-        </div>
+        {keyboard ? keyboardActionRail : touchDirectionRail}
 
         <div className="public-game-frame">
           <canvas ref={canvasRef} width={1024} height={600} />
@@ -383,20 +462,20 @@ export function PublicGamePlayer({
           ) : null}
         </div>
 
-        <div className="public-control-rail" aria-label="Action controls">
-          <TouchButton control={TOUCH_CONTROLS.r} className="public-control-shoulder" />
-          <div className="public-actions">
-            <TouchButton control={TOUCH_CONTROLS.x} className="public-control-x" />
-            <TouchButton control={TOUCH_CONTROLS.y} className="public-control-y" />
-            <TouchButton control={TOUCH_CONTROLS.a} className="public-control-a" />
-            <TouchButton control={TOUCH_CONTROLS.b} className="public-control-b" />
-          </div>
-          <TouchButton control={TOUCH_CONTROLS.start} className="public-control-system" />
-        </div>
+        {keyboard ? keyboardDirectionRail : touchActionRail}
       </div>
 
       <p className="public-player-help">
-        Arrow keys to move <span>·</span> X = A <span>·</span> Z = B <span>·</span> Enter = Start
+        {inputMode === 'keyboard' ? (
+          <>
+            Arrow keys to move <span>·</span> Enter to pause <span>·</span> Hold Enter to exit
+          </>
+        ) : (
+          <>
+            Arrow keys to move <span>·</span> X = A <span>·</span> Z = B <span>·</span> Enter =
+            Start
+          </>
+        )}
       </p>
       {scoreError && (
         <p role="status" className="public-player-help">

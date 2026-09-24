@@ -76,7 +76,7 @@ function recordingCtx(log: Op[]): unknown {
 
 function mockEngine(log: Op[]): EngineContext {
   return {
-    renderer: { ctx: recordingCtx(log) },
+    renderer: { ctx: recordingCtx(log), button: (b: string) => b },
     music: { playSong: () => undefined, stopSong: () => undefined },
     cards: {
       show: () => undefined,

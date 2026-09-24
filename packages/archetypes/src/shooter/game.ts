@@ -943,17 +943,18 @@ class ShooterGame implements GameInstance {
 
   private updateWeaponHud(): void {
     const opening = this.opening && this.boss?.active;
+    const x = this.engine.renderer.button('X');
     switch (shooterPlayStyle(this.spec)) {
       case 'weaponSwitch':
         this.hud.mechanic = {
           label: this.weaponMode === 'focus' ? 'FOCUS' : 'SPREAD',
-          value: opening ? 'CORE OPEN' : 'X SWITCH',
+          value: opening ? 'CORE OPEN' : `${x} SWITCH`,
         };
         break;
       case 'chargeSpecialist':
         this.hud.mechanic = {
           label: 'CHARGE',
-          value: this.chargeReady ? 'RELEASE!' : opening ? 'CORE EXPOSED' : 'HOLD X',
+          value: this.chargeReady ? 'RELEASE!' : opening ? 'CORE EXPOSED' : `HOLD ${x}`,
           progress: Math.min(1, this.chargeT / CHARGE_TIME),
         };
         break;
@@ -971,7 +972,7 @@ class ShooterGame implements GameInstance {
                   : 'ACQUIRING'
                 : opening
                   ? 'PODS EXPOSED'
-                  : 'HOLD X',
+                  : `HOLD ${x}`,
           progress: this.locks.keys.length / 4 + this.locks.progress / SHOOTER_LOCK_TIME_S / 4,
         };
         break;

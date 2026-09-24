@@ -9,6 +9,7 @@ import {
   INTERNAL_WIDTH,
   gamePresentationFamily,
   presentationSfx,
+  type ButtonLabels,
   type ControlLabel,
   type GameSpec,
 } from '@sparkade/shared';
@@ -171,12 +172,15 @@ export class GameHost {
       attract?: boolean;
       /** Library demos may reveal their music alongside a visual crossfade. */
       attractMusicFadeInMs?: number;
+      /** Button names shown in prompts; omitted = gamepad names (A/B/X/Y). */
+      buttonLabels?: ButtonLabels;
     },
   ) {
     this.renderer = new Renderer(opts.canvas);
     const family = gamePresentationFamily(opts.spec);
     this.renderer.presentationFamily = family;
     this.renderer.theme = makeUiTheme(opts.spec.palette, family);
+    this.renderer.buttonLabels = opts.buttonLabels ?? {};
     this.audio = new AudioSys();
     const fadeAttractMusic = !!opts.attract && (opts.attractMusicFadeInMs ?? 0) > 0;
     this.audio.setVolumes({
@@ -284,6 +288,11 @@ export class GameHost {
     this.lightTint = LIGHTING_TINTS[opts.spec.lighting ?? 'none'] ?? null;
     this.instance = opts.archetype.create(this.engineCtx, opts.spec);
     this.loop = new GameLoop({ update: (dt) => this.update(dt), render: () => this.render() });
+  }
+
+  /** Swap prompt button names mid-game, e.g. when a web player switches input. */
+  setButtonLabels(labels: ButtonLabels): void {
+    this.renderer.buttonLabels = labels;
   }
 
   start(): void {

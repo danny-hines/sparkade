@@ -516,7 +516,7 @@ export function GenerationScreen(props: {
   return (
     <div class="screen generation-feed-screen">
       <div class="screen-title generation-feed-header">
-        <h2 class="pixel">SPARK IS BUILDING</h2>
+        <h2 class="pixel">MUSE IS BUILDING</h2>
         <span class="status-chips">
           <span class={`chip gen-state ${stage}`}>
             <Icon name={terminal ? (stage === 'done' ? 'check' : 'warning') : 'dot'} />{' '}

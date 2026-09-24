@@ -185,7 +185,7 @@ test('keyboard-only: create via guided details → honest progress → ready →
   await tap(page, 'KeyX');
 
   // Honest stage checklist + cost ticker
-  await expect(page.locator('.screen-title', { hasText: 'SPARK IS BUILDING' })).toBeVisible({
+  await expect(page.locator('.screen-title', { hasText: 'MUSE IS BUILDING' })).toBeVisible({
     timeout: 15_000,
   });
   await expect(page.locator('.gen-state')).toBeVisible();
@@ -256,7 +256,7 @@ test('generation progress survives a page reload (durable jobs)', async ({ page 
   await expect(page.locator('.game-details-stage')).toContainText('Vertical Shooter');
   await tap(page, 'ArrowDown', 2); // Create Game
   await tap(page, 'KeyX'); // generate
-  await expect(page.locator('.screen-title', { hasText: 'SPARK IS BUILDING' })).toBeVisible();
+  await expect(page.locator('.screen-title', { hasText: 'MUSE IS BUILDING' })).toBeVisible();
 
   // reload mid-generation: the shell restores real job state from the server
   await page.reload();

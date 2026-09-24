@@ -703,7 +703,7 @@ function GenerationCover(props: {
       <div class="home-generation-scan" />
       <div class="home-generation-status pixel">
         <Icon name="sparkle" />{' '}
-        {props.status === 'queued' ? 'WAITING TO BUILD' : 'SPARK IS BUILDING'}
+        {props.status === 'queued' ? 'WAITING TO BUILD' : 'MUSE IS BUILDING'}
       </div>
     </div>
   );

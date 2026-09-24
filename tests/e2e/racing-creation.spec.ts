@@ -170,7 +170,7 @@ test('racing creation survives a failed first Create without double-creating', a
   expect(gamesAfter).toHaveLength(gamesBefore.length);
 
   // Real pipeline to GAME READY.
-  await expect(page.locator('.screen-title', { hasText: 'SPARK IS BUILDING' })).toBeVisible({
+  await expect(page.locator('.screen-title', { hasText: 'MUSE IS BUILDING' })).toBeVisible({
     timeout: 15_000,
   });
   await expect(page.getByText('GAME READY!')).toBeVisible({ timeout: 180_000 });

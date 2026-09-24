@@ -30,6 +30,9 @@ export const GENERATED_ADVENTURE_ENEMY_ATLAS_WIDTH =
 export const ADVENTURE_ENEMY_BOARD_PROMPT_VERSION = 'adventure-enemy-board-v2';
 export const ADVENTURE_ENEMY_JUDGE_PROMPT_VERSION = 'adventure-enemy-judge-v2';
 export const ADVENTURE_ENEMY_PIPELINE_PROMPT_VERSION = 'adventure-enemy-pipeline-v2';
+export const ADVENTURE_ENEMY_REPLACEMENT_PROMPT_VERSION = 'adventure-enemy-replacement-v1';
+/** Independent single-subject replacements per role missing from the board. */
+export const ADVENTURE_ENEMY_REPLACEMENTS_PER_ROLE = 2;
 
 const ROLE_DIRECTION: Record<GeneratedAdventureEnemy, string> = {
   walker:
@@ -149,7 +152,35 @@ export function buildAdventureEnemyBoardPrompt(options: AdventureEnemyPromptOpti
   ].join(' ');
 }
 
-async function processAdventureEnemyCandidate(
+/**
+ * One isolated enemy on a full canvas, used when every board cell for a role
+ * failed validation. The whole canvas removes the cell-size pressure that most
+ * often clips large silhouettes such as the bruiser.
+ */
+export function buildAdventureEnemyReplacementPrompt(
+  options: AdventureEnemyPromptOptions & {
+    role: GeneratedAdventureEnemy;
+    variant: number;
+    correction: string;
+  },
+): string {
+  return [
+    'ADVENTURE ENEMY ROLE REPLACEMENT: create exactly ONE complete isolated top-down Adventure enemy gameplay sprite.',
+    `${ROLE_DIRECTION[options.role]}. Story-specific concept: ${clean(options.concepts[options.role]) || 'a premise-specific hostile inhabitant'}.`,
+    `It joins the existing enemy cast of ${clean(options.gameTitle, 100)} — ${clean(options.tagline, 180)}. Use the attached key art only as world-style, material, palette-logic, and pixel-technique direction. Never copy its player hero, boss, scenery, text, or props.`,
+    `CORRECTION FROM LOCAL VALIDATION: ${clean(options.correction, 420)}.`,
+    `Silhouette variant ${options.variant + 1}: keep the same authored concept while offering its own readable silhouette.`,
+    options.role === 'shooter'
+      ? 'Face RIGHT in unmistakable side profile with the firing feature on the rightmost leading edge.'
+      : 'Use the classic overhead-adventure top-down three-quarter camera, facing toward the bottom edge.',
+    'One neutral locomotion-ready pose, complete and uncropped, centered with generous green clearance on every side.',
+    `Limited color direction: ${clean(options.colors)}. Polished high-density modern retro pixel art authored for a ${GENERATED_ADVENTURE_ENEMY_SIZE}x${GENERATED_ADVENTURE_ENEMY_SIZE} gameplay cell: crisp square pixel clusters, hard edges, limited flat colors, strong darkest contour, no antialiasing, blur, gradients, photorealism, or 3D rendering.`,
+    'No second creature, hero, boss, NPC, text, logo, UI, floor, scenery, baked shadow, glow, particles, projectile, or detached prop.',
+    'The entire background must be perfectly flat solid #00ff00, including every gap inside and around the silhouette. Do not use #00ff00 in the enemy.',
+  ].join(' ');
+}
+
+export async function processAdventureEnemyCandidate(
   image: Buffer,
   role: GeneratedAdventureEnemy,
 ): Promise<ProcessedFighterPose> {

@@ -28,6 +28,7 @@ import { kioskMetaCredentialId, withKioskMetaCredential } from '@/lib/kiosk-meta
 import { ProviderAuthError } from '@sparkade/server/providers/base';
 import { assertMetaBudgetAvailable, MetaBudgetError, MetaCapacityError, SHARED_META_KEY } from '@/lib/kiosk-meta-spend';
 import { readCheckpointFile } from '@/lib/generation/checkpoints';
+import { readGenerationAssetPreview } from '@/lib/generation/asset-preview';
 import { reservePublicGame } from '@/lib/public-games';
 import {
   scope,
@@ -174,7 +175,17 @@ async function handle(request: NextRequest, context: Context): Promise<Response>
       return NextResponse.json((await readPrivate<{ bundle: CloudGameBundle }>(row.bundle)).bundle);
     }
     if (path[2] === 'assets' && path[3] && method === 'GET') {
-      if (row.status !== 'done' || !row.bundle) return error('Asset not ready', 404);
+      if (row.status !== 'done' || !row.bundle) {
+        const headers = {
+          'cache-control': 'private, no-store',
+          'x-content-type-options': 'nosniff',
+        };
+        const bytes = await readGenerationAssetPreview(row, path[3]);
+        if (!bytes) return NextResponse.json({ error: 'Asset not ready' }, { status: 404, headers });
+        return new Response(new Uint8Array(bytes), {
+          headers: { ...headers, 'content-type': 'image/png' },
+        });
+      }
       const result = await readPrivate<{ bundle: CloudGameBundle; assets: Record<string, string> }>(
         row.bundle,
       );

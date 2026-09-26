@@ -36,6 +36,7 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.webkit.JavaScriptReplyProxy;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import java.io.ByteArrayInputStream;
@@ -43,6 +44,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import org.json.JSONObject;
@@ -70,6 +73,7 @@ public final class MainActivity extends Activity {
     private String runtimeError;
     private final ThreadPoolExecutor operations = new ThreadPoolExecutor(2, 2, 30,
             TimeUnit.SECONDS, new ArrayBlockingQueue<>(24));
+    private final ExecutorService bridge = Executors.newSingleThreadExecutor();
     private final Runnable updateCheck = new Runnable() {
         @Override public void run() {
             if (BuildConfig.STANDALONE) PortalUpdater.get(MainActivity.this).check(false);
@@ -131,34 +135,10 @@ public final class MainActivity extends Activity {
                         || view.getUrl() == null || !sameOrigin(Uri.parse(view.getUrl()), Uri.parse(DEFAULT_URL))) return;
                 String text = message.getData();
                 if (text == null || text.length() > 18 * 1024 * 1024) return;
-                try {
-                    JSONObject request = new JSONObject(text);
-                    String id = request.getString("id");
-                    if (!id.matches("[A-Za-z0-9-]{1,100}")) return;
-                    if (BuildConfig.STANDALONE && "maintenance.state".equals(request.optString("operation"))) {
-                        JSONObject args = request.optJSONObject("args");
-                        PortalUpdater.get(this).screen(args == null ? "unknown" : args.optString("screen", "unknown"));
-                        reply.postMessage(new JSONObject().put("id", id).put("value", true).toString());
-                        return;
-                    }
-                    Runnable operation = () -> {
-                        JSONObject response = new JSONObject();
-                        try {
-                            response.put("id", id);
-                            if (runtime == null) throw new IllegalStateException(runtimeError);
-                            response.put("value", runtime.execute(request.getString("operation"),
-                                    request.optJSONObject("args") == null ? new JSONObject() : request.getJSONObject("args")));
-                        } catch (Exception error) {
-                            try { response.put("error", error.getMessage() == null ? "Portal operation failed" : error.getMessage()); }
-                            catch (Exception ignored) {}
-                        }
-                        retryHandler.post(() -> { if (web == view) reply.postMessage(response.toString()); });
-                    };
-                    try { operations.execute(operation); }
-                    catch (java.util.concurrent.RejectedExecutionException error) {
-                        reply.postMessage(new JSONObject().put("id", id).put("error", "Portal is busy. Please retry.").toString());
-                    }
-                } catch (Exception ignored) { /* Invalid bridge messages receive no privileges. */ }
+                // State saves carry every stored game. Parse and serialize off the UI
+                // thread, which also draws the WebView; one thread keeps message order.
+                try { bridge.execute(() -> dispatch(view, reply, text)); }
+                catch (java.util.concurrent.RejectedExecutionException ignored) { /* Activity closing. */ }
             });
         } else runtimeError = "Update the Portal WebView before using standalone Sparkade.";
         web.setWebViewClient(new WebViewClient() {
@@ -492,7 +472,44 @@ public final class MainActivity extends Activity {
         scheduleRetry();
     }
 
+    private void dispatch(WebView view, JavaScriptReplyProxy reply, String text) {
+        try {
+            JSONObject request = new JSONObject(text);
+            String id = request.getString("id");
+            if (!id.matches("[A-Za-z0-9-]{1,100}")) return;
+            if (BuildConfig.STANDALONE && "maintenance.state".equals(request.optString("operation"))) {
+                JSONObject args = request.optJSONObject("args");
+                PortalUpdater.get(this).screen(args == null ? "unknown" : args.optString("screen", "unknown"));
+                respond(view, reply, new JSONObject().put("id", id).put("value", true).toString());
+                return;
+            }
+            Runnable operation = () -> {
+                JSONObject response = new JSONObject();
+                try {
+                    response.put("id", id);
+                    if (runtime == null) throw new IllegalStateException(runtimeError);
+                    response.put("value", runtime.execute(request.getString("operation"),
+                            request.optJSONObject("args") == null ? new JSONObject() : request.getJSONObject("args")));
+                } catch (Exception error) {
+                    try { response.put("error", error.getMessage() == null ? "Portal operation failed" : error.getMessage()); }
+                    catch (Exception ignored) {}
+                }
+                respond(view, reply, response.toString());
+            };
+            try { operations.execute(operation); }
+            catch (java.util.concurrent.RejectedExecutionException error) {
+                respond(view, reply, new JSONObject().put("id", id).put("error", "Portal is busy. Please retry.").toString());
+            }
+        } catch (Exception ignored) { /* Invalid bridge messages receive no privileges. */ }
+    }
+
+    /** Replies must be posted on the UI thread; the text is already serialized. */
+    private void respond(WebView view, JavaScriptReplyProxy reply, String response) {
+        retryHandler.post(() -> { if (web == view) reply.postMessage(response); });
+    }
+
     @Override protected void onDestroy() {
+        bridge.shutdownNow();
         operations.shutdownNow();
         retryHandler.removeCallbacksAndMessages(null);
         cancelMedia();

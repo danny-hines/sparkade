@@ -28,6 +28,21 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
+
+/** Cloud passes load job state from Postgres JSONB, which stores object keys
+ * shortest-first and then bytewise instead of in insertion order. */
+function jsonbRoundTrip<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value), (_key, item: unknown) =>
+    item && typeof item === 'object' && !Array.isArray(item)
+      ? Object.fromEntries(
+          Object.entries(item).sort(
+            ([a], [b]) => a.length - b.length || Buffer.compare(Buffer.from(a), Buffer.from(b)),
+          ),
+        )
+      : item,
+  ) as T;
+}
+
 describe('durable generation passes', () => {
   it.each(['hshooter', 'platformer', 'shooter', 'adventure', 'fighter', 'racing'] as const)(
     'generates %s across fresh filesystems without repeating completed provider calls',
@@ -106,7 +121,7 @@ describe('durable generation passes', () => {
       let adventureRepairPass = -1;
       for (; passes < 40; passes++) {
         const output = await advancePipeline(
-          JSON.parse(JSON.stringify(checkpoint)),
+          { ...JSON.parse(JSON.stringify(checkpoint)), state: jsonbRoundTrip(checkpoint.state) },
           async (id) => responses[id],
           config,
         );
@@ -291,6 +306,18 @@ describe('durable generation passes', () => {
       }
       expect(passes).toBeGreaterThan(2);
       expect(checkpoint.state.job?.status).toBe('done');
+      // Replayed passes re-emit every earlier milestone; each must appear once,
+      // and a first attempt never announces its own work as restored.
+      const feed = checkpoint.state.events;
+      expect(feed.filter((e) => e.message.startsWith('Muse chose'))).toHaveLength(1);
+      expect(feed.filter((e) => e.kind === 'decision' && e.payload?.['bpm'])).toHaveLength(1);
+      const assetFiles = feed.flatMap((e) => (e.kind === 'asset' ? [e.payload?.['filename']] : []));
+      expect(new Set(assetFiles).size).toBe(assetFiles.length);
+      expect(
+        feed.filter((e) =>
+          /completed design|validated game|composed soundtrack|restored done/.test(e.message),
+        ),
+      ).toEqual([]);
       if (identityReview) {
         expect(heldFighterSheet).toBeTruthy();
         expect(partialRosterReady).toBe(true);

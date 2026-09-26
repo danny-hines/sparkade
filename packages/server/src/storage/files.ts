@@ -113,6 +113,7 @@ export class GameFiles {
     attempt: number,
     stage: RawStageName,
     document: T,
+    restoredFrom?: number,
   ): RawStageCheckpoint<T> {
     const dir = this.rawCheckpointAttemptDir(jobId, attempt);
     const revision = this.rawCheckpointRevisions(dir, stage).at(-1)?.revision ?? -1;
@@ -122,6 +123,7 @@ export class GameFiles {
       stage,
       revision: revision + 1,
       at: nowIso(),
+      ...(restoredFrom !== undefined ? { restoredFrom } : {}),
       document,
     };
     const json = JSON.stringify(checkpoint, null, 2);
@@ -306,6 +308,8 @@ export interface RawStageCheckpoint<T = unknown> {
   /** Zero-based revision within this job attempt and stage. */
   revision: number;
   at: string;
+  /** Earlier attempt a retry copied this revision from. */
+  restoredFrom?: number;
   document: T;
 }
 

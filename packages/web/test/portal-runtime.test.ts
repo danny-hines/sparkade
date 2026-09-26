@@ -218,6 +218,35 @@ it('does not resurrect a game deleted during its download, including after reboo
   expect(await (await restarted.handle('/api/games')).json()).toEqual([]);
   expect(test.getInstalled()).toBeNull();
 });
+it('saves and re-announces a polled job only when its cloud snapshot changes', async () => {
+  const test = await setup();
+  Object.assign(test.snapshot.job, { status: 'running', stage: 'building-assets' });
+  const statuses: string[] = [];
+  test.runtime.subscribe('j-test', (event) => {
+    if (event.type !== 'feed') statuses.push(event.type);
+  });
+  const saves = () => test.calls.filter((c) => c.operation === 'state.save').length;
+  await test.runtime.sync();
+  await test.runtime.sync();
+  await test.runtime.sync();
+  expect(saves()).toBe(1);
+  expect(statuses).toEqual(['progress']);
+  test.snapshot.events = [
+    {
+      id: 1,
+      jobId: 'j-test',
+      gameId: 'g-test',
+      attempt: 1,
+      kind: 'progress',
+      stage: 'building-assets',
+      message: 'Key art',
+      at: '2026-09-20T00:00:01Z',
+    },
+  ];
+  await test.runtime.sync();
+  expect(saves()).toBe(2);
+  expect(statuses).toEqual(['progress', 'progress']);
+});
 it('uses the real cloud transcription operation and returns its text', async () => {
   const test = await setup();
   const form = new FormData();

@@ -106,11 +106,30 @@ function stringArrayPayload(event: GenerationFeedEvent, key: string): string[] {
     : [];
 }
 
+// toLocaleTimeString with options builds a new ICU formatter per call, which
+// is slow enough on a Pi 3 to stall scrolling when a long feed re-renders.
+const timeFormat = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' });
+
 function eventTime(at: string): string {
   const date = new Date(at);
-  return Number.isNaN(date.valueOf())
-    ? ''
-    : date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return Number.isNaN(date.valueOf()) ? '' : timeFormat.format(date);
+}
+
+/** Owns the one-second clock so the feed itself only re-renders on new events. */
+function ElapsedChip(props: {
+  startClock: { current: number };
+  baseElapsed: { current: number };
+  running: boolean;
+}): ComponentChildren {
+  const now = useNow(1000);
+  const elapsed = props.running
+    ? Math.max(props.baseElapsed.current, now - props.startClock.current)
+    : props.baseElapsed.current;
+  return (
+    <span class="chip">
+      <Icon name="timer" /> {fmtElapsed(elapsed)}
+    </span>
+  );
 }
 
 function FeedCard(props: {
@@ -130,6 +149,8 @@ function FeedCard(props: {
   const levelNames = stringArrayPayload(event, 'levelNames');
   const filename = textPayload(event, 'filename');
   const role = textPayload(event, 'role');
+  const width = numberPayload(event, 'width');
+  const height = numberPayload(event, 'height');
   const bpm = numberPayload(event, 'bpm');
   const key = textPayload(event, 'key');
 
@@ -186,6 +207,11 @@ function FeedCard(props: {
             src={api.jobAssetUrl(props.jobId, filename)}
             alt={role ? `${role} preview` : 'Generated asset preview'}
             class={`gen-feed-asset ${isCompactGenerationAssetRole(role) ? 'compact' : ''}`}
+            // Reserve the preview's box so a late image load never shifts the feed.
+            width={width ?? undefined}
+            height={height ?? undefined}
+            loading="lazy"
+            decoding="async"
             onError={(domEvent) => {
               domEvent.currentTarget.hidden = true;
             }}
@@ -291,7 +317,6 @@ export function GenerationScreen(props: {
   const newCountRef = useRef(0);
   const priorCountRef = useRef(0);
   const baseElapsed = useRef(0);
-  const now = useNow(1000);
   eventRef.current = jobEvent;
   newCountRef.current = newCount;
 
@@ -472,10 +497,6 @@ export function GenerationScreen(props: {
     [jumpToBottom, props.gameId, props.go, startRetry],
   );
 
-  const elapsed =
-    jobEvent?.type === 'done' || jobEvent?.type === 'failed'
-      ? baseElapsed.current
-      : Math.max(baseElapsed.current, now - startClock.current);
   const stage: JobStage = jobEvent
     ? jobEvent.type === 'progress'
       ? jobEvent.stage
@@ -522,9 +543,7 @@ export function GenerationScreen(props: {
             <Icon name={terminal ? (stage === 'done' ? 'check' : 'warning') : 'dot'} />{' '}
             {STAGE_LABELS[stage]}
           </span>
-          <span class="chip">
-            <Icon name="timer" /> {fmtElapsed(elapsed)}
-          </span>
+          <ElapsedChip startClock={startClock} baseElapsed={baseElapsed} running={!terminal} />
           <span class="chip cost-ticker">
             {cost === null ? 'cost unavailable' : usd(cost ?? 0)}
           </span>

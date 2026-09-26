@@ -265,9 +265,12 @@ export class PortalRuntime {
         'POST',
         { cursor: this.state.cursor, watching },
       );
-      for (const snapshot of result.jobs) this.accept(snapshot);
+      let changed = result.cursor !== this.state.cursor;
+      for (const snapshot of result.jobs) changed = this.accept(snapshot, true) || changed;
       this.state.cursor = result.cursor;
-      await this.persist();
+      // Each save sends every stored game through the native bridge, so an idle
+      // five-second poll must not repeat it.
+      if (changed) await this.persist();
     })();
     try {
       await this.syncTask;
@@ -275,7 +278,8 @@ export class PortalRuntime {
       this.syncTask = null;
     }
   }
-  private accept(snapshot: CloudGenerationSnapshot): void {
+  /** Returns whether the stored snapshot changed. A poll re-emits status only then. */
+  private accept(snapshot: CloudGenerationSnapshot, poll = false): boolean {
     if (
       !/^j-[A-Za-z0-9_-]+$/.test(snapshot.job.id) ||
       !/^g-[A-Za-z0-9_-]+$/.test(snapshot.game.id) ||
@@ -283,9 +287,12 @@ export class PortalRuntime {
     )
       throw new Error('Invalid cloud job identity');
     const old = this.state.games[snapshot.job.id];
-    if (old?.deleted) return;
+    if (old?.deleted) return false;
     const cursor = Math.max(0, ...(old?.snapshot.events ?? []).map((e) => e.id));
     const added = snapshot.events.filter((e) => e.id > cursor);
+    const summary = (s: CloudGenerationSnapshot) =>
+      JSON.stringify([s.job, s.game, s.publicGame, s.publication]);
+    const changed = !old || added.length > 0 || summary(old.snapshot) !== summary(snapshot);
     const entry: StoredGame = {
       ...old,
       snapshot: { ...snapshot, events: [...(old?.snapshot.events ?? []), ...added].slice(-1000) },
@@ -293,7 +300,7 @@ export class PortalRuntime {
     this.state.games[snapshot.job.id] = entry;
     for (const event of added)
       this.emit(snapshot.job.id, { type: 'feed', jobId: snapshot.job.id, event });
-    this.emitStatus(entry);
+    if (changed || !poll) this.emitStatus(entry);
     if (
       snapshot.job.status === 'done' &&
       !entry.installed &&
@@ -341,6 +348,7 @@ export class PortalRuntime {
           }
         });
     }
+    return changed;
   }
   async settled(): Promise<void> {
     await this.installTail;

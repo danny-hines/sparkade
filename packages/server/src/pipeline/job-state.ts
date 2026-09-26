@@ -13,6 +13,14 @@ export interface PipelineState {
   events: GenerationFeedEvent[];
 }
 
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, item: unknown) =>
+    item && typeof item === 'object' && !Array.isArray(item)
+      ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : item,
+  );
+}
+
 /** Serializable per-job state. Neon owns its durable copy; no SQLite in cloud steps. */
 export class JobState implements PipelineStore {
   constructor(
@@ -84,13 +92,15 @@ export class JobState implements PipelineStore {
   };
   appendGenerationEvent: Db['appendGenerationEvent'] = (event) => {
     // Replaying completed deterministic work must not duplicate the progress feed.
+    // Stored events come back from Postgres JSONB with reordered payload keys.
+    const payload = canonicalJson(event.payload);
     const prior = this.state.events.find(
       (e) =>
         e.attempt === event.attempt &&
         e.kind === event.kind &&
         e.stage === event.stage &&
         e.message === event.message &&
-        JSON.stringify(e.payload) === JSON.stringify(event.payload),
+        canonicalJson(e.payload) === payload,
     );
     if (prior) return prior;
     const added = { ...event, id: this.state.events.length + 1, at: new Date().toISOString() };

@@ -2010,6 +2010,7 @@ export class GenerationRunner {
         failedOwnersByAttempt.set(event.attempt, owners);
       }
       let priorDesign: unknown;
+      let priorDesignAttempt: number | undefined;
       if (priorAttempt) {
         for (let attempt = priorAttempt; attempt >= 1 && priorDesign === undefined; attempt--) {
           const documentFailed = failedOwnersByAttempt.get(attempt)?.has('document') ?? false;
@@ -2022,6 +2023,7 @@ export class GenerationRunner {
             const abilityOnly = abilityLoadoutIsOnlyDesignError(checkpoint.document);
             return documentFailed ? abilityOnly : diagnostics.length === 0 || abilityOnly;
           })?.document;
+          if (priorDesign !== undefined) priorDesignAttempt = attempt;
           // A terminal document failure still blocks older design revisions;
           // only the narrowly recoverable checkpoint from this attempt may resume.
           if (documentFailed) break;
@@ -2032,7 +2034,9 @@ export class GenerationRunner {
         const resumed = await completeDesignAbilityContract(callLlm, structuredClone(priorDesign));
         if (designOutputDiagnostics(resumed).length === 0) {
           design = resumed as DesignDoc;
-          emit('designing', 'Resuming the completed design…');
+          // Later durable passes replay this attempt's own design; only a retry resumes one.
+          if (priorDesignAttempt !== job.attempt)
+            emit('designing', 'Resuming the completed design…');
         } else {
           design = await this.designPass(callLlm, {
             promptText: job.promptText,
@@ -2191,6 +2195,7 @@ export class GenerationRunner {
       });
 
       let resumedValidatedSpec: GameSpec | undefined;
+      let resumedValidatedAttempt: number | undefined;
       if (priorAttempt && designMatchesResumedCheckpoint) {
         for (let attempt = priorAttempt; attempt >= 1; attempt--) {
           const checkpoint = this.files.readValidatedSpecCheckpoint<DesignDoc>(jobId, attempt);
@@ -2208,6 +2213,7 @@ export class GenerationRunner {
           const candidate = ensureLikenessHeroBody(structuredClone(checkpoint.spec), !!photo);
           if (this.collectDiagnostics(candidate, archetype).length === 0) {
             resumedValidatedSpec = candidate;
+            resumedValidatedAttempt = attempt;
             break;
           }
         }
@@ -2218,7 +2224,8 @@ export class GenerationRunner {
       if (resumedValidatedSpec) {
         spec = resumedValidatedSpec;
         pushPartial({ sprites: spec.sprites, music: spec.music });
-        emit('validating', 'Restored the validated game…');
+        if (resumedValidatedAttempt !== job.attempt)
+          emit('validating', 'Restored the validated game…');
       } else {
         // ---- Spec passes (parallel) --------------------------------------
         emit('writing-spec', 'Writing levels, entities and music…', {
@@ -2231,6 +2238,9 @@ export class GenerationRunner {
           emit('writing-spec', `${what} done (${unitsDone}/3)`, { unitsDone, unitsTotal: 3 });
         };
         const parts: SpecParts = {};
+        // Later durable passes replay this attempt's own stage output; only work
+        // carried over from an earlier attempt is announced as restored.
+        const restoredStages = new Set<RawStageName>();
         const resumeStage = (stage: Exclude<RawStageName, 'design'>): unknown | undefined => {
           if (!priorAttempt || !designMatchesResumedCheckpoint) return undefined;
           for (let attempt = priorAttempt; attempt >= 1; attempt--) {
@@ -2261,7 +2271,15 @@ export class GenerationRunner {
                 ) {
                   continue;
                 }
-                this.files.writeRawStageCheckpoint(jobId, job.attempt, stage, checkpoint.document);
+                const restoredFrom = attempt < job.attempt ? attempt : checkpoint.restoredFrom;
+                if (restoredFrom !== undefined) restoredStages.add(stage);
+                this.files.writeRawStageCheckpoint(
+                  jobId,
+                  job.attempt,
+                  stage,
+                  checkpoint.document,
+                  restoredFrom,
+                );
                 return candidate;
               } catch {
                 continue;
@@ -2352,7 +2370,7 @@ export class GenerationRunner {
             parts.levels = canonicalLevelsOf(canonical);
             const roster = isRecord(canonical) ? canonical : null;
             if (archetype === 'fighter') parts.player = roster?.['player'];
-            tick(resumedLevels !== undefined ? 'Levels restored' : 'Levels');
+            tick(restoredStages.has('levels') ? 'Levels restored' : 'Levels');
           }),
           (resumedEntities !== undefined
             ? Promise.resolve(resumedEntities)
@@ -2383,7 +2401,7 @@ export class GenerationRunner {
           ).then((r) => {
             parts.entities = r as SpecParts['entities'];
             pushPartial({ sprites: parts.entities?.sprites as PartialSpec['sprites'] });
-            tick(resumedEntities !== undefined ? 'Entities restored' : 'Entities');
+            tick(restoredStages.has('entities') ? 'Entities restored' : 'Entities');
           }),
           (resumedMusic !== undefined
             ? Promise.resolve(resumedMusic)
@@ -2398,14 +2416,14 @@ export class GenerationRunner {
             const music = isRecord(parts.music) ? parts.music : {};
             feed(
               'decision',
-              resumedMusic !== undefined ? 'Restored the composed soundtrack' : 'Theme composed',
+              restoredStages.has('music') ? 'Restored the composed soundtrack' : 'Theme composed',
               'writing-spec',
               {
                 ...(typeof music['key'] === 'string' ? { key: music['key'] } : {}),
                 ...(typeof music['bpm'] === 'number' ? { bpm: music['bpm'] } : {}),
               },
             );
-            tick(resumedMusic !== undefined ? 'Music restored' : 'Music');
+            tick(restoredStages.has('music') ? 'Music restored' : 'Music');
           }),
         ]);
         if (

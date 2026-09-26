@@ -44,6 +44,7 @@ import {
 import { readPrivate, writePrivate } from '@/lib/generation/storage';
 import { generationLimits } from '@/lib/generation/limits';
 import { generateGameWorkflow } from '@/workflows/generate-game';
+import { resetJobForRetry } from '@/lib/generation/retry';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -154,14 +155,7 @@ async function handle(request: NextRequest, context: Context): Promise<Response>
       if (body.attempt === row.attempt && ['failed', 'canceled'].includes(row.status)) {
         if (!row.checkpoint) return error('The retry window has expired. Create a new game.', 409);
         if (row.attempt >= 10) return error('Retry limit reached', 429);
-        row.state.job!.attempt++;
-        row.state.job!.status = 'queued';
-        row.state.job!.stage = 'queued';
-        row.state.job!.error = undefined;
-        row.state.job!.finishedAt = undefined;
-        row.state.job!.startedAt = undefined;
-        row.state.game!.status = 'queued';
-        row.state.game!.failure = null;
+        resetJobForRetry(row.state);
         const updated =
           await getSql()`UPDATE generation_jobs SET status='queued',attempt=attempt+1,run_id=NULL,
           state=${JSON.stringify(row.state)}::jsonb,updated_at=now() WHERE id=${row.id} AND attempt=${row.attempt}

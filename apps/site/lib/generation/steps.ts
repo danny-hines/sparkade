@@ -28,6 +28,7 @@ import { reservePublicGame } from '../public-games';
 import { getJob, scope, prefix, acquireSlot, releaseSlot, syncPublicProgress } from './store';
 import { readPrivate, readOptionalPrivate, writePrivate, cleanPrivate } from './storage';
 import { readCheckpoint, writeCheckpoint } from './checkpoints';
+import { autoRetryEligible, prepareAutoRetry, transientProviderDelayMs } from './retry';
 
 export async function claimGeneration(id: string, attempt: number) {
   'use step';
@@ -131,6 +132,15 @@ export async function advanceGeneration(
     );
   }
   const status = output.state.job!.status;
+  const failure = output.state.job!.error;
+  const retry =
+    status === 'failed' &&
+    autoRetryEligible({ ...row, checkpoint: savedCheckpoint.url }, failure?.code);
+  if (retry)
+    prepareAutoRetry(output.state, {
+      code: failure?.code ?? 'failed',
+      message: failure?.message ?? 'Generation failed',
+    });
   const result = {
     done: status === 'done',
     stopped: status === 'failed' || status === 'canceled',
@@ -147,13 +157,19 @@ export async function advanceGeneration(
     },
   };
   await sql.transaction([
-    sql`UPDATE generation_jobs SET state=${JSON.stringify(output.state)}::jsonb,
+    retry
+      ? // The failed attempt is never committed: kiosks and phones go straight
+        // to the queued retry, which the kiosk's next sync dispatches.
+        sql`UPDATE generation_jobs SET state=${JSON.stringify(output.state)}::jsonb,
+        checkpoint=${savedCheckpoint.url},status='queued',attempt=attempt+1,run_id=NULL,updated_at=now()
+        WHERE id=${id} AND attempt=${attempt} AND status NOT IN ('canceled','failed','done')`
+      : sql`UPDATE generation_jobs SET state=${JSON.stringify(output.state)}::jsonb,
       checkpoint=${savedCheckpoint.url},status=${status === 'done' ? 'publishing' : status}, updated_at=now()
       WHERE id=${id} AND attempt=${attempt} AND status NOT IN ('canceled','failed','done')`,
     sql`INSERT INTO generation_passes(job_id,attempt,pass,result) VALUES(${id},${attempt},${pass},${JSON.stringify(result)}::jsonb)
       ON CONFLICT DO NOTHING`,
   ]);
-  await syncPublicProgress(id, attempt);
+  if (!retry) await syncPublicProgress(id, attempt);
   if (result.stopped && row.owner.startsWith('website:')) await releaseWebsiteCredits(id);
   return result;
 }
@@ -214,7 +230,15 @@ export async function runProviderRequest(id: string, attempt: number, requestId:
           !(error instanceof ProviderAuthError) &&
           (!(error instanceof ProviderHttpError) || error.transient)
         )
-          throw error;
+          // Timeouts, 429s, 5xx and network faults back off (honoring
+          // Retry-After) instead of re-queuing at once, so an event burst or a
+          // brief outage does not spend all four paid attempts in seconds.
+          throw new RetryableError(error instanceof Error ? error.message : String(error), {
+            retryAfter: transientProviderDelayMs(
+              Number(count[0]?.provider_attempts) || 1,
+              error instanceof ProviderHttpError ? error.retryAfterS : null,
+            ),
+          });
         result = {
           kind: 'error',
           message: error.message.slice(0, 500),
@@ -313,6 +337,13 @@ export async function failGeneration(id: string, attempt: number, message: strin
   const row = await getJob(id);
   if (!row || row.attempt !== attempt || ['done', 'canceled', 'review'].includes(row.status))
     return;
+  if (row.status !== 'failed' && autoRetryEligible(row, 'cloud-step')) {
+    prepareAutoRetry(row.state, { code: 'cloud-step', message });
+    await getSql()`UPDATE generation_jobs SET status='queued',attempt=attempt+1,run_id=NULL,
+      state=${JSON.stringify(row.state)}::jsonb,updated_at=now()
+      WHERE id=${id} AND attempt=${attempt} AND checkpoint<>'' AND status NOT IN ('done','canceled','failed')`;
+    return;
+  }
   row.state.job!.status = 'failed';
   row.state.job!.stage = 'failed';
   row.state.job!.error = { code: 'cloud-step', message: message.slice(0, 500), stage: 'failed' };

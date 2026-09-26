@@ -965,6 +965,12 @@ export interface GameMetaFile {
   platformerPlayerArt?: {
     mode: 'generated';
     attempted: true;
+    /**
+     * Required action poses whose four candidates were all rejected. Each ships
+     * Muse's best-scoring rejected frame, or its related base frame when no
+     * candidate could be processed, instead of failing the game.
+     */
+    leastBadActions?: { pose: string; source: 'rejected' | 'reference' }[];
   };
   /** QA/readiness signal for the image-generated platformer finale boss. */
   platformerBossArt?: {

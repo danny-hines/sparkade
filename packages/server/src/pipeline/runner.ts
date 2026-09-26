@@ -8722,6 +8722,9 @@ export class GenerationRunner {
           : Promise.resolve();
 
       let platformerPlayerArtStatus: GameMetaFile['platformerPlayerArt'];
+      const platformerLeastBadActions: NonNullable<
+        NonNullable<GameMetaFile['platformerPlayerArt']>['leastBadActions']
+      > = [];
 
       type PlatformerIdentityFrames = { idle: Buffer; sideIdle: Buffer };
       let resolvePlatformerIdentity!: (frames: PlatformerIdentityFrames) => void;
@@ -9401,6 +9404,10 @@ export class GenerationRunner {
                         ),
                   report: (message) => emit('building-assets', message),
                   rejected: (pose) => validationFailure(`platformer-action-${pose}`),
+                  leastBad: (pose, source) => {
+                    platformerLeastBadActions.push({ pose, source });
+                    emit('building-assets', `Muse kept the closest ${pose} pose`);
+                  },
                 });
               } catch (error) {
                 throwIfSuspended(error);
@@ -9485,7 +9492,16 @@ export class GenerationRunner {
         ...(fighterArtStatus ? { fighterArt: fighterArtStatus } : {}),
         ...(racingArtStatus ? { racingArt: racingArtStatus } : {}),
         ...(fighterArenaArtStatus ? { fighterArenaArt: fighterArenaArtStatus } : {}),
-        ...(platformerPlayerArtStatus ? { platformerPlayerArt: platformerPlayerArtStatus } : {}),
+        ...(platformerPlayerArtStatus
+          ? {
+              platformerPlayerArt: {
+                ...platformerPlayerArtStatus,
+                ...(platformerLeastBadActions.length
+                  ? { leastBadActions: platformerLeastBadActions }
+                  : {}),
+              },
+            }
+          : {}),
         ...(platformerBossArtStatus ? { platformerBossArt: platformerBossArtStatus } : {}),
         ...(platformerEnemyArtStatus ? { platformerEnemyArt: platformerEnemyArtStatus } : {}),
         ...(platformerPropArtStatus ? { platformerPropArt: platformerPropArtStatus } : {}),

@@ -7,6 +7,7 @@ import {
   GENERATED_PLATFORMER_POSE_WIDTH,
   GENERATED_PLATFORMER_POSES,
   alignGeneratedPlatformerPoseCanvases,
+  anchorPlatformerPoseFeet,
   buildPlatformerPosePrompt,
   buildPlatformerRunCorrectionPrompt,
   measureGeneratedPlatformerRunPair,
@@ -457,6 +458,29 @@ describe('generated platformer player preprocessing', () => {
         jump: walk2,
       }),
     ).rejects.toMatchObject({ code: 'inconsistent-scale' });
+  });
+
+  it('re-anchors a frame whose toe row was lost in downscaling instead of failing the set', async () => {
+    // Observed on a live job: both chosen walk2 candidates ended one or two rows
+    // above the canvas floor after nearest-neighbour fitting.
+    const walk1 = await syntheticRunPose('left-forward');
+    const walk2 = await syntheticRunPose('right-forward');
+    const lifted = await sharp(walk2)
+      .extract({ left: 0, top: 2, width: GENERATED_PLATFORMER_POSE_WIDTH, height: GENERATED_PLATFORMER_POSE_HEIGHT - 2 })
+      .extend({ top: 0, bottom: 2, left: 0, right: 0, background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .png()
+      .toBuffer();
+    const set = { idle: walk1, sideIdle: walk1, walk1, walk2: lifted, jump: walk2 };
+    await expect(validateGeneratedPlatformerPoseSet(set)).rejects.toThrow('not foot-anchored');
+    const anchored = await anchorPlatformerPoseFeet(lifted);
+    expect(anchored.drop).toBe(2);
+    await expect(
+      validateGeneratedPlatformerPoseSet(await alignGeneratedPlatformerPoseCanvases(set)),
+    ).resolves.toBeUndefined();
+    // An anchored frame passes through untouched.
+    const untouched = await anchorPlatformerPoseFeet(walk1);
+    expect(untouched.drop).toBe(0);
+    expect(untouched.png).toBe(walk1);
   });
 
   it('rejects the observed arm-and-prop change when the legs keep the same stride', async () => {

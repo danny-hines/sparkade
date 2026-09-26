@@ -39,6 +39,23 @@ interface ReviewCandidate {
   candidate: number;
 }
 
+/** Best-scoring rejected frame per pose, persisted for the least-bad pick. */
+interface RejectedFrame {
+  processed: Buffer;
+  score: number;
+}
+
+export type PlatformerActionLeastBadSource = 'rejected' | 'reference';
+
+/** Muse's own review scores rank rejected frames; fatal issues weigh heavily. */
+export function platformerActionReviewScore(review: {
+  scores: { identity: number; costume: number; pose: number; technical: number };
+  fatalIssues: readonly string[];
+}): number {
+  const { identity, costume, pose, technical } = review.scores;
+  return identity + costume + pose + technical - 2 * review.fatalIssues.length;
+}
+
 /** Repair-only arm diagram: the approved sprite remains identity/stride truth.
  * Give the model visible aiming geometry after a text-only correction failed. */
 export async function buildPlatformerActionReference(
@@ -118,10 +135,15 @@ export interface PlatformerActionGenerationOptions {
   ): Promise<unknown>;
   report(message: string): void;
   rejected?(pose: PlatformerActionPose): void;
+  /** A pose whose budget was spent ships a least-bad frame instead of failing. */
+  leastBad?(pose: PlatformerActionPose, source: PlatformerActionLeastBadSource): void;
 }
 
 /** Each reviewed action is durable independently of the base set and other actions.
- * A late failure retries only unfinished poses. Never substitute idle for a required action. */
+ * A late failure retries only unfinished poses. A pose whose four candidates were all
+ * rejected ships Muse's best-scoring rejected frame rather than failing the game, or,
+ * with no processed frame at all, its related base or wall-slide frame. Never the
+ * front idle. */
 export async function generatePlatformerActions(
   options: PlatformerActionGenerationOptions,
 ): Promise<Partial<Record<PlatformerActionPose, Buffer>>> {
@@ -132,6 +154,9 @@ export async function generatePlatformerActions(
   const repairs = new Map<PlatformerActionPose, ActionRepair>();
   const repairKey = (pose: PlatformerActionPose) =>
     `repair:${hashes.get(pose)}:attempt:${o.attempt}`;
+  const rejectedKey = (pose: PlatformerActionPose) =>
+    `best-rejected:${hashes.get(pose)}:attempt:${o.attempt}`;
+  const leastBadKey = (pose: PlatformerActionPose) => `least-bad:${hashes.get(pose)}`;
   const reject = (pose: PlatformerActionPose, guidance: string) => {
     const repair = repairs.get(pose)!;
     repair.candidates++;
@@ -179,6 +204,8 @@ export async function generatePlatformerActions(
       );
       if (cached) {
         accepted[pose] = cached;
+        const leastBad = o.cache.read<PlatformerActionLeastBadSource>(leastBadKey(pose));
+        if (leastBad) o.leastBad?.(pose, leastBad);
         if (pose === 'wallSlide') resolveWallSlide();
       }
     }
@@ -335,6 +362,10 @@ export async function generatePlatformerActions(
               accepted[candidate.id] = candidate.processed;
               if (candidate.id === 'wallSlide') resolveWallSlide();
             } else {
+              const score = platformerActionReviewScore(review);
+              const best = o.cache.read<RejectedFrame>(rejectedKey(candidate.id));
+              if (!best || score > best.score)
+                o.cache.write(rejectedKey(candidate.id), { processed: candidate.processed, score });
               reject(
                 candidate.id,
                 [review.summary, ...review.fatalIssues, decision.selection.retryGuidance]
@@ -349,6 +380,28 @@ export async function generatePlatformerActions(
         (result): result is PromiseRejectedResult => result.status === 'rejected',
       );
       if (failed) throw failed.reason;
+    }
+    // Spent budget: a flawed frame is better than a failed game. Promote before
+    // the wall group starts so wall attacks still edit a real wall slide.
+    for (const pose of group) {
+      if (accepted[pose]) continue;
+      const rejected = o.cache.read<RejectedFrame>(rejectedKey(pose));
+      const ref = platformerActionReference(pose);
+      const frame =
+        rejected?.processed ??
+        (ref === 'wallSlide' ? accepted.wallSlide : (o.base[ref] ?? o.base.sideIdle));
+      if (!frame) continue;
+      const source: PlatformerActionLeastBadSource = rejected ? 'rejected' : 'reference';
+      o.cache.write(leastBadKey(pose), source);
+      await o.workspace.store(
+        PLATFORMER_ACTION_ASSET_ROLES[pose],
+        frame,
+        PLATFORMER_ACTION_PROMPT_VERSION,
+        hashes.get(pose)!,
+      );
+      accepted[pose] = frame;
+      o.leastBad?.(pose, source);
+      if (pose === 'wallSlide') resolveWallSlide();
     }
   };
   const independent = processGroup(groups[0]!);

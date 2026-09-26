@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import sharp from 'sharp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   PLATFORMER_BASE_POSES,
@@ -16,7 +17,11 @@ import {
 } from '../src/assets/platformer-actions';
 import { GameAssetWorkspace, readGameAssetManifest } from '../src/assets/manifest';
 import { mockGeneratedImage } from '../src/assets/game-art';
-import { prepareGeneratedPlatformerReference } from '../src/assets/platformer-pose';
+import {
+  prepareGeneratedPlatformerReference,
+  processGeneratedPlatformerPose,
+  recoverGeneratedPlatformerGreenPanel,
+} from '../src/assets/platformer-pose';
 import { ArtifactCache } from '../src/pipeline/artifact-cache';
 import { PipelineSuspended } from '../src/pipeline/durable';
 
@@ -36,6 +41,11 @@ const base = Object.fromEntries(
     ),
   ]),
 ) as Record<PlatformerBasePose, Buffer>;
+/** The processed frame a mock candidate prompt produces, as the pipeline stores it. */
+async function processedFor(prompt: string): Promise<Buffer> {
+  const recovered = await recoverGeneratedPlatformerGreenPanel(await mockGeneratedImage(prompt));
+  return (await processGeneratedPlatformerPose(recovered.image, { width: 160 })).png;
+}
 function setup() {
   const dir = mkdtempSync(join(tmpdir(), 'sparkade-actions-'));
   dirs.push(dir);
@@ -173,37 +183,65 @@ describe('mechanic-specific image pipeline', () => {
     expect(buildPlatformerActionPrompt('wallShoot')).toContain('Hands remain empty');
   });
 
-  it('persists accepted actions and retries only a rejected wall-shot, including after failure/restart', async () => {
+  it('ships the best rejected wall-shot once its budget is spent, and keeps it across restarts', async () => {
     const { dir, options, calls, prompts } = setup();
+    const leastBad: string[] = [];
+    options.leastBad = (pose, source) => leastBad.push(`${pose}:${source}`);
+    let wallShootReviews = 0;
     options.judge = async (_prompt, _schema, _board, mock) => {
       const result = structuredClone(mock) as {
-        candidateReviews: { id: string; fatalIssues: string[]; summary: string }[];
+        candidateReviews: {
+          id: string;
+          fatalIssues: string[];
+          summary: string;
+          scores: { identity: number; costume: number; pose: number; technical: number };
+        }[];
       };
       for (const r of result.candidateReviews)
         if (r.id === 'wallShoot') {
+          // The third candidate scores best; all four stay rejected.
+          r.scores.pose = ++wallShootReviews === 3 ? 3 : 1;
           r.fatalIssues = ['Aim must point away from the wall'];
           r.summary = 'Wrong aim';
         }
       return result;
     };
-    await expect(generatePlatformerActions(options)).rejects.toThrow('wallShoot');
+    const result = await generatePlatformerActions(options);
+    expect(Object.keys(result)).toHaveLength(11);
     expect(calls).toHaveLength(14);
     expect(calls.filter((pose) => pose === 'wallShoot')).toHaveLength(4);
     expect(prompts.at(-1)).toContain('Aim must point away from the wall');
-    expect(readGameAssetManifest(dir)?.assets).toHaveLength(10);
+    expect(leastBad).toEqual(['wallShoot:rejected']);
+    expect(readGameAssetManifest(dir)?.assets).toHaveLength(11);
+    const third = prompts.filter((prompt) => prompt.includes('Action frame ID: wallShoot.'))[2]!;
+    expect(result.wallShoot!.equals(await processedFor(third))).toBe(true);
+    // A restart restores the shipped frame and still reports it as least-bad.
     calls.length = 0;
+    leastBad.length = 0;
     options.workspace = new GameAssetWorkspace(dir, 'mock-image');
     options.cache = new ArtifactCache(join(dir, 'private'));
-    await expect(generatePlatformerActions(options)).rejects.toThrow('wallShoot');
+    expect(Object.keys(await generatePlatformerActions(options))).toHaveLength(11);
     expect(calls).toEqual([]);
-    options.attempt++;
-    options.judge = async (_prompt, _schema, _board, mock) => mock;
+    expect(leastBad).toEqual(['wallShoot:rejected']);
+  });
+
+  it('falls back to the related base frame when no candidate could be processed', async () => {
+    const { options, calls } = setup();
+    const generate = options.generate;
+    const blank = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#00ff00' } })
+      .png()
+      .toBuffer();
+    options.generate = async (pose, prompt, reference) => {
+      if (pose !== 'jumpShoot') return generate(pose, prompt, reference);
+      calls.push(pose);
+      return blank;
+    };
+    const leastBad: string[] = [];
+    options.leastBad = (pose, source) => leastBad.push(`${pose}:${source}`);
     const result = await generatePlatformerActions(options);
-    expect(calls).toEqual(['wallShoot']);
-    expect(Object.keys(result)).toHaveLength(11);
-    calls.length = 0;
-    await generatePlatformerActions(options);
-    expect(calls).toEqual([]);
+    expect(calls.filter((pose) => pose === 'jumpShoot')).toHaveLength(4);
+    expect(leastBad).toEqual(['jumpShoot:reference']);
+    expect(result.jumpShoot!.equals(base.jump)).toBe(true);
   });
 
   it('automatically repairs a rejected upward pose within its persisted budget', async () => {
@@ -271,14 +309,20 @@ describe('mechanic-specific image pipeline', () => {
     ).toEqual([...first].sort());
   });
 
-  it('fails closed if a judge omits the required action review', async () => {
-    const { options } = setup();
+  it('rejects candidates a judge omits, then ships the least-bad frame instead of failing', async () => {
+    const { options, calls } = setup();
     options.spec.playStyle = 'towerClimber';
     options.spec.abilityLoadout = [{ kind: 'shield', name: 'Guard', visualConcept: 'A crest' }];
     options.judge = async () => ({
       candidateReviews: [],
       selection: { accepted: true, candidateId: 'wallSlide' },
     });
-    await expect(generatePlatformerActions(options)).rejects.toThrow('wallSlide');
+    const leastBad: string[] = [];
+    options.leastBad = (pose, source) => leastBad.push(`${pose}:${source}`);
+    const result = await generatePlatformerActions(options);
+    // The gate never accepted a frame: every candidate was painted and rejected.
+    expect(calls.filter((pose) => pose === 'wallSlide')).toHaveLength(4);
+    expect(leastBad).toEqual(['wallSlide:rejected']);
+    expect(result.wallSlide).toBeDefined();
   });
 });

@@ -347,8 +347,13 @@ armed climber also adds wall shots; melee adds grounded/airborne windup and stri
 are 160×128 at the same render density as the 112×128 base, providing room for extended arms without
 shrinking the character. Frames edit approved base references; wall-shot frames edit the accepted wall slide to preserve its grip. All undergo independent semantic review
 in batches of six with one guided retry. Each accepted action has its own prompt/reference hash.
-A failed action preserves the base and other accepted actions for retry, but a new game cannot publish
-or load with an incomplete required set. Legacy saves retain the original five-frame fallback.
+An action whose four candidates are all rejected ships Muse's best-scoring rejected frame instead of
+failing the game, or its related base frame (never the front idle) when no candidate could be
+processed; it is promoted before wall shots start, so they still edit a wall slide.
+`meta.platformerPlayerArt.leastBadActions` records each. A provider failure preserves the base and
+other accepted actions for retry, and a new game still cannot publish or load with an incomplete
+required set. Legacy saves retain the original five-frame fallback. Every base and action frame is
+re-anchored to the canvas floor after fitting, so a toe row lost to downscaling cannot fail a set.
 
 An accepted player photo is sent to Muse Image. Spark's design-stage `heroConcept` is the canonical
 game-world wardrobe contract shared by key art, story scenes, portraits, and detailed platformer

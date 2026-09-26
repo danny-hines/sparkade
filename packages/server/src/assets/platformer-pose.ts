@@ -227,6 +227,30 @@ export async function normalizeMaskedPlatformerPose(
   return fitPlatformerPose(processed, options);
 }
 
+/**
+ * Moves the sprite down so its lowest opaque pixel sits on the canvas floor.
+ * Nearest-neighbour downscaling can drop a 1-2px toe row; that left the chosen
+ * walk frame "not foot-anchored" and failed whole jobs over invisible pixels.
+ */
+export async function anchorPlatformerPoseFeet(png: Buffer): Promise<{ png: Buffer; drop: number }> {
+  const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  let bottom = -1;
+  for (let y = info.height - 1; y >= 0 && bottom < 0; y--)
+    for (let x = 0; x < info.width; x++)
+      if (data[(y * info.width + x) * 4 + 3]! > 8) {
+        bottom = y;
+        break;
+      }
+  const drop = bottom < 0 ? 0 : info.height - 1 - bottom;
+  if (!drop) return { png, drop };
+  const anchored = await sharp(png)
+    .extract({ left: 0, top: 0, width: info.width, height: info.height - drop })
+    .extend({ top: drop, bottom: 0, left: 0, right: 0, background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .png({ palette: true, colours: 32, dither: 0, compressionLevel: 9, adaptiveFiltering: false })
+    .toBuffer();
+  return { png: anchored, drop };
+}
+
 async function fitPlatformerPose(
   processed: ProcessedFighterPose,
   options: { width?: number },
@@ -249,7 +273,7 @@ async function fitPlatformerPose(
     top: GENERATED_PLATFORMER_POSE_HEIGHT - PLATFORMER_TARGET_POSE_HEIGHT,
     height: PLATFORMER_TARGET_POSE_HEIGHT,
   };
-  const png = await sharp(processed.png)
+  const fitted = await sharp(processed.png)
     .extract(bounds)
     .resize(targetBounds.width, targetBounds.height, {
       fit: 'fill',
@@ -270,11 +294,12 @@ async function fitPlatformerPose(
       adaptiveFiltering: false,
     })
     .toBuffer();
+  const { png, drop } = await anchorPlatformerPoseFeet(fitted);
   return {
     png,
     metrics: {
       ...processed.metrics,
-      outputBounds: targetBounds,
+      outputBounds: { ...targetBounds, top: targetBounds.top + drop, height: targetBounds.height - drop },
       outputSubjectFraction:
         processed.metrics.outputSubjectFraction *
         (targetBounds.height / bounds.height) ** 2 *
@@ -309,8 +334,10 @@ export async function alignGeneratedPlatformerPoseCanvases(
   const entries = await Promise.all(
     dimensions.map(async (d) => {
       const padding = width - d.width!;
+      // Frames cached before feet anchoring existed are anchored here too.
+      const { png: anchored } = await anchorPlatformerPoseFeet(poses[d.pose]);
       const png = padding
-        ? await sharp(poses[d.pose])
+        ? await sharp(anchored)
             .extend({
               left: Math.floor(padding / 2),
               right: Math.ceil(padding / 2),
@@ -320,7 +347,7 @@ export async function alignGeneratedPlatformerPoseCanvases(
             })
             .png({ palette: true, colours: 32, dither: 0 })
             .toBuffer()
-        : poses[d.pose];
+        : anchored;
       return [d.pose, png] as const;
     }),
   );

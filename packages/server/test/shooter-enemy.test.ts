@@ -10,6 +10,7 @@ import {
   buildShooterEnemyJudgePrompt,
   buildShooterEnemyReplacementPrompt,
   processGeneratedShooterEnemy,
+  processShooterEnemyCandidate,
   splitGeneratedShooterEnemyBoard,
   type GeneratedShooterEnemy,
 } from '../src/assets/shooter-enemy';
@@ -110,6 +111,53 @@ describe('generated vertical-shooter enemy cast', () => {
     await expect(processGeneratedShooterEnemy(image, 'popcorn')).rejects.toThrow(
       'at least 1.05 times total width',
     );
+  });
+
+  it('tells a too-thin scout to widen instead of lengthening it into a needle', async () => {
+    const needle = await sharp({
+      create: { width: 96, height: 96, channels: 3, background: '#00ff00' },
+    })
+      .composite([
+        {
+          input: await sharp({ create: { width: 12, height: 70, channels: 3, background: '#302b46' } })
+            .png()
+            .toBuffer(),
+          left: 42,
+          top: 13,
+        },
+      ])
+      .png()
+      .toBuffer();
+    const { processed, issue } = await processShooterEnemyCandidate(needle, 'popcorn');
+    // The processed sprite survives for a least-bad pick; only the rule reports a miss.
+    expect(processed.png.length).toBeGreaterThan(0);
+    expect(issue).toContain('too thin');
+    expect(issue).toContain('widen');
+    expect(issue).not.toContain('lengthen');
+    await expect(processGeneratedShooterEnemy(needle, 'popcorn')).rejects.toThrow('too thin');
+    expect(
+      buildShooterEnemyReplacementPrompt({ ...OPTIONS, role: 'popcorn', correction: issue! }),
+    ).toContain('never a thin needle');
+  });
+
+  it('keeps shape-only board misses as processed near-miss candidates', async () => {
+    const board = await sharp(await mockGeneratedImage(buildShooterEnemyBoardPrompt(OPTIONS)))
+      .resize(1024, 1024, { fit: 'cover' })
+      .png()
+      .toBuffer();
+    const wide = await sharp({ create: { width: 200, height: 80, channels: 3, background: '#302b46' } })
+      .png()
+      .toBuffer();
+    const cell = await sharp({ create: { width: 256, height: 341, channels: 3, background: '#00ff00' } })
+      .composite([{ input: wide, left: 28, top: 130 }])
+      .png()
+      .toBuffer();
+    const split = await splitGeneratedShooterEnemyBoard(
+      await sharp(board).composite([{ input: cell, left: 0, top: 0 }]).png().toBuffer(),
+    );
+    expect(split.nearMisses.map(({ id }) => id)).toEqual([split.failures[0]!.id]);
+    expect(split.nearMisses[0]).toMatchObject({ role: 'popcorn', issue: expect.stringContaining('1.05') });
+    expect(split.candidates.some(({ id }) => id === split.nearMisses[0]!.id)).toBe(false);
   });
 
   it('accepts a readable laterally expressive weaver silhouette', async () => {

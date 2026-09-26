@@ -62,6 +62,11 @@ export interface ShooterEnemyCandidate {
   metrics: ProcessedFighterPose['metrics'];
 }
 
+/** A processed candidate whose only defect is its role's silhouette rule. */
+export interface ShooterEnemyNearMiss extends ShooterEnemyCandidate {
+  issue: string;
+}
+
 function clean(value: string | undefined, max = 500): string {
   return (value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
@@ -104,7 +109,7 @@ export function buildShooterEnemyReplacementPrompt(
     `Role: ${options.role}. ${ROLE_DIRECTION[options.role]}. Concept: ${clean(options.concepts[options.role]) || 'a premise-specific hostile craft or creature'}.`,
     `Game: ${clean(options.gameTitle, 100)} — ${clean(options.tagline, 180)}. Use attached key art only for world style, hostile-faction materials, palette logic, and pixel technique.`,
     `CORRECTION FROM LOCAL VALIDATION: ${clean(options.correction, 420)}.`,
-    `SILHOUETTE PROPORTIONS: opaque height must be at least ${shooterEnemyMinimumAspect(options.role)} times the TOTAL opaque width, including wings, fins and ornaments. Aim for a noticeably taller-than-wide overall silhouette for light scouts and kamikaze. If the previous subject was too wide, lengthen its nose-to-tail body and fold or sweep wings backward toward the TOP, close to the body. Keep the same faction identity. Do not merely rotate a side-view sprite or add a detached exhaust trail to increase height.`,
+    `SILHOUETTE PROPORTIONS: opaque height must be at least ${shooterEnemyMinimumAspect(options.role)} times the TOTAL opaque width, including wings, fins and ornaments. Aim for a noticeably taller-than-wide overall silhouette for light scouts and kamikaze, with a solid readable body at least ${shooterEnemyMinimumSize(options.role).width}px wide in the 96px cell, never a thin needle. If the previous subject was too wide, lengthen its nose-to-tail body and fold or sweep wings backward toward the TOP, close to the body. If it was too thin, widen the body and wings. Keep the same faction identity. Do not merely rotate a side-view sprite or add a detached exhaust trail to increase height.`,
     'Strict TOP-DOWN overhead camera, attack end pointing DOWN, one neutral combat-ready pose, complete uncropped silhouette centered with generous clearance. Turret is a free-flying or hovering gun platform, never a surface-mounted emplacement.',
     `Color direction: ${clean(options.colors)}. Polished high-density modern retro pixel art for a 96x96 gameplay cell, crisp square pixels, hard edges, limited flat colors, strong darkest contour, and no antialiasing, blur, gradients, photorealism, or 3D rendering.`,
     'No player, pilot, player craft, boss, other enemy, pod, projectile, muzzle flash, exhaust, particles, text, logo, UI, terrain, floor, scenery, shadow, or detached object.',
@@ -112,10 +117,45 @@ export function buildShooterEnemyReplacementPrompt(
   ].join(' ');
 }
 
-export async function processGeneratedShooterEnemy(
+function shooterEnemyMinimumSize(role: GeneratedShooterEnemy): { width: number; height: number } {
+  return {
+    width: role === 'tank' ? 30 : role === 'turret' ? 28 : 20,
+    height: role === 'tank' ? 38 : role === 'turret' ? 30 : 28,
+  };
+}
+
+/**
+ * The role's silhouette rule, phrased for the correction that feeds the one
+ * replacement call: a too-thin subject must widen, never "lengthen" into an
+ * even thinner needle.
+ */
+function shooterEnemyShapeIssue(
+  role: GeneratedShooterEnemy,
+  width: number,
+  height: number,
+): string | null {
+  const minimum = shooterEnemyMinimumSize(role);
+  // Weaver silhouettes intentionally use lateral fins or vanes to communicate
+  // their side-to-side movement, so they may be wider than the other light roles.
+  const minimumAspect = shooterEnemyMinimumAspect(role);
+  if (width < minimum.width)
+    return `${role} candidate is too thin to read (${width}x${height}); widen the body and wings to at least ${minimum.width}px of total opaque width and never draw a thin needle.`;
+  if (height < minimum.height)
+    return `${role} candidate is too short to read (${width}x${height}); make the nose-to-tail body at least ${minimum.height}px tall.`;
+  if (height / Math.max(1, width) < minimumAspect)
+    return `${role} candidate needs a readable top-down silhouette (${width}x${height}); opaque height must be at least ${minimumAspect} times total width, including wings (minimum ${minimum.width}px wide and ${minimum.height}px tall). Narrow or sweep wide wings backward and lengthen the nose-to-tail body.`;
+  return null;
+}
+
+/**
+ * Processes one candidate and reports its silhouette-rule miss instead of
+ * throwing, so a role whose repairs are spent can still ship its closest
+ * processed candidate. Unusable images (empty, several subjects) still throw.
+ */
+export async function processShooterEnemyCandidate(
   image: Buffer,
   role: GeneratedShooterEnemy,
-): Promise<ProcessedFighterPose> {
+): Promise<{ processed: ProcessedFighterPose; issue: string | null }> {
   const processed = await processGeneratedFighterPose(image, {
     width: GENERATED_SHOOTER_ENEMY_SIZE,
     height: GENERATED_SHOOTER_ENEMY_SIZE,
@@ -128,23 +168,22 @@ export async function processGeneratedShooterEnemy(
     maxSubjectFraction: 0.72,
   });
   const { width, height } = processed.metrics.outputBounds;
-  const minWidth = role === 'tank' ? 30 : role === 'turret' ? 28 : 20;
-  const minHeight = role === 'tank' ? 38 : role === 'turret' ? 30 : 28;
-  // Weaver silhouettes intentionally use lateral fins or vanes to communicate
-  // their side-to-side movement, so they may be wider than the other light roles.
-  const minimumAspect = shooterEnemyMinimumAspect(role);
-  if (width < minWidth || height < minHeight || height / Math.max(1, width) < minimumAspect) {
-    throw new FighterPoseImageError(
-      'inconsistent-scale',
-      `${role} candidate needs a readable top-down silhouette (${width}x${height}); opaque height must be at least ${minimumAspect} times total width, including wings (minimum ${minWidth}px wide and ${minHeight}px tall). Narrow or sweep wide wings backward and lengthen the nose-to-tail body.`,
-    );
-  }
+  return { processed, issue: shooterEnemyShapeIssue(role, width, height) };
+}
+
+export async function processGeneratedShooterEnemy(
+  image: Buffer,
+  role: GeneratedShooterEnemy,
+): Promise<ProcessedFighterPose> {
+  const { processed, issue } = await processShooterEnemyCandidate(image, role);
+  if (issue) throw new FighterPoseImageError('inconsistent-scale', issue);
   return processed;
 }
 
 export async function splitGeneratedShooterEnemyBoard(image: Buffer): Promise<{
   candidates: ShooterEnemyCandidate[];
   failures: HShooterEnemyCandidateFailure[];
+  nearMisses: ShooterEnemyNearMiss[];
 }> {
   const normalized = await sharp(image)
     .rotate()
@@ -156,6 +195,7 @@ export async function splitGeneratedShooterEnemyBoard(image: Buffer): Promise<{
     .toBuffer();
   const candidates: ShooterEnemyCandidate[] = [];
   const failures: HShooterEnemyCandidateFailure[] = [];
+  const nearMisses: ShooterEnemyNearMiss[] = [];
   for (let index = 0; index < GENERATED_SHOOTER_ENEMIES.length * 2; index++) {
     const role = GENERATED_SHOOTER_ENEMIES[Math.floor(index / 2)]!;
     const id = shooterEnemyCandidateId(role, index % 2);
@@ -164,13 +204,17 @@ export async function splitGeneratedShooterEnemyBoard(image: Buffer): Promise<{
       .png()
       .toBuffer();
     try {
-      const processed = await processGeneratedShooterEnemy(cell, role);
-      candidates.push({ id, role, png: processed.png, metrics: processed.metrics });
+      const { processed, issue } = await processShooterEnemyCandidate(cell, role);
+      const candidate = { id, role, png: processed.png, metrics: processed.metrics };
+      if (issue) {
+        failures.push({ id, role, reason: issue });
+        nearMisses.push({ ...candidate, issue });
+      } else candidates.push(candidate);
     } catch (error) {
       failures.push({ id, role, reason: error instanceof Error ? error.message : String(error) });
     }
   }
-  return { candidates, failures };
+  return { candidates, failures, nearMisses };
 }
 
 export const buildShooterEnemyJudgeSchema = buildHShooterEnemyJudgeSchema;

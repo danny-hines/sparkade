@@ -12,6 +12,8 @@ import {
   buildHShooterEnemyJudgeSchema,
   buildHShooterEnemyReplacementPrompt,
   normalizeHShooterEnemyJudgeDecision,
+  processGeneratedHShooterEnemy,
+  processHShooterEnemyCandidate,
   splitGeneratedHShooterEnemyBoard,
   type GeneratedHShooterEnemy,
 } from '../src/assets/hshooter-enemy';
@@ -134,5 +136,24 @@ describe('generated H-scroll enemy cast', () => {
         `${role}-2`,
       );
     }
+  });
+  it('reports a tall side-view miss without discarding its processed sprite', async () => {
+    const tall = await sharp({ create: { width: 96, height: 96, channels: 3, background: '#00ff00' } })
+      .composite([
+        {
+          input: await sharp({ create: { width: 30, height: 72, channels: 3, background: '#302b46' } })
+            .png()
+            .toBuffer(),
+          left: 33,
+          top: 12,
+        },
+      ])
+      .png()
+      .toBuffer();
+    const { processed, issue } = await processHShooterEnemyCandidate(tall, 'popcorn');
+    expect(processed.png.length).toBeGreaterThan(0);
+    expect(issue).toContain('broad side-view silhouette');
+    expect(issue).toContain('wider than tall');
+    await expect(processGeneratedHShooterEnemy(tall, 'popcorn')).rejects.toThrow('broad side-view');
   });
 });

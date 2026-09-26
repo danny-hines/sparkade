@@ -477,11 +477,12 @@ import {
   buildHShooterEnemyJudgeSchema,
   buildHShooterEnemyReplacementPrompt,
   normalizeHShooterEnemyJudgeDecision,
-  processGeneratedHShooterEnemy,
+  processHShooterEnemyCandidate,
   splitGeneratedHShooterEnemyBoard,
   validateGeneratedHShooterEnemyAtlas,
   type GeneratedHShooterEnemy,
   type HShooterEnemyCandidate,
+  type HShooterEnemyNearMiss,
 } from '../assets/hshooter-enemy';
 import {
   GENERATED_SHOOTER_ENEMIES,
@@ -498,11 +499,12 @@ import {
   buildShooterEnemyJudgeSchema,
   buildShooterEnemyReplacementPrompt,
   normalizeShooterEnemyJudgeDecision,
-  processGeneratedShooterEnemy,
+  processShooterEnemyCandidate,
   splitGeneratedShooterEnemyBoard,
   validateGeneratedShooterEnemyAtlas,
   type GeneratedShooterEnemy,
   type ShooterEnemyCandidate,
+  type ShooterEnemyNearMiss,
 } from '../assets/shooter-enemy';
 import {
   GameAssetWorkspace,
@@ -6599,11 +6601,14 @@ export class GenerationRunner {
                 }
 
                 const split = await assetArtifacts.getOrCompute(
-                  imagePromptHash(`hshooter-enemy-split-v1:${pipelineSha}`, rawBoard),
+                  imagePromptHash(`hshooter-enemy-split-v2:${pipelineSha}`, rawBoard),
                   () => splitGeneratedHShooterEnemyBoard(rawBoard!),
                 );
                 split.failures.forEach(({ id }) => validationFailure(`hshooter-enemy-board-${id}`));
                 const candidates: HShooterEnemyCandidate[] = [...split.candidates];
+                // Shape-only misses stay available: once a role's one replacement
+                // is spent, the cast judge picks the least bad of them.
+                const nearMisses: HShooterEnemyNearMiss[] = [...split.nearMisses];
                 const missingRoles = GENERATED_HSHOOTER_ENEMIES.filter(
                   (role) => !candidates.some((candidate) => candidate.role === role),
                 );
@@ -6648,23 +6653,19 @@ export class GenerationRunner {
                         replacementSha,
                       );
                     }
+                    let replacement: Awaited<ReturnType<typeof processHShooterEnemyCandidate>>;
                     try {
-                      const processed = await assetArtifacts.getOrCompute(
+                      replacement = await assetArtifacts.getOrCompute(
                         imagePromptHash(
-                          `hshooter-enemy-replacement-v1:${pipelineSha}:${role}`,
+                          `hshooter-enemy-replacement-v2:${pipelineSha}:${role}`,
                           rawReplacement,
                         ),
-                        () => processGeneratedHShooterEnemy(rawReplacement!, role),
+                        () => processHShooterEnemyCandidate(rawReplacement!, role),
                       );
-                      return {
-                        id: `${role}-replacement`,
-                        role,
-                        png: processed.png,
-                        metrics: processed.metrics,
-                      };
                     } catch (error) {
                       throwIfSuspended(error);
                       validationFailure(`hshooter-enemy-replacement-${role}`);
+                      if (nearMisses.some((miss) => miss.role === role)) return null;
                       await assetWorkspace.discardPrivate(privateRole);
                       throw new PipelineError(
                         'image-invalid',
@@ -6672,10 +6673,32 @@ export class GenerationRunner {
                         'building-assets',
                       );
                     }
+                    const candidate = {
+                      id: `${role}-replacement`,
+                      role,
+                      png: replacement.processed.png,
+                      metrics: replacement.processed.metrics,
+                    };
+                    if (!replacement.issue) return candidate;
+                    validationFailure(`hshooter-enemy-replacement-${role}`);
+                    nearMisses.push({ ...candidate, issue: replacement.issue });
+                    return null;
                   }),
                 );
-                candidates.push(...replacements);
+                candidates.push(
+                  ...replacements.filter((candidate): candidate is HShooterEnemyCandidate => candidate !== null),
+                );
 
+                // A role's repairs are spent: rather than fail the game, its
+                // shape-only misses go to the cast judge, which picks the least bad.
+                const leastBadRoles = GENERATED_HSHOOTER_ENEMIES.filter(
+                  (role) =>
+                    !candidates.some((candidate) => candidate.role === role) &&
+                    nearMisses.some((miss) => miss.role === role),
+                );
+                candidates.push(...nearMisses.filter((miss) => leastBadRoles.includes(miss.role)));
+                if (leastBadRoles.length)
+                  emit('building-assets', `Muse is picking the closest ${leastBadRoles.join(', ')} design…`);
                 const unresolved = GENERATED_HSHOOTER_ENEMIES.filter(
                   (role) => !candidates.some((candidate) => candidate.role === role),
                 );
@@ -7065,11 +7088,14 @@ export class GenerationRunner {
                 }
 
                 const split = await assetArtifacts.getOrCompute(
-                  imagePromptHash(`shooter-enemy-split-v1:${pipelineSha}`, rawBoard),
+                  imagePromptHash(`shooter-enemy-split-v2:${pipelineSha}`, rawBoard),
                   () => splitGeneratedShooterEnemyBoard(rawBoard!),
                 );
                 split.failures.forEach(({ id }) => validationFailure(`shooter-enemy-board-${id}`));
                 const candidates: ShooterEnemyCandidate[] = [...split.candidates];
+                // Shape-only misses stay available: once a role's one replacement
+                // is spent, the cast judge picks the least bad of them.
+                const nearMisses: ShooterEnemyNearMiss[] = [...split.nearMisses];
                 const missingRoles = GENERATED_SHOOTER_ENEMIES.filter(
                   (role) => !candidates.some((candidate) => candidate.role === role),
                 );
@@ -7114,23 +7140,19 @@ export class GenerationRunner {
                         replacementSha,
                       );
                     }
+                    let replacement: Awaited<ReturnType<typeof processShooterEnemyCandidate>>;
                     try {
-                      const processed = await assetArtifacts.getOrCompute(
+                      replacement = await assetArtifacts.getOrCompute(
                         imagePromptHash(
-                          `shooter-enemy-replacement-v1:${pipelineSha}:${role}`,
+                          `shooter-enemy-replacement-v2:${pipelineSha}:${role}`,
                           rawReplacement,
                         ),
-                        () => processGeneratedShooterEnemy(rawReplacement!, role),
+                        () => processShooterEnemyCandidate(rawReplacement!, role),
                       );
-                      return {
-                        id: `${role}-replacement`,
-                        role,
-                        png: processed.png,
-                        metrics: processed.metrics,
-                      };
                     } catch (error) {
                       throwIfSuspended(error);
                       validationFailure(`shooter-enemy-replacement-${role}`);
+                      if (nearMisses.some((miss) => miss.role === role)) return null;
                       await assetWorkspace.discardPrivate(privateRole);
                       throw new PipelineError(
                         'image-invalid',
@@ -7138,10 +7160,32 @@ export class GenerationRunner {
                         'building-assets',
                       );
                     }
+                    const candidate = {
+                      id: `${role}-replacement`,
+                      role,
+                      png: replacement.processed.png,
+                      metrics: replacement.processed.metrics,
+                    };
+                    if (!replacement.issue) return candidate;
+                    validationFailure(`shooter-enemy-replacement-${role}`);
+                    nearMisses.push({ ...candidate, issue: replacement.issue });
+                    return null;
                   }),
                 );
-                candidates.push(...replacements);
+                candidates.push(
+                  ...replacements.filter((candidate): candidate is ShooterEnemyCandidate => candidate !== null),
+                );
 
+                // A role's repairs are spent: rather than fail the game, its
+                // shape-only misses go to the cast judge, which picks the least bad.
+                const leastBadRoles = GENERATED_SHOOTER_ENEMIES.filter(
+                  (role) =>
+                    !candidates.some((candidate) => candidate.role === role) &&
+                    nearMisses.some((miss) => miss.role === role),
+                );
+                candidates.push(...nearMisses.filter((miss) => leastBadRoles.includes(miss.role)));
+                if (leastBadRoles.length)
+                  emit('building-assets', `Muse is picking the closest ${leastBadRoles.join(', ')} design…`);
                 const unresolved = GENERATED_SHOOTER_ENEMIES.filter(
                   (role) => !candidates.some((candidate) => candidate.role === role),
                 );

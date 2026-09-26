@@ -65,6 +65,11 @@ export interface HShooterEnemyCandidate {
   metrics: ProcessedFighterPose['metrics'];
 }
 
+/** A processed candidate whose only defect is its role's silhouette rule. */
+export interface HShooterEnemyNearMiss extends HShooterEnemyCandidate {
+  issue: string;
+}
+
 export interface HShooterEnemyCandidateFailure {
   id: string;
   role: GeneratedHShooterEnemy;
@@ -161,10 +166,15 @@ export function buildHShooterEnemyReplacementPrompt(
   ].join(' ');
 }
 
-export async function processGeneratedHShooterEnemy(
+/**
+ * Processes one candidate and reports its silhouette-rule miss instead of
+ * throwing, so a role whose repairs are spent can still ship its closest
+ * processed candidate. Unusable images (empty, several subjects) still throw.
+ */
+export async function processHShooterEnemyCandidate(
   image: Buffer,
   role: GeneratedHShooterEnemy,
-): Promise<ProcessedFighterPose> {
+): Promise<{ processed: ProcessedFighterPose; issue: string | null }> {
   const processed = await processGeneratedFighterPose(image, {
     width: GENERATED_HSHOOTER_ENEMY_SIZE,
     height: GENERATED_HSHOOTER_ENEMY_SIZE,
@@ -179,18 +189,26 @@ export async function processGeneratedHShooterEnemy(
   const { width, height } = processed.metrics.outputBounds;
   const minWidth = role === 'tank' ? 42 : role === 'turret' ? 30 : 28;
   const minHeight = role === 'tank' ? 28 : role === 'turret' ? 24 : 18;
-  if (width < minWidth || height < minHeight || width / Math.max(1, height) < 1.05) {
-    throw new FighterPoseImageError(
-      'inconsistent-scale',
-      `${role} candidate needs a broad side-view silhouette (${width}x${height})`,
-    );
-  }
+  const issue =
+    width < minWidth || height < minHeight || width / Math.max(1, height) < 1.05
+      ? `${role} candidate needs a broad side-view silhouette (${width}x${height}); keep it at least ${minWidth}px long nose-to-tail, ${minHeight}px tall, and wider than tall`
+      : null;
+  return { processed, issue };
+}
+
+export async function processGeneratedHShooterEnemy(
+  image: Buffer,
+  role: GeneratedHShooterEnemy,
+): Promise<ProcessedFighterPose> {
+  const { processed, issue } = await processHShooterEnemyCandidate(image, role);
+  if (issue) throw new FighterPoseImageError('inconsistent-scale', issue);
   return processed;
 }
 
 export async function splitGeneratedHShooterEnemyBoard(image: Buffer): Promise<{
   candidates: HShooterEnemyCandidate[];
   failures: HShooterEnemyCandidateFailure[];
+  nearMisses: HShooterEnemyNearMiss[];
 }> {
   const normalized = await sharp(image)
     .rotate()
@@ -202,19 +220,24 @@ export async function splitGeneratedHShooterEnemyBoard(image: Buffer): Promise<{
     .toBuffer();
   const candidates: HShooterEnemyCandidate[] = [];
   const failures: HShooterEnemyCandidateFailure[] = [];
+  const nearMisses: HShooterEnemyNearMiss[] = [];
   for (let index = 0; index < GENERATED_HSHOOTER_ENEMIES.length * 2; index++) {
     const role = GENERATED_HSHOOTER_ENEMIES[Math.floor(index / 2)]!;
     const id = hshooterEnemyCandidateId(role, index % 2);
     const rect = hshooterEnemyBoardCellRect(index);
     const cell = await sharp(normalized).extract(rect).png().toBuffer();
     try {
-      const processed = await processGeneratedHShooterEnemy(cell, role);
-      candidates.push({ id, role, png: processed.png, metrics: processed.metrics });
+      const { processed, issue } = await processHShooterEnemyCandidate(cell, role);
+      const candidate = { id, role, png: processed.png, metrics: processed.metrics };
+      if (issue) {
+        failures.push({ id, role, reason: issue });
+        nearMisses.push({ ...candidate, issue });
+      } else candidates.push(candidate);
     } catch (error) {
       failures.push({ id, role, reason: error instanceof Error ? error.message : String(error) });
     }
   }
-  return { candidates, failures };
+  return { candidates, failures, nearMisses };
 }
 
 export function buildHShooterEnemyJudgeSchema(

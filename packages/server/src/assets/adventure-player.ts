@@ -1,6 +1,6 @@
 import sharp from 'sharp';
 import type { AdventureCombatKit } from '@sparkade/shared';
-import { prepareGeneratedPlatformerReference } from './platformer-pose';
+import { anchorPlatformerPoseFeet, prepareGeneratedPlatformerReference } from './platformer-pose';
 import {
   FighterPoseImageError,
   processGeneratedFighterPose,
@@ -323,7 +323,9 @@ export async function processGeneratedAdventurePlayerPose(image: Buffer): Promis
       `generated Adventure pose is too wide to preserve player scale (${processed.metrics.outputBounds.width}x${processed.metrics.outputBounds.height})`,
     );
   }
-  return normalizeAdventurePoseHeight(processed);
+  // Resampling can drop the toe row; an unanchored frame silently fell out of
+  // every scale-consistent combination.
+  return (await anchorPlatformerPoseFeet(await normalizeAdventurePoseHeight(processed))).png;
 }
 
 /** A failed green-screen edit can leave one opaque rectangular panel behind
@@ -394,9 +396,73 @@ async function normalizeAdventurePoseHeight(processed: ProcessedFighterPose): Pr
     .toBuffer();
 }
 
-/** Every direction is atomic and must retain a common scale and ground line. */
+/** Opaque subject height; the frozen idle sets the least-bad rescale target. */
+export async function adventurePoseOpaqueHeight(png: Buffer): Promise<number> {
+  const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  let minY = info.height;
+  let maxY = -1;
+  for (let y = 0; y < info.height; y++)
+    for (let x = 0; x < info.width; x++)
+      if (data[(y * info.width + x) * 4 + 3]! > 8) {
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+  return Math.max(0, maxY - minY + 1);
+}
+
+/**
+ * Last resort once scale repairs are spent: uniformly rescale a pose's opaque
+ * subject to the frozen idle's height, feet on the floor and centred, instead
+ * of failing the game over a few pixels. Very wide actions stop at the canvas
+ * width and stay slightly shorter.
+ */
+export async function rescaleAdventurePoseToHeight(png: Buffer, targetHeight: number): Promise<Buffer> {
+  const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  let minX = info.width;
+  let minY = info.height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < info.height; y++)
+    for (let x = 0; x < info.width; x++) {
+      if (data[(y * info.width + x) * 4 + 3]! <= 8) continue;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  if (maxX < minX) return png;
+  const width = maxX - minX + 1;
+  const height = maxY - minY + 1;
+  const scale = Math.min(
+    targetHeight / height,
+    (ADVENTURE_PLAYER_POSE_WIDTH - 12) / width,
+    (ADVENTURE_PLAYER_POSE_HEIGHT - 6) / height,
+  );
+  const scaledWidth = Math.max(1, Math.round(width * scale));
+  const scaledHeight = Math.max(1, Math.round(height * scale));
+  if (scaledHeight === height && scaledWidth === width) return (await anchorPlatformerPoseFeet(png)).png;
+  const left = Math.floor((ADVENTURE_PLAYER_POSE_WIDTH - scaledWidth) / 2);
+  const rescaled = await sharp(png)
+    .extract({ left: minX, top: minY, width, height })
+    .resize(scaledWidth, scaledHeight, { fit: 'fill', kernel: sharp.kernel.nearest })
+    .extend({
+      left,
+      right: ADVENTURE_PLAYER_POSE_WIDTH - left - scaledWidth,
+      top: ADVENTURE_PLAYER_POSE_HEIGHT - scaledHeight,
+      bottom: 0,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    })
+    .png({ palette: true, colours: 32, dither: 0, compressionLevel: 9, adaptiveFiltering: false })
+    .toBuffer();
+  return (await anchorPlatformerPoseFeet(rescaled)).png;
+}
+
+/** Every direction is atomic and must retain a common scale and ground line.
+ * `maxHeightDelta` is relaxed only for a set this pipeline already shipped as
+ * its least-bad rescale; canvas, backdrop and ground-line checks never relax. */
 export async function validateGeneratedAdventurePlayerPoseSet(
   poses: Readonly<Record<GeneratedAdventurePlayerPose, Buffer>>,
+  options: { maxHeightDelta?: number } = {},
 ): Promise<void> {
   const bounds = await Promise.all(
     GENERATED_ADVENTURE_PLAYER_POSES.map(async (pose) => {
@@ -433,7 +499,7 @@ export async function validateGeneratedAdventurePlayerPoseSet(
     }),
   );
   const heights = bounds.map(({ height }) => height);
-  if (Math.max(...heights) - Math.min(...heights) > 10) {
+  if (Math.max(...heights) - Math.min(...heights) > (options.maxHeightDelta ?? 10)) {
     throw new Error('generated Adventure player poses change character height');
   }
 }

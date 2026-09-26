@@ -331,6 +331,8 @@ import {
   prepareGeneratedAdventurePlayerReference,
   processGeneratedAdventurePlayerPose,
   validateGeneratedAdventurePlayerPoseSet,
+  adventurePoseOpaqueHeight,
+  rescaleAdventurePoseToHeight,
   type GeneratedAdventurePlayerPose,
 } from '../assets/adventure-player';
 import {
@@ -3661,11 +3663,16 @@ export class GenerationRunner {
                 if (GENERATED_ADVENTURE_PLAYER_POSES.every((pose) => cached[pose])) {
                   const restored = cached as Record<GeneratedAdventurePlayerPose, Buffer>;
                   try {
-                    await validateGeneratedAdventurePlayerPoseSet(restored);
-                    if (
+                    // A set this pipeline already shipped (including a least-bad
+                    // rescale) keeps every structural check but not the height window.
+                    const reviewed =
                       adventureArtifacts.read<string>(`reviewed-set:${pipelineSha}`) ===
-                      poseSetHash(restored)
-                    ) {
+                      poseSetHash(restored);
+                    await validateGeneratedAdventurePlayerPoseSet(
+                      restored,
+                      reviewed ? { maxHeightDelta: Infinity } : {},
+                    );
+                    if (reviewed) {
                       adventurePlayerArtStatus = { mode: 'generated', attempted: true };
                       emit('building-assets', 'Restored the reviewed Adventure player');
                       resolveAdventureIdentity(restored.downIdle);
@@ -4275,28 +4282,64 @@ export class GenerationRunner {
                     );
                   }
                 }
-                if (!selectedIds) {
-                  throw new Error('no scale-consistent Adventure player combination was available');
+                // Spent scale repairs: ship Muse's best-ranked pose per direction,
+                // each rescaled to the frozen idle's height, rather than fail the
+                // game over a few pixels of scale.
+                const leastBadScale = !selectedIds;
+                if (leastBadScale) {
+                  const ranked = bestAdventurePlayerCandidateIds(setDecision);
+                  // The frozen idle stays the identity truth story art rendered from.
+                  const frozenIdle = poseCandidates.find(
+                    (c) => c.pose === 'downIdle' && c.png.equals(downIdle.png),
+                  );
+                  selectedIds = Object.fromEntries(
+                    GENERATED_ADVENTURE_PLAYER_POSES.map((pose) => [
+                      pose,
+                      pose === 'downIdle' && frozenIdle
+                        ? frozenIdle.id
+                        : poseCandidates.some((c) => c.pose === pose && c.id === ranked[pose])
+                          ? ranked[pose]!
+                          : (poseCandidates.find((c) => c.pose === pose)?.id ?? ''),
+                    ]),
+                  ) as Record<GeneratedAdventurePlayerPose, string>;
+                  emit('building-assets', "Muse kept the closest Adventure poses at the hero's scale");
                 }
+                const chosenIds = selectedIds!;
+                const idleHeight = leastBadScale
+                  ? await adventurePoseOpaqueHeight(
+                      poseCandidates.find(
+                        (c) => c.pose === 'downIdle' && c.id === chosenIds.downIdle,
+                      )?.png ?? downIdle.png,
+                    )
+                  : 0;
+                const chosen = Object.fromEntries(
+                  await settleAll(
+                    GENERATED_ADVENTURE_PLAYER_POSES.map(async (pose) => {
+                      const selected = poseCandidates.find(
+                        (candidate) => candidate.pose === pose && candidate.id === chosenIds[pose],
+                      );
+                      if (!selected) throw new Error(`Muse did not select Adventure ${pose}`);
+                      // The idle is identity truth and never rescales.
+                      return [
+                        pose,
+                        leastBadScale && pose !== 'downIdle'
+                          ? { ...selected, png: await rescaleAdventurePoseToHeight(selected.png, idleHeight) }
+                          : selected,
+                      ] as const;
+                    }),
+                  ),
+                ) as Record<GeneratedAdventurePlayerPose, PoseCandidate>;
                 const generated = Object.fromEntries(
-                  GENERATED_ADVENTURE_PLAYER_POSES.map((pose) => {
-                    const selected = poseCandidates.find(
-                      (candidate) => candidate.pose === pose && candidate.id === selectedIds[pose],
-                    );
-                    if (!selected) throw new Error(`Muse did not select Adventure ${pose}`);
-                    return [pose, selected.png];
-                  }),
+                  GENERATED_ADVENTURE_PLAYER_POSES.map((pose) => [pose, chosen[pose].png]),
                 ) as Record<GeneratedAdventurePlayerPose, Buffer>;
-                await validateGeneratedAdventurePlayerPoseSet(generated);
+                await validateGeneratedAdventurePlayerPoseSet(
+                  generated,
+                  leastBadScale ? { maxHeightDelta: Infinity } : {},
+                );
                 if (identityApproved && !generated.downIdle.equals(downIdle.png))
                   throw new Error('Adventure foundation changed after story identity was frozen');
                 await settleAll(
-                  GENERATED_ADVENTURE_PLAYER_POSES.map((pose) => {
-                    const selected = poseCandidates.find(
-                      (candidate) => candidate.pose === pose && candidate.id === selectedIds[pose],
-                    )!;
-                    return checkpointPose(selected);
-                  }),
+                  GENERATED_ADVENTURE_PLAYER_POSES.map((pose) => checkpointPose(chosen[pose])),
                 );
                 adventureArtifacts.write(`reviewed-set:${pipelineSha}`, poseSetHash(generated));
                 adventurePlayerArtStatus = { mode: 'generated', attempted: true };
@@ -6040,6 +6083,7 @@ export class GenerationRunner {
                         reasoningEffort: 'low',
                       },
                     ),
+                  leastBad: () => emit('building-assets', 'Muse kept the closest NPC design'),
                 });
                 const selected = Object.fromEntries(
                   GENERATED_ADVENTURE_OBJECTS.map((role) => {

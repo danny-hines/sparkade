@@ -429,6 +429,11 @@ export function adventureNpcReady(review: AdventureObjectCandidateReview): boole
   );
 }
 
+/** Least-bad NPC once repairs are spent: a complete full body first, then Muse's score. */
+export function leastBadAdventureNpcScore(review: AdventureObjectCandidateReview): number {
+  return (review.npcComplete === true ? 100 : 0) + adventureObjectReviewScore(review);
+}
+
 function adventureObjectReviewScore(review: AdventureObjectCandidateReview): number {
   return (
     review.scores.gameplayReadability * 5 +

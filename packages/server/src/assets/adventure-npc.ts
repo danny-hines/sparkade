@@ -6,6 +6,7 @@ import {
   buildAdventureObjectJudgeBoard,
   buildAdventureObjectJudgePrompt,
   buildAdventureObjectJudgeSchema,
+  leastBadAdventureNpcScore,
   normalizeAdventureObjectJudgeDecision,
   processAdventureObject,
   type AdventureObjectCandidate,
@@ -71,7 +72,10 @@ export class AdventureNpcImageError extends Error {}
 
 /** Keep a good sheet NPC free; repaint only the NPC after structural rejection.
  * Provider errors/refusals propagate. Only pixel failures or completed visual
- * rejections consume the two-candidate repair budget. Successful calls survive resumes. */
+ * rejections consume the two-candidate repair budget. Successful calls survive resumes.
+ * Once both repairs are spent, the best-scoring reviewed NPC ships (a complete
+ * full body first) instead of failing the game; only a pool with no processable
+ * NPC at all still fails. */
 export async function ensureAdventureNpc(options: {
   candidates: readonly AdventureObjectCandidate[];
   decision: AdventureObjectJudgeDecision;
@@ -86,12 +90,21 @@ export async function ensureAdventureNpc(options: {
     schema: Record<string, unknown>,
     image: Buffer,
   ) => Promise<unknown>;
+  leastBad?: (id: string) => void;
 }): Promise<Buffer> {
   const selectedId = bestAdventureObjectCandidateId('npc', options.decision);
   const selected = options.candidates.find(
     (candidate) => candidate.role === 'npc' && candidate.id === selectedId,
   );
   if (selected) return selected.png;
+  const reviewed: Array<{ id: string; png: Buffer; score: number }> = options.candidates.flatMap(
+    (candidate) => {
+      const review = options.decision.candidateReviews.find((r) => r.id === candidate.id);
+      return candidate.role === 'npc' && review
+        ? [{ id: candidate.id, png: candidate.png, score: leastBadAdventureNpcScore(review) }]
+        : [];
+    },
+  );
 
   const reference = await buildAdventureNpcReference(options.keyArt, options.hero);
   let reason =
@@ -133,9 +146,19 @@ export async function ensureAdventureNpc(options: {
     );
     const decision = normalizeAdventureObjectJudgeDecision(verdict, candidates);
     if (bestAdventureObjectCandidateId('npc', decision) === id) return candidate.png;
+    const review = decision.candidateReviews.find((r) => r.id === id);
+    if (review) reviewed.push({ id, png: candidate.png, score: leastBadAdventureNpcScore(review) });
     reason = decision.candidateReviews
       .map((review) => `${review.issues.join('; ')} ${review.summary}`)
       .join(' ');
+  }
+  const leastBad = reviewed.reduce<(typeof reviewed)[number] | null>(
+    (best, entry) => (!best || entry.score > best.score ? entry : best),
+    null,
+  );
+  if (leastBad) {
+    options.leastBad?.(leastBad.id);
+    return leastBad.png;
   }
   throw new AdventureNpcImageError(
     `NPC failed full-body gameplay review after two repairs: ${reason.slice(0, 300)}`,

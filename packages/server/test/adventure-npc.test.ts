@@ -120,23 +120,47 @@ describe('Adventure NPC structural gate and focused repair', () => {
     expect(options.generate).toHaveBeenCalledTimes(1);
     expect(options.review).toHaveBeenCalledTimes(1);
   });
-  it('fails after two bad NPCs rather than publishing a bust, and gives an explicit retry fresh attempts', async () => {
+  it('ships the best-scoring reviewed NPC after two failed repairs instead of failing', async () => {
     const options = harness();
+    const leastBad: string[] = [];
+    let repairs = 0;
     options.review.mockImplementation(async (_prompt, schema) => {
       const id = (
         schema as {
           properties: { candidateReviews: { items: { properties: { id: { enum: string[] } } } } };
         }
       ).properties.candidateReviews.items.properties.id.enum[0]!;
-      return verdict([{ id, role: 'npc' }], false);
+      const result = verdict([{ id, role: 'npc' }], false);
+      // The second repair is a complete body that still fails another rule.
+      if (++repairs === 2)
+        Object.assign(result.candidateReviews[0]!, {
+          npcComplete: true,
+          issues: ['Coat color drifts from the concept'],
+        });
+      return result;
     });
-    await expect(ensureAdventureNpc(options)).rejects.toThrow('after two repairs');
+    const result = await ensureAdventureNpc({ ...options, leastBad: (id) => leastBad.push(id) });
     expect(options.generate).toHaveBeenCalledTimes(2);
+    // A complete full body outranks the higher-scoring busts.
+    expect(leastBad).toEqual(['npc-repair-2']);
+    await expect(sharp(result).metadata()).resolves.toMatchObject({ width: 96, height: 112 });
+    // An explicit retry still gets fresh repair attempts.
     options.review.mockImplementation(async () =>
       verdict([{ id: 'npc-repair-1', role: 'npc' }], true),
     );
     await expect(ensureAdventureNpc({ ...options, attempt: 2 })).resolves.toBeInstanceOf(Buffer);
     expect(options.generate).toHaveBeenCalledTimes(3);
+  });
+  it('still fails when no NPC could be processed at all', async () => {
+    const options = harness();
+    const blank = await sharp({ create: { width: 256, height: 256, channels: 3, background: '#00ff00' } })
+      .png()
+      .toBuffer();
+    options.generate.mockImplementation(async () => blank);
+    await expect(
+      ensureAdventureNpc({ ...options, candidates: candidates.filter(({ role }) => role !== 'npc') }),
+    ).rejects.toThrow('after two repairs');
+    expect(options.review).not.toHaveBeenCalled();
   });
   it('does not turn a provider refusal or outage into more image calls', async () => {
     const options = harness();

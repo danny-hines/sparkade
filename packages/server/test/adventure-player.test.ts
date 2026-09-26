@@ -11,7 +11,9 @@ import {
   buildAdventurePlayerPosePrompt,
   buildAdventurePortraitIdentityReference,
   buildAdventureStoryIdentityReference,
+  adventurePoseOpaqueHeight,
   processGeneratedAdventurePlayerPose,
+  rescaleAdventurePoseToHeight,
   validateGeneratedAdventurePlayerPoseSet,
 } from '../src/assets/adventure-player';
 
@@ -288,6 +290,40 @@ describe('generated Adventure player processing', () => {
     await expect(validateGeneratedAdventurePlayerPoseSet(set)).rejects.toThrow(
       'poses change character height',
     );
+  });
+
+  it('rescales an off-scale pose to the idle height as the least-bad set, feet on the floor', async () => {
+    const entries = await Promise.all(
+      GENERATED_ADVENTURE_PLAYER_POSES.map(async (pose, index) => [
+        pose,
+        await footAnchoredPose(64, index === 5 ? 92 : 116),
+      ]),
+    );
+    const set = Object.fromEntries(entries) as Record<
+      (typeof GENERATED_ADVENTURE_PLAYER_POSES)[number],
+      Buffer
+    >;
+    const idleHeight = await adventurePoseOpaqueHeight(set.downIdle);
+    expect(idleHeight).toBe(116);
+    const rescaled = Object.fromEntries(
+      await Promise.all(
+        GENERATED_ADVENTURE_PLAYER_POSES.map(async (pose) => [
+          pose,
+          pose === 'downIdle' ? set[pose] : await rescaleAdventurePoseToHeight(set[pose], idleHeight),
+        ]),
+      ),
+    ) as typeof set;
+    await expect(validateGeneratedAdventurePlayerPoseSet(rescaled)).resolves.toBeUndefined();
+    const short = GENERATED_ADVENTURE_PLAYER_POSES[5]!;
+    expect(await adventurePoseOpaqueHeight(rescaled[short])).toBe(116);
+    await expect(sharp(rescaled[short]).metadata()).resolves.toMatchObject({
+      width: ADVENTURE_PLAYER_POSE_WIDTH,
+      height: ADVENTURE_PLAYER_POSE_HEIGHT,
+    });
+    // Only an already-shipped set relaxes the height window.
+    await expect(
+      validateGeneratedAdventurePlayerPoseSet(set, { maxHeightDelta: Infinity }),
+    ).resolves.toBeUndefined();
   });
 
   it('builds one-image identity boards for Muse edits and story continuity', async () => {

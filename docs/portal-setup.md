@@ -12,7 +12,7 @@ Open **Terminal** on the Mac and paste:
 
 ```sh
 curl -fL --proto '=https' --proto-redir '=https' \
-  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.11/install-portal.sh \
+  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.12/install-portal.sh \
   -o /tmp/install-sparkade-portal.sh && bash /tmp/install-sparkade-portal.sh
 ```
 
@@ -195,6 +195,11 @@ Version **0.4.11** uses **Muse** throughout New Game instructions, blank-field
 choices, and voice-error messages. New progress narration uses Muse as well;
 cloud-backed narration and website copy are delivered through the website/cloud
 deployment. The pilot APK includes all previous photo-flow and racing-art changes.
+Version **0.4.12** keeps the generation progress screen smooth while scrolling.
+Saving the game library no longer pauses the Portal's display, and an idle cloud
+check no longer rewrites it. Generated art previews reserve their space before
+loading. Repeated design and music cards are fixed by the website/cloud deployment,
+so games generated before that deployment keep their extra cards.
 
 **Dedicated kiosk option:** setup asks whether to enable on-device app updates.
 This disables Meta's additional OS-wide app-install verifier, which otherwise

@@ -22,6 +22,7 @@ export interface RacingBankFallback {
 /** Private job checkpoints, outside the published pack. A refusal is recorded
  * before its sibling edit drains; its accepted neutral is then saved atomically
  * in the same document. Restoring never reissues a refused banking request.
+ * A least-bad rear chosen after spent repairs is saved complete in one write.
  * Corrupt records fail closed rather than silently spending another image call. */
 export class RacingBankFallbackStore {
   constructor(private readonly directory: string) {}
@@ -39,12 +40,12 @@ export class RacingBankFallbackStore {
       if (
         record.version !== RACING_BANK_FALLBACK_VERSION ||
         record.key !== key ||
-        record.outcome !== 'refused' ||
+        (record.outcome !== 'refused' && record.outcome !== 'least-bad') ||
         typeof record.reason !== 'string' ||
         !record.reason
       )
         throw new Error('Invalid refusal record');
-      if (record.neutral === undefined && record.sha256 === undefined)
+      if (record.outcome === 'refused' && record.neutral === undefined && record.sha256 === undefined)
         return { reason: record.reason };
       if (typeof record.neutral !== 'string') throw new Error('Invalid neutral image');
       const neutral = Buffer.from(record.neutral, 'base64');
@@ -87,6 +88,24 @@ export class RacingBankFallbackStore {
       if (error instanceof GeneratedAssetStorageError) throw error;
       throw new GeneratedAssetStorageError('Cannot persist approved rival neutral', error);
     }
+  }
+
+  /** Muse's least-bad pick after spent repairs kept only this rival's rear. */
+  async chooseNeutral(key: string, neutral: Buffer, reason: string): Promise<RacingBankFallback> {
+    try {
+      await validateNeutral(neutral);
+    } catch (error) {
+      throw new GeneratedAssetStorageError('Cannot persist least-bad rival neutral', error);
+    }
+    this.write(key, {
+      version: RACING_BANK_FALLBACK_VERSION,
+      key,
+      outcome: 'least-bad',
+      reason,
+      neutral: neutral.toString('base64'),
+      sha256: sha256(neutral),
+    });
+    return { reason, neutral };
   }
 
   private write(key: string, record: unknown): void {

@@ -937,9 +937,22 @@ export interface GameMetaFile {
      * retained terminal outcome from an earlier attempt).
      */
     motion?: RacingMotionRacerStatus[];
-    /** Rival banking corrections declined by the provider. Each retains its
-     * approved 64px neutral and uses continuous runtime steering lean. */
+    /** Racers publishing only their 64px neutral with continuous runtime
+     * steering lean: a rival banking correction declined by the provider, or
+     * Muse's least-bad pick of a rear over still-rejected banks. */
     banking?: { racer: string; status: 'neutral'; reason: string }[];
+    /**
+     * Racers whose bounded repairs ended still rejected. Muse picked the
+     * least-bad reviewed candidate (index into that racer's reviewed list)
+     * instead of failing the game; the gates themselves are unchanged.
+     */
+    leastBad?: {
+      racer: string;
+      candidate: number;
+      candidates: number;
+      rearOnly: boolean;
+      rationale: string;
+    }[];
   };
   /** QA/readiness signal for the one-call ladder/boss Fighter arena sheet. */
   fighterArenaArt?: {

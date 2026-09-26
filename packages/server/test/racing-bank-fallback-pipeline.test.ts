@@ -167,12 +167,8 @@ it.each([
       retrying = true;
       runner.retryJob(gameId);
       const retried = await wait();
-      if (mode === 'neutral-rejected') {
-        expect(retried).toMatchObject({ status: 'failed', error: { code: 'image-invalid' } });
-        expect(calls).toEqual(before);
-        expect(files.readMeta(gameId)?.status).not.toBe('ready');
-        return;
-      }
+      // A retained neutral the roster gate still rejects cannot be repainted
+      // around a refusal; it ships as the least-bad rear instead of failing.
       expect(retried, JSON.stringify(retried.error)).toMatchObject({ status: 'done' });
       expect(calls).toEqual(before);
       expect(calls.filter((role) => role === 'racingCraftRival1')).toHaveLength(1);
@@ -197,10 +193,23 @@ it.each([
       expect(
         generatedAssetForRole(join(files.gameDir(gameId), 'assets'), 'racingCraftRival2'),
       ).toMatchObject({ width: 192, height: 64 });
+      expect(files.readMeta(gameId)?.racingArt?.leastBad).toEqual(
+        mode === 'neutral-rejected'
+          ? [
+              {
+                racer: 'rival1',
+                candidate: 0,
+                candidates: 1,
+                rearOnly: true,
+                rationale: expect.stringContaining('declined its banking correction'),
+              },
+            ]
+          : undefined,
+      );
       expect(reviews).toEqual([
         ['player'],
         ['rival1', 'rival2', 'rival3', 'rival4'],
-        ...(mode === 'sibling-auth' ? [['rival1']] : []),
+        ...(siblingAuth ? [['rival1']] : []),
       ]);
       expect(
         readdirSync(join(files.gameDir(gameId), 'assets')).some((name) => name.startsWith('.')),

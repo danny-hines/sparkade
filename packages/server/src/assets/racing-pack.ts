@@ -527,6 +527,8 @@ export interface RacingRosterJudgeDecision {
   correctionKinds: Record<string, RacingSlotCorrectionKind>;
   /** Per-target fix instruction; empty means use the global retryGuidance. */
   slotGuidance: Record<string, string>;
+  /** Per judged target: both bank cells passed the rear-camera check. */
+  bankCamerasValid?: Record<string, boolean>;
 }
 
 /**
@@ -577,6 +579,9 @@ export function normalizeRacingRosterJudgeDecision(
   }
   const reviews = new Map<string, { correction?: unknown; guidance?: unknown }>();
   const invalidNeutral = new Set<string>();
+  const bankCamerasValid: Record<string, boolean> = Object.fromEntries(
+    [...ids].map((id) => [id, false]),
+  );
   const reviewsRaw = (raw as { slotReviews?: unknown }).slotReviews;
   if (Array.isArray(reviewsRaw)) {
     for (const review of reviewsRaw) {
@@ -590,6 +595,11 @@ export function normalizeRacingRosterJudgeDecision(
       };
       if (typeof id !== 'string' || !ids.has(id) || reviews.has(id)) continue;
       const cameraValid = validRacingRearCamera(cameraViews, 3);
+      bankCamerasValid[id] =
+        Array.isArray(cameraViews) &&
+        cameraViews.length === 3 &&
+        cameraViews[1] === 'low-rear' &&
+        cameraViews[2] === 'low-rear';
       if (!cameraValid) {
         rejected.add(id);
         if (
@@ -646,6 +656,7 @@ export function normalizeRacingRosterJudgeDecision(
     retryGuidance: typeof retryGuidance === 'string' && retryGuidance ? retryGuidance : '',
     correctionKinds,
     slotGuidance,
+    bankCamerasValid,
   };
 }
 

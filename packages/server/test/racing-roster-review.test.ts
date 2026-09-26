@@ -122,6 +122,18 @@ describe('roster review target/reference split', () => {
     },
   );
 
+  it('reports per-target bank camera validity for the least-bad bank gate', () => {
+    const raw = decision();
+    const rows = raw.slotReviews as Array<Record<string, unknown>>;
+    rows[0]!.cameraViews = ['low-rear', 'side', 'low-rear'];
+    rows[1]!.fatalIssues = ['wheels too small'];
+    const out = normalizeRacingRosterJudgeDecision(raw, targets);
+    expect(out.bankCamerasValid).toEqual({ [targets[0]!.id]: false, [targets[1]!.id]: true });
+    // A target with no review row has no camera evidence at all.
+    rows.splice(1, 1);
+    expect(normalizeRacingRosterJudgeDecision(raw, targets).bankCamerasValid?.[targets[1]!.id]).toBe(false);
+  });
+
   it('rejects an overhead bank while preserving a valid neutral for bank repair', () => {
     const raw = decision();
     (raw.slotReviews as Array<Record<string, unknown>>)[0]!.correction = 'banking';

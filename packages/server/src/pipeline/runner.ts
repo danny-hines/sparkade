@@ -28,6 +28,19 @@ import {
   racingBankFallbackKey,
   type RacingBankFallback,
 } from '../assets/racing-bank-fallback';
+import {
+  RACING_LEAST_BAD_REAR_REASON,
+  buildRacingLeastBadBoard,
+  buildRacingLeastBadPrompt,
+  buildRacingLeastBadSchema,
+  enforceRacingLeastBadBanks,
+  isRacingRearOnlySprite,
+  normalizeRacingLeastBadChoice,
+  racingLeastBadCacheKey,
+  type RacingLeastBadCandidate,
+  type RacingLeastBadChoice,
+  type RacingLeastBadRecord,
+} from '../assets/racing-least-bad';
 import { compactArtReview } from '../assets/compact-art-review';
 import { loadGolden } from '@sparkade/generation';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -1006,9 +1019,16 @@ export interface RacingPlayerStripVerdict {
   /** Fail-closed category: 'none' on a reject means a full repaint. */
   kind: RacingSlotCorrectionKind;
   guidance: string;
+  /** false when a bank cell failed the rear-camera check. */
+  banksUsable?: boolean;
 }
 
 export type RacingPlayerReviewPhase = 'initial' | 'corrected' | 'verify';
+
+/** The shipped player strip; `leastBad` marks a still-rejected pick. */
+export interface RacingPlayerStripSelection extends RacingPlayerStripCandidate {
+  leastBad?: RacingLeastBadChoice & { candidates: number };
+}
 
 /**
  * Injected player-strip operations. Every review MUST run the same complete
@@ -1027,6 +1047,8 @@ export interface RacingPlayerStripRepairOps {
   ): Promise<RacingPlayerStripCandidate>;
   swapBankCells(gameplay: Buffer): Promise<Buffer>;
   onRepair(kind: 'banking' | 'vehicle' | 'swap'): void;
+  /** Muse ranks every reviewed candidate once the budget is spent. */
+  chooseLeastBad(candidates: RacingLeastBadCandidate[]): Promise<RacingLeastBadChoice>;
 }
 
 /**
@@ -1035,16 +1057,24 @@ export interface RacingPlayerStripRepairOps {
  * repaint (vehicle verdict) and one two-image bank repair (banking verdict).
  * The bank cell swap runs at most once, only after a bank correction and
  * only while the verdict is still banking. Every candidate — initial,
- * repaint, bank repair, swap — passes the SAME complete semantic gate; a
- * still-rejected strip fails loudly with image-invalid, never a loosened
- * gate or a silent artless fallback. Image budget: 1 initial + 1 repaint +
- * 2 bank edits; reviews: at most 4.
+ * repaint, bank repair, swap — passes the SAME complete semantic gate. A
+ * strip still rejected when the budget is spent does not fail the game:
+ * Muse picks the least-bad reviewed candidate (optionally rear-only), never
+ * a loosened gate or a silent artless fallback. Image budget: 1 initial +
+ * 1 repaint + 2 bank edits; reviews: at most 4, plus one ranking call.
  */
 export async function runRacingPlayerStripRepair(
   ops: RacingPlayerStripRepairOps,
-): Promise<RacingPlayerStripCandidate> {
+): Promise<RacingPlayerStripSelection> {
   let candidate = await ops.generateInitial();
   let verdict = await ops.review(candidate.gameplay, 'initial');
+  const reviewed: { candidate: RacingPlayerStripCandidate; verdict: RacingPlayerStripVerdict }[] = [
+    { candidate, verdict },
+  ];
+  const review = async (phase: RacingPlayerReviewPhase): Promise<void> => {
+    verdict = await ops.review(candidate.gameplay, phase);
+    reviewed.push({ candidate, verdict });
+  };
   let didRepaint = false;
   let didBankRepair = false;
   let didSwap = false;
@@ -1054,12 +1084,12 @@ export async function runRacingPlayerStripRepair(
       ops.onRepair('banking');
       candidate = await ops.repairBanks(candidate, verdict.guidance);
       didBankRepair = true;
-      verdict = await ops.review(candidate.gameplay, 'corrected');
+      await review('corrected');
     } else if (!banking && !didRepaint) {
       ops.onRepair('vehicle');
       candidate = await ops.repaint(verdict.guidance);
       didRepaint = true;
-      verdict = await ops.review(candidate.gameplay, 'corrected');
+      await review('corrected');
     } else if (banking && didBankRepair && !didSwap) {
       // Image edits sometimes return correct opposite rolls under the wrong
       // labels. One cell-order repair after the bank correction, then the
@@ -1067,19 +1097,22 @@ export async function runRacingPlayerStripRepair(
       ops.onRepair('swap');
       candidate = { ...candidate, gameplay: await ops.swapBankCells(candidate.gameplay) };
       didSwap = true;
-      verdict = await ops.review(candidate.gameplay, 'verify');
+      await review('verify');
     } else {
       break;
     }
   }
-  if (!verdict.accepted) {
-    throw new PipelineError(
-      'image-invalid',
-      `Player vehicle review rejected the strip${verdict.guidance ? `: ${verdict.guidance.slice(0, 200)}` : ''}`,
-      'building-assets',
-    );
-  }
-  return candidate;
+  if (verdict.accepted) return candidate;
+  const choice = await ops.chooseLeastBad(
+    reviewed.map((entry) => ({
+      png: entry.candidate.gameplay,
+      rejection: entry.verdict.guidance,
+      ...(entry.verdict.banksUsable === undefined ? {} : { banksUsable: entry.verdict.banksUsable }),
+    })),
+  );
+  const picked = reviewed[choice.index];
+  if (!picked) throw new Error(`Least-bad selection chose unknown candidate ${choice.index}`);
+  return { ...picked.candidate, leastBad: { ...choice, candidates: reviewed.length } };
 }
 
 /** One rival's correction in a repair round. `exhausted` spends no call. */
@@ -3177,7 +3210,61 @@ export class GenerationRunner {
         );
         return normalizeRacingFoundationDecision(rawDecision, reviewSlots.map(toFoundationSlot));
       };
-      const racingPlayerStripTask: Promise<PlayerCraftAssets | null> = racingIdentity
+      // Bounded repairs are spent and the gate still rejects: a rejected
+      // racer never fails an otherwise complete game. Muse ranks every
+      // reviewed candidate against its own rejection; the gates are never
+      // loosened and the pick is recorded in meta.racingArt.leastBad.
+      const chooseRacingLeastBad = async (
+        slot: RacingRosterSlotDescriptor,
+        candidates: readonly RacingLeastBadCandidate[],
+        label: string,
+      ): Promise<RacingLeastBadChoice> => {
+        const banks = !useFoundation;
+        if (mockImages) {
+          return { index: candidates.length - 1, rearOnly: banks, rationale: 'Mock least-bad pick.' };
+        }
+        let board = await buildRacingLeastBadBoard(
+          await settleAll(
+            candidates.map(async ({ png }) => (banks ? png : await extractRacingNeutralCell(png))),
+          ),
+        );
+        const playerReference = visibleRacingPlayer && slot.id === 'player';
+        const prompt = buildRacingLeastBadPrompt({
+          racerName: slot.name,
+          concept: slot.vehicleConcept,
+          rejections: candidates.map(({ rejection }) => rejection),
+          banks,
+          ...(playerReference ? { playerReference: racingPlayerPhoto ? 'photo' : 'artwork' } : {}),
+        });
+        if (playerReference) {
+          board = await buildRacingPhotoReviewReference((await racingPlayerReferenceTask)!, board);
+        }
+        const raw = await callLlm(
+          'design',
+          {
+            ...prompt,
+            jsonSchema: buildRacingLeastBadSchema(candidates.length, banks),
+            maxTokens: 400,
+            timeoutMs: 120_000,
+          },
+          { stage: 'building-assets', label, image: board, reasoningEffort: 'low' },
+        );
+        const choice = enforceRacingLeastBadBanks(
+          normalizeRacingLeastBadChoice(raw, candidates.length, banks),
+          candidates,
+        );
+        // Player-facing feed copy; the least-bad record lives in meta.
+        emit(
+          'building-assets',
+          choice.rearOnly
+            ? `Muse picked ${slot.name}'s best rear view; steering lean runs in-game`
+            : `Muse picked ${slot.name}'s best vehicle take`,
+        );
+        return choice;
+      };
+      const racingPlayerStripTask: Promise<
+        (PlayerCraftAssets & { leastBad?: RacingLeastBadRecord }) | null
+      > = racingIdentity
         ? (async () => {
             if (!racingSpec) throw new Error('racing pack needs an identity-bearing racing spec');
             // Persist the reviewed selection under the immutable design key.
@@ -3195,43 +3282,59 @@ export class GenerationRunner {
             );
             if (acceptedImage && acceptedReference) {
               emit('building-assets', 'Restored the reviewed player vehicle');
-              return { gameplay: acceptedImage, presentationReference: acceptedReference };
+              const leastBad = assetArtifacts.read<RacingLeastBadRecord>(
+                racingLeastBadCacheKey(entry.role, acceptedHash),
+              );
+              // A rear-only least-bad pick publishes one 64px cell; boards and
+              // locomotion keep the strip-shaped scaffold.
+              const gameplay = (await isRacingRearOnlySprite(acceptedImage))
+                ? await assembleRacingFoundationStrip(acceptedImage)
+                : acceptedImage;
+              return {
+                gameplay,
+                presentationReference: acceptedReference,
+                ...(leastBad ? { leastBad } : {}),
+              };
             }
             emit('building-assets', useFoundation ? 'Painting the player foundation…' : 'Painting the player vehicle strip…');
             const playerSlots = racingRosterSlots(racingSpec).slice(0, 1);
             // Foundation cups: one approved neutral rear, bank-free gate,
             // at most one identity repaint — bank correction never runs,
             // even on a malformed banking verdict. A still-rejected rear
-            // fails loudly; it is never accepted.
-            const strip = useFoundation
+            // ships Muse's least-bad reviewed foundation.
+            const strip: RacingPlayerStripSelection = useFoundation
               ? await (async () => {
+                  const rejection = (verdict: { retryGuidance: string; slotGuidance: Record<string, string> }) =>
+                    verdict.slotGuidance['player'] ||
+                    verdict.retryGuidance ||
+                    'Correct the rejected player rear identity to match its concept and rear camera.';
                   let foundation = await generatePlayerFoundation();
                   let verdict = await reviewRacingFoundation(
                     [foundation.gameplay],
                     playerSlots,
                     'Muse reviews the player foundation',
                   );
+                  const reviewed = [{ foundation, rejection: rejection(verdict) }];
                   if (!verdict.accepted) {
-                    const guidance =
-                      verdict.slotGuidance['player'] ||
-                      verdict.retryGuidance ||
-                      'Correct the rejected player rear identity to match its concept and rear camera.';
                     emit('building-assets', 'Repainting the player foundation…');
-                    foundation = await generatePlayerFoundation(guidance).catch(racingAssetFailure);
+                    foundation = await generatePlayerFoundation(rejection(verdict)).catch(racingAssetFailure);
                     verdict = await reviewRacingFoundation(
                       [foundation.gameplay],
                       playerSlots,
                       'Muse re-reviews the player foundation',
                     );
+                    reviewed.push({ foundation, rejection: rejection(verdict) });
                   }
-                  if (!verdict.accepted) {
-                    throw new PipelineError(
-                      'image-invalid',
-                      `Player foundation review rejected the rear${verdict.retryGuidance ? `: ${verdict.retryGuidance.slice(0, 200)}` : ''}`,
-                      'building-assets',
-                    );
-                  }
-                  return foundation;
+                  if (verdict.accepted) return foundation;
+                  const choice = await chooseRacingLeastBad(
+                    playerSlots[0]!,
+                    reviewed.map((entry) => ({ png: entry.foundation.gameplay, rejection: entry.rejection })),
+                    'Muse compares the player takes',
+                  );
+                  return {
+                    ...reviewed[choice.index]!.foundation,
+                    leastBad: { ...choice, candidates: reviewed.length },
+                  };
                 })()
               // Bounded category-aware repair BEFORE the reference freezes:
               // the CURRENT verdict picks a full repaint (vehicle) or the
@@ -3256,6 +3359,9 @@ export class GenerationRunner {
                     reviewed.slotGuidance['player'] ||
                     reviewed.retryGuidance ||
                     'Correct the rejected player vehicle to match its concept and rear camera.',
+                  ...(reviewed.bankCamerasValid
+                    ? { banksUsable: reviewed.bankCamerasValid['player'] === true }
+                    : {}),
                 })),
               repaint: (guidance) => generatePlayerStrip(guidance).catch(racingAssetFailure),
               repairBanks: async (current, guidance) => {
@@ -3295,15 +3401,34 @@ export class GenerationRunner {
                 else if (kind === 'vehicle')
                   emit('building-assets', 'Repainting the player vehicle strip…');
               },
+              chooseLeastBad: (candidates) =>
+                chooseRacingLeastBad(playerSlots[0]!, candidates, 'Muse compares the player vehicle takes'),
             });
+            const leastBad: RacingLeastBadRecord | undefined = strip.leastBad && {
+              racer: playerSlots[0]!.id,
+              candidate: strip.leastBad.index,
+              candidates: strip.leastBad.candidates,
+              rearOnly: strip.leastBad.rearOnly,
+              rationale: strip.leastBad.rationale,
+            };
+            // Rear-only publishes the chosen neutral as one 64px cell with
+            // engine steering lean; boards, locomotion and restores keep the
+            // strip-shaped scaffold. The choice is saved before its approval
+            // so a restored player still reports it in meta.
+            const neutral = leastBad?.rearOnly ? await extractRacingNeutralCell(strip.gameplay) : null;
             await assetWorkspace.storePrivate(
               'racingCraftReference',
               strip.presentationReference,
               acceptedVersion,
               acceptedHash,
             );
-            await assetWorkspace.store(entry.role, strip.gameplay, acceptedVersion, acceptedHash);
-            return strip;
+            if (leastBad) assetArtifacts.write(racingLeastBadCacheKey(entry.role, acceptedHash), leastBad);
+            await assetWorkspace.store(entry.role, neutral ?? strip.gameplay, acceptedVersion, acceptedHash);
+            return {
+              gameplay: neutral ? await assembleRacingFoundationStrip(neutral) : strip.gameplay,
+              presentationReference: strip.presentationReference,
+              ...(leastBad ? { leastBad } : {}),
+            };
           })()
         : Promise.resolve(null);
       const keyArtTask: Promise<Buffer> = visibleRacingPlayer
@@ -4285,6 +4410,9 @@ export class GenerationRunner {
               join(this.files.checkpointsDir, jobId, 'racing-bank-fallbacks'),
             );
             const bankFallbacks = new Map<string, RacingBankFallback>();
+            const leastBadRecords: RacingLeastBadRecord[] = playerStrip.leastBad
+              ? [playerStrip.leastBad]
+              : [];
             const bankKey = (entry: RacingPackEntry) => racingBankFallbackKey(entry, imageModel);
             const generateStrip = async (entry: RacingPackEntry): Promise<Buffer> => {
               if (!useFoundation) {
@@ -4441,6 +4569,10 @@ export class GenerationRunner {
                   )
                 ) {
                   approvedIds.add(slots[index + 1]!.id);
+                  const restored = assetArtifacts.read<RacingLeastBadRecord>(
+                    racingLeastBadCacheKey(entry.role, imagePromptHash(entry.prompt)),
+                  );
+                  if (restored) leastBadRecords.push(restored);
                 }
               }
               // Called only after the roster gate accepts the entire strip or
@@ -4501,7 +4633,33 @@ export class GenerationRunner {
                     approvedIds.add(id);
                   },
                 });
+              // Rejected ids still pending after a review (never the frozen player).
+              const pendingRivalIds = (reviewed: { rejectedIds: string[] }): string[] =>
+                (reviewed.rejectedIds.length
+                  ? reviewed.rejectedIds
+                  : slots.map((slot) => slot.id)
+                ).filter((id) => !approvedIds.has(id));
+              // Every distinct rejected candidate with the gate's own wording,
+              // for the least-bad pick once the repair budget is spent.
+              const rivalCandidates = new Map<string, RacingLeastBadCandidate[]>();
+              const recordRejected = (reviewed: Awaited<ReturnType<typeof reviewPending>>): void => {
+                for (const id of pendingRivalIds(reviewed)) {
+                  const k = slots.findIndex((slot) => slot.id === id);
+                  if (k <= 0) continue;
+                  const seen = rivalCandidates.get(id) ?? [];
+                  if (seen.at(-1)?.png.equals(buffers[k]!)) continue;
+                  seen.push({
+                    png: buffers[k]!,
+                    rejection: reviewed.slotGuidance[id] || reviewed.retryGuidance,
+                    ...(reviewed.bankCamerasValid
+                      ? { banksUsable: reviewed.bankCamerasValid[id] === true }
+                      : {}),
+                  });
+                  rivalCandidates.set(id, seen);
+                }
+              };
               let decision = await reviewPending('Muse reviews the vehicle roster');
+              recordRejected(decision);
               // Bounded category-aware rival repair. The CURRENT rejected ids
               // and categories are re-read every round: per rival at most one
               // full repaint (vehicle verdict — bad neutral identity, the
@@ -4513,9 +4671,9 @@ export class GenerationRunner {
               // and are never redone; every round re-runs the same full
               // pending-vs-approved reference gate. Guidance is always the
               // judge's own slot wording — never a new invented theme.
-              // Only a refused rival banking edit can retain its already-valid
-              // neutral. Required identity/art failures still propagate; a
-              // refusal never triggers another image generation or repair.
+              // A refused rival banking edit retains its neutral and never
+              // triggers another image generation or repair. Rivals still
+              // rejected once the budget is spent ship Muse's least-bad pick.
               const rivalRepairStates = new Map<string, RacingRivalRepairState>();
               for (
                 let round = 0;
@@ -4537,7 +4695,18 @@ export class GenerationRunner {
                   decision.correctionKinds,
                   approvedIds,
                   rivalRepairStates,
-                ).filter(({ action }) => action !== 'exhausted');
+                ).filter(
+                  ({ id, action }) =>
+                    action !== 'exhausted' &&
+                    // A refused banking edit is never repainted around; its
+                    // retained rear goes to the least-bad pick instead.
+                    !(
+                      action === 'repaint' &&
+                      bankFallbacks.has(
+                        plan.rivalStrips[slots.findIndex((slot) => slot.id === id) - 1]?.role ?? '',
+                      )
+                    ),
+                );
                 if (!roundActions.length) break;
                 emit(
                   'building-assets',
@@ -4567,13 +4736,6 @@ export class GenerationRunner {
                       decision.retryGuidance ||
                       'Correct this rejected vehicle to match its concept, rear camera and distinct silhouette.';
                     if (action === 'repaint') {
-                      if (bankFallbacks.has(entry.role)) {
-                        throw new PipelineError(
-                          'image-invalid',
-                          `${slot.name}'s saved neutral did not pass identity review; cannot use the banking fallback`,
-                          'building-assets',
-                        );
-                      }
                       // One full-strip regeneration with the slot-specific
                       // distinctness guidance, cached under the correction
                       // hash by cachedGeneratedAsset.
@@ -4701,12 +4863,79 @@ export class GenerationRunner {
                     ? 'Muse verifies the rival bank order'
                     : 'Muse re-reviews the corrected vehicles',
                 );
+                recordRejected(decision);
               }
               if (!decision.accepted) {
-                throw new PipelineError(
-                  'image-invalid',
-                  `Vehicle roster review rejected the pack${decision.retryGuidance ? `: ${decision.retryGuidance.slice(0, 200)}` : ''}`,
-                  'building-assets',
+                if (decision.rejectedIds.includes(slots[0]!.id)) {
+                  throw new PipelineError(
+                    'image-invalid',
+                    'Vehicle roster review rejected the frozen player strip; key and story art already rendered from it',
+                    'building-assets',
+                  );
+                }
+                // The budget is spent: each still-rejected rival ships Muse's
+                // least-bad reviewed candidate, approved under the same keys a
+                // passing strip uses so an unrelated retry never re-picks it.
+                await settleAll(
+                  pendingRivalIds(decision).map(async (id) => {
+                    const k = slots.findIndex((slot) => slot.id === id);
+                    const entry = plan.rivalStrips[k - 1]!;
+                    const slot = slots[k]!;
+                    const candidates = rivalCandidates.get(id) ?? [
+                      { png: buffers[k]!, rejection: decision.slotGuidance[id] || decision.retryGuidance },
+                    ];
+                    const cacheKey = racingLeastBadCacheKey(entry.role, imagePromptHash(entry.prompt));
+                    if (bankFallbacks.has(entry.role)) {
+                      // A refused banking edit leaves only its retained rear.
+                      const record: RacingLeastBadRecord = {
+                        racer: id,
+                        candidate: candidates.length - 1,
+                        candidates: candidates.length,
+                        rearOnly: true,
+                        rationale: 'Only the retained rear remains after the provider declined its banking correction.',
+                      };
+                      assetArtifacts.write(cacheKey, record);
+                      await keepApprovedNeutral(k);
+                      leastBadRecords.push(record);
+                      return;
+                    }
+                    const choice = await chooseRacingLeastBad(
+                      slot,
+                      candidates,
+                      `Muse compares ${slot.name}'s vehicle takes`,
+                    );
+                    const picked = candidates[choice.index]!.png;
+                    const record: RacingLeastBadRecord = {
+                      racer: id,
+                      candidate: choice.index,
+                      candidates: candidates.length,
+                      rearOnly: choice.rearOnly,
+                      rationale: choice.rationale,
+                    };
+                    assetArtifacts.write(cacheKey, record);
+                    if (choice.rearOnly) {
+                      const neutral = await extractRacingNeutralCell(picked);
+                      bankFallbacks.set(
+                        entry.role,
+                        await bankFallbackStore.chooseNeutral(
+                          bankKey(entry),
+                          neutral,
+                          RACING_LEAST_BAD_REAR_REASON,
+                        ),
+                      );
+                      buffers[k] = await assembleRacingFoundationStrip(neutral);
+                    } else {
+                      buffers[k] = picked;
+                      await assetWorkspace.store(
+                        entry.role,
+                        picked,
+                        `${entry.promptVersion}-approved-v1`,
+                        imagePromptHash(entry.prompt),
+                      );
+                    }
+                    approvedIds.add(id);
+                    leastBadRecords.push(record);
+                  }),
                 );
               }
               // Store the reviewed selection under its immutable design key;
@@ -4904,20 +5133,26 @@ export class GenerationRunner {
               return motionStatuses;
             })();
             const [motionStatuses] = await settleAll([rosterTask, worldTask]);
+            // A rear-only player pick publishes its 64px neutral only on static
+            // cups; animated cups report through motion instead.
+            const playerBanking =
+              playerStrip.leastBad?.rearOnly && !useFoundation
+                ? [{ racer: slots[0]!.id, status: 'neutral' as const, reason: RACING_LEAST_BAD_REAR_REASON }]
+                : [];
+            const rivalBanking = plan.rivalStrips.flatMap((entry, index) => {
+              const fallback = bankFallbacks.get(entry.role);
+              return fallback?.neutral
+                ? [{ racer: slots[index + 1]!.id, status: 'neutral' as const, reason: fallback.reason }]
+                : [];
+            });
             racingArtStatus = {
               mode: 'generated',
               attempted: true,
               ...(motionStatuses.length ? { motion: motionStatuses } : {}),
-              ...(bankFallbacks.size
-                ? {
-                    banking: plan.rivalStrips.flatMap((entry, index) => {
-                      const fallback = bankFallbacks.get(entry.role);
-                      return fallback?.neutral
-                        ? [{ racer: slots[index + 1]!.id, status: 'neutral' as const, reason: fallback.reason }]
-                        : [];
-                    }),
-                  }
+              ...(playerBanking.length || rivalBanking.length
+                ? { banking: [...playerBanking, ...rivalBanking] }
                 : {}),
+              ...(leastBadRecords.length ? { leastBad: leastBadRecords } : {}),
             };
             emit('building-assets', 'Finished the generated racing world and roster');
           })

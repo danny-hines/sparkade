@@ -125,10 +125,18 @@ readiness. Private generation artifacts are scrubbed from the ready pack.
 Missing/static motion retains the original asset contract.
 For static cups, a provider refusal during a rival's banking-only correction
 retains that rival's already-approved neutral as a 64×64 image with continuous
-engine lean. Required identity, camera, and player-art gates still apply. The
-refusal and approved neutral persist in private job checkpoints, so unrelated
-retries issue no replacement or repeat banking calls. `meta.racingArt.banking`
-records the affected rivals and reason; no generated bank poses are claimed.
+engine lean. The refusal and approved neutral persist in private job checkpoints,
+so unrelated retries issue no replacement or repeat banking calls.
+A racer still rejected once its bounded repairs are spent does not fail the game.
+The identity, camera, and player-art gates are unchanged; instead, one Muse Spark
+call ranks that racer's reviewed candidates beside their rejections and picks the
+least bad. On static cups it may keep only the chosen neutral (published as a
+64×64 image with continuous engine lean) instead of bad bank poses; a rival whose
+banking edit was refused keeps its retained neutral. The pick is approved under
+the same keys as a passing strip, so unrelated retries neither repaint nor
+re-rank it. `meta.racingArt.leastBad` records each pick, and
+`meta.racingArt.banking` lists every racer publishing a neutral instead of
+generated bank poses, with the reason.
 Approved bases and cycles have private per-racer retry caches, scrubbed on publish. The creator offers Racing as a first-class
 archetype choice alongside the others, and the surprise draw cycles through it.
 Bounded hills and ramps are authorable per course: `elevation`

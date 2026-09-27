@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { PublicGame } from '@/lib/public-games';
+import { FAILED_POLL_MS, nextGameStatusPoll } from '@/lib/public-game-polling';
 import { GameShareActions } from './game-share-actions';
 import { PublicGamePlayer } from './public-game-player';
 
@@ -12,18 +13,21 @@ const STATUS_LABELS = {
   failed: 'Needs attention',
 } as const;
 
-function isTerminal(status: PublicGame['status']): boolean {
-  return status === 'ready' || status === 'failed';
-}
 
 export function GameStatus({ initialGame }: { initialGame: PublicGame }) {
   const [game, setGame] = useState(initialGame);
 
   useEffect(() => {
-    if (isTerminal(initialGame.status)) return;
+    if (initialGame.status === 'ready') return;
     let active = true;
     let timeout: ReturnType<typeof setTimeout> | undefined;
+    let status: PublicGame['status'] = initialGame.status;
+    let failedSince: number | null = status === 'failed' ? Date.now() : null;
 
+    const schedule = () => {
+      const delay = nextGameStatusPoll(status, failedSince, Date.now());
+      if (active && delay !== null) timeout = setTimeout(poll, delay);
+    };
     const poll = async () => {
       try {
         const response = await fetch(`/api/games/${encodeURIComponent(initialGame.id)}`, {
@@ -33,15 +37,16 @@ export function GameStatus({ initialGame }: { initialGame: PublicGame }) {
           const payload = (await response.json()) as { game: PublicGame };
           if (!active) return;
           setGame(payload.game);
-          if (isTerminal(payload.game.status)) return;
+          status = payload.game.status;
+          failedSince = status === 'failed' ? (failedSince ?? Date.now()) : null;
         }
       } catch {
         // A missed poll is harmless; generation continues on the cabinet.
       }
-      if (active) timeout = setTimeout(poll, 3000);
+      schedule();
     };
 
-    timeout = setTimeout(poll, 1500);
+    timeout = setTimeout(poll, status === 'failed' ? FAILED_POLL_MS : 1500);
     return () => {
       active = false;
       if (timeout) clearTimeout(timeout);
@@ -72,7 +77,8 @@ export function GameStatus({ initialGame }: { initialGame: PublicGame }) {
         </p>
       ) : game.status === 'failed' ? (
         <p className="portal-note">
-          The link is safe. The cabinet can retry generation without changing it.
+          Ask at the Sparkade kiosk to retry. This page keeps the same link and updates by
+          itself.
         </p>
       ) : (
         <div className="portal-progress" aria-label="Generation in progress">

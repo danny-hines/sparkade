@@ -191,7 +191,11 @@ describe.skipIf(!enabled)('kiosk generation retries with isolated PostgreSQL', (
     // The automatic pass is used once; a second failure waits for manual Retry.
     expect(await advanceGeneration(jobId, 2, 0)).toMatchObject({ stopped: true });
     expect(await getJob(jobId)).toMatchObject({ status: 'failed', attempt: 2 });
-    expect(await phone()).toMatchObject({ status: 'failed' });
+    // The phone never shows the provider's raw rejection text.
+    expect(await phone()).toMatchObject({
+      status: 'failed',
+      message: 'Some generated artwork didn’t pass the checks needed to work in the game.',
+    });
   });
 
   it('never retries failures a repeat attempt cannot fix', async () => {

@@ -13,11 +13,17 @@ export function websiteFailure(context: FailureContext): string | null {
   if (context.status !== 'failed') return null;
   if (context.moderation === 'rejected' || context.inputReview === 'rejected')
     return rejectionMessage(context.reviewCategory ?? 'other-unsafe');
+  return generationFailureCopy(context.error);
+}
 
+/**
+ * Fixed public copy for a failed job's stored error. Shared by website games
+ * and the phone page kiosk attendees follow, which must never show raw
+ * provider text.
+ */
+export function generationFailureCopy(failure: unknown): string {
   const error =
-    context.error && typeof context.error === 'object'
-      ? (context.error as Record<string, unknown>)
-      : {};
+    failure && typeof failure === 'object' ? (failure as Record<string, unknown>) : {};
   // Spending and review failures can arrive wrapped as auth/cloud-step errors.
   // Match only messages produced by our own guards, and return fixed public copy.
   if (

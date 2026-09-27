@@ -4,6 +4,7 @@ import type { CloudGenerationSnapshot } from '@sparkade/shared';
 import type { PipelineState } from '@sparkade/server/pipeline/job-state';
 import { getSql } from '../db';
 import { generationLimits } from './limits';
+import { generationFailureCopy } from '../website-failure';
 
 export const scope = () => (process.env.VERCEL_ENV === 'production' ? 'production' : 'preview');
 export const prefix = (id: string) => `generation/${scope()}/${id}/`;
@@ -134,11 +135,16 @@ export async function releaseSlot(token: string) {
 
 /** Update the public progress page only from the current canonical job row. */
 export async function syncPublicProgress(id: string, attempt: number) {
-  await getSql()`UPDATE public_games p SET
+  const sql = getSql();
+  // Phones show fixed copy for a failure, never the provider's raw error text.
+  const [job] = await sql`SELECT status, state->'job'->'error' AS error FROM generation_jobs
+    WHERE id=${id} AND attempt=${attempt}`;
+  const failure = job?.status === 'failed' ? generationFailureCopy(job.error) : 'Generation failed';
+  await sql`UPDATE public_games p SET
     status=CASE WHEN g.status IN ('failed','canceled') THEN 'failed' ELSE 'generating' END,
     stage=CASE WHEN g.status='publishing' THEN 'building-assets' ELSE g.state->'job'->>'stage' END,
     message=CASE WHEN g.status='canceled' THEN 'Generation canceled'
-      WHEN g.status='failed' THEN COALESCE(g.state->'job'->'error'->>'message','Generation failed')
+      WHEN g.status='failed' THEN ${failure}
       ELSE g.state->'job'->>'detail' END,
     title=COALESCE(g.state->'game'->>'title',p.title),updated_at=now(),
     failed_at=CASE WHEN g.status IN ('failed','canceled') THEN now() ELSE NULL END

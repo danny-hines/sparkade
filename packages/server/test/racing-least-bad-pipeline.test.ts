@@ -20,6 +20,7 @@ import type { DurablePipelineCalls } from '../src/pipeline/durable';
 import { GenerationRunner } from '../src/pipeline/runner';
 import { SseHub } from '../src/pipeline/sse';
 import { MockProvider } from '../src/providers/mock';
+import { ProviderHttpError } from '../src/providers/base';
 import { ConfigStore } from '../src/storage/config';
 import { Db } from '../src/storage/db';
 import { GameFiles } from '../src/storage/files';
@@ -230,3 +231,93 @@ it.each(['static', 'foundation'] as const)(
   },
   180_000,
 );
+
+// Production (Sep 16 and Sep 24): the provider declined the player's banking
+// edit and the whole job failed. The banking verdict had already approved
+// the neutral, so the player keeps it with engine lean, as rivals do.
+it('keeps the approved player neutral when the provider declines its bank edit', async () => {
+  const previous = process.env.SPARKADE_PROVIDER;
+  delete process.env.SPARKADE_PROVIDER;
+  const root = mkdtempSync(join(tmpdir(), 'sparkade-player-bank-refusal-'));
+  const db = new Db(root),
+    files = new GameFiles(root);
+  const network = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('No network in this test'));
+  try {
+    const text = new MockProvider('player-bank-refusal');
+    const images: string[] = [];
+    const durable: DurablePipelineCalls = {
+      abort: new AbortController(),
+      suspended: () => false,
+      complete: async (_stage, request) => {
+        if (request.system.includes('art director selecting gameplay vehicle art')) {
+          const schema = request.jsonSchema as {
+            properties: { slotReviews: { items: { properties: { id: { enum: string[] } } } } };
+          };
+          const ids = schema.properties.slotReviews.items.properties.id.enum;
+          const rejected: string[] = ids.filter((id) => id === 'player');
+          return {
+            text: JSON.stringify({
+              slotReviews: ids.map((id) => ({
+                id,
+                concept: 5,
+                orientation: 4,
+                coherence: 4,
+                readability: 5,
+                technical: 5,
+                cameraViews: ['low-rear', 'low-rear', 'low-rear'],
+                fatalIssues: rejected.includes(id) ? ['both banks yaw the same way'] : [],
+                summary: 'fixture review',
+                correction: rejected.includes(id) ? 'banking' : 'none',
+                guidance: rejected.includes(id) ? 'Roll the banks in opposite directions' : '',
+              })),
+              selection: { accepted: !rejected.length, rejectedIds: rejected, rationale: 'fixture', retryGuidance: '' },
+            }),
+            usage: { input: 1, output: 1 },
+          };
+        }
+        return text.complete(request);
+      },
+      image: async (request) => {
+        images.push(request.role);
+        if (request.role.startsWith('racing-craft-player-bank-'))
+          throw new ProviderHttpError('bank correction refused', 400, null, 'content_policy_violation');
+        return { image: await mockGeneratedImage(request.prompt), imageCount: 1 };
+      },
+    };
+    const runner = new GenerationRunner(db, files, new ConfigStore(root), new SseHub(), undefined, durable);
+    const { jobId, gameId } = runner.createJob({
+      promptText: 'Race with handling carve, surface water, rider seated, propulsion motor, motion static',
+      requestedArchetype: 'racing',
+      sourceKind: 'preset',
+      idempotencyKey: 'player-bank-refusal',
+    });
+    const deadline = Date.now() + 90_000;
+    while (!['done', 'failed', 'canceled'].includes(db.getJob(jobId)!.status)) {
+      if (Date.now() > deadline) throw new Error('Player bank refusal pipeline did not finish');
+      await delay(25);
+    }
+    const job = db.getJob(jobId)!;
+    expect(job, JSON.stringify(job.error)).toMatchObject({ status: 'done' });
+    // One strip, both bank edits (drained), and no repaint of the approved player.
+    expect(images.filter((role) => role === 'racingCraftPlayer')).toHaveLength(1);
+    expect(images.filter((role) => role.startsWith('racing-craft-player-bank-')).sort()).toEqual([
+      'racing-craft-player-bank-bankLeft',
+      'racing-craft-player-bank-bankRight',
+    ]);
+    const assets = join(files.gameDir(gameId), 'assets');
+    expect(generatedAssetForRole(assets, 'racingCraftPlayer')).toMatchObject({ width: 64, height: 64 });
+    const meta = files.readMeta(gameId)!;
+    expect(meta.racingArt?.banking).toEqual([
+      { racer: 'player', status: 'neutral', reason: expect.stringContaining('declined a banking correction') },
+    ]);
+    expect(meta.racingArt?.leastBad).toEqual([
+      expect.objectContaining({ racer: 'player', rearOnly: true, refused: true }),
+    ]);
+  } finally {
+    network.mockRestore();
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+    if (previous === undefined) delete process.env.SPARKADE_PROVIDER;
+    else process.env.SPARKADE_PROVIDER = previous;
+  }
+}, 120_000);

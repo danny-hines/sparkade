@@ -1,9 +1,8 @@
-// Racing preserves provider content-policy refusals: a refused image
-// (live: invented storyDefeat) must fail the racing job terminally with
-// image-content-policy after exactly one image call — never rephrase into
-// the policy-fallback prompt for a second attempt. Other archetypes keep
-// the safe-rephrase path. Fully local: mock text plus a durable image stub
-// that throws a real policy-shaped provider error on storyDefeat only.
+// A refused racing key art or story scene gets exactly one family-safe
+// rephrase, like every other archetype, instead of ending the game (live:
+// invented storyDefeat). A second refusal still fails terminally with
+// image-content-policy. Fully local: mock text plus a durable image stub that
+// throws a real policy-shaped provider error on storyDefeat.
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -69,13 +68,17 @@ function policyRefusal(): ProviderHttpError {
 }
 
 describe('racing content-policy refusal', () => {
-  it('fails terminally after one storyDefeat call with no fallback rephrase', async () => {
+  it.each([
+    ['rephrases once and finishes', 1, 'done'],
+    ['fails terminally when the rephrase is refused too', 2, 'failed'],
+  ] as const)('%s', async (_name, refusals, status) => {
     const root = mkdtempSync(join(tmpdir(), 'sparkade-racing-policy-'));
     roots.push(root);
     const db = new Db(root);
     const files = new GameFiles(root);
     try {
       const imageCalls: string[] = [];
+      const defeatPrompts: string[] = [];
       const mockText = new MockProvider('policy-refusal-test');
       const durable: DurablePipelineCalls = {
         abort: new AbortController(),
@@ -83,7 +86,10 @@ describe('racing content-policy refusal', () => {
         complete: (_stage, request) => mockText.complete(request),
         image: async (request: DurableImageRequest) => {
           imageCalls.push(request.role);
-          if (request.role === 'storyDefeat') throw policyRefusal();
+          if (request.role === 'storyDefeat') {
+            defeatPrompts.push(request.prompt);
+            if (defeatPrompts.length <= refusals) throw policyRefusal();
+          }
           return { image: await mockGeneratedImage(request.prompt), imageCount: 1 };
         },
       };
@@ -101,22 +107,20 @@ describe('racing content-policy refusal', () => {
         promptText: details,
         requestedArchetype: 'racing',
         sourceKind: 'preset',
-        idempotencyKey: 'policy-refusal-racing-story',
+        idempotencyKey: `policy-refusal-racing-story-${refusals}`,
       });
       const terminal = await waitForTerminal(db, jobId);
-      expect(terminal).toMatchObject({
-        status: 'failed',
-        error: { code: 'image-content-policy' },
-      });
-      // Exactly one storyDefeat image call: the fallback rephrase would
-      // have issued a second call under the same role.
-      expect(imageCalls.filter((role) => role === 'storyDefeat')).toHaveLength(1);
-      const defeatUsage = db
-        .usageForGame(gameId)
-        .filter((row) => row.stage === 'image:storyDefeat');
-      expect(defeatUsage).toHaveLength(1);
-      expect(defeatUsage[0]).toMatchObject({ failed: true });
-      expect(files.readMeta(gameId)?.status).not.toBe('ready');
+      // Exactly two storyDefeat calls: the original and one family-safe rephrase.
+      expect(imageCalls.filter((role) => role === 'storyDefeat')).toHaveLength(2);
+      expect(defeatPrompts[1]).not.toBe(defeatPrompts[0]);
+      expect(defeatPrompts[1]).toContain('resting safely after a difficult challenge');
+      if (status === 'done') {
+        expect(terminal, JSON.stringify(terminal.error)).toMatchObject({ status: 'done' });
+        expect(files.readMeta(gameId)?.status).toBe('ready');
+      } else {
+        expect(terminal).toMatchObject({ status: 'failed', error: { code: 'image-content-policy' } });
+        expect(files.readMeta(gameId)?.status).not.toBe('ready');
+      }
     } finally {
       db.close();
     }

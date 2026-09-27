@@ -35,6 +35,8 @@ export interface RacingLeastBadRecord {
   candidates: number;
   rearOnly: boolean;
   rationale: string;
+  /** The provider declined the banking edit; the gate-approved rear ships. */
+  refused?: true;
 }
 
 export const RACING_LEAST_BAD_REAR_REASON =

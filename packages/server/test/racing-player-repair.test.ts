@@ -257,6 +257,26 @@ describe('racing player-strip repair sequence', () => {
     expect(bankRepairs).toEqual([]);
   });
 
+  it('keeps the gate-approved neutral when the provider declines the bank edit', async () => {
+    const { ops, calls } = scriptOps([
+      { accepted: false, kind: 'banking', guidance: 'banks yaw the same way' },
+    ]);
+    const refusal = new PipelineError('image-content-policy', 'provider refused', 'building-assets');
+    const result = await runRacingPlayerStripRepair({
+      ...ops,
+      repairBanks: async () => {
+        calls.push('repairBanks:refused');
+        throw refusal;
+      },
+    });
+    // No second review, no swap, and no ranking call: the banking verdict
+    // already approved this neutral, which now ships with engine lean.
+    expect(calls.filter((c) => c.startsWith('review:'))).toHaveLength(1);
+    expect(calls).not.toContain('chooseLeastBad');
+    expect(result.gameplay.toString()).toBe('player-strip:initial');
+    expect(result.leastBad).toMatchObject({ index: 0, rearOnly: true, refused: true, candidates: 1 });
+  });
+
   it('propagates a provider policy refusal instead of repairing around it', async () => {
     const { ops, calls } = scriptOps([
       { accepted: false, kind: 'vehicle', guidance: 'bad neutral camera' },

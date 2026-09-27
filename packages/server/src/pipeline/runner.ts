@@ -23,6 +23,7 @@ import { PipelineSuspended, type DurablePipelineCalls, type PipelineStore } from
 import { settleAll } from './parallel';
 import { ArtifactCache } from './artifact-cache';
 import {
+  RACING_BANK_FALLBACK_REASON,
   RACING_BANK_FALLBACK_VERSION,
   RacingBankFallbackStore,
   racingBankFallbackKey,
@@ -1029,9 +1030,10 @@ export interface RacingPlayerStripVerdict {
 
 export type RacingPlayerReviewPhase = 'initial' | 'corrected' | 'verify';
 
-/** The shipped player strip; `leastBad` marks a still-rejected pick. */
+/** The shipped player strip; `leastBad` marks a still-rejected pick, or a
+ * `refused` bank edit whose approved neutral ships with engine lean. */
 export interface RacingPlayerStripSelection extends RacingPlayerStripCandidate {
-  leastBad?: RacingLeastBadChoice & { candidates: number };
+  leastBad?: RacingLeastBadChoice & { candidates: number; refused?: true };
 }
 
 /**
@@ -1086,7 +1088,23 @@ export async function runRacingPlayerStripRepair(
     const banking = verdict.kind === 'banking';
     if (banking && !didBankRepair) {
       ops.onRepair('banking');
-      candidate = await ops.repairBanks(candidate, verdict.guidance);
+      try {
+        candidate = await ops.repairBanks(candidate, verdict.guidance);
+      } catch (error) {
+        // A banking verdict already approved this neutral. A declined bank
+        // edit keeps it with engine lean, as rivals do, without another call.
+        if (!(error instanceof PipelineError) || error.code !== 'image-content-policy') throw error;
+        return {
+          ...candidate,
+          leastBad: {
+            index: reviewed.length - 1,
+            rearOnly: true,
+            rationale: RACING_BANK_FALLBACK_REASON,
+            candidates: reviewed.length,
+            refused: true,
+          },
+        };
+      }
       didBankRepair = true;
       await review('corrected');
     } else if (!banking && !didRepaint) {
@@ -2726,16 +2744,13 @@ export class GenerationRunner {
           } catch (error) {
             throwIfSuspended(error);
             if (error instanceof PipelineError) {
-              // Racing preserves provider content-policy refusals as
-              // terminal failures: a refused racing image (key art, story
-              // scenes, strips) must stop the job immediately, never
-              // rephrase into a fallback prompt. Other archetypes keep the
-              // existing safe-rephrase behavior.
+              // A refused key art or story scene gets exactly one family-safe
+              // rephrase (every archetype, racing included) before failing:
+              // a refused image must not end an event attendee's game.
               if (
                 error.code === 'image-content-policy' &&
                 opts.policyFallbackPrompt &&
-                !usedPolicyFallback &&
-                spec.archetype !== 'racing'
+                !usedPolicyFallback
               ) {
                 lastError = error;
                 usedPolicyFallback = true;
@@ -3414,6 +3429,7 @@ export class GenerationRunner {
               candidates: strip.leastBad.candidates,
               rearOnly: strip.leastBad.rearOnly,
               rationale: strip.leastBad.rationale,
+              ...(strip.leastBad.refused ? { refused: true as const } : {}),
             };
             // Rear-only publishes the chosen neutral as one 64px cell with
             // engine steering lean; boards, locomotion and restores keep the
@@ -5182,7 +5198,15 @@ export class GenerationRunner {
             // cups; animated cups report through motion instead.
             const playerBanking =
               playerStrip.leastBad?.rearOnly && !useFoundation
-                ? [{ racer: slots[0]!.id, status: 'neutral' as const, reason: RACING_LEAST_BAD_REAR_REASON }]
+                ? [
+                    {
+                      racer: slots[0]!.id,
+                      status: 'neutral' as const,
+                      reason: playerStrip.leastBad.refused
+                        ? RACING_BANK_FALLBACK_REASON
+                        : RACING_LEAST_BAD_REAR_REASON,
+                    },
+                  ]
                 : [];
             const rivalBanking = plan.rivalStrips.flatMap((entry, index) => {
               const fallback = bankFallbacks.get(entry.role);

@@ -123,10 +123,12 @@ including provider refusals (no automatic rephrase or repeat). Optional provider
 skip retry/network waits; cancellation, storage, and required-art failures still stop
 readiness. Private generation artifacts are scrubbed from the ready pack.
 Missing/static motion retains the original asset contract.
-For static cups, a provider refusal during a rival's banking-only correction
-retains that rival's already-approved neutral as a 64×64 image with continuous
-engine lean. The refusal and approved neutral persist in private job checkpoints,
-so unrelated retries issue no replacement or repeat banking calls.
+For static cups, a provider refusal during a banking-only correction, for the
+player or a rival, retains that racer's already-approved neutral as a 64×64 image
+with continuous engine lean. The refusal and approved neutral persist in private
+job checkpoints, so unrelated retries issue no replacement or repeat banking calls.
+A refused racing key art or story scene gets one family-safe rephrase, as in
+every other archetype, before the job fails.
 A racer still rejected once its bounded repairs are spent does not fail the game.
 The identity, camera, and player-art gates are unchanged; instead, one Muse Spark
 call ranks that racer's reviewed candidates beside their rejections and picks the

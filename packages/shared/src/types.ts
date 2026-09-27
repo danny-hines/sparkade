@@ -952,6 +952,8 @@ export interface GameMetaFile {
       candidates: number;
       rearOnly: boolean;
       rationale: string;
+      /** The provider declined the player's banking edit; its approved rear ships. */
+      refused?: true;
     }[];
   };
   /** QA/readiness signal for the one-call ladder/boss Fighter arena sheet. */

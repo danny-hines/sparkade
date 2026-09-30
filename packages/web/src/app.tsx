@@ -81,41 +81,47 @@ function KioskApp(): ComponentChildren {
     setScreenRaw(next);
   }, []);
 
-  // Read durable device copy first so an offline boot never waits for the cloud.
-  // Poll from the shell, not individual screens, so navigation cannot stop updates.
-  useEffect(() => {
-    let disposed = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const apply = (status: KioskRegistrationStatus) => {
-      if (disposed) return;
-      setDisplayCopy((previous) => {
-        const next =
-          status.state === 'registered' || status.state === 'error'
-            ? resolveKioskDisplayCopy(status.displayCopy, previous)
-            : DEFAULT_KIOSK_DISPLAY_COPY;
-        return next.title === previous.title && next.tagline === previous.tagline ? previous : next;
-      });
-    };
-    const refresh = async () => {
-      try {
-        apply(await api.cloudRegistration());
-      } catch {
+  // Registration (name, screen copy, revocation) is checked at boot, when a visitor
+  // returns after the idle timeout, and when Settings opens. It is never polled:
+  // each check wakes Sparkade's database, which would otherwise suspend overnight.
+  const lastRegistrationCheck = useRef(0);
+  const applyRegistration = useCallback((status: KioskRegistrationStatus) => {
+    setDisplayCopy((previous) => {
+      const next =
+        status.state === 'registered' || status.state === 'error'
+          ? resolveKioskDisplayCopy(status.displayCopy, previous)
+          : DEFAULT_KIOSK_DISPLAY_COPY;
+      return next.title === previous.title && next.tagline === previous.tagline ? previous : next;
+    });
+  }, []);
+  const checkRegistration = useCallback(() => {
+    lastRegistrationCheck.current = Date.now();
+    void api
+      .cloudRegistration()
+      .then(applyRegistration)
+      .catch(() => {
         // Leave the last good copy on screen if the local runtime is unavailable.
-      }
-      if (!disposed) timer = setTimeout(() => void refresh(), 60_000);
-    };
+      });
+  }, [applyRegistration]);
+
+  // Read durable device copy first so an offline boot never waits for the cloud.
+  useEffect(() => {
     void api
       .cloudRegistration(true)
-      .then(apply)
+      .then(applyRegistration)
       .catch(() => {})
-      .then(() => {
-        if (!disposed) void refresh();
-      });
-    return () => {
-      disposed = true;
-      clearTimeout(timer);
-    };
-  }, []);
+      .then(() => checkRegistration());
+  }, [applyRegistration, checkRegistration]);
+
+  const previousScreen = useRef(screen.name);
+  useEffect(() => {
+    const previous = previousScreen.current;
+    previousScreen.current = screen.name;
+    if (screen.name === previous) return;
+    const returningFromIdle =
+      previous === 'attract' && Date.now() - lastRegistrationCheck.current >= ATTRACT_IDLE_MS;
+    if (screen.name === 'settings' || returningFromIdle) checkRegistration();
+  }, [screen.name, checkRegistration]);
 
   // Native installation is allowed only after a fresh report from an idle shell screen.
   useEffect(() => {

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ENGINE_VERSION,
   SPEC_VERSION,
@@ -72,6 +72,8 @@ async function setup() {
   let installed: CloudGameBundle | null = null;
   let installFails = false;
   let blockInstall: Promise<void> | null = null;
+  let registrationState = 'registered';
+  let syncStatus = 200;
   const calls: Array<{ operation: string; args: Record<string, unknown> }> = [];
   const native: NativeCall = async <T>(
     operation: string,
@@ -83,13 +85,15 @@ async function setup() {
     if (operation === 'state.save') disk = structuredClone(args.state) as PortalState;
     if (operation === 'registration.cached' || operation === 'registration.status') {
       result = {
-        state: 'registered', origin: 'https://sparkade.dev',
+        state: registrationState, origin: 'https://sparkade.dev',
         displayCopy: { title: 'Portal Party', tagline: 'Welcome!' },
       };
     }
     if (operation === 'cloud') {
       const path = String(args.path);
-      if (path === '/v1/sync')
+      if (path === '/v1/sync' && syncStatus !== 200)
+        result = { status: syncStatus, body: JSON.stringify({ error: 'Session expired' }) };
+      else if (path === '/v1/sync')
         result = { status: 200, body: JSON.stringify({ cursor: 1, jobs: [snapshot] }) };
       else if (path.endsWith('/bundle')) result = { status: 200, body: JSON.stringify(bundle) };
       else if (path === '/v1/transcribe')
@@ -131,6 +135,14 @@ async function setup() {
     blockInstall: (promise: Promise<void>) => {
       blockInstall = promise;
     },
+    setRegistration: (state: string) => {
+      registrationState = state;
+    },
+    failSync: (status: number) => {
+      syncStatus = status;
+    },
+    count: (operation: string, path?: string) =>
+      calls.filter((c) => c.operation === operation && (!path || c.args.path === path)).length,
     getDisk: () => disk,
     getInstalled: () => installed,
   };
@@ -247,6 +259,86 @@ it('saves and re-announces a polled job only when its cloud snapshot changes', a
   expect(saves()).toBe(2);
   expect(statuses).toEqual(['progress', 'progress']);
 });
+describe('cloud polling', () => {
+  // Each request wakes Sparkade's database; an idle kiosk must let it suspend.
+  const runtimes: PortalRuntime[] = [];
+  const start = async (test: Awaited<ReturnType<typeof setup>>) => {
+    runtimes.push(test.runtime);
+    test.runtime.start();
+    await vi.waitFor(() => expect(test.count('cloud', '/v1/sync')).toBe(1));
+  };
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    runtimes.splice(0).forEach((runtime) => runtime.stop());
+    vi.useRealTimers();
+  });
+
+  it('syncs once at startup and then makes no cloud requests while idle', async () => {
+    const test = await setup();
+    await start(test);
+    await vi.waitFor(() => expect(test.getInstalled()).not.toBeNull());
+    await test.runtime.settled();
+    const requests = test.count('cloud');
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(test.count('cloud')).toBe(requests);
+    expect(test.count('registration.status')).toBe(0);
+  });
+
+  it('follows a building game every five seconds and stops once it fails', async () => {
+    const test = await setup();
+    Object.assign(test.snapshot.job, { status: 'running', stage: 'building-assets' });
+    await start(test);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(test.count('cloud', '/v1/sync')).toBe(2);
+    Object.assign(test.snapshot.job, { status: 'failed', stage: 'failed' });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(test.count('cloud', '/v1/sync')).toBe(3);
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(test.count('cloud', '/v1/sync')).toBe(3);
+  });
+
+  it('stops following a building game once a failed sync shows the kiosk was revoked', async () => {
+    const test = await setup();
+    Object.assign(test.snapshot.job, { status: 'running', stage: 'building-assets' });
+    await start(test);
+    test.failSync(401);
+    test.setRegistration('revoked');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(test.count('registration.status')).toBe(1);
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(test.count('cloud', '/v1/sync')).toBe(2);
+    expect(test.count('registration.status')).toBe(1);
+  });
+
+  it('keeps following a building game through an outage without rechecking every poll', async () => {
+    const test = await setup();
+    Object.assign(test.snapshot.job, { status: 'running', stage: 'building-assets' });
+    await start(test);
+    test.failSync(503);
+    await vi.advanceTimersByTimeAsync(55_000);
+    expect(test.count('cloud', '/v1/sync')).toBe(12);
+    expect(test.count('registration.status')).toBe(1);
+    test.failSync(200);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(test.count('cloud', '/v1/sync')).toBe(13);
+  });
+
+  it('picks up its games once pairing completes', async () => {
+    const test = await setup();
+    test.setRegistration('unregistered');
+    const runtime = await test.create();
+    runtimes.push(runtime);
+    runtime.start();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(test.count('cloud')).toBe(0);
+    test.setRegistration('registered');
+    await runtime.handle('/api/cloud/registration');
+    await vi.waitFor(() => expect(test.count('cloud', '/v1/sync')).toBe(1));
+  });
+});
+
 it('uses the real cloud transcription operation and returns its text', async () => {
   const test = await setup();
   const form = new FormData();

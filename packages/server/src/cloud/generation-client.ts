@@ -31,6 +31,8 @@ export interface CloudMirrorState {
   publication?: CloudGenerationSnapshot['publication'];
 }
 export const mirrorKey = (jobId: string) => `cloud-mirror:${jobId}`;
+/** Follow-up interval while one of this cabinet's cloud jobs is still building. */
+const CLOUD_POLL_MS = 5000;
 
 export class CloudGenerationError extends Error {
   constructor(
@@ -46,6 +48,7 @@ export class CloudGenerationClient {
   private sessionTask: Promise<CloudGenerationSession> | null = null;
   private syncing: Promise<void> | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private started = false;
   private stopped = false;
   private installTail: Promise<void> = Promise.resolve();
   private installing = new Set<string>();
@@ -90,24 +93,50 @@ export class CloudGenerationClient {
     this.db.setSetting(mirrorKey(jobId), state);
   }
 
+  /** Syncs once at startup, then only while a cloud job can still change. Every cloud
+   * request wakes Sparkade's database, so an idle cabinet must make none. */
   start(): void {
-    const tick = async () => {
-      if (this.stopped) return;
-      try {
-        if (this.token()) await this.sync();
-      } catch {
-        /* Connectivity never stops playback. */
-      }
-      if (!this.stopped) {
-        this.timer = setTimeout(() => void tick(), 5000);
-        this.timer.unref();
-      }
-    };
-    void tick();
+    this.started = true;
+    void this.tick();
   }
   stop(): void {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+  }
+  private async tick(): Promise<void> {
+    if (this.stopped) return;
+    try {
+      if (this.token()) await this.sync();
+    } catch (error) {
+      // Connectivity never stops playback. A revoked cabinet waits for its next
+      // cloud action instead of re-authenticating every poll.
+      if (error instanceof CloudGenerationError && error.status === 401) return;
+    }
+    this.schedule();
+  }
+  private schedule(): void {
+    if (!this.started || this.stopped || this.timer || !this.token()) return;
+    if (!this.hasActiveWork()) return;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.tick();
+    }, CLOUD_POLL_MS);
+    this.timer.unref();
+  }
+  /** Cloud jobs that can still change without an action on this cabinet. Finished,
+   * failed and canceled jobs only change through a cabinet request. A job waiting to
+   * download reads as running and needs one more sync unless its download started. */
+  private hasActiveWork(): boolean {
+    return this.db.listJobs().some((job) => {
+      const state = this.state(job.id);
+      return (
+        !!state &&
+        !state.deleted &&
+        !this.installing.has(job.id) &&
+        !['done', 'failed', 'canceled'].includes(job.status)
+      );
+    });
   }
 
   private async getSession(): Promise<CloudGenerationSession> {
@@ -347,6 +376,8 @@ export class CloudGenerationClient {
         }
       });
     }
+    // A new job or cloud retry resumes polling; a started download does not need it.
+    this.schedule();
   }
 
   private emit(job: JobRecord): void {

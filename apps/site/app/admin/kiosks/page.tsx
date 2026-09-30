@@ -174,8 +174,9 @@ export default async function KiosksPage({ searchParams }: { searchParams: Promi
                   </label>
                   <p>
                     The title appears on the attract and game selection screens. Leave a field blank
-                    to restore its default. Online kiosks update within a minute and keep the last
-                    saved copy offline.
+                    to restore its default. Kiosks check in when they start, when Settings is
+                    opened, and when a visitor starts playing after the kiosk sat idle. They keep
+                    the last saved copy offline.
                   </p>
                   <button type="submit" disabled={!!kiosk.revokedAt}>
                     Save screen copy

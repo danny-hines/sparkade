@@ -313,6 +313,59 @@ describe('cloud generation boundary', () => {
     expect(localDb.getGame(remote.game.id)).toBeNull();
   });
 
+  it('polls only while a cabinet job can still change, so an idle cabinet makes no requests', async () => {
+    const service = await setup();
+    const remote = (
+      await service.app.inject({ method: 'POST', url: '/v1/jobs', headers: auth(), payload: input })
+    ).json<CloudGenerationSnapshot>();
+    const localDir = directory();
+    const localDb = new Db(localDir);
+    cleanup.push(() => localDb.close());
+    const paths: string[] = [];
+    const fetchImpl: typeof fetch = async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      if (path === '/api/generation/session')
+        return Response.json({
+          origin: 'https://generation.example',
+          token: signGenerationToken(alice, 'generation', secret),
+          expiresAt: Date.now() + 300_000,
+        });
+      const response = await service.app.inject({
+        method: 'POST',
+        url: path,
+        headers: Object.fromEntries(new Headers(init?.headers)),
+        payload: String(init?.body),
+      });
+      paths.push(path);
+      return new Response(response.body, { status: response.statusCode });
+    };
+    // Counted once answered, so a test step cannot race an in-flight request.
+    const syncs = () => paths.filter((path) => path === '/v1/sync').length;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    cleanup.push(() => {
+      vi.useRealTimers();
+    });
+    const client = new CloudGenerationClient(
+      'https://portal.example',
+      () => 'device-token',
+      localDb,
+      new GameFiles(localDir),
+      new SseHub(),
+      fetchImpl,
+    );
+    cleanup.push(() => client.stop());
+    client.start();
+    await vi.waitFor(() => expect(syncs()).toBe(1));
+    await vi.advanceTimersByTimeAsync(5000);
+    await vi.waitFor(() => expect(syncs()).toBe(2));
+    service.db.updateJob(remote.job.id, { status: 'failed', stage: 'failed' });
+    await vi.advanceTimersByTimeAsync(5000);
+    await vi.waitFor(() => expect(syncs()).toBe(3));
+    await vi.waitFor(() => expect(localDb.getJob(remote.job.id)?.status).toBe('failed'));
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(syncs()).toBe(3);
+  });
+
   it('runs the real mock pipeline in the worker and produces a downloadable game', async () => {
     vi.stubEnv('SPARKADE_PROVIDER', 'mock');
     vi.stubEnv('SPARKADE_MOCK_FAST', '1');

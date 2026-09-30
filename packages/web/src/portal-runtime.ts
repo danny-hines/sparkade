@@ -15,6 +15,11 @@ import {
 import { archetypes } from '@sparkade/archetypes';
 import type { GameDetail, SettingsPayload } from './api';
 
+/** Follow-up interval while one of this kiosk's games is still building in the cloud. */
+const CLOUD_POLL_MS = 5000;
+/** A failed poll rechecks registration at most this often, so a revoked kiosk stops polling. */
+const REGISTRATION_RECHECK_MS = 60_000;
+
 export type NativeCall = <T>(operation: string, args?: Record<string, unknown>) => Promise<T>;
 export interface PortalBootstrap {
   version: string;
@@ -164,8 +169,10 @@ export class PortalRuntime {
   private installTail: Promise<void> = Promise.resolve();
   private listeners = new Map<string, Set<(event: JobEvent) => void>>();
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private started = false;
   private stopped = false;
   private registration: KioskRegistrationStatus | null = null;
+  private registrationCheckedAt = 0;
   private readonly instanceId = crypto.randomUUID();
 
   constructor(
@@ -201,28 +208,65 @@ export class PortalRuntime {
       pricing: this.bootstrap.settings.pricing,
       imageGeneration: this.bootstrap.settings.imageGeneration,
     };
-    // Read before the background cloud sync starts; its native network call holds
-    // the registration lock and must not delay the first frame's saved copy.
+    // Read before the shell's startup registration check; its native network call
+    // holds the registration lock and must not delay the first frame's saved copy.
+    // This saved state also decides whether the startup sync runs.
     this.registration = await this.native<KioskRegistrationStatus>('registration.cached').catch(
       () => null,
     );
   }
+  /** Syncs once at startup, then only while a game can still change in the cloud. Every
+   * cloud request wakes Sparkade's database, so an idle kiosk must make none. */
   start(): void {
-    const tick = async () => {
-      if (this.stopped) return;
-      try {
-        this.registration = await this.native<KioskRegistrationStatus>('registration.status');
-        if (this.registration.state === 'registered') await this.sync();
-      } catch {
-        /* Offline play and settings remain available. */
-      }
-      if (!this.stopped) this.timer = setTimeout(() => void tick(), 5000);
-    };
-    void tick();
+    this.started = true;
+    void this.tick();
   }
   stop(): void {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+  }
+  private async tick(): Promise<void> {
+    if (this.stopped || !this.cloudEnabled()) return;
+    try {
+      await this.sync();
+    } catch {
+      // Offline play and settings remain available. A revoked credential also fails
+      // here; rechecking registration records it and stops the polling.
+      await this.recheckRegistration();
+    }
+    this.schedule();
+  }
+  private schedule(): void {
+    if (!this.started || this.stopped || this.timer || !this.cloudEnabled()) return;
+    if (!this.hasActiveWork()) return;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.tick();
+    }, CLOUD_POLL_MS);
+  }
+  /** `error` means only that the last registration check could not reach Sparkade. */
+  private cloudEnabled(): boolean {
+    return this.registration?.state === 'registered' || this.registration?.state === 'error';
+  }
+  private async recheckRegistration(): Promise<void> {
+    if (Date.now() - this.registrationCheckedAt < REGISTRATION_RECHECK_MS) return;
+    this.registrationCheckedAt = Date.now();
+    this.registration = await this.native<KioskRegistrationStatus>('registration.status').catch(
+      () => this.registration,
+    );
+  }
+  /** Games that can still change without an action on this kiosk. Finished, failed and
+   * canceled jobs only change through a kiosk request, which reports the new snapshot. */
+  private hasActiveWork(): boolean {
+    return Object.entries(this.state.games).some(([jobId, entry]) => {
+      if (entry.deleted) return false;
+      const status = entry.snapshot.job.status;
+      // A finished job needs one more sync to start its download unless one is running.
+      if (status === 'done')
+        return !entry.installed && !entry.installError && !this.installs.has(jobId);
+      return status !== 'failed' && status !== 'canceled';
+    });
   }
   private persist(): Promise<void> {
     const state = structuredClone(this.state);
@@ -348,6 +392,8 @@ export class PortalRuntime {
           }
         });
     }
+    // A new job or cloud retry resumes polling; a started download does not need it.
+    this.schedule();
     return changed;
   }
   async settled(): Promise<void> {
@@ -492,14 +538,18 @@ export class PortalRuntime {
       ) {
         return this.registration;
       }
-      this.registration = await this.native<KioskRegistrationStatus>(
-        path.endsWith('/pair')
-          ? 'registration.pair'
-          : url.searchParams.get('cached') === '1'
-            ? 'registration.cached'
-            : 'registration.status',
-        { force: body().force === true },
-      );
+      const wasEnabled = this.cloudEnabled();
+      const operation = path.endsWith('/pair')
+        ? 'registration.pair'
+        : url.searchParams.get('cached') === '1'
+          ? 'registration.cached'
+          : 'registration.status';
+      if (operation === 'registration.status') this.registrationCheckedAt = Date.now();
+      this.registration = await this.native<KioskRegistrationStatus>(operation, {
+        force: body().force === true,
+      });
+      // A newly paired kiosk picks up any games already assigned to it.
+      if (this.started && !wasEnabled && this.cloudEnabled()) void this.tick();
       return this.registration;
     }
     if (path === '/api/system/info') {

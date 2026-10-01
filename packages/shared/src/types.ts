@@ -1336,6 +1336,8 @@ export interface WifiStatus {
   ssid: string | null;
   ip: string | null;
   mock: boolean;
+  /** Portal only: 0-4 bars for the current network. */
+  signal?: number;
 }
 
 export interface CostEstimate {

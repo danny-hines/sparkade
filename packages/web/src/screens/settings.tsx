@@ -1,5 +1,6 @@
-// Settings: Controls (view + remap), Audio (volume sliders), WiFi (Pi only,
-// with on-screen keyboard), System info (incl. lifetime API spend), Model info.
+// Settings: Controls (view + remap), Audio (volume sliders), WiFi (Pi: scan
+// with on-screen keyboard; Portal: status plus the Portal's own Wi-Fi screen),
+// System info (incl. lifetime API spend), Model info.
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import {
@@ -8,6 +9,7 @@ import {
   type SoftwareUpdateStatus,
   type SystemInfo,
   type WifiNetwork,
+  type WifiStatus,
 } from '@sparkade/shared';
 import { api, type SettingsPayload } from '../api';
 import { isStandalonePortal } from '../portal-runtime';
@@ -54,11 +56,12 @@ export function SettingsScreen(props: {
   onSettingsChanged: () => void;
 }): ComponentChildren {
   const [info, setInfo] = useState<SystemInfo | null>(null);
+  const portal = isStandalonePortal();
   const tabs: { id: Tab; label: string }[] = [
     { id: 'controls', label: 'Controls' },
     { id: 'audio', label: 'Audio' },
     { id: 'devices', label: 'Camera & Mic' },
-    ...(info?.isPi ? [{ id: 'wifi' as Tab, label: 'WiFi' }] : []),
+    ...(info?.isPi || portal ? [{ id: 'wifi' as Tab, label: 'WiFi' }] : []),
     { id: 'registration', label: 'Cloud' },
     { id: 'system', label: 'System info' },
     { id: 'model', label: 'Model info' },
@@ -70,6 +73,7 @@ export function SettingsScreen(props: {
     props.settings?.audio ?? { musicVol: 0.7, sfxVol: 0.8, uiVol: 0.4 },
   );
   const [networks, setNetworks] = useState<WifiNetwork[] | null>(null);
+  const [portalWifi, setPortalWifi] = useState<WifiStatus | null>(null);
   const [wifiNotice, setWifiNotice] = useState<WifiNotice | null>(null);
   const [osk, setOsk] = useState<OskState | null>(null);
   const [connectingTo, setConnectingTo] = useState<string | null>(null);
@@ -190,8 +194,35 @@ export function SettingsScreen(props: {
     if (props.settings) setAudio(props.settings.audio);
     if (props.settings) setDevSel(props.settings.devices ?? {});
   }, [props.settings]);
+  // Portal: refresh while the tab is open, including after returning from the
+  // Portal's own Wi-Fi screen, so a newly joined network shows up by itself.
   useEffect(() => {
-    if (tab !== 'wifi' || networks !== null) return;
+    if (!portal || tab !== 'wifi') return;
+    let canceled = false;
+    const poll = () =>
+      void api
+        .wifiStatus()
+        .then((next) => {
+          if (!canceled) setPortalWifi(next);
+        })
+        .catch(() => {});
+    poll();
+    const interval = window.setInterval(poll, 3_000);
+    return () => {
+      canceled = true;
+      window.clearInterval(interval);
+    };
+  }, [portal, tab]);
+  const openPortalWifi = useCallback(() => {
+    shellInput.blip('select');
+    setWifiNotice(null);
+    void api.openPortalWifiSettings().catch((error: Error) => {
+      shellInput.blip('error');
+      setWifiNotice({ tone: 'error', message: error.message });
+    });
+  }, []);
+  useEffect(() => {
+    if (portal || tab !== 'wifi' || networks !== null) return;
     let canceled = false;
     void api
       .wifiNetworks()
@@ -208,7 +239,7 @@ export function SettingsScreen(props: {
     return () => {
       canceled = true;
     };
-  }, [tab, networks]);
+  }, [portal, tab, networks]);
 
   useEffect(() => {
     let canceled = false;
@@ -535,6 +566,8 @@ export function SettingsScreen(props: {
             shellInput.blip('select');
           }
         }
+      } else if (s.tab === 'wifi' && portal) {
+        if (btn === 'A') openPortalWifi();
       } else if (s.tab === 'wifi') {
         const list = s.networks ?? [];
         if (btn === 'UP' || btn === 'DOWN') {
@@ -598,7 +631,7 @@ export function SettingsScreen(props: {
         if (btn === 'A' && s.info?.isPi) updateAction(s.upState);
       }
     });
-  }, [audio, beginPairing, props.go]);
+  }, [audio, beginPairing, openPortalWifi, portal, props.go]);
 
   return (
     <div class="screen">
@@ -767,7 +800,45 @@ export function SettingsScreen(props: {
               {inputs !== null && <DeviceMonitor cameraId={devSel.cameraId} micId={devSel.micId} />}
             </div>
           )}
-          {tab === 'wifi' && (
+          {tab === 'wifi' && portal && (
+            <div class="portal-wifi">
+              {wifiNotice && (
+                <div class="wifi-notice error" role="alert">
+                  {wifiNotice.message}
+                </div>
+              )}
+              <div class="wifi-notice" role="status">
+                {portalWifi === null
+                  ? 'Checking Wi-Fi…'
+                  : portalWifi.connected
+                    ? `Connected${portalWifi.ssid ? ` to ${portalWifi.ssid}` : ''}${portalWifi.ip ? ` · ${portalWifi.ip}` : ''}`
+                    : 'Not connected to Wi-Fi'}
+                {portalWifi?.connected && portalWifi.signal !== undefined && (
+                  <span class="signal">
+                    {' '}
+                    <SignalBars level={portalWifi.signal} />
+                  </span>
+                )}
+              </div>
+              <div class="wifi-list">
+                <div
+                  class={`focusable wifi-row ${zone === 'panel' ? 'focused' : ''}`}
+                  role="button"
+                  onClick={openPortalWifi}
+                >
+                  <span>
+                    <Icon name="sparkle" />
+                  </span>
+                  <span>Open Portal Wi-Fi settings</span>
+                </div>
+              </div>
+              <p style="color:var(--text-dim);font-size:16px;margin-top:12px">
+                Tap the network and enter its password on the Portal's screen. Press Back or Home
+                to return to Sparkade; this tab updates by itself.
+              </p>
+            </div>
+          )}
+          {tab === 'wifi' && !portal && (
             <div>
               {wifiNotice && (
                 <div

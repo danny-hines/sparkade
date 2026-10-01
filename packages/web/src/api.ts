@@ -566,6 +566,9 @@ export const api = {
     }).then((r) => json<KioskRegistrationStatus>(r)),
   wifiNetworks: () => fetch('/api/system/wifi/networks').then((r) => json<WifiNetwork[]>(r)),
   wifiStatus: () => fetch('/api/system/wifi/status').then((r) => json<WifiStatus>(r)),
+  /** Portal only: opens the Portal's own Wi-Fi screen over Sparkade. */
+  openPortalWifiSettings: () =>
+    fetch('/api/system/wifi/settings', { method: 'POST' }).then((r) => json<boolean>(r)),
   wifiConnect: async (
     ssid: string,
     psk: string,

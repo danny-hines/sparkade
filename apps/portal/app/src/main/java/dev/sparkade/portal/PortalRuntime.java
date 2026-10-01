@@ -1,6 +1,10 @@
 package dev.sparkade.portal;
 
 import android.content.Context;
+import android.net.wifi.SupplicantState;
+import android.net.wifi.WifiConfiguration;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.util.AtomicFile;
 import android.util.Base64;
@@ -73,11 +77,46 @@ final class PortalRuntime {
                 deleteTree(new File(games, id));
                 return new JSONObject().put("ok", true);
             }
+            case "wifi.status": return wifiStatus();
             case "device.info": return new JSONObject().put("model", Build.MODEL)
                     .put("version", BuildConfig.VERSION_NAME).put("diskFreeBytes", games.getUsableSpace())
                     .put("diskTotalBytes", games.getTotalSpace());
             default: throw new IOException("Unsupported Portal operation");
         }
+    }
+
+    /** Read-only status for Settings. Credentials never cross the WebView bridge;
+     * networks are chosen in the Portal's own Wi-Fi screen. */
+    // Saved-network lookup needs only ACCESS_WIFI_STATE on Android 9, the Portal's
+    // only platform; later releases require location, so it is skipped there.
+    @android.annotation.SuppressLint("MissingPermission")
+    private JSONObject wifiStatus() throws Exception {
+        WifiManager wifi = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
+        WifiInfo info = wifi == null || !wifi.isWifiEnabled() ? null : wifi.getConnectionInfo();
+        boolean connected = info != null && info.getNetworkId() != -1
+                && info.getSupplicantState() == SupplicantState.COMPLETED;
+        JSONObject status = new JSONObject().put("enabled", wifi != null && wifi.isWifiEnabled())
+                .put("connected", connected).put("ssid", JSONObject.NULL).put("ip", JSONObject.NULL)
+                .put("signal", connected ? WifiManager.calculateSignalLevel(info.getRssi(), 5) : 0);
+        if (!connected) return status;
+        String ssid = unquote(info.getSSID());
+        // Android 9 hides the SSID without location access; the saved entry still names it.
+        if (ssid == null && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            try {
+                java.util.List<WifiConfiguration> saved = wifi.getConfiguredNetworks();
+                if (saved != null)
+                    for (WifiConfiguration network : saved)
+                        if (network.networkId == info.getNetworkId()) ssid = unquote(network.SSID);
+            } catch (SecurityException ignored) { /* Name stays unknown. */ }
+        }
+        int ip = info.getIpAddress();
+        return status.put("ssid", ssid == null ? JSONObject.NULL : ssid).put("ip", ip == 0 ? JSONObject.NULL
+                : (ip & 0xff) + "." + (ip >> 8 & 0xff) + "." + (ip >> 16 & 0xff) + "." + (ip >> 24 & 0xff));
+    }
+    private static String unquote(String ssid) {
+        if (ssid == null || ssid.isEmpty() || "<unknown ssid>".equals(ssid)) return null;
+        return ssid.length() > 1 && ssid.startsWith("\"") && ssid.endsWith("\"")
+                ? ssid.substring(1, ssid.length() - 1) : ssid;
     }
 
     private synchronized Object readState() throws Exception {

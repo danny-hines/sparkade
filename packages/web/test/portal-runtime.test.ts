@@ -105,6 +105,9 @@ async function setup() {
       if (installFails) throw new Error('Connection interrupted');
       installed = structuredClone(args.bundle) as CloudGameBundle;
     }
+    if (operation === 'wifi.status')
+      result = { connected: true, ssid: 'Office Guest', ip: '10.0.0.7', signal: 3 };
+    if (operation === 'wifi.settings') result = true;
     if (operation === 'game.read') result = installed;
     if (operation === 'game.remove') installed = null;
     return result as T;
@@ -337,6 +340,18 @@ describe('cloud polling', () => {
     await runtime.handle('/api/cloud/registration');
     await vi.waitFor(() => expect(test.count('cloud', '/v1/sync')).toBe(1));
   });
+});
+
+it('reads Wi-Fi status and opens the Portal Wi-Fi screen without handling credentials', async () => {
+  const { runtime, calls } = await setup();
+  const status = await (await runtime.handle('/api/system/wifi/status')).json();
+  expect(status).toEqual({ connected: true, ssid: 'Office Guest', ip: '10.0.0.7', signal: 3, mock: false });
+  expect(await (await runtime.handle('/api/system/wifi/settings', { method: 'POST' })).json()).toBe(true);
+  // Only these two read/open operations exist; no network list or password crosses the bridge.
+  expect(calls.filter((c) => c.operation.startsWith('wifi.')).map((c) => [c.operation, c.args])).toEqual([
+    ['wifi.status', {}],
+    ['wifi.settings', {}],
+  ]);
 });
 
 it('uses the real cloud transcription operation and returns its text', async () => {

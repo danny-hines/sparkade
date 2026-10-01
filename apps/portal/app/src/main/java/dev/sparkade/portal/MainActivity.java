@@ -305,6 +305,11 @@ public final class MainActivity extends Activity {
                 .setView(panel).setNegativeButton("Cancel", null)
                 .setNeutralButton("Other launchers", (d, which) -> showOtherLaunchers())
                 .setPositiveButton(BuildConfig.STANDALONE ? "Save" : "Connect", null).create();
+        if (BuildConfig.STANDALONE) panel.addView(button("Wi-Fi settings", () -> {
+            dialog.dismiss();
+            String error = openWifiSettings();
+            if (error != null) Toast.makeText(this, error, Toast.LENGTH_LONG).show();
+        }));
         if (BuildConfig.STANDALONE) panel.addView(button("Sparkade updates", () -> {
             if (!PortalUpdater.get(this).enterMaintenance()) {
                 Toast.makeText(this, "Return to Press Start, the library, or Settings before updating. Finish any game or generation first.", Toast.LENGTH_LONG).show();
@@ -334,6 +339,19 @@ public final class MainActivity extends Activity {
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.rgb(43, 43, 43)));
         }
+    }
+
+    /** The Portal's own Wi-Fi screen: pick a network and type its password by
+     * touch; Back or Home returns here. Returns an error message, or null. */
+    private String openWifiSettings() {
+        for (String action : new String[] {
+                android.provider.Settings.ACTION_WIFI_SETTINGS, android.provider.Settings.ACTION_SETTINGS }) {
+            try {
+                startActivity(new Intent(action));
+                return null;
+            } catch (android.content.ActivityNotFoundException ignored) { /* Try the next screen. */ }
+        }
+        return "Wi-Fi settings are unavailable on this Portal.";
     }
 
     /** Launch an existing Home app explicitly, even when Sparkade is the default. */
@@ -477,6 +495,17 @@ public final class MainActivity extends Activity {
             JSONObject request = new JSONObject(text);
             String id = request.getString("id");
             if (!id.matches("[A-Za-z0-9-]{1,100}")) return;
+            if (BuildConfig.STANDALONE && "wifi.settings".equals(request.optString("operation"))) {
+                retryHandler.post(() -> {
+                    String error = openWifiSettings();
+                    try {
+                        respond(view, reply, (error == null
+                                ? new JSONObject().put("id", id).put("value", true)
+                                : new JSONObject().put("id", id).put("error", error)).toString());
+                    } catch (Exception ignored) { /* Activity closing. */ }
+                });
+                return;
+            }
             if (BuildConfig.STANDALONE && "maintenance.state".equals(request.optString("operation"))) {
                 JSONObject args = request.optJSONObject("args");
                 PortalUpdater.get(this).screen(args == null ? "unknown" : args.optString("screen", "unknown"));

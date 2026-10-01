@@ -11,6 +11,7 @@ import {
   type JobEvent,
   type KioskRegistrationStatus,
   type ScoreRow,
+  type WifiStatus,
 } from '@sparkade/shared';
 import { archetypes } from '@sparkade/archetypes';
 import type { GameDetail, SettingsPayload } from './api';
@@ -579,6 +580,17 @@ export class PortalRuntime {
           Object.values(this.state.games).filter((e) => !e.deleted).length,
       };
     }
+    if (path === '/api/system/wifi/status') {
+      const wifi = await this.native<{
+        connected: boolean;
+        ssid: string | null;
+        ip: string | null;
+        signal: number;
+      }>('wifi.status');
+      return { ...wifi, mock: false } satisfies WifiStatus;
+    }
+    if (path === '/api/system/wifi/settings' && method === 'POST')
+      return this.native<boolean>('wifi.settings');
     if (path === '/api/generation/estimate') return this.cloud(`/v1/estimate${url.search}`);
     if (path === '/api/transcribe' && init.body instanceof FormData) {
       const audio = init.body.get('audio');

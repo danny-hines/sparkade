@@ -140,7 +140,7 @@ accuracy and latency on the hardware; see the production roadmap.
   **Press Start** or a shell menu. A progress hint appears after two seconds.
 - Hold **Start** for about two seconds in a game to return to the library.
 - **Android Back** opens the host's device settings, including a touch-controls
-  toggle, WebView information, and Other launchers. Bench mode also has a server
+  toggle, WebView information, Wi-Fi settings (standalone), and Other launchers. Bench mode also has a server
   URL field. From the Mac:
 
   ```sh
@@ -502,10 +502,10 @@ native update screen for test devices. Channels point to immutable versioned APK
 publishing an APK alone does not promote it. Maintainers validate a published release:
 
 ```sh
-npm run portal:promote -- --release portal-v0.4.12 --channel pilot
-npm run portal:promote -- --release portal-v0.4.12 --channel pilot --publish
+npm run portal:promote -- --release portal-v0.4.13 --channel pilot
+npm run portal:promote -- --release portal-v0.4.13 --channel pilot --publish
 # After hardware acceptance, approve the identical binary for ordinary kiosks:
-npm run portal:promote -- --release portal-v0.4.12 --channel stable --publish
+npm run portal:promote -- --release portal-v0.4.13 --channel stable --publish
 # Withdraw approval without uninstalling or altering devices:
 npm run portal:promote -- --channel stable --disable --publish
 ```
@@ -541,6 +541,13 @@ cloud polls. The shared progress screen reserves generated-art preview space and
 no longer re-renders its feed every second. Pi kiosks need a source update for
 the shared screen changes. The duplicate design/music cards were caused by cloud
 replay dedupe and are fixed by the website/cloud deployment, not the APK.
+Release v0.4.13 adds a Portal **Settings → WiFi** tab and an **Android Back → Wi-Fi
+settings** button. Both open the Portal's own Wi-Fi screen; the WebView bridge
+gains only `wifi.status` (connected, saved network name, IP, 0-4 signal bars) and
+`wifi.settings` (open that screen), never network lists or credentials. It also
+ships the idle-kiosk polling change: Portals and Pis sync at startup and then only
+while a game is building. Pi kiosks need a source update for that shared change;
+the Pi WiFi tab is unchanged.
 
 The app only downloads from pinned GitHub release hosts, bounds download size/time,
 checks SHA-256 and the installed app's signing certificate, and rejects debug builds,

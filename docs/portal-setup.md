@@ -12,7 +12,7 @@ Open **Terminal** on the Mac and paste:
 
 ```sh
 curl -fL --proto '=https' --proto-redir '=https' \
-  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.12/install-portal.sh \
+  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.13/install-portal.sh \
   -o /tmp/install-sparkade-portal.sh && bash /tmp/install-sparkade-portal.sh
 ```
 
@@ -54,8 +54,13 @@ so the kiosk reconnects after power-on. Do not supply passwords in command flags
 environment variables, chat, or issue reports. Setup disables shell tracing before
 reading credentials.
 
-Changing networks requires USB; the installer will not change Wi-Fi through a
-wireless ADB connection. `--skip-wifi` preserves the current connection without a
+On site, without a Mac, open **Settings → WiFi → Open Portal Wi-Fi settings**
+(Portal 0.4.13 or later). Tap the network, enter its password on the Portal's
+screen, then press Back or Home to return; the WiFi tab updates by itself. Use
+the installer below when a Mac is at hand or the Portal runs an older version.
+
+Changing networks from Terminal requires USB; the installer will not change Wi-Fi
+through a wireless ADB connection. `--skip-wifi` preserves the current connection without a
 prompt; non-interactive setup also leaves Wi-Fi alone. Enterprise authentication,
 certificates, other Android versions, or firmware restrictions use Portal settings.
 Automatic configuration targets WPA2-Personal and open networks, not WPA3-only.
@@ -200,6 +205,10 @@ Saving the game library no longer pauses the Portal's display, and an idle cloud
 check no longer rewrites it. Generated art previews reserve their space before
 loading. Repeated design and music cards are fixed by the website/cloud deployment,
 so games generated before that deployment keep their extra cards.
+Version **0.4.13** adds **Settings → WiFi** on the Portal: it shows the current
+connection and opens the Portal's own Wi-Fi screen, so a kiosk can join a new
+network on site without a Mac. The same screen is in **Android Back → Wi-Fi
+settings**. An idle kiosk also stops contacting the cloud until a game is building.
 
 **Dedicated kiosk option:** setup asks whether to enable on-device app updates.
 This disables Meta's additional OS-wide app-install verifier, which otherwise

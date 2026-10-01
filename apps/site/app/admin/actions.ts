@@ -106,7 +106,7 @@ export async function setKioskDisplayCopyAction(formData: FormData): Promise<nev
   adminRedirect(
     '/admin/kiosks',
     updated
-      ? 'Kiosk copy saved. It will appear within a minute while the kiosk is online.'
+      ? 'Kiosk copy saved. It will appear the next time the kiosk checks in.'
       : 'Could not save kiosk copy. Use up to 40 characters for the title and 120 for the tagline.',
     updated ? 'success' : 'error',
   );

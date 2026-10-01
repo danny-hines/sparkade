@@ -1,6 +1,23 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
-test('loads saved kiosk copy, refreshes both screens, retains it offline and restores defaults', async ({
+// The shell samples keys once per frame. After a clock jump, a quick tap can land
+// between frames, so hold each state until the broker has seen it.
+async function press(page: Page, key: string): Promise<void> {
+  const frames = () =>
+    page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+  await frames();
+  await page.keyboard.down(key);
+  await frames();
+  await page.keyboard.up(key);
+  await frames();
+}
+
+test('loads saved kiosk copy, refreshes after idle and in Settings, retains it offline and restores defaults', async ({
   page,
 }) => {
   await page.clock.install();
@@ -14,24 +31,45 @@ test('loads saved kiosk copy, refreshes both screens, retains it offline and res
       json: { state: 'registered', origin: 'https://sparkade.dev', displayCopy: copy },
     });
   });
+  // Menus return to attract after five idle minutes; the shell checks every 10 s.
+  const idleToAttract = async () => {
+    await page.clock.fastForward(5 * 60_000 + 10_100);
+    await expect(page.locator('.press-start')).toBeVisible();
+  };
   await page.goto('/');
   await expect(page.locator('.attract .logo')).toHaveText('Launch Party');
   await expect(page.locator('.attract-tagline')).toHaveText('Dream up your next game');
   await expect.poll(() => refreshed).toBe(1);
 
-  await page.keyboard.press('Enter');
+  await press(page, 'Enter');
   await expect(page.locator('.home .kiosk-title')).toHaveText('Launch Party');
   copy = { title: 'Event Day Two', tagline: 'Another day of games' };
+  // Registration is never polled: each check wakes the cloud database.
   await page.clock.fastForward(60_100);
+  await expect(page.locator('.home .kiosk-title')).toHaveText('Launch Party');
+  expect(refreshed).toBe(1);
+
+  // A visitor starting after the idle timeout triggers the next check.
+  await idleToAttract();
+  await press(page, 'Enter');
+  await expect.poll(() => refreshed).toBe(2);
   await expect(page.locator('.home .kiosk-title')).toHaveText('Event Day Two');
 
   offline = true;
-  await page.clock.fastForward(60_100);
+  await idleToAttract();
+  await expect(page.locator('.attract .logo')).toHaveText('Event Day Two');
+  await press(page, 'Enter');
   await expect.poll(() => refreshed).toBe(3);
   await expect(page.locator('.home .kiosk-title')).toHaveText('Event Day Two');
+
+  // Opening Settings checks immediately.
   offline = false;
   copy = { title: '', tagline: '' };
-  await page.clock.fastForward(60_100);
+  await press(page, 'ArrowUp');
+  await press(page, 'KeyX');
+  await expect(page.locator('.settings-tabs')).toBeVisible();
+  await expect.poll(() => refreshed).toBe(4);
+  await press(page, 'KeyZ');
   await expect(page.locator('.home .kiosk-title')).toHaveText('SPARKADE');
 });
 

@@ -4,6 +4,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  DEFAULT_DESIGN_MODEL,
   DEFAULT_KEYBOARD_MAP,
   DEFAULT_MODEL,
   DEFAULT_PRICING,
@@ -21,6 +22,7 @@ export function defaultConfig(): SparkadeConfig {
     { provider: string; model: string; reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' }
   >;
   for (const s of STAGE_NAMES) stages[s] = { provider: 'meta', model: DEFAULT_MODEL };
+  stages.design.model = DEFAULT_DESIGN_MODEL;
   stages.stt = { provider: 'meta', model: DEFAULT_STT_MODEL };
   // Levels are the slowest call; validators guard their quality, so spend the
   // model's time writing tiles instead of deliberating about them.
@@ -75,8 +77,10 @@ Edit with \`sparkade config edit\` (or any editor; restart the service after).
   capabilities tell the pipeline what to send: structuredOutput (native JSON-Schema mode), audioIn (native transcription), imageIn.
   reasoningEffort (meta only): Muse Spark is a reasoning model; "low" is fast and cheap,
   "medium"/"high" think longer per call (better designs, more output-priced tokens).
-- stages: which provider+model runs each pipeline stage (design/levels/entities/music/repair/stt).
-  Text stages default to muse-spark-1.3-contributor; stt defaults to muse-voice-transcribe-1.0.
+- stages: which provider+model runs each pipeline stage (design/levels/entities/music/repair/review/stt).
+  design (the game design document: title, story, cast, art direction) defaults to muse-wonder-1.0.
+  levels/entities/music/repair and review (art-candidate and content judgements) default to
+  muse-spark-1.3-contributor; stt defaults to muse-voice-transcribe-1.0.
   Contributor-tier inputs and responses may be used by Meta for model training; choose another
   configured model/provider if that is unsuitable.
 - pricing: token models use USD per million tokens; speech models use USD per processed audio hour.
@@ -103,10 +107,25 @@ const HISTORICAL_DEFAULT_TEXT_MODELS = new Set(['muse-spark-1.1', 'muse-spark-1.
  * and unrecognized Meta model ids are intentional customizations. */
 function migrateDefaultStages(onDisk: Partial<SparkadeConfig>): boolean {
   let changed = false;
+  // Review calls used the design stage before it had its own row. Keep a
+  // customized design provider/model judging as before; a stock design row
+  // is upgraded below and its copy follows the Spark text default.
+  const design = onDisk.stages?.design;
+  if (onDisk.stages && design && !onDisk.stages.review) {
+    onDisk.stages.review = { ...design };
+    changed = true;
+  }
   for (const stage of STAGE_NAMES) {
     if (stage === 'stt') continue;
     const row = onDisk.stages?.[stage];
-    if (row?.provider === 'meta' && HISTORICAL_DEFAULT_TEXT_MODELS.has(row.model)) {
+    if (row?.provider !== 'meta') continue;
+    if (
+      stage === 'design' &&
+      (row.model === DEFAULT_MODEL || HISTORICAL_DEFAULT_TEXT_MODELS.has(row.model))
+    ) {
+      row.model = DEFAULT_DESIGN_MODEL;
+      changed = true;
+    } else if (stage !== 'design' && HISTORICAL_DEFAULT_TEXT_MODELS.has(row.model)) {
       row.model = DEFAULT_MODEL;
       changed = true;
     }

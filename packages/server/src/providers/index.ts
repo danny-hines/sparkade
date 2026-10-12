@@ -52,7 +52,9 @@ export function stageProvider(
       model: config.stages[stage]?.model ?? DEFAULT_MODEL,
     };
   }
-  const stageCfg = config.stages[stage];
+  // Jobs snapshot their config. Snapshots taken before `review` existed ran
+  // those calls on the design row, so resume them exactly that way.
+  const stageCfg = config.stages[stage] ?? (stage === 'review' ? config.stages.design : undefined);
   if (!stageCfg) throw new Error(`no stage config for "${stage}"`);
   return {
     provider: buildProvider(stageCfg.provider, config),

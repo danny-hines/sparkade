@@ -9,7 +9,16 @@ export function generationEstimate(
   busy: boolean,
 ) {
   const model = c.stages.design.model;
-  const textUsd = estimateGenerationCost(model, c.pricing, {
+  const stageModel = (stage: 'levels' | 'entities' | 'music' | 'review') =>
+    (c.stages[stage] ?? c.stages.design).model;
+  const models = {
+    design: model,
+    levels: stageModel('levels'),
+    entities: stageModel('entities'),
+    music: stageModel('music'),
+    review: stageModel('review'),
+  };
+  const textUsd = estimateGenerationCost(models, c.pricing, {
     platformerPoseJudges: hasPhoto && (archetype === undefined || archetype === 'platformer'),
     platformerBossJudge: archetype === undefined || archetype === 'platformer',
     hshooterBossJudge: archetype === undefined || archetype === 'hshooter',

@@ -3009,7 +3009,7 @@ export class GenerationRunner {
             const rawDecision = mockImages
               ? mockDecision
               : await callLlm(
-                  'design',
+                  'review',
                   {
                     ...buildPlayerCraftJudgePrompt(descriptors, {
                       orientation,
@@ -3136,7 +3136,7 @@ export class GenerationRunner {
           prompt.user += ` ${racingPlayerIdentityReview(!!racingPlayerPhoto)}`;
         }
         const rawDecision = await callLlm(
-          'design',
+          'review',
           {
             ...prompt,
             jsonSchema: buildRacingRosterJudgeSchema(reviewSlots),
@@ -3213,7 +3213,7 @@ export class GenerationRunner {
           prompt.user += ` ${racingPlayerIdentityReview(!!racingPlayerPhoto)}`;
         }
         const rawDecision = await callLlm(
-          'design',
+          'review',
           {
             ...prompt,
             jsonSchema: buildRacingFoundationJudgeSchema(reviewSlots.map(toFoundationSlot)),
@@ -3259,7 +3259,7 @@ export class GenerationRunner {
           board = await buildRacingPhotoReviewReference((await racingPlayerReferenceTask)!, board);
         }
         const raw = await callLlm(
-          'design',
+          'review',
           {
             ...prompt,
             jsonSchema: buildRacingLeastBadSchema(candidates.length, banks),
@@ -3895,7 +3895,7 @@ export class GenerationRunner {
                   const rawDecision = mockImages
                     ? mockDecision
                     : await callLlm(
-                        'design',
+                        'review',
                         {
                           ...buildAdventurePlayerIdentityJudgePrompt(
                             descriptors,
@@ -4191,7 +4191,7 @@ export class GenerationRunner {
                   const rawDecision = mockImages
                     ? mockDecision
                     : await callLlm(
-                        'design',
+                        'review',
                         {
                           ...buildAdventurePlayerSetJudgePrompt(
                             descriptors,
@@ -5126,7 +5126,7 @@ export class GenerationRunner {
                         mockImages
                           ? { accepted: true }
                           : callLlm(
-                              'design',
+                              'review',
                               {
                                 system: racingLocomotionJudgePrompt(motion),
                                 user: `Subject: ${concept}. Art direction: ${racingIdentity.artDirection}.`,
@@ -5810,7 +5810,7 @@ export class GenerationRunner {
                 let rawDecision: unknown = mockDecision;
                 if (!mockImages) {
                   rawDecision = await callLlm(
-                    'design',
+                    'review',
                     {
                       ...buildAdventureEnemyJudgePrompt(descriptors, concepts),
                       jsonSchema: buildAdventureEnemyJudgeSchema(descriptors),
@@ -6059,7 +6059,7 @@ export class GenerationRunner {
                 let rawDecision: unknown = mockDecision;
                 if (!mockImages) {
                   rawDecision = await callLlm(
-                    'design',
+                    'review',
                     {
                       ...buildAdventureObjectJudgePrompt(descriptors, promptOptions),
                       jsonSchema: buildAdventureObjectJudgeSchema(descriptors),
@@ -6098,7 +6098,7 @@ export class GenerationRunner {
                   },
                   review: (prompt, jsonSchema, image) =>
                     callLlm(
-                      'design',
+                      'review',
                       { ...prompt, jsonSchema, maxTokens: 1500, timeoutMs: 120_000 },
                       {
                         stage: 'building-assets',
@@ -6298,7 +6298,7 @@ export class GenerationRunner {
                 if (!mockImages) {
                   try {
                     rawDecision = await callLlm(
-                      'design',
+                      'review',
                       {
                         ...judgePrompt,
                         jsonSchema: buildAdventureBossJudgeSchema(descriptors),
@@ -6515,7 +6515,7 @@ export class GenerationRunner {
                 if (!mockImages) {
                   try {
                     rawDecision = await callLlm(
-                      'design',
+                      'review',
                       {
                         ...buildHShooterBossJudgePrompt(descriptors.map(({ id }) => id)),
                         jsonSchema: buildPlatformerBossJudgeSchema(descriptors),
@@ -6805,7 +6805,7 @@ export class GenerationRunner {
                 const rawDecision = mockImages
                   ? mockDecision
                   : await callLlm(
-                      'design',
+                      'review',
                       {
                         ...buildHShooterEnemyJudgePrompt(descriptors, concepts),
                         jsonSchema: buildHShooterEnemyJudgeSchema(descriptors),
@@ -7016,7 +7016,7 @@ export class GenerationRunner {
                 const rawDecision = mockImages
                   ? mockDecision
                   : await callLlm(
-                      'design',
+                      'review',
                       {
                         ...buildShooterBossJudgePrompt(descriptors.map(({ id }) => id)),
                         jsonSchema: buildPlatformerBossJudgeSchema(descriptors),
@@ -7292,7 +7292,7 @@ export class GenerationRunner {
                 const rawDecision = mockImages
                   ? mockDecision
                   : await callLlm(
-                      'design',
+                      'review',
                       {
                         ...buildShooterEnemyJudgePrompt(descriptors, concepts),
                         jsonSchema: buildShooterEnemyJudgeSchema(descriptors),
@@ -7491,7 +7491,7 @@ export class GenerationRunner {
                 if (!mockImages) {
                   try {
                     rawDecision = await callLlm(
-                      'design',
+                      'review',
                       {
                         ...judgePrompt,
                         jsonSchema: buildPlatformerBossJudgeSchema(descriptors),
@@ -7752,7 +7752,7 @@ export class GenerationRunner {
                   if (!mockImages) {
                     try {
                       rawDecision = await callLlm(
-                        'design',
+                        'review',
                         {
                           ...judgePrompt,
                           jsonSchema: buildPlatformerEnemyJudgeSchema(descriptors),
@@ -8440,7 +8440,7 @@ export class GenerationRunner {
                       fighterSpec.artDirection,
                     );
                     rawIdentityDecision = await callLlm(
-                      'design',
+                      'review',
                       {
                         ...prompt,
                         jsonSchema: buildFighterIdentityJudgeSchema(identityDescriptors),
@@ -8707,7 +8707,7 @@ export class GenerationRunner {
                         fighterSpec.artDirection,
                       );
                       rawDecision = await callLlm(
-                        'design',
+                        'review',
                         {
                           ...prompt,
                           jsonSchema: buildFighterPoseJudgeSchema(descriptors, actionPoses),
@@ -8961,7 +8961,7 @@ export class GenerationRunner {
                   if (mockImages) return mockDecision;
                   try {
                     return await callLlm(
-                      'design',
+                      'review',
                       {
                         ...prompt,
                         jsonSchema,
@@ -9461,7 +9461,7 @@ export class GenerationRunner {
                     mockImages
                       ? mockDecision
                       : callLlm(
-                          'design',
+                          'review',
                           { ...prompt, jsonSchema, maxTokens: 3000, timeoutMs: 120_000 },
                           {
                             stage: 'building-assets',

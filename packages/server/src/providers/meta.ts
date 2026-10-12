@@ -3,7 +3,8 @@
 // file so a human can correct request/response shapes in one place.
 //
 // Originally verified LIVE against api.meta.ai with a real key on 2026-07-10
-// using Muse Spark 1.1; Muse Spark 1.2 and 1.3 retain this protocol:
+// using Muse Spark 1.1; Muse Spark 1.2/1.3 and Muse Wonder 1.0 (verified live
+// 2026-10-12, structured output + minimal/low effort) retain this protocol:
 //   endpoint   POST {baseUrl}/chat/completions        (baseUrl default https://api.meta.ai/v1)
 //   auth       Authorization: Bearer $META_API_KEY
 //   body       { model, messages:[{role, content}], max_completion_tokens,
@@ -36,7 +37,7 @@ import type {
   ProviderUsage,
   TranscriptionResult,
 } from '@sparkade/shared';
-import { DEFAULT_MODEL, DEFAULT_STT_MODEL, GENERATION } from '@sparkade/shared';
+import { DEFAULT_DESIGN_MODEL, DEFAULT_MODEL, DEFAULT_STT_MODEL, GENERATION } from '@sparkade/shared';
 import { sleep } from '../util';
 import { needsWavTranscode, transcodeToWav } from './audio';
 import { metaApiKeyFor, httpJson, ProviderHttpError, ProviderNetworkError } from './base';
@@ -95,7 +96,7 @@ export class MetaProvider implements Provider {
   /** A newly rolled-out default can briefly be absent in one serving region.
    * Avoid probing it on every generation call, but retry it without requiring
    * a cabinet restart once the short rollout cooldown expires. */
-  private primaryUnavailableUntil = 0;
+  private unavailableUntil = new Map<string, number>();
 
   constructor(
     readonly name: string,
@@ -114,6 +115,10 @@ export class MetaProvider implements Provider {
 
   private key(): string {
     return metaApiKeyFor(this.cfg.apiKeyEnv ?? 'META_API_KEY', this.name);
+  }
+
+  private available(model: string): boolean {
+    return Date.now() >= (this.unavailableUntil.get(model) ?? 0);
   }
 
   async complete(
@@ -170,17 +175,22 @@ export class MetaProvider implements Provider {
       };
     };
 
-    const primaryAvailable = Date.now() >= this.primaryUnavailableUntil;
+    // Default chain: Wonder (design) -> Spark 1.3 Contributor -> 1.2 Contributor,
+    // or 1.1 for image-bearing calls because 1.2 Contributor rejects that modality.
+    const sparkChain = [
+      ...(this.available(DEFAULT_MODEL) ? [DEFAULT_MODEL] : []),
+      req.image ? LEGACY_FALLBACK_MODEL : CONTRIBUTOR_FALLBACK_MODEL,
+    ];
     const candidateModels =
-      requestedModel === DEFAULT_MODEL
-        ? primaryAvailable
-          ? [requestedModel, req.image ? LEGACY_FALLBACK_MODEL : CONTRIBUTOR_FALLBACK_MODEL]
-          : [req.image ? LEGACY_FALLBACK_MODEL : CONTRIBUTOR_FALLBACK_MODEL]
-        : req.image && requestedModel === CONTRIBUTOR_FALLBACK_MODEL
-          ? this.visionFallbackRequired
-            ? [LEGACY_FALLBACK_MODEL]
-            : [requestedModel, LEGACY_FALLBACK_MODEL]
-          : [requestedModel];
+      requestedModel === DEFAULT_DESIGN_MODEL
+        ? [...(this.available(requestedModel) ? [requestedModel] : []), ...sparkChain]
+        : requestedModel === DEFAULT_MODEL
+          ? sparkChain
+          : req.image && requestedModel === CONTRIBUTOR_FALLBACK_MODEL
+            ? this.visionFallbackRequired
+              ? [LEGACY_FALLBACK_MODEL]
+              : [requestedModel, LEGACY_FALLBACK_MODEL]
+            : [requestedModel];
 
     let lastError: unknown;
     for (const [index, model] of candidateModels.entries()) {
@@ -189,12 +199,13 @@ export class MetaProvider implements Provider {
       } catch (error) {
         lastError = error;
         const hasFallback = index < candidateModels.length - 1;
-        const primaryFallback = model === DEFAULT_MODEL && isModelAvailabilityError(error);
+        const defaultModel = model === DEFAULT_MODEL || model === DEFAULT_DESIGN_MODEL;
+        const primaryFallback = defaultModel && isModelAvailabilityError(error);
         const missingContributorVision =
           req.image && model === CONTRIBUTOR_FALLBACK_MODEL && isModelNotFoundError(error);
         if (!hasFallback || (!primaryFallback && !missingContributorVision)) throw error;
-        if (model === DEFAULT_MODEL && isModelNotFoundError(error)) {
-          this.primaryUnavailableUntil = Date.now() + MODEL_UNAVAILABLE_COOLDOWN_MS;
+        if (defaultModel && isModelNotFoundError(error)) {
+          this.unavailableUntil.set(model, Date.now() + MODEL_UNAVAILABLE_COOLDOWN_MS);
         }
         if (missingContributorVision) this.visionFallbackRequired = true;
       }
@@ -333,7 +344,7 @@ export class MetaProvider implements Provider {
     const candidateModels =
       model === TRANSCRIPTION_PRIMARY_MODEL
         ? [
-            ...(Date.now() >= this.primaryUnavailableUntil ? [model] : []),
+            ...(this.available(model) ? [model] : []),
             CONTRIBUTOR_FALLBACK_MODEL,
             LEGACY_FALLBACK_MODEL,
           ]
@@ -373,7 +384,7 @@ export class MetaProvider implements Provider {
           lastRetryableError = e;
 
           if (candidateModel === TRANSCRIPTION_PRIMARY_MODEL && modelUnavailable) {
-            this.primaryUnavailableUntil = Date.now() + MODEL_UNAVAILABLE_COOLDOWN_MS;
+            this.unavailableUntil.set(candidateModel, Date.now() + MODEL_UNAVAILABLE_COOLDOWN_MS);
           }
 
           // Do not spend the interactive voice budget retrying an unhealthy

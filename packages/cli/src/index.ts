@@ -14,7 +14,7 @@ import {
 } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
-import { DEFAULT_MODEL } from '@sparkade/shared';
+import { DEFAULT_DESIGN_MODEL, DEFAULT_MODEL } from '@sparkade/shared';
 
 const REPO = process.env.SPARKADE_REPO_DIR ?? '/opt/sparkade';
 const ENV_FILE = process.platform === 'linux' ? '/etc/sparkade/env' : join(repoDir(), '.env');
@@ -341,12 +341,18 @@ function cmdConfig(args: string[]): void {
       );
       process.exit(1);
     }
-    const TEXT_STAGES = ['design', 'levels', 'entities', 'music', 'repair'];
+    const TEXT_STAGES = ['design', 'levels', 'entities', 'music', 'repair', 'review'];
     for (const s of TEXT_STAGES) cfg.stages[s] = { ...cfg.stages[s], provider: name, model };
+    // Without an explicit model, Meta restores its split default: Wonder designs.
+    if (name === 'meta' && !modelArg) cfg.stages['design']!.model = DEFAULT_DESIGN_MODEL;
     if (name === 'meta') cfg.stages['stt'] = { provider: 'meta', model };
     if (name === 'compat' && baseUrlArg) cfg.providers['compat']!.baseUrl = baseUrlArg;
     writeConfig(cfg);
-    console.log(`text stages (design/levels/entities/music/repair) → ${name} · ${model}`);
+    console.log(
+      name === 'meta' && !modelArg
+        ? `design → meta · ${DEFAULT_DESIGN_MODEL}; levels/entities/music/repair/review → meta · ${model}`
+        : `text stages (design/levels/entities/music/repair/review) → ${name} · ${model}`,
+    );
     const sttProvider = cfg.stages['stt']?.provider ?? 'meta';
     if (name !== 'meta') {
       console.log(

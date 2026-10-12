@@ -402,7 +402,17 @@ export const GENERATION = {
   maxConcurrentImageCalls: 16,
 } as const;
 
-export const STAGE_NAMES = ['design', 'levels', 'entities', 'music', 'repair', 'stt'] as const;
+/** `design` authors the game design document; `review` makes the vision and
+ * content judgements that pick among generated candidates. */
+export const STAGE_NAMES = [
+  'design',
+  'levels',
+  'entities',
+  'music',
+  'repair',
+  'review',
+  'stt',
+] as const;
 export type StageName = (typeof STAGE_NAMES)[number];
 
 /** Job progress stages, in display order (shown honestly in the UI). */
@@ -424,10 +434,15 @@ export const DEFAULT_PRICING: Record<string, PriceRow> = {
   'muse-spark-1.1': { inputPerM: 1.25, outputPerM: 4.25, cachedInputPerM: 0.15 },
   'muse-spark-1.2-contributor': { inputPerM: 0.1, outputPerM: 0.2, cachedInputPerM: 0.002 },
   'muse-spark-1.3-contributor': { inputPerM: 0.1, outputPerM: 0.2, cachedInputPerM: 0.002 },
+  'muse-wonder-1.0': { inputPerM: 4, outputPerM: 20, cachedInputPerM: 0.2 },
   'muse-voice-transcribe-1.0': { audioPerHour: 0.18 },
 };
 
 export const DEFAULT_MODEL = 'muse-spark-1.3-contributor';
+/** The design pass writes the title, story, cast and art direction players
+ * see. A blind A/B (2026-10-12) preferred Muse Wonder there; every other
+ * stage stays on Spark, where Wonder showed no gain for 40-100x the price. */
+export const DEFAULT_DESIGN_MODEL = 'muse-wonder-1.0';
 export const DEFAULT_STT_MODEL = 'muse-voice-transcribe-1.0';
 
 // ---------------------------------------------------------------------------

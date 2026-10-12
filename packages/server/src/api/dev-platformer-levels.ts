@@ -499,7 +499,7 @@ async function executeHydration(
   const mock = process.env.SPARKADE_PROVIDER === 'mock';
   const imageConfig = config.imageGeneration;
   const imageModel = options.imageModel ?? (mock ? 'mock-image' : imageConfig.model);
-  const judgeStage = stageProvider(config, 'design');
+  const judgeStage = stageProvider(config, 'review');
   const judgeModel = options.judgeModel ?? judgeStage.model;
   const judgeProvider = options.judgeProvider ?? (mock ? 'mock' : judgeStage.providerName);
   run.judgeModel = judgeModel;

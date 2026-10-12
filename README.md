@@ -101,7 +101,8 @@ premise-specific scenery and background props; the generated environment is opti
 atomically to the stable procedural stage if it cannot be normalized.
 
 To hit the real models, copy `.env.example` to `.env`, set `META_API_KEY`, and use `npm run dev`.
-The same key is used for Muse Spark 1.2 Contributor, Muse Voice Transcribe 1.0, and Muse Image 1.0.
+The same key is used for Muse Wonder 1.0, Muse Spark 1.3 Contributor, Muse Voice Transcribe 1.0,
+and Muse Image 1.0.
 
 ## Releasing changes
 
@@ -309,13 +310,14 @@ no half-written game is ever visible as playable, and existing games/scores can'
   Photos and audio never appear in logs.
 - An accepted photo is sent to Meta's Model API (Muse Image) to create the hero. For detailed
   platformers, the source photo is also included in two locally assembled review boards sent to the
-  configured design-stage provider so it can select the safest identity foundation and run pair.
+  configured review-stage provider so it can select the safest identity foundation and run pair.
   Separately, `likeness.describeInStory` controls whether the design pass itself sees the photo so
   story text may reference visible traits; it ships **off**. There is no production face-taxonomy
   analysis step. Recorded ideas go to the configured transcription provider.
-- The default text model uses the Muse Spark 1.2 Contributor tier. Inputs and responses sent through
-  this tier may be used by Meta for model training; choose another configured model/provider if that
-  is unsuitable for your use case.
+- The default design model is Muse Wonder 1.0 (standard tier). Every other text stage defaults to
+  the Muse Spark 1.3 Contributor tier. Inputs and responses sent through that tier may be used by
+  Meta for model training; choose another configured model/provider if that is unsuitable for your
+  use case.
 - API keys live in an env file (0600), never in config.json, the API, or the browser.
 - The server binds 127.0.0.1 by default and rejects cross-origin mutations.
 
@@ -362,14 +364,20 @@ incident `candidate-fixed` until a regression test or fresh generation is record
 ## Pointing at a different model / provider
 
 Per-stage config in `config.json` (`sparkade config edit`, or `sparkade config set
-stages.music.model <id>`): stages are `design · levels · entities · music · repair · stt`, each
-with `{provider, model}`. Providers: `meta` (Meta Model API, default `muse-spark-1.3-contributor`),
+stages.music.model <id>`): stages are `design · levels · entities · music · repair · review · stt`,
+each with `{provider, model}`. `design` writes the game design document (title, story, cast, art
+direction) and defaults to `muse-wonder-1.0`; `review` makes the vision judgements that pick among
+generated art candidates, plus the website's content checks. A blind 12-brief A/B (2026-10-12)
+preferred Wonder's designs, while Wonder everywhere cost about 2.9× per game with no reliability,
+speed or repair gain, so only the design pass uses it. Providers: `meta` (Meta Model API, default
+`muse-spark-1.3-contributor` for every other text stage),
 `compat` (any OpenAI-compatible server — set `baseUrl`), `anthropic`, `mock`. Capability flags
 (`structuredOutput`, `audioIn`, `imageIn`) control what the pipeline sends. Add pricing rows under
 `pricing` or the UI shows "cost unavailable" (never $0.00). The Meta `stt` stage defaults to
 `muse-voice-transcribe-1.0` at $0.18 per processed audio hour; transient preview failures fall back
-to Muse Spark audio input. Default 1.3 Contributor calls fail over to 1.2 Contributor when the
-selected model is temporarily missing, times out, or returns a 5xx serving error. Image-bearing
+to Muse Spark audio input. Default Wonder design calls fail over to 1.3 Contributor, and default
+1.3 Contributor calls fail over to 1.2 Contributor, when the selected model is temporarily missing,
+times out, or returns a 5xx serving error. Image-bearing
 calls use 1.1 as their compatibility fallback because 1.2 Contributor rejects that modality;
 chat-audio can use it as a final fallback. Authentication failures, invalid requests, ordinary
 404s, and shared rate limits never switch models. Muse Image is configured separately at

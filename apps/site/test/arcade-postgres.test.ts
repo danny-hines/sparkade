@@ -310,7 +310,7 @@ describe.skipIf(!enabled)('arcade domain against real PostgreSQL', () => {
     const { jobId } = await createAdminGame();
     const row = (await getJob(jobId))!;
     const body = JSON.stringify({
-      model: row.state.config!.stages.design.model,
+      model: row.state.config!.stages.review.model,
       max_completion_tokens: 1660,
       messages: [],
     });

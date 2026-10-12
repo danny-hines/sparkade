@@ -60,6 +60,54 @@ describe('MetaProvider completion', () => {
     ]);
   });
 
+  it('falls back from Muse Wonder design calls to Spark 1.3 Contributor on an outage', async () => {
+    process.env.META_API_KEY = 'meta-test-key';
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(errorResponse(503, 'wonder backend unavailable'))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          choices: [{ message: { content: '{"ok":true}' } }],
+          usage: { prompt_tokens: 12, completion_tokens: 4 },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await provider().complete(textRequest(), { model: 'muse-wonder-1.0' });
+
+    expect(result).toMatchObject({ text: '{"ok":true}', model: 'muse-spark-1.3-contributor' });
+    expect(requestModel(fetchMock, 0)).toBe('muse-wonder-1.0');
+    expect(requestModel(fetchMock, 1)).toBe('muse-spark-1.3-contributor');
+  });
+
+  it('remembers a missing Wonder model while the Spark chain stays available', async () => {
+    process.env.META_API_KEY = 'meta-test-key';
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(modelNotFoundResponse())
+      .mockImplementation(() =>
+        Promise.resolve(jsonResponse({ choices: [{ message: { content: '{"ok":true}' } }] })),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const meta = provider();
+
+    const first = await meta.complete(textRequest(), { model: 'muse-wonder-1.0' });
+    const second = await meta.complete(textRequest(), { model: 'muse-wonder-1.0' });
+    const judge = await meta.complete(visionRequest());
+
+    expect([first.model, second.model, judge.model]).toEqual([
+      'muse-spark-1.3-contributor',
+      'muse-spark-1.3-contributor',
+      'muse-spark-1.3-contributor',
+    ]);
+    expect([0, 1, 2, 3].map((index) => requestModel(fetchMock, index))).toEqual([
+      'muse-wonder-1.0',
+      'muse-spark-1.3-contributor',
+      'muse-spark-1.3-contributor',
+      'muse-spark-1.3-contributor',
+    ]);
+  });
+
   it('does not switch models for a shared rate limit', async () => {
     process.env.META_API_KEY = 'meta-test-key';
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(errorResponse(429, 'slow down'));

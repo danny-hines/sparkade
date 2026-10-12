@@ -68,7 +68,7 @@ export async function reviewContent(
     }
     try {
       await assertWebsiteRunnable(row, phase === 'input');
-      const { provider, model } = stageProvider(row.state.config ?? defaultConfig(), 'design');
+      const { provider, model } = stageProvider(row.state.config ?? defaultConfig(), 'review');
       const user = JSON.stringify({ phase, content });
       if (Buffer.byteLength(user) > 160_000) throw new Error('Review input exceeds limit');
       const request: CompleteRequest = {
@@ -88,7 +88,7 @@ export async function reviewContent(
       const task: ProviderTask = {
         id: `review-${phase}-${version}-${claimed[0]!.provider_attempts}`,
         kind: 'text',
-        stage: 'design',
+        stage: 'review',
         model,
         request: { ...request, image: image?.toString('base64') },
       };

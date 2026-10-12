@@ -49,13 +49,16 @@ export function sumCosts(costs: (number | null)[]): number | null {
   return total;
 }
 
+type EstimateStage = 'design' | 'levels' | 'entities' | 'music' | 'review';
+
 /**
  * Review-screen estimate from typical happy-path token counts (design + 3 spec
- * passes). Labeled an estimate in the UI; returns null when the model has no
+ * passes + art reviews), each priced at its stage's model (or one model for
+ * every stage). Labeled an estimate in the UI; returns null when a model has no
  * pricing row.
  */
 export function estimateGenerationCost(
-  model: string,
+  models: string | Record<EstimateStage, string>,
   snapshot: PriceSnapshot,
   options: {
     platformerPoseJudges?: boolean;
@@ -73,13 +76,7 @@ export function estimateGenerationCost(
     adventureObjectJudge?: boolean;
   } = {},
 ): number | null {
-  const price = snapshot[model];
-  if (!price || !isTokenPrice(price)) return null;
-  const typical: ProviderUsage[] = [
-    { input: 5200, output: 1800 }, // design
-    { input: 7400, output: 4200 }, // levels
-    { input: 6800, output: 3200 }, // entities
-    { input: 5600, output: 2600 }, // music
+  const judges: ProviderUsage[] = [
     ...(options.platformerPoseJudges
       ? [
           { input: 900, output: 350 }, // front-idle identity selection
@@ -126,9 +123,19 @@ export function estimateGenerationCost(
       ? [{ input: 2100, output: 2200 }] // one eight-candidate board selects four themed gameplay objects
       : []),
   ];
+  const typical: [EstimateStage, ProviderUsage][] = [
+    ['design', { input: 5200, output: 1800 }],
+    ['levels', { input: 7400, output: 4200 }],
+    ['entities', { input: 6800, output: 3200 }],
+    ['music', { input: 5600, output: 2600 }],
+    ...judges.map((u): [EstimateStage, ProviderUsage] => ['review', u]),
+  ];
   let total = 0;
-  for (const u of typical)
+  for (const [stage, u] of typical) {
+    const price = snapshot[typeof models === 'string' ? models : models[stage]];
+    if (!price || !isTokenPrice(price)) return null;
     total += (u.input / 1e6) * price.inputPerM + (u.output / 1e6) * price.outputPerM;
+  }
   return total;
 }
 

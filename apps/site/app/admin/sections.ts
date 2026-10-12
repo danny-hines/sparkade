@@ -13,7 +13,7 @@ export const adminSections = [
   {
     href: '/admin/invites',
     label: 'Invites',
-    description: 'Create signup links with starting credits and usage limits.',
+    description: 'Create signup codes that add starting credits, with usage limits.',
   },
   {
     href: '/admin/creation',
@@ -23,6 +23,6 @@ export const adminSections = [
   {
     href: '/admin/accounts',
     label: 'Accounts',
-    description: 'Grant credits and manage account access.',
+    description: 'Invite emails, grant credits, and manage account access.',
   },
 ] as const;

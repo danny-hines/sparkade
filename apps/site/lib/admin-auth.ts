@@ -1,4 +1,4 @@
-import { auth, clerkClient } from '@clerk/nextjs/server';
+import { auth, clerkClient, type User } from '@clerk/nextjs/server';
 
 export interface AdminIdentity {
   userId: string;
@@ -7,6 +7,12 @@ export interface AdminIdentity {
   authorized: boolean;
   reason?: string;
 }
+
+/** The Clerk fields admin and site-access checks read. */
+export type AccessUser = Pick<
+  User,
+  'id' | 'createdAt' | 'primaryEmailAddressId' | 'emailAddresses' | 'fullName' | 'firstName'
+>;
 
 function configuredValues(name: string): Set<string> {
   return new Set(
@@ -17,11 +23,8 @@ function configuredValues(name: string): Set<string> {
   );
 }
 
-export async function getAdminIdentity(): Promise<AdminIdentity | null> {
-  const { userId } = await auth();
-  if (!userId) return null;
-  const client = await clerkClient();
-  const user = await client.users.getUser(userId);
+export function adminIdentityFor(user: AccessUser): AdminIdentity {
+  const userId = user.id;
   const primaryEmail =
     user.emailAddresses.find((entry) => entry.id === user.primaryEmailAddressId)?.emailAddress ??
     user.emailAddresses[0]?.emailAddress ??
@@ -43,6 +46,13 @@ export async function getAdminIdentity(): Promise<AdminIdentity | null> {
         ? { reason: 'This account is not on the Sparkade admin allowlist.' }
         : {}),
   };
+}
+
+export async function getAdminIdentity(): Promise<AdminIdentity | null> {
+  const { userId } = await auth();
+  if (!userId) return null;
+  const client = await clerkClient();
+  return adminIdentityFor(await client.users.getUser(userId));
 }
 
 export async function requireAdminIdentity(): Promise<AdminIdentity> {

@@ -1,9 +1,9 @@
 import { SignUp } from '@clerk/nextjs';
-import { auth } from '@clerk/nextjs/server';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { lookupInviteOffer } from '@/lib/invites';
+import { getSiteAccess, INVITE_ONLY_PATH } from '@/lib/site-access';
 import { readSignupAttempt, safeReturnPath, SIGNUP_COOKIE } from '@/lib/signup';
 import { SignupForm } from '../signup-form';
 
@@ -12,8 +12,9 @@ export default async function SignUpPage({
 }: {
   searchParams: Promise<{ invite?: string; redirect_url?: string }>;
 }) {
-  const { userId } = await auth();
-  if (userId) redirect('/sign-up/complete');
+  const access = await getSiteAccess();
+  if (access.status === 'denied') redirect(INVITE_ONLY_PATH);
+  if (access.status === 'member') redirect('/sign-up/complete');
   const query = await searchParams;
   const attempt = await readSignupAttempt((await cookies()).get(SIGNUP_COOKIE)?.value);
   const offer = attempt?.code ? await lookupInviteOffer(attempt.code) : null;
@@ -29,6 +30,9 @@ export default async function SignUpPage({
           <span>Your next game starts here</span>
           <h1>Join the arcade.</h1>
         </div>
+        <p className="signup-offer">
+          Sparkade is invite-only. Sign up with the email address you were invited with.
+        </p>
         {!attempt ? (
           <SignupForm
             code={typeof query.invite === 'string' ? query.invite.slice(0, 100) : ''}
@@ -36,13 +40,13 @@ export default async function SignUpPage({
           />
         ) : (
           <>
-            <p className="signup-offer">
-              {offer?.valid
-                ? `${offer.credits} starting credits with your invite. Credits are added after email verification, while the offer has space and is still active.`
-                : attempt.code
-                  ? 'Your invite is no longer available. You can change it below or finish signup and choose another code.'
-                  : 'Your account will start with 0 credits. Buying credits is coming soon.'}
-            </p>
+            {attempt.code && (
+              <p className="signup-offer">
+                {offer?.valid
+                  ? `${offer.credits} starting credits with your invite code. Credits are added after email verification, while the offer has space and is still active.`
+                  : 'Your invite code is no longer available. You can change it below or finish signup and choose another code.'}
+              </p>
+            )}
             <>
               <SignUp
                 routing="path"
@@ -53,7 +57,7 @@ export default async function SignUpPage({
               />
             </>
             <details className="signup-change">
-              <summary>Change your invite choice</summary>
+              <summary>Change your invite code</summary>
               <SignupForm code={attempt.code ?? ''} returnPath={attempt.returnPath} />
             </details>
           </>

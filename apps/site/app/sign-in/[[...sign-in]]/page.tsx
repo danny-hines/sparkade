@@ -1,8 +1,8 @@
 import { SignIn } from '@clerk/nextjs';
 import Link from 'next/link';
-import { auth } from '@clerk/nextjs/server';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { getSiteAccess, INVITE_ONLY_PATH } from '@/lib/site-access';
 import { safeReturnPath, SIGNUP_COOKIE } from '@/lib/signup';
 import type { Metadata } from 'next';
 
@@ -22,8 +22,9 @@ export default async function SignInPage({
     (await cookies()).has(SIGNUP_COOKIE) || query.redirect_url === '/sign-up/complete'
       ? '/sign-up/complete'
       : safeReturnPath(query.redirect_url);
-  const { userId } = await auth();
-  if (userId) redirect(destination);
+  const access = await getSiteAccess();
+  if (access.status === 'denied') redirect(INVITE_ONLY_PATH);
+  if (access.status === 'member') redirect(destination);
   const signupUrl = `/sign-up?redirect_url=${encodeURIComponent(safeReturnPath(query.redirect_url))}`;
   return (
     <>
@@ -41,6 +42,7 @@ export default async function SignInPage({
             <span>Welcome back</span>
             <h1>Your arcade awaits.</h1>
           </div>
+          <p className="signup-offer">Sparkade is invite-only. Sign in with your invited email.</p>
           <SignIn
             routing="path"
             path="/sign-in"

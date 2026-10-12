@@ -251,6 +251,34 @@
   color: var(--ink-soft);
   overflow-wrap: anywhere;
 }
+.admin-access-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.admin-access-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.admin-access-list li > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.admin-access-list strong {
+  overflow-wrap: anywhere;
+}
+.admin-access-list time {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
 .admin-skip-link {
   position: fixed;
   top: 8px;

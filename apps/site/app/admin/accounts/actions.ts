@@ -5,6 +5,13 @@ import { redirect } from 'next/navigation';
 import { requireAdminIdentity } from '@/lib/admin-auth';
 import { ensureArcadeSchema, env } from '@/lib/arcade';
 import { getSql } from '@/lib/db';
+import {
+  addInvitedEmails,
+  MAX_INVITED_EMAILS_PER_REQUEST,
+  normalizeInvitedEmail,
+  parseInvitedEmails,
+  removeInvitedEmail,
+} from '@/lib/invited-emails';
 export async function accountAdminAction(form: FormData) {
   const admin = await requireAdminIdentity();
   await ensureArcadeSchema();
@@ -45,4 +52,57 @@ export async function accountAdminAction(form: FormData) {
     ]);
   revalidatePath('/', 'layout');
   redirect('/admin/accounts?notice=Account+updated');
+}
+
+export interface InviteEmailsState {
+  error: string;
+  notice: string;
+  draft: string;
+}
+
+export async function inviteEmailsAction(
+  _previous: InviteEmailsState,
+  form: FormData,
+): Promise<InviteEmailsState> {
+  const admin = await requireAdminIdentity();
+  const draft = String(form.get('emails') ?? '').slice(0, 20_000);
+  const { emails, invalid } = parseInvitedEmails(draft);
+  if (invalid.length) {
+    const more = invalid.length > 5 ? ` and ${invalid.length - 5} more` : '';
+    return {
+      error: `Not valid email addresses: ${invalid.slice(0, 5).join(', ')}${more}. Nothing was added.`,
+      notice: '',
+      draft,
+    };
+  }
+  if (!emails.length) return { error: 'Enter at least one email address.', notice: '', draft };
+  if (emails.length > MAX_INVITED_EMAILS_PER_REQUEST)
+    return {
+      error: `Add up to ${MAX_INVITED_EMAILS_PER_REQUEST} addresses at a time.`,
+      notice: '',
+      draft,
+    };
+  const added = await addInvitedEmails(emails, admin.userId);
+  revalidatePath('/admin/accounts');
+  const existing = emails.length - added.length;
+  return {
+    error: '',
+    notice: `Invited ${added.length} ${added.length === 1 ? 'address' : 'addresses'}.${
+      existing ? ` ${existing} already on the list.` : ''
+    }`,
+    draft: '',
+  };
+}
+
+export async function removeInvitedEmailAction(form: FormData) {
+  const admin = await requireAdminIdentity();
+  const email = normalizeInvitedEmail(String(form.get('email') ?? ''));
+  if (!email) redirect('/admin/accounts?tone=error&notice=Choose+an+invited+email+to+remove.');
+  const removed = await removeInvitedEmail(email, admin.userId);
+  revalidatePath('/', 'layout');
+  redirect(
+    removed
+      ? '/admin/accounts?notice=Invite+removed.+That+person+loses+access+on+their+next+page+load.'
+      : '/admin/accounts?tone=error&notice=That+email+was+not+on+the+invite+list.',
+  );
 }

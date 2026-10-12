@@ -49,7 +49,8 @@ export default async function AdminInvitesPage({ searchParams }: InvitesPageProp
         <h1>Invite friends with starting credits.</h1>
         <p>
           Each invite offers fixed credits per recipient up to a recipient limit. Signup without a
-          code starts at zero credits. Manage generation access and spending in Creation.
+          code starts at zero credits. A code does not grant sign-in: add the recipient’s email in
+          Accounts first. Manage generation access and spending in Creation.
         </p>
       </section>
 

@@ -1,8 +1,8 @@
 'use server';
 
-import { auth } from '@clerk/nextjs/server';
 import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { getSessionUserId } from '@/lib/site-access';
 import { getSignupIdentity } from '@/lib/signup-auth';
 import {
   finishSignup, limitSignupRequests, SIGNUP_COOKIE, SIGNUP_TTL_SECONDS,
@@ -31,8 +31,7 @@ function field(form: FormData, name: string): string {
 }
 
 export async function startSignupAction(_state: SignupActionState, form: FormData): Promise<SignupActionState> {
-  const { userId } = await auth();
-  if (userId) redirect('/sign-up/complete');
+  if (await getSessionUserId()) redirect('/sign-up/complete');
   try {
     const requestHeaders = await headers();
     // Vercel owns this header. Elsewhere, use a shared anonymous limit rather
@@ -54,12 +53,12 @@ export async function startSignupAction(_state: SignupActionState, form: FormDat
 export async function completeSignupAction(_state: SignupActionState, form: FormData): Promise<SignupActionState> {
   // Identity and verification are read afresh for every call, including retries.
   try {
-    const { userId } = await auth();
+    const userId = await getSessionUserId();
     if (!userId) return { error: 'Sign in to finish your signup.' };
     // Bound provider lookups as well as database mutations.
     await limitSignupRequests(userId, true);
     const identity = await getSignupIdentity();
-    if (!identity) return { error: 'Sign in to finish your signup.' };
+    if (!identity) return { error: 'Sign in with your invited email to finish signup.' };
     const jar = await cookies();
     const intent = field(form, 'intent');
     const choice = intent === 'zero' ? { kind: 'zero' as const }

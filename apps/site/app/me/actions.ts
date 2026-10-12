@@ -1,19 +1,19 @@
 'use server';
 
-import { auth } from '@clerk/nextjs/server';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { ArcadeError } from '@/lib/arcade';
 import { changeUsername } from '@/lib/profiles';
+import { getSiteMember } from '@/lib/site-access';
 import { UsernameError } from '@/lib/usernames';
 
 export async function changeUsernameAction(_previous: { error: string }, form: FormData) {
-  const { userId } = await auth();
-  if (!userId) redirect('/sign-in?redirect_url=/me/profile');
+  const member = await getSiteMember();
+  if (!member) redirect('/sign-in?redirect_url=/me/profile');
   const value = form.get('username');
   try {
     if (typeof value !== 'string') throw new UsernameError('Enter a username.');
-    await changeUsername(userId, value);
+    await changeUsername(member.userId, value);
   } catch (error) {
     return {
       username: typeof value === 'string' ? value.slice(0, 24) : '',

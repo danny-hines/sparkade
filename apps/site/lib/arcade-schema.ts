@@ -21,6 +21,11 @@ export function ensureArcadeSchema() {
       FOREIGN KEY(environment,user_id) REFERENCES arcade_profiles(environment,user_id))`;
     await sql`INSERT INTO arcade_profile_handles(environment,handle,user_id)
       SELECT environment,handle,user_id FROM arcade_profiles ON CONFLICT DO NOTHING`;
+    // Website sign-in is invite-only: verified addresses listed here (plus admins).
+    await sql`CREATE TABLE IF NOT EXISTS site_access_emails (
+      environment TEXT NOT NULL, email TEXT NOT NULL CHECK(email=lower(email)),
+      invited_by_user_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY(environment,email))`;
     await sql`CREATE TABLE IF NOT EXISTS arcade_settings (
       environment TEXT PRIMARY KEY, enabled BOOLEAN NOT NULL DEFAULT FALSE,
       price INTEGER NOT NULL DEFAULT 10 CHECK(price>0),

@@ -1,12 +1,13 @@
 import { UserButton } from '@clerk/nextjs';
-import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
+import { getSiteAccess, INVITE_ONLY_PATH } from '@/lib/site-access';
 import { CompletionForm } from './completion-form';
 
 export default async function CompleteSignupPage() {
-  const { userId } = await auth();
-  if (!userId) redirect('/sign-in?redirect_url=/sign-up/complete');
+  const access = await getSiteAccess();
+  if (access.status === 'signed-out') redirect('/sign-in?redirect_url=/sign-up/complete');
+  if (access.status === 'denied') redirect(INVITE_ONLY_PATH);
   return (
     <>
       <main className="auth-page">

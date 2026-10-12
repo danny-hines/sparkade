@@ -1,4 +1,3 @@
-import { auth } from '@clerk/nextjs/server';
 import { getSql } from '@/lib/db';
 import { ensureArcadeSchema, env } from '@/lib/arcade';
 import { getAdminIdentity } from '@/lib/admin-auth';
@@ -15,9 +14,7 @@ export async function GET(
     await getSql()`SELECT owner_id,moderation,deleted_at FROM public_games WHERE id=${id} AND environment=${env()}`;
   if (!game || game.deleted_at) return new Response(null, { status: 404 });
   if (game.moderation !== 'approved') {
-    const { userId } = await auth();
-    if (!userId || !(await getAdminIdentity())?.authorized)
-      return new Response(null, { status: 404 });
+    if (!(await getAdminIdentity())?.authorized) return new Response(null, { status: 404 });
   }
   const final = await readWebsiteFinal(id),
     asset = final?.bundle.manifest.assets.find((a) => a.filename === filename);

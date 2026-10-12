@@ -56,8 +56,7 @@ export default function TermsPage() {
       <p>
         Credits are used for game creation according to the price shown before submission. Invite
         offers may have eligibility conditions, expiration dates, and limited availability. Credits
-        are service credits, not money, and cannot be redeemed for cash. Any future paid offers will
-        disclose their price and applicable terms before purchase.
+        are service credits, not money, and cannot be redeemed for cash.
       </p>
       <p>
         Sparkade is in beta. Features may change, creation may be paused, and games or accounts may

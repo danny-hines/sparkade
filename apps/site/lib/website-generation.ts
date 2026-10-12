@@ -72,7 +72,7 @@ function checkCreationAccount(
     throw new ArcadeError('Creation is paused. Your credits are safe.');
   if (profile.credits < config.price)
     throw new ArcadeError(
-      `You need ${config.price} credits to create a game. Buying credits is coming soon.`,
+      `You need ${config.price} credits to create a game. Ask the person who invited you for more.`,
     );
 }
 

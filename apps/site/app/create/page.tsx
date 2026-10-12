@@ -33,8 +33,8 @@ export default async function CreatePage() {
           )}
           {user.credits < config.price && (
             <p className="arc-message">
-              You have {user.credits} credits. Creating a game costs {config.price} credits. Buying
-              credits is coming soon.
+              You have {user.credits} credits. Creating a game costs {config.price} credits. Ask the
+              person who invited you for more.
             </p>
           )}
           <CreateForm
@@ -53,7 +53,6 @@ export default async function CreatePage() {
             {user.credits}
             <small>credits available</small>
           </div>
-          <p>Buying credits is coming soon.</p>
           <hr />
           <h2>From idea to arcade</h2>
           <ol className="arc-steps">

@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(), getUser: vi.fn(), setCookie: vi.fn(), deleteCookie: vi.fn(),
-  cookie: 'browser-token', limit: vi.fn(), start: vi.fn(), finish: vi.fn(),
+  cookie: 'browser-token', limit: vi.fn(), start: vi.fn(), finish: vi.fn(), invited: vi.fn(),
 }));
+vi.mock('../lib/invited-emails', () => ({ findInvitedEmails: mocks.invited }));
 vi.mock('@clerk/nextjs/server', () => ({
   auth: mocks.auth,
   clerkClient: async () => ({ users: { getUser: mocks.getUser } }),
@@ -32,10 +33,11 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.auth.mockResolvedValue({ userId: 'trusted-user' });
   mocks.getUser.mockResolvedValue({
-    createdAt: 1750000000000, primaryEmailAddressId: 'primary',
-    emailAddresses: [{ id: 'primary', verification: { status: 'verified' } }],
+    id: 'trusted-user', createdAt: 1750000000000, primaryEmailAddressId: 'primary',
+    emailAddresses: [{ id: 'primary', emailAddress: 'player@example.test', verification: { status: 'verified' } }],
     unsafeMetadata: { emailVerified: false, credits: 9999 },
   });
+  mocks.invited.mockResolvedValue(['player@example.test']);
   mocks.finish.mockResolvedValue({ status: 'credited', balance: 30, creditsAdded: 30, returnPath: '/me' });
 });
 
@@ -50,11 +52,24 @@ describe('auth destinations', () => {
 
 describe('signup auth boundary', () => {
   it('uses only the primary email verification from the Clerk backend', async () => {
-    mocks.getUser.mockResolvedValue({ createdAt: 123, primaryEmailAddressId: 'primary', emailAddresses: [
-      { id: 'secondary', verification: { status: 'verified' } },
-      { id: 'primary', verification: { status: 'unverified' } },
+    mocks.getUser.mockResolvedValue({ id: 'trusted-user', createdAt: 123, primaryEmailAddressId: 'primary', emailAddresses: [
+      { id: 'secondary', emailAddress: 'player@example.test', verification: { status: 'verified' } },
+      { id: 'primary', emailAddress: 'new@example.test', verification: { status: 'unverified' } },
     ], unsafeMetadata: { emailVerified: true } });
     expect(await getSignupIdentity()).toEqual({ userId: 'trusted-user', createdAt: 123, emailVerified: false });
+  });
+  it('gives uninvited accounts no signup identity, whatever their metadata claims', async () => {
+    mocks.invited.mockResolvedValue([]);
+    mocks.getUser.mockResolvedValue({ id: 'trusted-user', createdAt: 123, primaryEmailAddressId: 'primary', emailAddresses: [
+      { id: 'primary', emailAddress: 'stranger@example.test', verification: { status: 'verified' } },
+    ], unsafeMetadata: { invited: true }, publicMetadata: { invited: true } });
+    expect(await getSignupIdentity()).toBeNull();
+  });
+  it('does not finish signup or redeem credits for an uninvited account', async () => {
+    mocks.invited.mockResolvedValue([]);
+    expect((await completeSignupAction({ error: null }, form({}))).error).toContain('invited email');
+    expect(mocks.finish).not.toHaveBeenCalled();
+    expect(mocks.deleteCookie).not.toHaveBeenCalled();
   });
   it('denies signed-out finalization before database access', async () => {
     mocks.auth.mockResolvedValue({ userId: null });

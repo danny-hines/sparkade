@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-vi.mock('@clerk/nextjs/server', () => ({ auth: vi.fn() }));
+vi.mock('../lib/site-access', () => ({ getSiteMember: vi.fn() }));
 vi.mock('../lib/profiles', () => ({ changeUsername: vi.fn() }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('next/navigation', () => ({
@@ -7,7 +7,7 @@ vi.mock('next/navigation', () => ({
     throw new Error(`REDIRECT:${url}`);
   },
 }));
-import { auth } from '@clerk/nextjs/server';
+import { getSiteMember } from '../lib/site-access';
 import { revalidatePath } from 'next/cache';
 import { changeUsername } from '../lib/profiles';
 import { UsernameError } from '../lib/usernames';
@@ -21,13 +21,13 @@ function form() {
   return data;
 }
 function signedIn() {
-  vi.mocked(auth).mockResolvedValue({ userId: 'session-owner' } as Awaited<
-    ReturnType<typeof auth>
+  vi.mocked(getSiteMember).mockResolvedValue({ userId: 'session-owner' } as Awaited<
+    ReturnType<typeof getSiteMember>
   >);
 }
 describe('username action authorization', () => {
-  it('requires a session before mutating', async () => {
-    vi.mocked(auth).mockResolvedValue({ userId: null } as Awaited<ReturnType<typeof auth>>);
+  it('requires an invited session before mutating', async () => {
+    vi.mocked(getSiteMember).mockResolvedValue(null);
     await expect(changeUsernameAction({ error: '' }, form())).rejects.toThrow(
       'REDIRECT:/sign-in?redirect_url=/me/profile',
     );

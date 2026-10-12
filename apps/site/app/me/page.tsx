@@ -39,7 +39,6 @@ export default async function AccountPage({
             {user.credits}
             <small>credits available</small>
           </div>
-          <p>Buying credits is coming soon.</p>
           <a className="arc-button" href="/create">
             Create a game →
           </a>

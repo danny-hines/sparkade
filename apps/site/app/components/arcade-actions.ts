@@ -1,7 +1,6 @@
 'use server';
 import { start } from 'workflow/api';
 import { generateGameWorkflow } from '@/workflows/generate-game';
-import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { ArcadeError, ActiveGameError, manageGame, setFavorite } from '@/lib/arcade';
@@ -15,12 +14,13 @@ import {
 import { getAdminIdentity, requireAdminIdentity } from '@/lib/admin-auth';
 import type { ActiveWebsiteGame } from '@/lib/website-creation-policy';
 import { getSignupIdentity } from '@/lib/signup-auth';
+import { getSiteMember } from '@/lib/site-access';
 
 export async function favoriteAction(_previous: { error: string }, form: FormData) {
-  const { userId } = await auth();
-  if (!userId) redirect('/sign-in?redirect_url=/play');
+  const member = await getSiteMember();
+  if (!member) redirect('/sign-in?redirect_url=/play');
   try {
-    await setFavorite(userId, String(form.get('id')), form.get('wanted') === 'true');
+    await setFavorite(member.userId, String(form.get('id')), form.get('wanted') === 'true');
     revalidatePath('/', 'layout');
     return { error: '' };
   } catch (error) {
@@ -33,11 +33,11 @@ export async function favoriteAction(_previous: { error: string }, form: FormDat
   }
 }
 export async function manageGameAction(form: FormData) {
-  const { userId } = await auth();
-  if (!userId) redirect('/sign-in?redirect_url=/me');
+  const member = await getSiteMember();
+  if (!member) redirect('/sign-in?redirect_url=/me');
   let message = 'Game updated.';
   try {
-    await manageGame(userId, String(form.get('id')), String(form.get('action')));
+    await manageGame(member.userId, String(form.get('id')), String(form.get('action')));
   } catch (error) {
     message = error instanceof ArcadeError ? error.message : 'Could not update your game.';
   }
@@ -87,9 +87,9 @@ export async function createGameAction(
   redirect(`/me/games/${id}${notice ? `?notice=${encodeURIComponent(notice)}` : ''}`);
 }
 export async function cancelGameAction(form: FormData) {
-  const { userId } = await auth();
-  if (!userId) redirect('/sign-in?redirect_url=/me');
-  await cancelWebsiteGame(userId, String(form.get('jobId')));
+  const member = await getSiteMember();
+  if (!member) redirect('/sign-in?redirect_url=/me');
+  await cancelWebsiteGame(member.userId, String(form.get('jobId')));
   revalidatePath('/', 'layout');
   redirect('/me');
 }

@@ -15,7 +15,7 @@ export function CompletionForm() {
       <h2>{result.status === 'credited' ? `${result.creditsAdded} invite credits added` : 'Your account is ready'}</h2>
       <p>You have <strong>{result.balance} credits</strong>.</p>
       {result.status === 'ineligible' && <p>Invite bonuses are for new signups with an invite saved before registration.</p>}
-      {result.balance === 0 && <p>Buying credits is coming soon. You can play shared games now.</p>}
+      {result.balance === 0 && <p>You can play shared games now. Ask the person who invited you for credits to create your own.</p>}
       <Link className="signup-button" href={result.returnPath}>Continue</Link>
     </div>;
   }

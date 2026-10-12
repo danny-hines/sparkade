@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { cookies } from 'next/headers';
-import { auth } from '@clerk/nextjs/server';
+import { getSiteMember } from '@/lib/site-access';
 import { startPlay, finishPlay } from '@/lib/plays';
 import { limitSignupRequests } from '@/lib/signup';
 import { env } from '@/lib/arcade';
@@ -10,7 +10,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   if (Number(request.headers.get('content-length')) > 1024)
     return new Response(null, { status: 413 });
-  const { userId } = await auth(),
+  // Play counting must not fail on an account lookup; count the play as a guest's.
+  const member = await getSiteMember().catch(() => null),
     jar = await cookies();
   let anon = jar.get('sparkade_player')?.value;
   if (!anon || !/^[-a-f0-9]{36}$/.test(anon)) {
@@ -23,7 +24,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       maxAge: 86400 * 365,
     });
   }
-  const viewer = userId ? `user:${userId}` : `guest:${anon}`;
+  const viewer = member ? `user:${member.userId}` : `guest:${anon}`;
   try {
     const network = process.env.VERCEL
       ? (request.headers.get('x-vercel-forwarded-for') ?? 'anonymous')

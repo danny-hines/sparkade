@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-vi.mock('@clerk/nextjs/server', () => ({ auth: vi.fn() }));
-vi.mock('../lib/admin-auth', () => ({ getAdminIdentity: vi.fn() }));
+vi.mock('../lib/site-access', () => ({ getSiteMember: vi.fn() }));
 vi.mock('../lib/website-photo', () => ({ readWebsitePhoto: vi.fn() }));
-import { auth } from '@clerk/nextjs/server';
-import { getAdminIdentity } from '../lib/admin-auth';
+import { getSiteMember, type SiteMember } from '../lib/site-access';
 import { readWebsitePhoto } from '../lib/website-photo';
 import { GET } from '../app/api/me/games/[id]/photo/route';
 
@@ -12,8 +10,15 @@ const request = () =>
     params: Promise.resolve({ id: 'game-a' }),
   });
 beforeEach(() => vi.resetAllMocks());
-function session(userId: string | null) {
-  vi.mocked(auth).mockResolvedValue({ userId } as Awaited<ReturnType<typeof auth>>);
+function session(userId: string | null, admin = false) {
+  vi.mocked(getSiteMember).mockResolvedValue(
+    userId
+      ? ({
+          userId,
+          admin: { userId, email: '', displayName: 'Player', authorized: admin },
+        } as SiteMember)
+      : null,
+  );
 }
 describe('source photo authorization', () => {
   it('denies anonymous reads without loading a photo', async () => {
@@ -30,27 +35,20 @@ describe('source photo authorization', () => {
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');
     expect(await response.text()).toBe('photo');
+    expect(readWebsitePhoto).toHaveBeenCalledTimes(1);
     expect(readWebsitePhoto).toHaveBeenCalledWith('game-a', 'owner');
-    expect(getAdminIdentity).not.toHaveBeenCalled();
   });
   it('does not give another signed-in user admin access', async () => {
     session('other');
     vi.mocked(readWebsitePhoto).mockResolvedValue(null);
-    vi.mocked(getAdminIdentity).mockResolvedValue(null);
     expect((await request()).status).toBe(404);
     expect(readWebsitePhoto).toHaveBeenCalledTimes(1);
   });
   it('allows an authorized reviewer to load the source', async () => {
-    session('reviewer');
+    session('reviewer', true);
     vi.mocked(readWebsitePhoto)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(Buffer.from('photo'));
-    vi.mocked(getAdminIdentity).mockResolvedValue({
-      authorized: true,
-      userId: 'reviewer',
-      email: '',
-      displayName: 'Admin',
-    });
     expect((await request()).status).toBe(200);
     expect(readWebsitePhoto).toHaveBeenLastCalledWith('game-a', 'reviewer', true);
   });

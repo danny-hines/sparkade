@@ -12,7 +12,7 @@ Open **Terminal** on the Mac and paste:
 
 ```sh
 curl -fL --proto '=https' --proto-redir '=https' \
-  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.14/install-portal.sh \
+  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.15/install-portal.sh \
   -o /tmp/install-sparkade-portal.sh && bash /tmp/install-sparkade-portal.sh
 ```
 
@@ -214,6 +214,10 @@ frames per stride are made on the Portal from the hero's existing run frames, pl
 small bob, squash, and footstep dust. The first time a game is played the frames are
 computed in the background; until then, and on any failure, the hero keeps the
 three-frame run. Existing games get it without being regenerated.
+Version **0.4.15** can also play run frames stored with a game: heroes whose arms and
+legs turn as whole pieces, made by the cloud when the game is created. The built-in
+platformer includes them. New games may carry asset types a Portal doesn't know yet;
+from this version those are skipped instead of stopping the game from installing.
 
 **Dedicated kiosk option:** setup asks whether to enable on-device app updates.
 This disables Meta's additional OS-wide app-install verifier, which otherwise

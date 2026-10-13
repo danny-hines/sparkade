@@ -32,8 +32,10 @@ import {
   platformerMechanics,
   platformerTowerLevel,
   requiredPlatformerActionPoses,
+  RUN_INBETWEEN_POSES,
   type PlatformerActionPose,
   type PlatformerPose,
+  type RunInbetweenPose,
   FEEL,
   INTERNAL_HEIGHT,
   INTERNAL_WIDTH,
@@ -307,14 +309,61 @@ export function generatedPlatformerGaitRate(speed: number): number {
   return Math.max(6, Math.min(13.5, Math.abs(speed) / 12)) * GENERATED_PLAYER_GAIT_SPEEDUP;
 }
 
-export function generatedPlatformerGaitFrame(phase: number): {
-  pose: 'sideIdle' | 'walk1' | 'walk2';
-  compression: 0;
-} {
-  const frame = ((Math.floor(phase) % 6) + 6) % 6;
-  if (frame < 2) return { pose: 'walk1', compression: 0 };
-  if (frame === 2 || frame === 5) return { pose: 'sideIdle', compression: 0 };
-  return { pose: 'walk2', compression: 0 };
+export interface GeneratedPlatformerGaitFrame {
+  /** Frame to draw. In-betweens stand in for their contact's base pose. */
+  pose: 'sideIdle' | 'walk1' | 'walk2' | RunInbetweenPose;
+  /** Movement pose that action frames (firing while running) are chosen from. */
+  base: 'sideIdle' | 'walk1' | 'walk2';
+  /** One world pixel of squash on the beat after a foot lands. */
+  compression: 0 | 1;
+  /** World pixels the body rises on the passing and push-off beats. */
+  bob: 0 | 1;
+  runContact: 1 | 2;
+}
+
+type GaitBeat = Pick<GeneratedPlatformerGaitFrame, 'pose' | 'base' | 'compression' | 'bob'>;
+
+// Six beats per cycle: each contact held twice (the second squashed), with
+// the side idle as a raised passing frame between them.
+const THREE_FRAME_GAIT: readonly GaitBeat[] = [
+  { pose: 'walk1', base: 'walk1', compression: 0, bob: 0 },
+  { pose: 'walk1', base: 'walk1', compression: 1, bob: 0 },
+  { pose: 'sideIdle', base: 'sideIdle', compression: 0, bob: 1 },
+  { pose: 'walk2', base: 'walk2', compression: 0, bob: 0 },
+  { pose: 'walk2', base: 'walk2', compression: 1, bob: 0 },
+  { pose: 'sideIdle', base: 'sideIdle', compression: 0, bob: 1 },
+];
+// Eight beats in the same cycle time: contact, down, passing, and up for each
+// leg, where down and up are the in-between leaning from that leg's contact.
+const IN_BETWEEN_GAIT: readonly GaitBeat[] = [
+  { pose: 'walk1', base: 'walk1', compression: 0, bob: 0 },
+  { pose: 'runMid1', base: 'walk1', compression: 1, bob: 0 },
+  { pose: 'sideIdle', base: 'sideIdle', compression: 0, bob: 1 },
+  { pose: 'runMid2', base: 'walk2', compression: 0, bob: 1 },
+  { pose: 'walk2', base: 'walk2', compression: 0, bob: 0 },
+  { pose: 'runMid2', base: 'walk2', compression: 1, bob: 0 },
+  { pose: 'sideIdle', base: 'sideIdle', compression: 0, bob: 1 },
+  { pose: 'runMid1', base: 'walk1', compression: 0, bob: 1 },
+];
+
+/** True when a gait step lands a foot: contacts sit on phases 0 and 3 of
+ * every six-beat cycle, with or without in-betweens. */
+export function generatedPlatformerFootLanded(before: number, after: number): boolean {
+  const beat = Math.floor(after);
+  return beat !== Math.floor(before) && beat % 3 === 0;
+}
+
+/** The run frame for a gait phase measured in six-beat units. With
+ * in-betweens the same cycle time is split into eight beats; foot contacts
+ * stay on phases 0 and 3 either way. */
+export function generatedPlatformerGaitFrame(
+  phase: number,
+  options: { inbetweens?: boolean } = {},
+): GeneratedPlatformerGaitFrame {
+  const sequence = options.inbetweens ? IN_BETWEEN_GAIT : THREE_FRAME_GAIT;
+  const index = Math.floor((phase * sequence.length) / 6);
+  const beat = sequence[((index % sequence.length) + sequence.length) % sequence.length]!;
+  return { ...beat, runContact: beat.pose === 'walk2' || beat.pose === 'runMid2' ? 2 : 1 };
 }
 
 export function generatedPlatformerPoseDrawSize(
@@ -627,6 +676,9 @@ class PlatformerGame implements GameInstance {
   private generatedPlayerPoses: GeneratedPlatformerPoses;
   private poseBounds: Partial<Record<PlatformerPose, PlatformerPoseBounds>> = {};
   private playerAuras: Readonly<Record<PlatformerPose, SilhouetteAura>>;
+  /** Run in-betweens and their shield auras, once the device has made them. */
+  private runInbetweens: Partial<Record<RunInbetweenPose, CanvasImageSource>> = {};
+  private runInbetweenAuras: Partial<Record<RunInbetweenPose, SilhouetteAura>> = {};
   private bossAuras = new Map<CanvasImageSource, SilhouetteAura>();
   private generatedBoss: CanvasImageSource | null = null;
   private generatedEnemies: Readonly<Record<string, CanvasImageSource>> | null = null;
@@ -701,6 +753,24 @@ class PlatformerGame implements GameInstance {
         return [pose, createSilhouetteAura(image, size.w, size.h, shieldColor, 3)];
       }),
     ) as unknown as Readonly<Record<PlatformerPose, SilhouetteAura>>;
+    // A background worker makes the in-betweens; the run keeps its original
+    // three frames until (and unless) they arrive.
+    void this.engine.platformerRunInbetweens
+      ?.then((frames) => {
+        if (!frames || RUN_INBETWEEN_POSES.some((pose) => !frames[pose])) return;
+        for (const pose of RUN_INBETWEEN_POSES) {
+          const size = generatedImageDrawSize(frames[pose]!);
+          this.runInbetweenAuras[pose] = createSilhouetteAura(
+            frames[pose]!,
+            size.w,
+            size.h,
+            shieldColor,
+            3,
+          );
+        }
+        this.runInbetweens = { runMid1: frames.runMid1!, runMid2: frames.runMid2! };
+      })
+      .catch(() => undefined);
     this.generatedBoss = this.engine.platformerBoss;
     const bossSprite = this.sprites['boss']!;
     const bossAuraColor = this.spec.palette[11] ?? '#ef7d57';
@@ -1336,7 +1406,24 @@ class PlatformerGame implements GameInstance {
     }
     if (this.onGround) this.airJumpUsed = false;
     if (this.onGround && target !== 0 && Math.abs(this.pvx) > 8) {
+      const before = this.generatedGaitT;
       this.generatedGaitT += dt * generatedPlatformerGaitRate(this.pvx);
+      // A small puff kicks back from the trailing foot as each foot lands.
+      if (generatedPlatformerFootLanded(before, this.generatedGaitT)) {
+        this.engine.particles.burst(
+          this.playerCenterX() - this.facing * 4,
+          this.playerBottom() - 1,
+          2,
+          {
+            color: this.spec.palette[7],
+            speed: 22,
+            gravity: 30,
+            life: 0.35,
+            angle: this.facing > 0 ? Math.PI + 0.35 : -0.35,
+            spread: Math.PI / 4,
+          },
+        );
+      }
     } else {
       this.generatedGaitT = 0;
     }
@@ -1493,8 +1580,18 @@ class PlatformerGame implements GameInstance {
     return true;
   }
 
-  private playerPoseDrawRect(pose: PlatformerPose, flip: boolean, compression: 0 | 1 = 0) {
-    const image = this.generatedPlayerPoses[pose]!;
+  private playerPoseImage(pose: PlatformerPose | RunInbetweenPose): CanvasImageSource {
+    return pose === 'runMid1' || pose === 'runMid2'
+      ? this.runInbetweens[pose]!
+      : this.generatedPlayerPoses[pose]!;
+  }
+
+  private playerPoseDrawRect(
+    pose: PlatformerPose | RunInbetweenPose,
+    flip: boolean,
+    compression: 0 | 1 = 0,
+  ) {
+    const image = this.playerPoseImage(pose);
     const size = generatedImageDrawSize(image);
     const rect = generatedPlatformerPlayerDrawRect(
       this.px,
@@ -1550,7 +1647,10 @@ class PlatformerGame implements GameInstance {
       heroWorldX = platformerWallDrawX(
         heroWorldX,
         drawW,
-        this.poseBounds[pose] ?? { left: 0, right: 1 },
+        (pose === 'runMid1' || pose === 'runMid2' ? undefined : this.poseBounds[pose]) ?? {
+          left: 0,
+          right: 1,
+        },
         flip,
         leftWall,
         rightWall,
@@ -2744,17 +2844,19 @@ class PlatformerGame implements GameInstance {
       );
       const gait =
         this.onGround && groundAnim === 'walk'
-          ? generatedPlatformerGaitFrame(this.generatedGaitT)
+          ? generatedPlatformerGaitFrame(this.generatedGaitT, {
+              inbetweens: Boolean(this.runInbetweens.runMid1),
+            })
           : null;
       const base: PlatformerPlayerPose = !this.onGround
         ? 'jump'
         : groundAnim === 'walk'
-          ? gait!.pose
+          ? gait!.base
           : groundAnim;
       const action = platformerActionFrame({
         grounded: this.onGround,
         base,
-        runContact: gait?.pose === 'walk2' ? 2 : 1,
+        runContact: gait?.runContact ?? 1,
         facing: this.facing,
         wall: this.towerMotion?.wall ?? 0,
         firing: this.charge > 0 || this.shotPoseT > 0,
@@ -2768,8 +2870,11 @@ class PlatformerGame implements GameInstance {
         meleeT: this.meleeT,
       });
       // Old saves keep their original five-frame set. New saves require every action at load.
-      const generatedPose = this.generatedPlayerPoses[action.pose] ? action.pose : base;
-      const generatedImage = this.generatedPlayerPoses[generatedPose]!;
+      const actionPose = this.generatedPlayerPoses[action.pose] ? action.pose : base;
+      // An in-between stands in for its contact frame unless an action frame shows.
+      const generatedPose: PlatformerPose | RunInbetweenPose =
+        gait && actionPose === base ? gait.pose : actionPose;
+      const generatedImage = this.playerPoseImage(generatedPose);
       let flip = action.pose === generatedPose ? action.flip : base !== 'idle' && this.facing < 0;
       const img: CanvasImageSource = generatedImage;
       if (this.spinning && !this.onGround && generatedPose === 'jump') {
@@ -2779,13 +2884,15 @@ class PlatformerGame implements GameInstance {
       const drawW = generatedRect.w;
       const drawH = generatedRect.h;
       const heroWorldX = generatedRect.x;
-      const heroWorldY = generatedRect.y;
+      const heroWorldY = generatedRect.y - (gait?.bob ?? 0);
       const heroX = heroWorldX - cam.x;
       const heroY = heroWorldY - cam.y;
       if (this.power.shield) {
         const breath = (Math.sin(this.animT * 4.5) + 1) / 2;
         r.drawSilhouetteAura(
-          this.playerAuras[generatedPose],
+          generatedPose === 'runMid1' || generatedPose === 'runMid2'
+            ? this.runInbetweenAuras[generatedPose]!
+            : this.playerAuras[generatedPose],
           heroX,
           heroY,
           drawW,

@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./run-inbetweens": "./src/run-inbetweens.ts",
     "./schemas/*.json": "./src/schemas/*.json"
   },
   "dependencies": {}

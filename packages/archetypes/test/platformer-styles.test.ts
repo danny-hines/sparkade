@@ -96,7 +96,11 @@ function example(style: PlatformerPlayStyle): PlatformerSpec {
   ) as PlatformerSpec;
   return platformerStyleExample(base, style);
 }
-function harness(style: PlatformerPlayStyle, generatedCombatArt = false): Harness {
+function harness(
+  style: PlatformerPlayStyle,
+  generatedCombatArt = false,
+  overrides: Partial<EngineContext> = {},
+): Harness {
   const spec = example(style);
   const noop = () => undefined;
   const sprite = { w: 16, h: 16, frames: [], flipped: [] };
@@ -130,11 +134,36 @@ function harness(style: PlatformerPlayStyle, generatedCombatArt = false): Harnes
     rng: { next: () => 0.5, range: (a: number, b: number) => (a + b) / 2 },
     shake: noop,
     hitStop: noop,
+    ...overrides,
   } as unknown as EngineContext;
   const game = createPlatformerGame(engine, spec) as Harness;
   game.start();
   return game;
 }
+
+describe('generated run animation in the real controller', () => {
+  it('adopts run in-betweens that arrive after play starts', async () => {
+    const mid = { width: 112, height: 128 } as unknown as CanvasImageSource;
+    let deliver!: (frames: Record<string, CanvasImageSource>) => void;
+    const g = harness('runAndGun', false, {
+      platformerRunInbetweens: new Promise((resolve) => (deliver = resolve)),
+    } as Partial<EngineContext>) as Harness & { runInbetweens: Record<string, unknown> };
+    expect(g.runInbetweens.runMid1).toBeUndefined();
+    deliver({ runMid1: mid, runMid2: mid });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(g.runInbetweens).toEqual({ runMid1: mid, runMid2: mid });
+  });
+
+  it('ignores an incomplete in-between set', async () => {
+    const g = harness('runAndGun', false, {
+      platformerRunInbetweens: Promise.resolve({
+        runMid1: { width: 112, height: 128 } as unknown as CanvasImageSource,
+      }),
+    } as Partial<EngineContext>) as Harness & { runInbetweens: Record<string, unknown> };
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(g.runInbetweens).toEqual({});
+  });
+});
 
 describe('platformer packages in the real controller', () => {
   it('gives new encounter turrets a full visible interval before firing, including re-entry', () => {

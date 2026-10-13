@@ -12,7 +12,7 @@ Open **Terminal** on the Mac and paste:
 
 ```sh
 curl -fL --proto '=https' --proto-redir '=https' \
-  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.13/install-portal.sh \
+  https://github.com/danny-hines/sparkade/releases/download/portal-v0.4.14/install-portal.sh \
   -o /tmp/install-sparkade-portal.sh && bash /tmp/install-sparkade-portal.sh
 ```
 
@@ -209,6 +209,11 @@ Version **0.4.13** adds **Settings → WiFi** on the Portal: it shows the curren
 connection and opens the Portal's own Wi-Fi screen, so a kiosk can join a new
 network on site without a Mac. The same screen is in **Android Back → Wi-Fi
 settings**. An idle kiosk also stops contacting the cloud until a game is building.
+Version **0.4.14** smooths generated platformer heroes' running: two in-between
+frames per stride are made on the Portal from the hero's existing run frames, plus a
+small bob, squash, and footstep dust. The first time a game is played the frames are
+computed in the background; until then, and on any failure, the hero keeps the
+three-frame run. Existing games get it without being regenerated.
 
 **Dedicated kiosk option:** setup asks whether to enable on-device app updates.
 This disables Meta's additional OS-wide app-install verifier, which otherwise

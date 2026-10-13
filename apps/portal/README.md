@@ -548,6 +548,12 @@ gains only `wifi.status` (connected, saved network name, IP, 0-4 signal bars) an
 ships the idle-kiosk polling change: Portals and Pis sync at startup and then only
 while a game is building. Pi kiosks need a source update for that shared change;
 the Pi WiFi tab is unchanged.
+Release v0.4.14 packages `main` through the platformer run in-betweens: the shared
+web runtime computes two pixel-shift frames per generated hero in a module worker
+(a separate `run-inbetweens.worker-*.js` asset in the APK, allowed by the shell's
+`script-src 'self'`) and caches them in the WebView's IndexedDB, plus the run bob,
+squash, and dust. Pi kiosks get the same runtime through a source update, and the
+website's player through its deployment; no cloud API or game bundle changed.
 
 The app only downloads from pinned GitHub release hosts, bounds download size/time,
 checks SHA-256 and the installed app's signing certificate, and rejects debug builds,

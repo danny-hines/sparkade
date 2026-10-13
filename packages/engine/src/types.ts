@@ -79,6 +79,9 @@ export interface LikenessAssets {
   fighterArenaPresentationBaked?: boolean;
   /** Native generated platformer poses. Activated only as one complete set. */
   platformerPoses?: Readonly<Record<string, CanvasImageSource>> | null;
+  /** Procedural run in-betweens (`runMid1`, `runMid2`) made on the device from
+   * the run frames; they may arrive after play starts, or never. */
+  platformerRunInbetweens?: Promise<Readonly<Record<string, CanvasImageSource>> | null> | null;
   /** High-density signature boss generated from the platformer's story art. */
   platformerBoss?: CanvasImageSource | null;
   /** Independently generated platformer enemy bodies, keyed by behavior role. */

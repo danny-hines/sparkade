@@ -8,6 +8,7 @@ import {
   type GeneratedGameAssetRole,
 } from '@sparkade/shared';
 import { api as defaultApi } from './api';
+import { loadRunInbetweens } from './run-inbetweens';
 
 /** Ten-file racing pack in load order: 3 panoramas, 5 strips, scenery, materials. */
 export const RACING_PANORAMA_ASSETS = RACING_PANORAMA_ROLES;
@@ -23,9 +24,7 @@ export class RacingArtLoadError extends Error {
     readonly gameId: string,
     readonly missing: readonly string[],
   ) {
-    super(
-      'Some artwork could not be loaded. Reload the game to try again.',
-    );
+    super('Some artwork could not be loaded. Reload the game to try again.');
     this.name = 'RacingArtLoadError';
   }
 }
@@ -460,12 +459,8 @@ export async function loadLikenessAssets(
           badGeometry.length > 0
         ) {
           const missing = [
-            ...RACING_PANORAMA_ASSETS.filter(
-              (_, k) => images[k] === null,
-            ),
-            ...RACING_CRAFT_STRIP_ASSETS.filter(
-              (_, k) => images[3 + k] === null,
-            ),
+            ...RACING_PANORAMA_ASSETS.filter((_, k) => images[k] === null),
+            ...RACING_CRAFT_STRIP_ASSETS.filter((_, k) => images[3 + k] === null),
             ...(sceneryAtlas ? [] : [RACING_SCENERY_ATLAS_ASSET]),
             ...(materialAtlas ? [] : [RACING_MATERIAL_ATLAS_ASSET]),
             ...badGeometry,
@@ -548,6 +543,8 @@ export async function loadLikenessAssets(
     fighterArenaAtlas,
     fighterArenaPresentationBaked: assets.fighterArenaPresentationBaked ?? false,
     platformerPoses,
+    // Computed in the background from the run frames; the game starts without them.
+    platformerRunInbetweens: platformerPoses ? loadRunInbetweens(platformerPoses) : null,
     platformerBoss,
     platformerEnemies,
     platformerProps,

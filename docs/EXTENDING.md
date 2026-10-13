@@ -369,3 +369,27 @@ option controls whether the earlier design pass itself sees the photo. Productio
 identity to the old finite face-feature taxonomy. The source photo remains in staging only while the
 job is retryable and is removed before a successful game is published; photos and audio must never be
 logged.
+
+### Platformer run in-betweens
+
+Generated platformer players run on an eight-beat gait. `@sparkade/shared/run-inbetweens` makes two
+in-between frames from the three generated run frames (contact A, side idle, contact B) by pixel
+shift. Block matching estimates how each part of a contact frame moves toward the side idle, and the
+contact's pixels move one third of the way along that smoothed field, so no new colors appear. A
+third keeps fast hands and feet from stretching.
+
+After the generated poses load, `packages/web/src/run-inbetweens.ts` computes `runMid1` and
+`runMid2` in a module worker and caches them per device in IndexedDB, keyed by the three frames'
+pixels and `RUN_INBETWEEN_VERSION`. The game starts immediately with the six-beat gait and switches
+to the eight-beat gait when the frames arrive. Without workers, or if the computation fails, the
+game keeps its original run; without IndexedDB it recomputes on every load. Nothing is stored in
+game bundles, so every existing game gets it. Bump `RUN_INBETWEEN_VERSION` whenever the algorithm's
+output changes. Actions such as firing still replace the run frame. Every generated-player run, with
+or without in-betweens, now squashes one world pixel on the beat after contact, rises one world
+pixel on passing beats, and kicks a two-particle dust puff from the trailing foot at each contact.
+Lean was dropped because the renderer snaps to whole world pixels.
+
+Measured on the kiosk Pi 3B+ (2026-10-12): the worker took 5.4 seconds in Chromium on a game's first
+load (3.5 s median, 5.2 s max per game in Node across the stored games). While it ran, gameplay
+averaged 37 fps against 40 fps with cached frames, but median frame time rose from 17 to 33 ms.
+Later loads of the same game read the cache.

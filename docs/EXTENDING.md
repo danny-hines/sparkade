@@ -393,3 +393,251 @@ Measured on the kiosk Pi 3B+ (2026-10-12): the worker took 5.4 seconds in Chromi
 load (3.5 s median, 5.2 s max per game in Node across the stored games). While it ran, gameplay
 averaged 37 fps against 40 fps with cached frames, but median frame time rose from 17 to 33 ms.
 Later loads of the same game read the cache.
+
+Games can also carry their in-betweens as two optional assets, `platformer-player-run-mid-1.png` and
+`-run-mid-2.png`, and the player uses those first. `packages/server/src/assets/platformer-run-rig.ts`
+makes them from SAM 3.1 parts.
+
+- **Rigid limbs:** each arm and leg turns as one piece a third of the way toward straight down, so
+  the art's own knee and elbow bends survive.
+- **Per frame:** fully rigid when SAM separated both legs and an arm; rigid arms over the
+  pixel-shift body and legs when it separated only arms; otherwise the pixel-shift frame.
+- **When stored:** only when at least one frame used the rig.
+
+The generation step after the hero's poses costs 12 SAM calls (about $0.03) and never fails a game.
+It runs only when `SPARKADE_PLATFORMER_RUN_RIG=1`, which stays off until every kiosk runs a build that
+knows the two roles: older builds reject manifests with roles they don't know. Readers now skip
+well-formed entries for unknown roles instead (`knownGameAssets` in `@sparkade/shared`), so later
+roles won't need this wait. `scripts/backfill-run-rig.mts` adds the frames to:
+
+- **Local data folders.**
+- **The repo's golden-platformer:** its frames are committed and checked against recorded SAM
+  responses in `platformer-run-rig.test.ts`.
+- **Published games whose art is in public Blob storage:** website-created games keep their art in
+  a private bundle behind moderation and are skipped.
+
+Bump `PLATFORMER_RUN_RIG_VERSION` whenever the rig's output changes.
+
+### Platformer template-board experiments
+
+`scripts/platformer-template-lab.mts` tests a different recipe for the player's base poses: pose
+truth comes from pixels instead of prose. Muse Image edits accept one input image, so one 3x2 board
+carries both truths: cell 1 holds a saved game's approved front idle and cells 2–6 hold two-tone
+side-view mannequins for `sideIdle`, `walk1`, `walk2`, `jump`, and an extra running `runPass`
+frame. Light-gray limbs mark the camera-side arm and leg; dark-gray limbs mark the far side. One
+edit asks Muse to redraw every mannequin as the identity character in that exact pose. Production
+does not use this recipe.
+
+```sh
+npx tsx scripts/platformer-template-lab.mts                  # mock: the unedited board stands in for Muse
+npx tsx scripts/platformer-template-lab.mts --live --boards 2
+```
+
+`--games a,b` picks saved games from `data/games` (default: ten varied body plans), `--boards`
+sets independent edits per game, `--identity sideIdle` swaps the identity cell for the saved side
+view, and `--no-judge` / `--no-production-judge` skip review calls. Mannequins are drawn in code at
+the identity's native height and widened for broad characters, then nearest-neighbor upscaled with
+the identity on one ground line. `--style outline` draws the same figures as hollow line art (dark
+near limbs, pale far limbs) and `--style skeleton` as stick figures; the prompt describes whichever
+style is on the board. `--reuse <run>` reprocesses saved Muse outputs without image calls. `--templates <dir>` replaces them with `<pose>.png` cutouts, for
+example SAM-segmented frames of a video-generated mannequin. Imported templates scale uniformly from
+their side idle so relative stride heights survive.
+
+Each board is split with the Fighter sheet splitter's component ownership, then keyed, fitted and
+foot-anchored by the production platformer processor. The report records per-cell normalization,
+the production set validation, and silhouette IoU against every template. IoU is only a pose signal:
+broad characters overlap a slim mannequin less. `walk1` and `walk2` mannequins share one silhouette,
+so only the depth coding and Spark can separate them. Each board is judged on its own with the
+production pose-pair and jump judges, using the game's key art as source and that board's side idle
+as anchor. The game's existing production frames are re-judged once as a baseline. They were
+selected from about nine candidates, while each template board is one edit with no retry. Evidence,
+prompts, judge boards and responses, `summary.json`, and a browsable `report.html` with animated
+gait previews are written to `data/experiments/platformer-templates/<run>/`.
+
+First live results (2026-10-11, `muse-image-1.0`, ten saved games × two boards, $0.21–0.23 per
+run including judging):
+
+- Muse followed the mannequin poses closely. The side-idle cell came out fully dressed on all 38
+  boards and passed Spark's side-anchor gates on 37. Production spends a separate call on that frame.
+- On 19 of 38 boards, Muse painted a head or tunic onto the mannequin but left gray limbs or a gray
+  body in the action cells. The robot, koala and pangolin fail most often, consistent with the
+  humanoid mannequin body plan. Prompt v2's explicit dressing rule did not help: fully dressed
+  boards went from 11/18 to 8/20.
+- On dressed boards, Spark usually rejected the run pair for no visible leg swap (3 of 19 accepted).
+  Once both legs wear the same trousers, contact A and B look nearly identical. Re-judging the
+  saved production frames gave the same verdict on 9 of 19 judgments. v2's darker far-limb shading
+  produced accepted pairs only occasionally.
+- Template jumps were accepted on 18 of 38 boards (16 of 19 dressed) against 17 of 19 production
+  re-judges. The Spark judge is noisy at this sample size: the same production frames flipped
+  between runs.
+
+Evidence is in `data/experiments/platformer-templates/20261011-live-v1` and `-v2`; `-v1-rescore` is
+the zero-cost `--reuse` reprocessing that added the mannequin-gray metric.
+
+Template styles (same ten games × two boards, prompt v3; production re-judged in each run):
+
+| Style             |     Cells left as template | Run pair accepted | Jump accepted | Full set on a board | Characters with a full set in two boards |
+| ----------------- | -------------------------: | ----------------: | ------------: | ------------------: | ---------------------------------------: |
+| Filled mannequin  |                33/100 gray |              5/20 |          9/20 |                2/20 |                                     2/10 |
+| Outline           |                 1/100 gray |             10/20 |         12/20 |                7/20 |                                     5/10 |
+| Skeleton          | 7/100 failed normalization |       5/17 judged |         12/20 |                4/20 |                                     3/10 |
+| Production frames |                        n/a |            5–6/10 |       9–10/10 |                 n/a |                                     5/10 |
+
+Outline templates nearly always get dressed, and with two image calls they matched production's
+full-set rate, which spends about 13 calls per character. They succeeded on different characters,
+which favors trying templates first and falling back per character. In the boards reviewed, accepted outline pairs shade the far limbs darker, which makes the leg swap visible. The round robot still grew humanoid legs.
+Skeletons were often left as stick figures with only shoes painted.
+
+`scripts/platformer-template-review.mts` combines runs into one self-contained
+`data/experiments/platformer-templates/review.html`. Each board plays the in-game six-beat gait,
+the same rhythm with the passing frame, and a jump arc beside the production frames. It has speed,
+scale, step, and filter controls. Pass `--runs "Label=run-dir,..."` to choose runs.
+
+`scripts/platformer-video-templates.mts` sources templates from video. It animates the volume
+mannequin with an image-to-video model: fal (Kling 2.5 Turbo by default, `FAL_KEY`), Runway
+(`gen4_turbo`, `RUNWAYML_API_SECRET`), or OpenAI (`sora-2`, `OPENAI_API_KEY`). It keys the green
+frames and picks templates from measured stride width and which colored leg leads. It writes
+`templates/<pose>.png`, the measured jump lift, one full run cycle, and contact sheets for checking.
+`--pick walk1=run:42` overrides a choice, and `--run-video`/`--jump-video` import local clips instead.
+The output directory then feeds the lab's `--templates`. These providers author one-time templates
+only; game generation stays on Meta models.
+
+The script also writes `templates-outline/`, which redraws the selected frames as the lab's line art
+with filled `silhouette/` cutouts for metrics; pass it with `--style outline`. The first fal run
+(2026-10-12, Kling 2.5 Turbo, two 5-second clips, about $0.42) produced a clean, steady run cycle
+that kept the near/far colors, and a real airborne tuck jump. All five automatic picks were correct.
+On the same ten games:
+
+| Template source             | Cells left as template | Run pair |  Jump | Characters with a full set in two boards |
+| --------------------------- | ---------------------: | -------: | ----: | ---------------------------------------: |
+| Code-drawn outline          |                  1/100 |    10/20 | 12/20 |                                     5/10 |
+| Video, solid mannequin      |             19/99 gray |     8/20 |  9/19 |                                     4/10 |
+| Video, converted to outline |                  0/100 |     6/20 | 14/20 |                                     3/10 |
+
+Video motion did not raise Spark acceptance of single frames. Solid video frames repeat the filled
+mannequin's gray-limb failure; outline conversion fixes that. Muse often turned the tuck jump into a
+running leap. Video's advantage is coherent in-between frames, which the five-cell board and the
+three-frame runtime gait do not use yet.
+
+`scripts/platformer-cycle-lab.mts` tests a full run cycle. A 3x3 board holds the identity in cell 1
+and eight consecutive outline phases of the video run cycle (`cycle8/` from the video script) in
+cells 2–9; one Muse edit redraws all eight. The splitter gives each connected figure to the cell
+holding most of its pixels. Unlike the per-pose fit, normalization uses one scale (the board
+upscale), ground line, head-and-torso anchor, and 32-color palette for the whole cycle, so the bob
+survives and the character does not pulse in size. The game's run cycle is normalized the same way
+from filled cutouts for comparison. There is no Spark judge for cycles yet; review them as
+animation with `platformer-template-review.mts`, which plays each cycle at game cycle time, at ⅓
+speed, and next to the requested motion.
+
+```sh
+npx tsx scripts/platformer-cycle-lab.mts --live --boards 2
+```
+
+First run (2026-10-12, ten games × two boards, $0.20): all 20 boards produced eight valid,
+consistently scaled frames, and 153 of 160 frames were dressed. Pose following was weaker than on
+the five-pose board. Eleven boards kept eight distinct poses, but Muse often copied one stride into
+several cells (one raccoon board kept only three distinct poses). Output frames overlap each other
+more than the requested frames do (mean pairwise IoU 0.51–0.82 against 0.50), so motion is damped.
+Some boards drew the pale far-limb lines as translucent gray limbs. Some also redrew the identity
+cell, for example a darker skin tone, which then carried into every frame.
+
+Cycle board v2 (same games and boards, 2026-10-12, $0.20 per run) adds three fixes. Each cell gets a
+written stride phase (contact, down, passing, or up for each leg) and a rule against copying.
+Far-limb lines are magenta and described as a depth label, not a color or transparency. The prompt
+also requires cell 1 to stay unchanged. The video script now writes `cycle8-magenta/` and
+`cycle6-magenta/` with a `cycle.json` that the cycle lab reads. `--reuse <run>` rescores saved
+boards without image calls; v1 below is rescored that way.
+
+| Cycle board  | Complete cycles | Frames dressed | All poses distinct | Mean distinct | Mean frame overlap (requested 0.50) | Identity drift |
+| ------------ | --------------: | -------------: | -----------------: | ------------: | ----------------------------------: | -------------: |
+| v1, 8 frames |           20/20 |        153/160 |              10/20 |         6.9/8 |                                0.69 |           2/20 |
+| v2, 8 frames |           20/20 |        160/160 |              16/20 |         7.8/8 |                                0.57 |           0/20 |
+| v2, 6 frames |           18/20 |        108/108 |              15/18 |         5.8/6 |                                0.52 |           1/20 |
+
+v2 removed the translucent far limbs; far limbs are now drawn solid and darker. The six-frame board
+leaves two cells empty, and Muse reflowed its frames into those cells on both golden boards. That
+left a required cell empty, so those boards produced no cycle. Purple or pink costumes register as
+magenta, so the magenta-left metric is only meaningful against the v1 baseline.
+
+`--cycle code` replaces the video frames with a hand-posed eight-phase mannequin cycle
+(`renderPlatformerCycleTemplates`): contact, down, passing, and an airborne up for each leg, on one
+shared canvas, as outline art with magenta far lines and the same v2 prompt. On the same ten games
+(2026-10-12, $0.20) it matched the video cycle on reliability and followed its phases better:
+
+| Eight-frame cycle (v2 prompt) | Complete | Dressed | All poses distinct | Frames nearest their own phase | Frame overlap (requested) | Identity drift |
+| ----------------------------- | -------: | ------: | -----------------: | -----------------------------: | ------------------------: | -------------: |
+| From video                    |    20/20 | 160/160 |              16/20 |                         64/160 |               0.57 (0.50) |           0/20 |
+| Hand-posed                    |    20/20 | 160/160 |              17/20 |                         93/160 |               0.55 (0.52) |           0/20 |
+
+The identity-drift metric compares mean color only; one hand-posed board turned the identity cell
+into a three-quarter view without being flagged. Which cycle reads better in motion is a visual
+judgment; compare them in `review.html`.
+
+### Platformer run-gait review
+
+`scripts/platformer-gait-review.mts` explores smoother runs without any new generation. It reads
+each saved game's production `walk-1`, `side-idle`, and `walk-2` frames and writes
+`data/experiments/platformer-gait/review.html` (add `--all` for every saved platformer). Each game
+plays four ways on one clock, at the runtime's gait beat rate and run speed:
+
+- **Game today:** the six-beat runtime gait (contact, contact, idle, contact, contact, idle).
+- **+ runtime polish:** the same frames with a bob on the passing beat, a squash on the beat after
+  contact, a small forward lean of the head and torso, and dust puffs at contact. The default unit is
+  one world pixel (4 sprite pixels), the step the renderer's unused `compression` hook already
+  supports.
+- **+ procedural in-betweens:** an eight-beat cycle in the same cycle time with two in-between
+  frames from `platformer-inbetween.ts`. Pixel shift moves a contact frame's pixels toward the side
+  idle along a smoothed motion field, halfway or a third of the way; the shorter move stretches
+  fast hands and feet less. Dither smear checkerboards two frames. Both reuse existing colors only.
+  Two other approaches were dropped: moving parts rigidly broke hands and feet into fragments, and
+  splicing one frame's upper body onto another's legs at the waist read as two bodies, with legs
+  that popped.
+- **+ both.**
+
+Header controls toggle each polish effect, its strength, the in-between method, speed, scale
+(1× is about in-game size), and a strip of the generated frames. Every method looks worst when a
+character's side idle is drawn differently from its run frames.
+
+The runtime now plays pixel shift (see [Platformer run in-betweens](#platformer-run-in-betweens)).
+
+### Platformer SAM rig experiment
+
+`scripts/platformer-sam-rig-lab.mts` builds run in-betweens by moving whole limbs, using SAM 3.1
+masks. The approach now ships as `packages/server/src/assets/platformer-run-rig.ts` (see
+[Platformer run in-betweens](#platformer-run-in-betweens)). `platformer-sam-rig.ts` keeps only the
+lab's SAM response cache and debug overlays. It reads the same three frames as the
+gait review and writes `data/experiments/platformer-sam-rig/<run>/review.html`. SAM responses are
+cached under `cache/`, so a rebuild costs nothing. Pass `--live` to call SAM for uncached frames,
+`--compare-run <run>` to show an earlier run's tile, and `--contact-concepts a,b` to try other
+prompts. Rigid frames cost about $0.03 of SAM per game at generation time.
+
+- **Parts:** contact frames ask for "arm", "upper arm", "hand", "leg", "foot", and "head".
+  "Upper arm" finds upper arms that "arm" leaves on the body (sleeves, fur). "Whole arm", "arm and
+  hand", "sleeve", "thigh", and "whole leg" found nothing new. Limb pieces that meet end to end are
+  joined, along with any band between them (a wristband). Then, while a frame still has more than
+  two arms or legs, the pieces sharing the longest border are joined (an arm split at a bent elbow).
+  A near arm takes over its own dark outline, so swinging it leaves no ghost outline behind.
+- **Motion:** each limb turns as one piece a third of the way toward straight down, so knees and
+  elbows keep the bends the art drew. Bending at an estimated knee was tried first and produced
+  backward knees: the estimate fell mid-shin.
+  - **Camera-facing arm:** turns about its own topmost visible point.
+  - **Back arm:** turns about the midpoint of the two arms' tops, behind the body.
+  - **Legs:** turn about the midpoint of their tops, raised into the body when they start lower
+    than 30% of the figure's height (thighs under a robe).
+  - **Hidden extension:** legs and the back arm are extended toward their joint under the body, so
+    turning them opens no gap at a hem or shoulder.
+  - **Height:** legs are squashed vertically so the figure rises at most a third of how much taller
+    it stands in the side idle. Unsquashed, it hopped.
+- **Per mid frame:**
+  - **All rigid:** both legs found, believably long, and starting near the hip, plus at least one
+    arm long enough to swing that starts near the shoulder.
+  - **Rigid arms only:** SAM separated the arms but not the legs. The body and legs then move exactly
+    as pixel shift moves them (the frame with its arms taken out), and the rigid arms ride pixel
+    shift's motion at the shoulder.
+  - **Pixel shift:** anything else, including any arm with more than one hand piece or a hand
+    attached to no arm (decorations read as hands, which would be left behind).
+  - **Results (10 saved games):** all rigid for the human-like heroes; rigid arms only on the robot,
+    armadillo, and leaf creature; pixel shift for the sunflower.
+- **Known gap:** where a front arm swings away from the torso, the body behind it is guessed from
+  the nearest body pixels. On the koala that guess is the bead necklace. Taking those pixels from
+  the side idle, where the arm hangs down, would fix it.

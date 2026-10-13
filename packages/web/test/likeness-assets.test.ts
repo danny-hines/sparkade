@@ -348,6 +348,28 @@ describe('loadLikenessAssets', () => {
     expect((await loadLikenessAssets('combo', assets))?.platformerPoses).toBeNull();
   });
 
+  it('plays stored run in-betweens and keeps the poses when one is missing', async () => {
+    const availability = {
+      ...legacyAssets,
+      ...Object.fromEntries(PLATFORMER_POSE_ASSETS.map(([, role]) => [role, true])),
+      platformerRunMid1: true,
+      platformerRunMid2: true,
+    };
+    const stored = await loadLikenessAssets('rigged', availability);
+    const frames = await stored?.platformerRunInbetweens;
+    expect(frames?.runMid1).toBeInstanceOf(FakeImage);
+    expect(frames?.runMid2).toBeInstanceOf(FakeImage);
+    expect(requested).toContain(
+      `/api/games/rigged/assets/${GENERATED_GAME_ASSET_FILES.platformerRunMid1}`,
+    );
+    // A missing stored frame never costs the pose set; the device computes
+    // pixel-shift in-betweens instead (none here: tests have no Worker).
+    failing.add(`/api/games/rigged/assets/${GENERATED_GAME_ASSET_FILES.platformerRunMid2}`);
+    const fallback = await loadLikenessAssets('rigged', availability);
+    expect(fallback?.platformerPoses).not.toBeNull();
+    expect(await fallback?.platformerRunInbetweens).toBeNull();
+  });
+
   it('rejects the entire platformer set when one pose fails to load', async () => {
     const availability = Object.fromEntries(PLATFORMER_POSE_ASSETS.map(([, role]) => [role, true]));
     failing.add(

@@ -4,6 +4,7 @@ import {
   ENGINE_VERSION,
   SPEC_VERSION,
   GENERATED_GAME_ASSET_FILES,
+  knownGameAssets,
   type CloudGameBundle,
   type CloudGenerationInput,
   type CloudGenerationSnapshot,
@@ -96,7 +97,10 @@ function bridgeCall(bridge: NativeBridge): NativeCall {
     });
 }
 
-export function validatePortalBundle(bundle: CloudGameBundle, gameId: string): void {
+/** Checks a downloaded bundle and returns it with only the asset entries
+ * this build knows: entries a newer build added are dropped (and never
+ * downloaded) instead of rejecting the game. */
+export function validatePortalBundle(bundle: CloudGameBundle, gameId: string): CloudGameBundle {
   const version = (value: unknown) => (typeof value === 'string' ? value.split('.')[0] : null);
   if (
     !bundle?.meta ||
@@ -112,32 +116,9 @@ export function validatePortalBundle(bundle: CloudGameBundle, gameId: string): v
   ) {
     throw new Error('This game requires a Sparkade app update before installation.');
   }
-  const assets = bundle.manifest?.assets;
-  if (
-    bundle.manifest?.version !== 1 ||
-    !Array.isArray(assets) ||
-    assets.length > Object.keys(GENERATED_GAME_ASSET_FILES).length ||
-    new Set(assets.map((a) => a.filename)).size !== assets.length ||
-    !assets.every(
-      (a) =>
-        a &&
-        Object.hasOwn(GENERATED_GAME_ASSET_FILES, a.role) &&
-        a.filename === GENERATED_GAME_ASSET_FILES[a.role] &&
-        a.mimeType === 'image/png' &&
-        Number.isSafeInteger(a.width) &&
-        a.width > 0 &&
-        Number.isSafeInteger(a.height) &&
-        a.height > 0 &&
-        typeof a.model === 'string' &&
-        !!a.model &&
-        typeof a.promptVersion === 'string' &&
-        !!a.promptVersion &&
-        /^[a-f0-9]{64}$/.test(a.sha256) &&
-        /^[a-f0-9]{64}$/.test(a.promptSha256),
-    )
-  ) {
-    throw new Error('Invalid game asset manifest');
-  }
+  const assets = bundle.manifest?.version === 1 ? knownGameAssets(bundle.manifest.assets) : null;
+  if (!assets) throw new Error('Invalid game asset manifest');
+  return { ...bundle, manifest: { version: 1, assets } };
 }
 
 export function bundleAssets(bundle: CloudGameBundle): GameDetail['assets'] {
@@ -359,11 +340,11 @@ export class PortalRuntime {
           try {
             if (entry.deleted || this.state.games[snapshot.job.id]?.deleted || this.stopped) return;
             const bundle = await this.cloud<CloudGameBundle>(`/v1/jobs/${snapshot.job.id}/bundle`);
-            validatePortalBundle(bundle, snapshot.game.id);
+            const known = validatePortalBundle(bundle, snapshot.game.id);
             await this.native('game.install', {
               jobId: snapshot.job.id,
               gameId: snapshot.game.id,
-              bundle,
+              bundle: known,
             });
             const current = this.state.games[snapshot.job.id]!;
             if (current.deleted) {
@@ -479,15 +460,15 @@ export class PortalRuntime {
     }
     const entry = this.find(id);
     if (!entry) throw new Error('Unknown game');
-    const bundle = entry.installed
+    const saved = entry.installed
       ? await this.native<CloudGameBundle | null>('game.read', { gameId: id })
       : null;
-    if (entry.installed && !bundle) {
+    if (entry.installed && !saved) {
       entry.installed = false;
       entry.installError = 'Saved game files are missing. Retry the download.';
       await this.persist();
     }
-    if (bundle) validatePortalBundle(bundle, id);
+    const bundle = saved ? validatePortalBundle(saved, id) : null;
     const job = { ...entry.snapshot.job };
     if (job.status === 'done' && !entry.installed) {
       job.status = entry.installError ? 'failed' : 'running';

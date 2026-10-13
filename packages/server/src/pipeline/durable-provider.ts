@@ -5,6 +5,11 @@ import type { SparkadeConfig } from '@sparkade/shared';
 import type { ProviderResult, ProviderTask } from './durable-pass';
 import { stageProvider } from '../providers';
 import { MetaImageAdapter } from '../providers/meta-image';
+import {
+  META_SAM_MODEL,
+  META_SAM_PRICE_PER_IMAGE_USD,
+  MetaSamAdapter,
+} from '../providers/meta-sam';
 import { mockGeneratedImage } from '../assets/game-art';
 
 /** One external request, called only inside a durable workflow step. */
@@ -23,6 +28,14 @@ export async function executeProviderTask(
       { model: task.model },
     );
     return { kind: 'text', response };
+  }
+  if (task.kind === 'segment') {
+    if (process.env.SPARKADE_PROVIDER === 'mock') return { kind: 'segment', masks: [] };
+    const result = await new MetaSamAdapter(config.imageGeneration).segmentImage(
+      Buffer.from(task.request.image, 'base64'),
+      task.request.concept,
+    );
+    return { kind: 'segment', masks: [...result.masks] };
   }
   if (process.env.SPARKADE_PROVIDER === 'mock')
     return {
@@ -57,15 +70,27 @@ export function providerUsageEvent(
   const model =
     result.kind === 'text'
       ? (result.response.model ?? (task.kind === 'text' ? task.model : ''))
-      : config.imageGeneration.model;
+      : task.kind === 'segment'
+        ? META_SAM_MODEL
+        : config.imageGeneration.model;
   const usage = result.kind === 'text' ? result.response.usage : { input: 0, output: 0 };
   return {
     requestId: `${attempt}:${task.id}`,
     jobId: state.job!.id,
     gameId: state.job!.gameId,
-    stage: task.kind === 'text' ? task.stage : `image:${task.request.role}`,
+    stage:
+      task.kind === 'text'
+        ? task.stage
+        : task.kind === 'segment'
+          ? `segment:${task.request.role}`
+          : `image:${task.request.role}`,
     model,
-    provider: task.kind === 'text' ? config.stages[task.stage].provider : 'meta-image',
+    provider:
+      task.kind === 'text'
+        ? config.stages[task.stage].provider
+        : task.kind === 'segment'
+          ? 'meta-sam'
+          : 'meta-image',
     inputTokens: usage.input,
     outputTokens: usage.output,
     cachedTokens: usage.cachedInput ?? 0,
@@ -74,9 +99,11 @@ export function providerUsageEvent(
         ? 0
         : result.kind === 'text'
           ? costOf(model, usage, state.pricing)
-          : state.imagePricing?.perImageUsd == null
-            ? null
-            : result.imageCount * state.imagePricing.perImageUsd,
+          : result.kind === 'segment'
+            ? META_SAM_PRICE_PER_IMAGE_USD
+            : state.imagePricing?.perImageUsd == null
+              ? null
+              : result.imageCount * state.imagePricing.perImageUsd,
     failed: result.kind === 'error',
     repair: task.kind === 'text' && task.stage === 'repair',
     at: new Date().toISOString(),

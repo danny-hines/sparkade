@@ -393,6 +393,20 @@ it('rejects incompatible bundles, asset path traversal and duplicate assets', ()
   expect(() =>
     validatePortalBundle({ ...bundle, manifest: { version: 1, assets: [asset, asset] } }, 'g-test'),
   ).toThrow(/manifest/);
+  // Roles a newer cloud added are dropped, so they are never downloaded.
+  const future = { ...asset, role: 'futureThing', filename: 'future-thing.png' };
+  expect(
+    validatePortalBundle(
+      {
+        ...bundle,
+        manifest: {
+          version: 1,
+          assets: [asset, future as unknown as typeof asset],
+        },
+      },
+      'g-test',
+    ).manifest.assets,
+  ).toEqual([asset]);
   expect(() =>
     validatePortalBundle(
       {

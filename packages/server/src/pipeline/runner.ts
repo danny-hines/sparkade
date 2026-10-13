@@ -511,12 +511,25 @@ import {
 } from '../assets/shooter-enemy';
 import {
   GameAssetWorkspace,
+  generatedAssetForRole,
   GeneratedAssetStorageError,
   imagePromptHash,
   RACING_MOTION_OUTCOME_ROLES,
   sha256,
   type PrivateGeneratedAssetRole,
 } from '../assets/manifest';
+import {
+  buildRigRunInbetweens,
+  decodeRigImage,
+  encodeRigImage,
+  PLATFORMER_RUN_RIG_VERSION,
+  type RunRigSegment,
+} from '../assets/platformer-run-rig';
+import {
+  META_SAM_MODEL,
+  META_SAM_PRICE_PER_IMAGE_USD,
+  MetaSamAdapter,
+} from '../providers/meta-sam';
 import type { ConfigStore } from '../storage/config';
 import type { GameRow } from '../storage/db';
 import type { GameFiles, RawStageName } from '../storage/files';
@@ -9494,6 +9507,112 @@ export class GenerationRunner {
             })
           : Promise.resolve();
 
+      // Rigid-limb run in-betweens from SAM 3.1 (see platformer-run-rig.ts).
+      // Off until every kiosk can read the two new assets; never fails a game:
+      // without them the player computes pixel-shift in-betweens itself.
+      const platformerRunRigTask =
+        spec.archetype === 'platformer' && process.env.SPARKADE_PLATFORMER_RUN_RIG === '1'
+          ? platformerPlayerTask.then(async () => {
+              const read = (role: 'platformerWalk1' | 'platformerSideIdle' | 'platformerWalk2') => {
+                const entry = generatedAssetForRole(assetWorkspace.dir, role);
+                return entry ? readFileSync(join(assetWorkspace.dir, entry.filename)) : null;
+              };
+              const walk1 = read('platformerWalk1');
+              const sideIdle = read('platformerSideIdle');
+              const walk2 = read('platformerWalk2');
+              if (!walk1 || !sideIdle || !walk2) return;
+              const fingerprint = sha256(Buffer.concat([walk1, sideIdle, walk2]));
+              const decisions = new ArtifactCache(
+                join(this.files.checkpointsDir, jobId, 'run-rig'),
+              );
+              const decisionKey = `${PLATFORMER_RUN_RIG_VERSION}:${fingerprint}`;
+              if (
+                decisions.read<'pixel shift'>(decisionKey) ||
+                (assetWorkspace.load(
+                  'platformerRunMid1',
+                  PLATFORMER_RUN_RIG_VERSION,
+                  fingerprint,
+                ) &&
+                  assetWorkspace.load('platformerRunMid2', PLATFORMER_RUN_RIG_VERSION, fingerprint))
+              )
+                return;
+              let sam: MetaSamAdapter | null = null;
+              const segment: RunRigSegment = async (png, concept) => {
+                const role = 'platformer-run-rig';
+                let requestId: string | undefined;
+                let masks: Awaited<ReturnType<RunRigSegment>>['masks'];
+                if (this.durable) {
+                  if (!this.durable.segment) throw new Error('segmentation is unavailable here');
+                  const result = await this.durable.segment({ role, concept, image: png });
+                  masks = result.masks;
+                  requestId = (result as { durableRequestId?: string }).durableRequestId;
+                } else if (mockImages) {
+                  masks = [];
+                } else {
+                  sam ??= new MetaSamAdapter({
+                    baseUrl: imageConfig.baseUrl,
+                    apiKeyEnv: imageConfig.apiKeyEnv,
+                    timeoutMs: imageConfig.timeoutMs,
+                  });
+                  const adapter = sam;
+                  masks = [
+                    ...(
+                      await this.withImageCallSlot(abort.signal, () =>
+                        adapter.segmentImage(png, concept, { signal: abort.signal }),
+                      )
+                    ).masks,
+                  ];
+                }
+                this.db.insertUsage({
+                  jobId,
+                  gameId,
+                  requestId,
+                  stage: `segment:${role}`,
+                  model: META_SAM_MODEL,
+                  provider: mockImages ? 'mock' : 'meta-sam',
+                  inputTokens: 0,
+                  outputTokens: 0,
+                  costUsd: mockImages ? 0 : META_SAM_PRICE_PER_IMAGE_USD,
+                  failed: false,
+                  repair: false,
+                });
+                return { masks };
+              };
+              try {
+                const rig = await buildRigRunInbetweens(
+                  {
+                    walk1: await decodeRigImage(walk1),
+                    sideIdle: await decodeRigImage(sideIdle),
+                    walk2: await decodeRigImage(walk2),
+                  },
+                  segment,
+                );
+                if (rig.runMid1.method === 'pixel shift' && rig.runMid2.method === 'pixel shift') {
+                  // The player computes these itself; remember not to ask SAM again.
+                  decisions.write(decisionKey, 'pixel shift');
+                  return;
+                }
+                await settleAll(
+                  (['runMid1', 'runMid2'] as const).map(async (key) =>
+                    assetWorkspace.store(
+                      key === 'runMid1' ? 'platformerRunMid1' : 'platformerRunMid2',
+                      await encodeRigImage(rig[key].image),
+                      PLATFORMER_RUN_RIG_VERSION,
+                      fingerprint,
+                    ),
+                  ),
+                );
+                emit('building-assets', 'Added in-between frames to the hero’s run');
+              } catch (error) {
+                throwIfSuspended(error);
+                if (abort.signal.aborted) throw error;
+                await assetWorkspace
+                  .discard(['platformerRunMid1', 'platformerRunMid2'])
+                  .catch(() => {});
+              }
+            })
+          : Promise.resolve();
+
       const finishingAssets = await Promise.allSettled([
         storyTask,
         racingPackTask,
@@ -9515,6 +9634,7 @@ export class GenerationRunner {
         fighterTask,
         platformerPlayerTask,
         platformerActionsTask,
+        platformerRunRigTask,
         adventurePlayerTask,
         portraitTask,
         portraitDefeatTask,

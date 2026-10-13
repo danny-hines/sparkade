@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import {
   ENGINE_VERSION,
   SPEC_VERSION,
-  GENERATED_GAME_ASSET_FILES,
+  knownGameAssets,
   type CloudGameBundle,
   type CloudGenerationSession,
   type CloudGenerationSnapshot,
@@ -18,7 +18,6 @@ import type { NewJobInputs } from '../pipeline/runner';
 import type { Db } from '../storage/db';
 import type { GameFiles } from '../storage/files';
 import type { SseHub } from '../pipeline/sse';
-import { isGeneratedGameAsset } from '../assets/manifest';
 import { archetypes } from '@sparkade/archetypes';
 
 export interface CloudMirrorState {
@@ -421,10 +420,10 @@ export class CloudGenerationClient {
   /** Serial downloads; stream each file to disk with a size cap and checksum.
    * No PNG decode, recompression, or atlas assembly happens on the cabinet. */
   private async install(jobId: string, gameId: string): Promise<void> {
-    const bundle = (await (
-      await this.request(`/v1/jobs/${jobId}/bundle`)
-    ).json()) as CloudGameBundle;
-    validateBundle(bundle, gameId);
+    const bundle = validateBundle(
+      (await (await this.request(`/v1/jobs/${jobId}/bundle`)).json()) as CloudGameBundle,
+      gameId,
+    );
     const staging = join(this.files.stagingDir, jobId);
     const assetsDir = join(staging, 'assets');
     await mkdir(assetsDir, { recursive: true });
@@ -502,7 +501,10 @@ export class CloudGenerationClient {
   }
 }
 
-export function validateBundle(bundle: CloudGameBundle, gameId: string): void {
+/** Checks a cloud bundle and returns it with only the asset entries this
+ * build knows: entries a newer build added are dropped (and never downloaded)
+ * instead of rejecting the game. */
+export function validateBundle(bundle: CloudGameBundle, gameId: string): CloudGameBundle {
   if (
     !bundle?.meta ||
     !bundle.spec ||
@@ -517,13 +519,7 @@ export function validateBundle(bundle: CloudGameBundle, gameId: string): void {
       archetypes[bundle.spec.archetype].version.split('.')[0]
   )
     throw new Error('This game requires a cabinet update before installation.');
-  const manifest: GameAssetManifest = bundle.manifest;
-  if (
-    manifest?.version !== 1 ||
-    !Array.isArray(manifest.assets) ||
-    manifest.assets.length > Object.keys(GENERATED_GAME_ASSET_FILES).length ||
-    new Set(manifest.assets.map((a) => a.filename)).size !== manifest.assets.length ||
-    !manifest.assets.every(isGeneratedGameAsset)
-  )
-    throw new Error('Invalid generated asset manifest');
+  const assets = bundle.manifest?.version === 1 ? knownGameAssets(bundle.manifest.assets) : null;
+  if (!assets) throw new Error('Invalid generated asset manifest');
+  return { ...bundle, manifest: { version: 1, assets } satisfies GameAssetManifest };
 }

@@ -211,6 +211,28 @@
       "sha256": "e071c79237055a0ab2f95651ad3c349eeead920782dda700ffa343da0a781001"
     },
     {
+      "role": "platformerRunMid1",
+      "filename": "platformer-player-run-mid-1.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-run-rig-v1",
+      "promptSha256": "cbe7890024913bb13e6cc93db3ec802d70160be6c3a0ceaf542adc5980bb4c3e",
+      "sha256": "9b0c8b49820ab5f14cac08375f437f247e0c18d67f337caa68fb2170ad605b17"
+    },
+    {
+      "role": "platformerRunMid2",
+      "filename": "platformer-player-run-mid-2.png",
+      "mimeType": "image/png",
+      "width": 112,
+      "height": 128,
+      "model": "muse-image-1.0",
+      "promptVersion": "platformer-run-rig-v1",
+      "promptSha256": "cbe7890024913bb13e6cc93db3ec802d70160be6c3a0ceaf542adc5980bb4c3e",
+      "sha256": "7919cda2c0a24f225277d55d4782aacaefe469426c060ae7f42f3d4c0cd380e1"
+    },
+    {
       "role": "platformerSideIdle",
       "filename": "platformer-player-side-idle.png",
       "mimeType": "image/png",

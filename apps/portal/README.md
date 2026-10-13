@@ -554,6 +554,12 @@ web runtime computes two pixel-shift frames per generated hero in a module worke
 `script-src 'self'`) and caches them in the WebView's IndexedDB, plus the run bob,
 squash, and dust. Pi kiosks get the same runtime through a source update, and the
 website's player through its deployment; no cloud API or game bundle changed.
+Release v0.4.15 reads two optional run frames stored with platformer games
+(`platformer-player-run-mid-1/2.png`, the SAM rig) before computing pixel shift, and
+packages them for the built-in platformer. Bundle validation now drops asset entries
+for roles this build doesn't know instead of rejecting the game, so they are never
+downloaded. Cloud generation stores the frames only after every kiosk runs this
+release (`SPARKADE_PLATFORMER_RUN_RIG=1`); until then nothing writes them.
 
 The app only downloads from pinned GitHub release hosts, bounds download size/time,
 checks SHA-256 and the installed app's signing certificate, and rejects debug builds,

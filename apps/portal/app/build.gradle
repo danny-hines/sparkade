@@ -18,8 +18,8 @@ android {
         buildConfigField 'boolean', 'STANDALONE', standalone.toString()
         minSdk 28
         targetSdk 29
-        versionCode 20
-        versionName '0.4.14'
+        versionCode 21
+        versionName '0.4.15'
     }
     buildFeatures { buildConfig true }
     signingConfigs {

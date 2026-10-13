@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { resolvePlatformerMovement } from '@sparkade/shared';
 import {
   completeGeneratedPlatformerPoses,
+  generatedPlatformerFootLanded,
   generatedPlatformerGaitFrame,
   generatedPlatformerGaitRate,
   generatedPlatformerGroundAnimation,
@@ -129,20 +130,68 @@ describe('generated platformer player poses', () => {
     expect(generatedPlatformerPoseDrawSize(48, 64)).toEqual({ w: 24, h: 32 });
   });
 
-  it('uses a speed-driven contact, side-idle, contact, side-idle gait', () => {
+  it('uses a speed-driven contact, side-idle, contact, side-idle gait with bob and squash', () => {
     expect(generatedPlatformerGaitRate(88)).toBeCloseTo(8.21, 2);
     expect(generatedPlatformerGaitRate(142)).toBeCloseTo(13.25, 2);
-    expect([0, 1, 2, 3, 4, 5].map(generatedPlatformerGaitFrame)).toEqual([
-      { pose: 'walk1', compression: 0 },
-      { pose: 'walk1', compression: 0 },
-      { pose: 'sideIdle', compression: 0 },
-      { pose: 'walk2', compression: 0 },
-      { pose: 'walk2', compression: 0 },
-      { pose: 'sideIdle', compression: 0 },
+    const beats = [0, 1, 2, 3, 4, 5].map((phase) => generatedPlatformerGaitFrame(phase));
+    expect(beats.map(({ pose }) => pose)).toEqual([
+      'walk1',
+      'walk1',
+      'sideIdle',
+      'walk2',
+      'walk2',
+      'sideIdle',
     ]);
+    // The beat after each contact squashes; the passing side idle rises.
+    expect(beats.map(({ compression }) => compression)).toEqual([0, 1, 0, 0, 1, 0]);
+    expect(beats.map(({ bob }) => bob)).toEqual([0, 0, 1, 0, 0, 1]);
+    expect(beats.map(({ runContact }) => runContact)).toEqual([1, 1, 1, 2, 2, 1]);
     const compressed = generatedPlatformerPlayerDrawRect(100, 50, 12, 28, 28, 32, 1);
     expect(compressed).toEqual({ x: 92, y: 49, w: 28, h: 31 });
     expect(compressed.y + compressed.h).toBe(50 + 28 + 2);
+  });
+
+  it('splits the same cycle into eight beats when run in-betweens are ready', () => {
+    const beats = [0, 0.75, 1.5, 2.25, 3, 3.75, 4.5, 5.25].map((phase) =>
+      generatedPlatformerGaitFrame(phase, { inbetweens: true }),
+    );
+    expect(beats.map(({ pose }) => pose)).toEqual([
+      'walk1',
+      'runMid1',
+      'sideIdle',
+      'runMid2',
+      'walk2',
+      'runMid2',
+      'sideIdle',
+      'runMid1',
+    ]);
+    // Firing while running still chooses from the contact each in-between leans from.
+    expect(beats.map(({ base }) => base)).toEqual([
+      'walk1',
+      'walk1',
+      'sideIdle',
+      'walk2',
+      'walk2',
+      'walk2',
+      'sideIdle',
+      'walk1',
+    ]);
+    expect(beats.map(({ runContact }) => runContact)).toEqual([1, 1, 1, 2, 2, 2, 1, 1]);
+    expect(beats.map(({ compression }) => compression)).toEqual([0, 1, 0, 0, 0, 1, 0, 0]);
+    expect(beats.map(({ bob }) => bob)).toEqual([0, 0, 1, 1, 0, 0, 1, 1]);
+    // Foot contacts land on the same phases with or without in-betweens.
+    expect(generatedPlatformerGaitFrame(3, { inbetweens: true }).pose).toBe('walk2');
+    expect(generatedPlatformerGaitFrame(3).pose).toBe('walk2');
+  });
+
+  it('lands a foot (and kicks up dust) only when the gait reaches a contact beat', () => {
+    expect(generatedPlatformerFootLanded(2.9, 3.1)).toBe(true);
+    expect(generatedPlatformerFootLanded(5.8, 6.05)).toBe(true);
+    expect(generatedPlatformerFootLanded(3.1, 3.3)).toBe(false);
+    expect(generatedPlatformerFootLanded(0.8, 1.2)).toBe(false);
+    expect(generatedPlatformerFootLanded(4.9, 5.1)).toBe(false);
+    // A run that starts from rest is already on its first contact.
+    expect(generatedPlatformerFootLanded(0, 0.2)).toBe(false);
   });
 
   it('centers the larger generated boss over the stable collision body and ground line', () => {

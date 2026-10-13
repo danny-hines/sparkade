@@ -79,6 +79,8 @@ export interface EngineContext {
   fighterArenaPresentationBaked: boolean;
   /** Image-generated high-density platformer poses, when complete. */
   platformerPoses: Readonly<Record<string, CanvasImageSource>> | null;
+  /** Run in-betweens computed on the device; may resolve after play starts. */
+  platformerRunInbetweens: Promise<Readonly<Record<string, CanvasImageSource>> | null> | null;
   /** Image-generated platformer finale boss, when available. */
   platformerBoss: CanvasImageSource | null;
   /** Image-generated platformer enemies, independently available by behavior role. */
@@ -243,6 +245,7 @@ export class GameHost {
       fighterArenaAtlas: opts.likeness?.fighterArenaAtlas ?? null,
       fighterArenaPresentationBaked: opts.likeness?.fighterArenaPresentationBaked ?? false,
       platformerPoses: opts.likeness?.platformerPoses ?? null,
+      platformerRunInbetweens: opts.likeness?.platformerRunInbetweens ?? null,
       platformerBoss: opts.likeness?.platformerBoss ?? null,
       platformerEnemies: opts.likeness?.platformerEnemies ?? null,
       platformerProps: opts.likeness?.platformerProps ?? null,

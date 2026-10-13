@@ -393,3 +393,27 @@ Measured on the kiosk Pi 3B+ (2026-10-12): the worker took 5.4 seconds in Chromi
 load (3.5 s median, 5.2 s max per game in Node across the stored games). While it ran, gameplay
 averaged 37 fps against 40 fps with cached frames, but median frame time rose from 17 to 33 ms.
 Later loads of the same game read the cache.
+
+Games can also carry their in-betweens as two optional assets, `platformer-player-run-mid-1.png` and
+`-run-mid-2.png`, and the player uses those first. `packages/server/src/assets/platformer-run-rig.ts`
+makes them from SAM 3.1 parts.
+
+- **Rigid limbs:** each arm and leg turns as one piece a third of the way toward straight down, so
+  the art's own knee and elbow bends survive.
+- **Per frame:** fully rigid when SAM separated both legs and an arm; rigid arms over the
+  pixel-shift body and legs when it separated only arms; otherwise the pixel-shift frame.
+- **When stored:** only when at least one frame used the rig.
+
+The generation step after the hero's poses costs 12 SAM calls (about $0.03) and never fails a game.
+It runs only when `SPARKADE_PLATFORMER_RUN_RIG=1`, which stays off until every kiosk runs a build that
+knows the two roles: older builds reject manifests with roles they don't know. Readers now skip
+well-formed entries for unknown roles instead (`knownGameAssets` in `@sparkade/shared`), so later
+roles won't need this wait. `scripts/backfill-run-rig.mts` adds the frames to:
+
+- **Local data folders.**
+- **The repo's golden-platformer:** its frames are committed and checked against recorded SAM
+  responses in `platformer-run-rig.test.ts`.
+- **Published games whose art is in public Blob storage:** website-created games keep their art in
+  a private bundle behind moderation and are skipped.
+
+Bump `PLATFORMER_RUN_RIG_VERSION` whenever the rig's output changes.

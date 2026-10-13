@@ -4,6 +4,9 @@ import { join } from 'node:path';
 import sharp from 'sharp';
 import {
   GENERATED_GAME_ASSET_FILES,
+  isForeignGameAsset,
+  isGeneratedGameAsset,
+  knownGameAssets,
   type GameAssetManifest,
   type GeneratedGameAsset,
   type GeneratedGameAssetRole,
@@ -119,27 +122,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-export function isGeneratedGameAsset(value: unknown): value is GeneratedGameAsset {
-  if (!isRecord(value) || typeof value.role !== 'string') return false;
-  if (!Object.prototype.hasOwnProperty.call(GENERATED_GAME_ASSET_FILES, value.role)) return false;
-  const role = value.role as GeneratedGameAssetRole;
-  return (
-    value.filename === GENERATED_GAME_ASSET_FILES[role] &&
-    value.mimeType === 'image/png' &&
-    Number.isSafeInteger(value.width) &&
-    Number(value.width) > 0 &&
-    Number.isSafeInteger(value.height) &&
-    Number(value.height) > 0 &&
-    typeof value.model === 'string' &&
-    value.model.length > 0 &&
-    typeof value.promptVersion === 'string' &&
-    value.promptVersion.length > 0 &&
-    typeof value.promptSha256 === 'string' &&
-    /^[a-f0-9]{64}$/.test(value.promptSha256) &&
-    typeof value.sha256 === 'string' &&
-    /^[a-f0-9]{64}$/.test(value.sha256)
-  );
-}
+export { isGeneratedGameAsset };
 
 export function sha256(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex');
@@ -152,17 +135,23 @@ export function imagePromptHash(prompt: string, reference?: Buffer): string {
   return hash.digest('hex');
 }
 
+/** The manifest's entries for roles this build knows. Entries a newer build
+ * added are skipped (see `knownGameAssets`); a malformed entry still voids the
+ * manifest. */
 export function readGameAssetManifest(assetsDir: string): GameAssetManifest | null {
   const manifest = readJson<unknown>(join(assetsDir, GAME_ASSET_MANIFEST_FILE));
-  if (
-    !isRecord(manifest) ||
-    manifest.version !== 1 ||
-    !Array.isArray(manifest.assets) ||
-    !manifest.assets.every(isGeneratedGameAsset)
-  ) {
-    return null;
-  }
-  return manifest as unknown as GameAssetManifest;
+  if (!isRecord(manifest) || manifest.version !== 1) return null;
+  const assets = knownGameAssets(manifest.assets);
+  return assets ? { version: 1, assets } : null;
+}
+
+/** Entries a newer build added, kept verbatim whenever this build rewrites
+ * the manifest so updating later restores them. */
+function foreignManifestEntries(assetsDir: string): unknown[] {
+  const manifest = readJson<unknown>(join(assetsDir, GAME_ASSET_MANIFEST_FILE));
+  return isRecord(manifest) && Array.isArray(manifest.assets)
+    ? manifest.assets.filter(isForeignGameAsset)
+    : [];
 }
 
 /**
@@ -313,7 +302,7 @@ export class GameAssetWorkspace {
       const assets = current.assets.filter((asset) => !roleSet.has(asset.role));
       atomicWriteFile(
         join(this.dir, GAME_ASSET_MANIFEST_FILE),
-        `${JSON.stringify({ version: 1, assets } satisfies GameAssetManifest, null, 2)}\n`,
+        `${JSON.stringify({ version: 1, assets: [...assets, ...foreignManifestEntries(this.dir)] }, null, 2)}\n`,
       );
       for (const role of roles) {
         const path = join(this.dir, GENERATED_GAME_ASSET_FILES[role]);
@@ -367,7 +356,7 @@ export class GameAssetWorkspace {
       assets.sort((a, b) => a.role.localeCompare(b.role));
       atomicWriteFile(
         join(this.dir, GAME_ASSET_MANIFEST_FILE),
-        `${JSON.stringify({ version: 1, assets } satisfies GameAssetManifest, null, 2)}\n`,
+        `${JSON.stringify({ version: 1, assets: [...assets, ...foreignManifestEntries(this.dir)] }, null, 2)}\n`,
       );
     };
     const pending = this.writeTail.then(commit, commit);

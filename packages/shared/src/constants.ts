@@ -485,6 +485,10 @@ export const GENERATED_GAME_ASSET_FILES = {
   platformerWalk1: 'platformer-player-walk-1.png',
   platformerWalk2: 'platformer-player-walk-2.png',
   platformerJump: 'platformer-player-jump.png',
+  /** Optional run in-betweens computed at generation time (SAM rig); without
+   * them the client computes pixel-shift in-betweens itself. */
+  platformerRunMid1: 'platformer-player-run-mid-1.png',
+  platformerRunMid2: 'platformer-player-run-mid-2.png',
   platformerShoot: 'platformer-player-shoot.png',
   platformerShootUp: 'platformer-player-shoot-up.png',
   platformerRunShoot1: 'platformer-player-run-shoot1.png',

@@ -1,3 +1,4 @@
+import type { SegmentationMaskRecord } from '@meta-sam/parser';
 import type { CompleteRequest, CompleteResponse, StageName } from '@sparkade/shared';
 import type { Db } from '../storage/db';
 
@@ -44,9 +45,19 @@ export interface DurableImageRequest {
   size?: string;
 }
 
+export interface DurableSegmentRequest {
+  role: string;
+  concept: string;
+  /** PNG sent to SAM 3.1. */
+  image: Buffer;
+}
+
 export interface DurablePipelineCalls {
   abort: AbortController;
   suspended(): boolean;
   complete(stage: StageName, request: CompleteRequest, model: string): Promise<CompleteResponse>;
   image(request: DurableImageRequest): Promise<{ image: Buffer; imageCount: number }>;
+  /** SAM 3.1 concept segmentation. Hosts without it skip optional
+   * segmentation steps. */
+  segment?(request: DurableSegmentRequest): Promise<{ masks: SegmentationMaskRecord[] }>;
 }

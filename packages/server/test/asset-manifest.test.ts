@@ -73,4 +73,33 @@ describe('GameAssetWorkspace', () => {
 
     expect(generatedAssetNames(dir).size).toBe(0);
   });
+
+  it('skips entries a newer build added and keeps them when rewriting the manifest', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sparkade-assets-'));
+    dirs.push(dir);
+    const workspace = new GameAssetWorkspace(dir, 'muse-image-1.0');
+    await workspace.store('keyArt', await png(), 'key-art-v1', imagePromptHash('cover'));
+    const foreign = {
+      role: 'futureThing',
+      filename: 'future-thing.png',
+      mimeType: 'image/png',
+      width: 8,
+      height: 8,
+      model: 'later',
+      promptVersion: 'v9',
+      promptSha256: 'c'.repeat(64),
+      sha256: 'd'.repeat(64),
+    };
+    const raw = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
+    raw.assets.push(foreign);
+    writeFileSync(join(dir, 'manifest.json'), JSON.stringify(raw));
+
+    expect(readGameAssetManifest(dir)?.assets.map((a) => a.role)).toEqual(['keyArt']);
+    await workspace.store('storyIntro', await png('#000000'), 'story-v1', imagePromptHash('intro'));
+    await workspace.discard(['storyIntro']);
+    expect(readGameAssetManifest(dir)?.assets.map((a) => a.role)).toEqual(['keyArt']);
+    const rewritten = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
+    expect(rewritten.assets).toContainEqual(foreign);
+    expect(generatedAssetNames(dir)).toEqual(new Set([GENERATED_GAME_ASSET_FILES.keyArt]));
+  });
 });

@@ -37,6 +37,14 @@ and artwork. The Pi could receive it through its source updater. Portal needed a
 new APK even though the racing change did not edit Android code. That gap was closed
 by `portal-v0.4.5`; adding a tag to the old APK would not have updated the game inside it.
 
+### Adding a generated asset role
+
+Builds before the platformer run-rig release reject a game manifest with any role they don't know.
+Pi and Portal manifest readers then drop the whole game's art. Builds since then skip well-formed
+unknown entries instead (`knownGameAssets`). Until every kiosk runs such a build, ship readers
+first and keep anything that writes a new role switched off. The platformer run in-betweens wait
+behind `SPARKADE_PLATFORMER_RUN_RIG=1` for this reason.
+
 ## Check what is actually available
 
 Use live repository/release/device state, not a version remembered from a prior task.

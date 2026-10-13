@@ -15,7 +15,13 @@ import { Db } from '../src/storage/db';
 import { GameFiles } from '../src/storage/files';
 import { SseHub } from '../src/pipeline/sse';
 import { createHash } from 'node:crypto';
-import type { CloudGameBundle, CloudGenerationSnapshot } from '@sparkade/shared';
+import {
+  ENGINE_VERSION,
+  SPEC_VERSION,
+  type CloudGameBundle,
+  type CloudGenerationSnapshot,
+} from '@sparkade/shared';
+import { archetypes } from '@sparkade/archetypes';
 
 const secret = 'unit-test-generation-secret-32-characters';
 const alice: GenerationPrincipal = {
@@ -433,5 +439,35 @@ describe('cloud generation boundary', () => {
       { role: 'keyArt', filename: '../escape', sha256: 'a'.repeat(64) },
     ] as CloudGameBundle['manifest']['assets'];
     expect(() => validateBundle(bundle, 'g-test')).toThrow(/manifest/);
+  });
+
+  it('installs only the assets this build knows when a newer cloud adds roles', () => {
+    const keyArt = {
+      role: 'keyArt',
+      filename: 'key-art.png',
+      mimeType: 'image/png',
+      width: 480,
+      height: 320,
+      model: 'muse-image-1.0',
+      promptVersion: 'v1',
+      promptSha256: 'a'.repeat(64),
+      sha256: 'b'.repeat(64),
+    };
+    const bundle = {
+      meta: {
+        id: 'g-test',
+        status: 'ready',
+        engineVersion: ENGINE_VERSION,
+        archetypeVersion: archetypes.platformer.version,
+        specVersion: SPEC_VERSION,
+        archetype: 'platformer',
+      },
+      spec: loadGolden('platformer'),
+      manifest: {
+        version: 1,
+        assets: [keyArt, { ...keyArt, role: 'futureThing', filename: 'future-thing.png' }],
+      },
+    } as unknown as CloudGameBundle;
+    expect(validateBundle(bundle, 'g-test').manifest.assets).toEqual([keyArt]);
   });
 });

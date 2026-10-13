@@ -15,7 +15,8 @@ import { JobState, type PipelineState } from './job-state';
 import { GameFiles } from '../storage/files';
 import { SseHub } from './sse';
 import { ProviderAuthError, ProviderHttpError } from '../providers/base';
-import { PipelineSuspended, type DurableImageRequest } from './durable';
+import type { SegmentationMaskRecord } from '@meta-sam/parser';
+import { PipelineSuspended, type DurableImageRequest, type DurableSegmentRequest } from './durable';
 
 export type ProviderTask =
   | {
@@ -29,10 +30,16 @@ export type ProviderTask =
       id: string;
       kind: 'image';
       request: Omit<DurableImageRequest, 'reference'> & { reference?: string };
+    }
+  | {
+      id: string;
+      kind: 'segment';
+      request: Omit<DurableSegmentRequest, 'image'> & { image: string };
     };
 export type ProviderResult =
   | { kind: 'text'; response: CompleteResponse }
   | { kind: 'image'; image: string; imageCount: number }
+  | { kind: 'segment'; masks: SegmentationMaskRecord[] }
   | { kind: 'error'; message: string; status: number };
 export interface PassCheckpoint {
   history?: Array<{ game: GameRow; spec: GameSpec }>;
@@ -88,7 +95,8 @@ export async function advancePipeline(
   const request = async (
     task:
       | Omit<Extract<ProviderTask, { kind: 'text' }>, 'id'>
-      | Omit<Extract<ProviderTask, { kind: 'image' }>, 'id'>,
+      | Omit<Extract<ProviderTask, { kind: 'image' }>, 'id'>
+      | Omit<Extract<ProviderTask, { kind: 'segment' }>, 'id'>,
   ) => {
     const base = createHash('sha256').update(JSON.stringify(task)).digest('hex');
     const count = occurrences.get(base) ?? 0;
@@ -152,6 +160,14 @@ export async function advancePipeline(
             imageCount: result.imageCount,
             durableRequestId: `${db.state.job!.attempt}:${id}`,
           };
+        },
+        segment: async (req) => {
+          const { id, result } = await request({
+            kind: 'segment',
+            request: { ...req, image: req.image.toString('base64') },
+          });
+          if (result.kind !== 'segment') throw new Error('Unexpected response type');
+          return { masks: result.masks, durableRequestId: `${db.state.job!.attempt}:${id}` };
         },
       },
     );

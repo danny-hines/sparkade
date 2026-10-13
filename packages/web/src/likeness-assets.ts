@@ -319,6 +319,16 @@ export async function loadLikenessAssets(
             : (Object.fromEntries(entries) as Record<string, HTMLImageElement>),
         )
       : Promise.resolve(null);
+  // Run in-betweens stored with the game (the SAM rig at generation time).
+  // They load apart from the pose set: a missing frame only means the device
+  // computes pixel-shift in-betweens instead.
+  const storedRunInbetweens =
+    hasCompletePlatformerSet && assets.platformerRunMid1 && assets.platformerRunMid2
+      ? Promise.all([
+          loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES.platformerRunMid1)),
+          loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES.platformerRunMid2)),
+        ]).then(([runMid1, runMid2]) => (runMid1 && runMid2 ? { runMid1, runMid2 } : null))
+      : null;
   const platformerBossPromise = assets.platformerBoss
     ? loadImage(api.assetUrl(gameId, GENERATED_GAME_ASSET_FILES.platformerBoss))
     : Promise.resolve(null);
@@ -543,8 +553,13 @@ export async function loadLikenessAssets(
     fighterArenaAtlas,
     fighterArenaPresentationBaked: assets.fighterArenaPresentationBaked ?? false,
     platformerPoses,
-    // Computed in the background from the run frames; the game starts without them.
-    platformerRunInbetweens: platformerPoses ? loadRunInbetweens(platformerPoses) : null,
+    // Stored with the game, else computed in the background from the run
+    // frames; the game starts without them either way.
+    platformerRunInbetweens: platformerPoses
+      ? storedRunInbetweens
+        ? storedRunInbetweens.then((stored) => stored ?? loadRunInbetweens(platformerPoses))
+        : loadRunInbetweens(platformerPoses)
+      : null,
     platformerBoss,
     platformerEnemies,
     platformerProps,
